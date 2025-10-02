@@ -214,4 +214,6 @@ public:
 	void GetPoseData(vr::TrackedDevicePose_t &poseRaw, TrackedDevicePoseData &poseOut);
 	void ParseConfigFile();
 	void WaitForConfigUpdate();
+	bool GetWalkAxis(float &x, float &y);
+	bool m_EncodeVRUsercmd = true;
 };
