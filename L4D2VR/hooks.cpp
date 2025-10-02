@@ -242,7 +242,23 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
             else if (ny < -0.5f)cmd->buttons |= (1 << 4);
             if (nx > 0.5f)      cmd->buttons |= (1 << 10);
             else if (nx < -0.5f)cmd->buttons |= (1 << 9);
+
         }
+
+		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
+		if (!Hooks::s_ServerUnderstandsVR) {
+			QAngle aim = m_VR->GetRightControllerAbsAngle();
+			// 简单夹角，避免异常值
+			if (aim.x > 89.f)  aim.x = 89.f;
+			if (aim.x < -89.f) aim.x = -89.f;
+			// yaw 归一到 [-180,180]
+			while (aim.y > 180.f)  aim.y -= 360.f;
+			while (aim.y < -180.f) aim.y += 360.f;
+
+			cmd->viewangles.x = aim.x;   // pitch
+			cmd->viewangles.y = aim.y;   // yaw
+			cmd->viewangles.z = 0.f;     // roll 一般不用
+		}
     }
 
     return result;
@@ -288,12 +304,15 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector &vecOrigin, const
 	return hkServerFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
 }
 
-int Hooks::dClientFireTerrorBullets(int playerId, const Vector &vecOrigin, const QAngle &vecAngles, int a4, int a5, int a6, float a7)
+int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7)
 {
 	Vector vecNewOrigin = vecOrigin;
 	QAngle vecNewAngles = vecAngles;
-	
-	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
+
+	// 只有当本局服务器端确实运行了 VR 钩子时，才用控制器射线做本地预测
+	if (m_VR->m_IsVREnabled
+		&& Hooks::s_ServerUnderstandsVR
+		&& playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
 		vecNewOrigin = m_VR->GetRightControllerAbsPos();
 		vecNewAngles = m_VR->GetRightControllerAbsAngle();
