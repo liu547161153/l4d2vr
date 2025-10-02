@@ -6,7 +6,7 @@
 #include "vr.h"
 #include "offsets.h"
 #include <iostream>
-
+bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game *game)
 {
 	if (MH_Initialize() != MH_OK)
@@ -158,12 +158,12 @@ ITexture *__fastcall Hooks::dGetRenderTarget(void *ecx, void *edx)
 	return result;
 }
 
-void __fastcall Hooks::dRenderView(void *ecx, void *edx, CViewSetup &setup, CViewSetup &hudViewSetup, int nClearFlags, int whatToDraw)
+void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CViewSetup& hudViewSetup, int nClearFlags, int whatToDraw)
 {
 	if (!m_VR->m_CreatedVRTextures)
 		m_VR->CreateVRTextures();
 
-	IMatRenderContext *rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
+	IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
 
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
@@ -208,26 +208,44 @@ void __fastcall Hooks::dRenderView(void *ecx, void *edx, CViewSetup &setup, CVie
 	m_VR->m_RenderedNewFrame = true;
 }
 
-bool __fastcall Hooks::dCreateMove(void *ecx, void *edx, float flInputSampleTime, CUserCmd *cmd)
+bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd)
 {
-	if (!cmd->command_number)
-		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
+    if (!cmd->command_number)
+        return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
-	if (m_VR->m_IsVREnabled && m_VR->m_RoomscaleActive)
-	{
-		Vector setupOriginToHMD = m_VR->m_SetupOriginToHMD;
-		setupOriginToHMD.z = 0;
-		float distance = VectorLength(setupOriginToHMD);
-		if (distance > 1)
-		{
-			float forwardSpeed = DotProduct2D(setupOriginToHMD, m_VR->m_HmdForward);
-			float sideSpeed = DotProduct2D(setupOriginToHMD, m_VR->m_HmdRight);
-			cmd->forwardmove += distance * forwardSpeed;
-			cmd->sidemove += distance * sideSpeed;
-		}
-	}
+    bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
-	return false;
+    if (m_VR->m_IsVREnabled) {
+        float ax = 0.f, ay = 0.f;
+        if (m_VR->GetWalkAxis(ax, ay)) {
+            // 死区 + 归一化（和平滑转向一致的 0.2 死区）
+            const float dz = 0.2f;
+            auto norm = [&](float v) {
+                float a = fabsf(v);
+                if (a <= dz) return 0.f;
+                float t = (a - dz) / (1.f - dz);
+                return v < 0 ? -t : t;
+            };
+            const float nx = norm(ax);
+            const float ny = norm(ay);
+
+            // 最大移动速度：给一个安全常数；服务器会按自身规则再夹紧
+            const float maxSpeed = 250.f;
+
+            // 直接写 CUserCmd（服务器端对这两个字段天然支持）
+            cmd->forwardmove += ny * maxSpeed;
+            cmd->sidemove    += nx * maxSpeed;
+
+            // 可选：也把方向按钮位设置一下，增加兼容性
+            // IN_FORWARD=1<<3, IN_BACK=1<<4, IN_MOVELEFT=1<<9, IN_MOVERIGHT=1<<10
+            if (ny > 0.5f)      cmd->buttons |= (1 << 3);
+            else if (ny < -0.5f)cmd->buttons |= (1 << 4);
+            if (nx > 0.5f)      cmd->buttons |= (1 << 10);
+            else if (nx < -0.5f)cmd->buttons |= (1 << 9);
+        }
+    }
+
+    return result;
 }
 
 void __fastcall Hooks::dEndFrame(void *ecx, void *edx)
@@ -285,27 +303,33 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector &vecOrigin, const
 }
 
 
-float __fastcall Hooks::dProcessUsercmds(void *ecx, void *edx, edict_t *player, void *buf, int numcmds, int totalcmds, int dropped_packets, bool ignore, bool paused)
+// === 用下面这整个函数替换你当前的 Hooks::dProcessUsercmds ===
+float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
+	void* buf, int numcmds, int totalcmds,
+	int dropped_packets, bool ignore, bool paused)
 {
+	// ★ 进入该钩子，说明本进程正在跑“服务器”逻辑（listen/dedicated）
+	Hooks::s_ServerUnderstandsVR = true;
+
 	// Function pointer for CBaseEntity::entindex
-	typedef int(__thiscall *tEntindex)(void *thisptr);
+	typedef int(__thiscall* tEntindex)(void* thisptr);
 	static tEntindex oEntindex = (tEntindex)(m_Game->m_Offsets->CBaseEntity_entindex.address);
 
-	IServerUnknown * pUnknown = player->m_pUnk;
-	Server_BaseEntity *pPlayer = (Server_BaseEntity*)pUnknown->GetBaseEntity();
+	IServerUnknown* pUnknown = player->m_pUnk;
+	Server_BaseEntity* pPlayer = (Server_BaseEntity*)pUnknown->GetBaseEntity();
 
 	int index = oEntindex(pPlayer);
 	m_Game->m_CurrentUsercmdID = index;
 
 	float result = hkProcessUsercmds.fOriginal(ecx, player, buf, numcmds, totalcmds, dropped_packets, ignore, paused);
 
-	// check if swinging melee wep
+	// ===== 你原有的“近战挥砍检测/追踪”逻辑，保持不变 =====
 	if (m_Game->m_PlayersVRInfo[index].isUsingVR && m_Game->m_PlayersVRInfo[index].isMeleeing)
 	{
-		typedef Server_WeaponCSBase *(__thiscall *tGetActiveWep)(void *thisptr);
+		typedef Server_WeaponCSBase* (__thiscall* tGetActiveWep)(void* thisptr);
 		static tGetActiveWep oGetActiveWep = (tGetActiveWep)(m_Game->m_Offsets->GetActiveWeapon.address);
-		Server_WeaponCSBase *curWep = oGetActiveWep(pPlayer);
-		
+		Server_WeaponCSBase* curWep = oGetActiveWep(pPlayer);
+
 		if (curWep)
 		{
 			int wepID = curWep->GetWeaponID();
@@ -317,25 +341,25 @@ float __fastcall Hooks::dProcessUsercmds(void *ecx, void *edx, edict_t *player, 
 					curWep->entitiesHitThisSwing = 0;
 				}
 
-				typedef void *(__thiscall *tGetMeleeWepInfo)(void *thisptr);
+				typedef void* (__thiscall* tGetMeleeWepInfo)(void* thisptr);
 				static tGetMeleeWepInfo oGetMeleeWepInfo = (tGetMeleeWepInfo)(m_Game->m_Offsets->GetMeleeWeaponInfo.address);
-				void *meleeWepInfo = oGetMeleeWepInfo(curWep);
+				void* meleeWepInfo = oGetMeleeWepInfo(curWep);
 
 				Vector initialForward, initialRight, initialUp;
 				QAngle::AngleVectors(m_Game->m_PlayersVRInfo[index].prevControllerAngle, &initialForward, &initialRight, &initialUp);
-				Vector initialMeleeDirection = VectorRotate(initialForward, initialRight, 50.0);
+				Vector initialMeleeDirection = VectorRotate(initialForward, initialRight, 50.0f);
 				VectorNormalize(initialMeleeDirection);
 
 				Vector finalForward, finalRight, finalUp;
 				QAngle::AngleVectors(m_Game->m_PlayersVRInfo[index].controllerAngle, &finalForward, &finalRight, &finalUp);
-				Vector finalMeleeDirection = VectorRotate(finalForward, finalRight, 50.0);
+				Vector finalMeleeDirection = VectorRotate(finalForward, finalRight, 50.0f);
 				VectorNormalize(finalMeleeDirection);
 
 				Vector pivot;
 				CrossProduct(initialMeleeDirection, finalMeleeDirection, pivot);
 				VectorNormalize(pivot);
 
-				float swingAngle = acos(DotProduct(initialMeleeDirection, finalMeleeDirection)) * 180 / 3.14159265;
+				float swingAngle = acosf(DotProduct(initialMeleeDirection, finalMeleeDirection)) * 180.0f / 3.14159265f;
 
 				m_Game->m_Hooks->hkGetPrimaryAttackActivity.fOriginal(curWep, meleeWepInfo); // Needed to call TestMeleeSwingCollision
 
@@ -364,12 +388,12 @@ float __fastcall Hooks::dProcessUsercmds(void *ecx, void *edx, edict_t *player, 
 	return result;
 }
 
-int Hooks::dReadUsercmd(void *buf, CUserCmd *move, CUserCmd *from)
+int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 {
 	hkReadUsercmd.fOriginal(buf, move, from);
 
 	int i = m_Game->m_CurrentUsercmdID;
-	if (move->tick_count < 0) // Signal for VR CUserCmd
+	if (m_VR->m_EncodeVRUsercmd && move->tick_count < 0) // Signal for VR CUserCmd
 	{
 		move->tick_count *= -1;
 
@@ -396,9 +420,9 @@ int Hooks::dReadUsercmd(void *buf, CUserCmd *move, CUserCmd *from)
 
 		// Decode viewangles.x
 		int decodedZInt = (move->viewangles.x / 10000);
-		float decodedAngle = abs((float)(move->viewangles.x - (decodedZInt * 10000)) / 10);
-		decodedAngle -= 360;
-		float decodedZ = (float)decodedZInt / 10;
+		float decodedAngle = fabsf((float)(move->viewangles.x - (decodedZInt * 10000)) / 10);
+		decodedAngle -= 360.0f;
+		float decodedZ = (float)decodedZInt / 10.0f;
 
 		m_Game->m_PlayersVRInfo[i].controllerPos.z = decodedZ;
 
@@ -418,57 +442,70 @@ void __fastcall Hooks::dWriteUsercmdDeltaToBuffer(void *ecx, void *edx, int a1, 
 	return hkWriteUsercmdDeltaToBuffer.fOriginal(ecx, a1, buf, from, to, isnewcommand);
 }
 
-int Hooks::dWriteUsercmd(void *buf, CUserCmd *to, CUserCmd *from)
+int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 {
-	if (m_VR->m_IsVREnabled)
+	// VR 未启用：原样走引擎
+	if (!m_VR->m_IsVREnabled)
+		return hkWriteUsercmd.fOriginal(buf, to, from);
+
+	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）时才编码
+	const bool canEncode = (m_VR->m_EncodeVRUsercmd && Hooks::s_ServerUnderstandsVR);
+
+	if (!canEncode)
 	{
-		CInput *m_Input = **(CInput ***)(m_Game->m_Offsets->g_pppInput.address);
-		CVerifiedUserCmd *pVerifiedCommands = *(CVerifiedUserCmd **)((uintptr_t)m_Input + 0xF0);
-		CVerifiedUserCmd *pVerified = &pVerifiedCommands[(to->command_number) % 150];
-
-		// Signal to the server that this CUserCmd has VR info
-		to->tick_count *= -1;
-
-		int originalCommandNum = to->command_number;
-
-		QAngle controllerAngles = m_VR->GetRightControllerAbsAngle();
-		to->mousedx = controllerAngles.x * 10; // Strip off 2nd decimal to save bits.
-		to->mousedy = controllerAngles.y * 10;
-		int rollEncoding = (((int)controllerAngles.z + 180) / 2 * 10000000);
-		to->command_number += rollEncoding;
-
-		if (VectorLength(m_VR->m_RightControllerPose.TrackedDeviceVel) > 1.1)
-		{
-			to->command_number *= -1; // Signal to server that melee swing in motion
-		}
-
-		Vector controllerPos = m_VR->GetRightControllerAbsPos();
-		to->viewangles.z = controllerPos.x;
-		to->upmove = controllerPos.y;
-
-		// Space in CUserCmd is tight, so encode viewangle.x and controllerPos.z together.
-		// Encoding will overflow if controllerPos.z goes beyond +-21474.8
-		float xAngle = to->viewangles.x;
-		int encodedAngle = (xAngle + 360) * 10;
-		int encoding = (int)(controllerPos.z * 10) * 10000;
-		encoding += encoding < 0 ? -encodedAngle : encodedAngle;
-		to->viewangles.x = encoding;
-
-		hkWriteUsercmd.fOriginal(buf, to, from);
-
-		to->viewangles.x = xAngle;
-		to->tick_count *= -1;
-		to->viewangles.z = 0;
-		to->upmove = 0;
-		to->command_number = originalCommandNum;
-
-		// Must recalculate checksum for the edited CUserCmd or gunshots will sound
-		// terrible in multiplayer.
-		pVerified->m_cmd = *to;
-		pVerified->m_crc = to->GetChecksum();
-		return 1;
+		// 非 VR 服务器：不要动 tick_count/command_number/viewangles.z/upmove 等
+		// 保持标准 CUserCmd，让 dCreateMove 写入的 forwardmove/sidemove 正常生效
+		return hkWriteUsercmd.fOriginal(buf, to, from);
 	}
-	return hkWriteUsercmd.fOriginal(buf, to, from);
+
+	// ======== 以下为原有“编码”逻辑，保持不变，仅包在 canEncode 分支内 ========
+	CInput* m_Input = **(CInput***)(m_Game->m_Offsets->g_pppInput.address);
+	CVerifiedUserCmd* pVerifiedCommands = *(CVerifiedUserCmd**)((uintptr_t)m_Input + 0xF0);
+	CVerifiedUserCmd* pVerified = &pVerifiedCommands[(to->command_number) % 150];
+
+	// Signal to the server that this CUserCmd has VR info
+	to->tick_count *= -1;
+
+	int originalCommandNum = to->command_number;
+
+	QAngle controllerAngles = m_VR->GetRightControllerAbsAngle();
+	to->mousedx = (int)(controllerAngles.x * 10.0f); // Strip off 2nd decimal to save bits.
+	to->mousedy = (int)(controllerAngles.y * 10.0f);
+	int rollEncoding = (((int)controllerAngles.z + 180) / 2 * 10000000);
+	to->command_number += rollEncoding;
+
+	if (VectorLength(m_VR->m_RightControllerPose.TrackedDeviceVel) > 1.1f)
+	{
+		to->command_number *= -1; // Signal to server that melee swing in motion
+	}
+
+	Vector controllerPos = m_VR->GetRightControllerAbsPos();
+	float xAngleOrig = to->viewangles.x; // 备份
+
+	to->viewangles.z = controllerPos.x;
+	to->upmove = controllerPos.y;
+
+	// Space in CUserCmd is tight, so encode viewangle.x and controllerPos.z together.
+	// Encoding will overflow if controllerPos.z goes beyond +-21474.8
+	int encodedAngle = (int)((xAngleOrig + 360.0f) * 10.0f);
+	int encoding = (int)(controllerPos.z * 10.0f) * 10000;
+	encoding += (encoding < 0) ? -encodedAngle : encodedAngle;
+	to->viewangles.x = (float)encoding;
+
+	// 写入
+	hkWriteUsercmd.fOriginal(buf, to, from);
+
+	// 还原本地 CUserCmd
+	to->viewangles.x = xAngleOrig;
+	to->tick_count *= -1;
+	to->viewangles.z = 0.0f;
+	to->upmove = 0.0f;
+	to->command_number = originalCommandNum;
+
+	// 重算校验，否则多人下枪声会异常
+	pVerified->m_cmd = *to;
+	pVerified->m_crc = to->GetChecksum();
+	return 1;
 }
 
 void Hooks::dAdjustEngineViewport(int &x, int &y, int &width, int &height)
