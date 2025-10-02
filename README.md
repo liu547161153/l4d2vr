@@ -6,9 +6,8 @@
 
 ## important:
 This Update
-1.Changed the implementation of movement commands, now you can join servers that do not use VRMod.
-2.Optimized rendering performance, now you can achieve higher frame rates.
-
+* Changed the implementation of movement commands, now you can join servers that do not use VRMod.(If you create a lobby first and then try to join a non-VR server, it may cause the movement issue to reappear, requiring a game restart)
+* Optimized rendering performance, now you can achieve higher frame rates.
 
 ## Things that work
 * Singleplayer and multiplayer (see below)
