@@ -900,14 +900,19 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
+    bool showHudAction = PressedDigitalAction(m_ShowHUD);
+    bool scoreboardAction = PressedDigitalAction(m_Scoreboard);
     bool isControllerVertical = m_RightControllerAngAbs.x > 60 || m_RightControllerAngAbs.x < -45;
-    if ((PressedDigitalAction(m_ShowHUD) || PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudAlwaysVisible)
-        && m_RenderedHud)
+    bool shouldShowHUD = showHudAction || scoreboardAction || isControllerVertical || m_HudAlwaysVisible;
+    bool overlayVisible = vr::VROverlay()->IsOverlayVisible(m_HUDHandle);
+    bool hasRenderableHud = m_RenderedHud || overlayVisible;
+
+    if (shouldShowHUD && hasRenderableHud)
     {
-        if (!vr::VROverlay()->IsOverlayVisible(m_HUDHandle) || m_HudAlwaysVisible)
+        if (!overlayVisible || m_HudAlwaysVisible)
             RepositionOverlays();
 
-        if (PressedDigitalAction(m_Scoreboard))
+        if (scoreboardAction)
             m_Game->ClientCmd_Unrestricted("+showscores");
         else
             m_Game->ClientCmd_Unrestricted("-showscores");
@@ -916,6 +921,11 @@ void VR::ProcessInput()
     }
     else
     {
+        if (scoreboardAction)
+            m_Game->ClientCmd_Unrestricted("+showscores");
+        else
+            m_Game->ClientCmd_Unrestricted("-showscores");
+
         vr::VROverlay()->HideOverlay(m_HUDHandle);
     }
     m_RenderedHud = false;
