@@ -433,18 +433,22 @@ void VR::GetViewParameters()
 
 bool VR::PressedDigitalAction(vr::VRActionHandle_t& actionHandle, bool checkIfActionChanged)
 {
-    vr::InputDigitalActionData_t digitalActionData;
-    vr::EVRInputError result = m_Input->GetDigitalActionData(actionHandle, &digitalActionData, sizeof(digitalActionData), vr::k_ulInvalidInputValueHandle);
+    vr::InputDigitalActionData_t digitalActionData{};
 
-    if (result == vr::VRInputError_None)
-    {
-        if (checkIfActionChanged)
-            return digitalActionData.bState && digitalActionData.bChanged;
-        else
-            return digitalActionData.bState;
-    }
+    if (!GetDigitalActionData(actionHandle, digitalActionData))
+        return false;
 
-    return false;
+    if (checkIfActionChanged)
+        return digitalActionData.bState && digitalActionData.bChanged;
+
+    return digitalActionData.bState;
+}
+
+bool VR::GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigitalActionData_t& digitalDataOut)
+{
+    vr::EVRInputError result = m_Input->GetDigitalActionData(actionHandle, &digitalDataOut, sizeof(digitalDataOut), vr::k_ulInvalidInputValueHandle);
+
+    return result == vr::VRInputError_None;
 }
 
 bool VR::GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut)
@@ -692,7 +696,50 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-use");
     }
 
-    if (PressedDigitalAction(m_ActionReload))
+    vr::InputDigitalActionData_t crouchActionData{};
+    bool crouchDataValid = GetDigitalActionData(m_ActionCrouch, crouchActionData);
+    bool crouchButtonDown = crouchDataValid && crouchActionData.bState;
+    bool crouchJustPressed = crouchDataValid && crouchActionData.bState && crouchActionData.bChanged;
+
+    vr::InputDigitalActionData_t resetActionData{};
+    bool resetDataValid = GetDigitalActionData(m_ActionResetPosition, resetActionData);
+    bool resetJustPressed = resetDataValid && resetActionData.bState && resetActionData.bChanged;
+
+    vr::InputDigitalActionData_t reloadActionData{};
+    bool reloadDataValid = GetDigitalActionData(m_ActionReload, reloadActionData);
+    bool reloadButtonDown = reloadDataValid && reloadActionData.bState;
+    bool reloadJustPressed = reloadDataValid && reloadActionData.bState && reloadActionData.bChanged;
+
+    vr::InputDigitalActionData_t flashlightActionData{};
+    bool flashlightDataValid = GetDigitalActionData(m_ActionFlashlight, flashlightActionData);
+    bool flashlightJustPressed = flashlightDataValid && flashlightActionData.bState && flashlightActionData.bChanged;
+
+    if (resetJustPressed)
+    {
+        if (crouchButtonDown)
+        {
+            m_Game->ClientCmd_Unrestricted("vote no");
+        }
+        else
+        {
+            m_CrouchToggleActive = !m_CrouchToggleActive;
+            ResetPosition();
+        }
+    }
+
+    if (!m_VoiceRecordActive && ((crouchButtonDown && reloadJustPressed) || (reloadButtonDown && crouchJustPressed)))
+    {
+        m_Game->ClientCmd_Unrestricted("+voicerecord");
+        m_VoiceRecordActive = true;
+    }
+
+    if (m_VoiceRecordActive && (!crouchButtonDown || !reloadButtonDown || !crouchDataValid || !reloadDataValid))
+    {
+        m_Game->ClientCmd_Unrestricted("-voicerecord");
+        m_VoiceRecordActive = false;
+    }
+
+    if (!crouchButtonDown && reloadButtonDown)
     {
         m_Game->ClientCmd_Unrestricted("+reload");
     }
@@ -710,21 +757,20 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-attack2");
     }
 
-    if (PressedDigitalAction(m_ActionPrevItem, true))
+    if (crouchButtonDown)
     {
-        m_Game->ClientCmd_Unrestricted("invprev");
-    }
-    else if (PressedDigitalAction(m_ActionNextItem, true))
-    {
-        m_Game->ClientCmd_Unrestricted("invnext");
-    }
-
-    if (PressedDigitalAction(m_ActionResetPosition, true))
-    {
-        ResetPosition();
+        if (PressedDigitalAction(m_ActionPrevItem, true))
+        {
+            m_Game->ClientCmd_Unrestricted("invprev");
+        }
+        else if (PressedDigitalAction(m_ActionNextItem, true))
+        {
+            m_Game->ClientCmd_Unrestricted("invnext");
+        }
     }
 
-    if (PressedDigitalAction(m_ActionCrouch))
+    bool crouchActive = crouchButtonDown || m_CrouchToggleActive;
+    if (crouchActive)
     {
         m_Game->ClientCmd_Unrestricted("+duck");
     }
@@ -733,9 +779,12 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-duck");
     }
 
-    if (PressedDigitalAction(m_ActionFlashlight, true))
+    if (flashlightJustPressed)
     {
-        m_Game->ClientCmd_Unrestricted("impulse 100");
+        if (crouchButtonDown)
+            m_Game->ClientCmd_Unrestricted("vote yes");
+        else
+            m_Game->ClientCmd_Unrestricted("impulse 100");
     }
 
     if (PressedDigitalAction(m_Spray, true))
