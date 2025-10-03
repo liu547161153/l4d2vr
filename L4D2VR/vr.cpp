@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <thread>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <d3d9_vr.h>
 
@@ -1242,9 +1243,9 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
         return;
 
     const float duration = 0.0f;
-    m_Game->m_DebugOverlay->AddLineOverlay(start, end, 0, 255, 0, false, duration);
+    m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, false, duration);
 
-    float thickness = std::max(m_AimLineThickness, 0.0f);
+    const float thickness = std::max(m_AimLineThickness, 0.0f);
     if (thickness <= 0.0f)
         return;
 
@@ -1258,35 +1259,45 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
     if (referenceUp.IsZero())
         referenceUp = Vector(0.0f, 0.0f, 1.0f);
 
-    Vector side = CrossProduct(forward, referenceUp);
-    if (side.IsZero())
-    {
-        referenceUp = Vector(0.0f, 1.0f, 0.0f);
-        side = CrossProduct(forward, referenceUp);
-        if (side.IsZero())
-        {
-            referenceUp = Vector(1.0f, 0.0f, 0.0f);
-            side = CrossProduct(forward, referenceUp);
-        }
-    }
-
-    if (side.IsZero())
+    Vector basis1 = CrossProduct(forward, referenceUp);
+    if (basis1.IsZero())
+        basis1 = CrossProduct(forward, Vector(0.0f, 1.0f, 0.0f));
+    if (basis1.IsZero())
+        basis1 = CrossProduct(forward, Vector(1.0f, 0.0f, 0.0f));
+    if (basis1.IsZero())
         return;
 
-    VectorNormalize(side);
-    Vector offset = side * (thickness * 0.5f);
+    VectorNormalize(basis1);
+    Vector basis2 = CrossProduct(forward, basis1);
+    if (basis2.IsZero())
+        return;
+    VectorNormalize(basis2);
 
-    Vector startLeft = start - offset;
-    Vector startRight = start + offset;
-    Vector endLeft = end - offset;
-    Vector endRight = end + offset;
+    const int segments = 16;
+    const float radius = thickness * 0.5f;
+    const float twoPi = 6.28318530718f;
 
-    const int r = 0;
-    const int g = 255;
-    const int b = 0;
-    const int a = 192;
-    m_Game->m_DebugOverlay->AddTriangleOverlay(startLeft, startRight, endRight, r, g, b, a, false, duration);
-    m_Game->m_DebugOverlay->AddTriangleOverlay(startLeft, endRight, endLeft, r, g, b, a, false, duration);
+    for (int i = 0; i < segments; ++i)
+    {
+        const float angle0 = twoPi * static_cast<float>(i) / static_cast<float>(segments);
+        const float angle1 = twoPi * static_cast<float>(i + 1) / static_cast<float>(segments);
+
+        const float cos0 = std::cos(angle0);
+        const float sin0 = std::sin(angle0);
+        const float cos1 = std::cos(angle1);
+        const float sin1 = std::sin(angle1);
+
+        Vector offset0 = (basis1 * cos0 + basis2 * sin0) * radius;
+        Vector offset1 = (basis1 * cos1 + basis2 * sin1) * radius;
+
+        Vector start0 = start + offset0;
+        Vector start1 = start + offset1;
+        Vector end0 = end + offset0;
+        Vector end1 = end + offset1;
+
+        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, start1, end1, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA, false, duration);
+        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, end1, end0, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA, false, duration);
+    }
 }
 
 Vector VR::GetViewAngle()
@@ -1391,6 +1402,40 @@ void VR::ParseConfigFile()
         try { return std::stoi(it->second); }
         catch (...) { return defVal; }
         };
+    auto getColor = [&](const char* k, int defR, int defG, int defB, int defA)->std::array<int, 4> {
+        std::array<int, 4> defaults{ defR, defG, defB, defA };
+        auto it = userConfig.find(k);
+        if (it == userConfig.end())
+            return defaults;
+
+        std::array<int, 4> color = defaults;
+        std::stringstream ss(it->second);
+        std::string token;
+        int index = 0;
+        while (std::getline(ss, token, ',') && index < 4)
+        {
+            trim(token);
+            if (!token.empty())
+            {
+                try
+                {
+                    color[index] = std::clamp(std::stoi(token), 0, 255);
+                }
+                catch (...)
+                {
+                    color[index] = defaults[index];
+                }
+            }
+            ++index;
+        }
+
+        for (int& component : color)
+        {
+            component = std::clamp(component, 0, 255);
+        }
+
+        return color;
+        };
 
     // 用当前成员的值作为默认值（构造时已初始化）
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
@@ -1406,6 +1451,11 @@ void VR::ParseConfigFile()
     m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
+    auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
+    m_AimLineColorR = aimColor[0];
+    m_AimLineColorG = aimColor[1];
+    m_AimLineColorB = aimColor[2];
+    m_AimLineColorA = aimColor[3];
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
 }
