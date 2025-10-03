@@ -4,6 +4,7 @@
 #include "game.h"
 #include "hooks.h"
 #include "trace.h"
+#include "sdk/ivdebugoverlay.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -1043,6 +1044,8 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
+    UpdateAimingLaser(localPlayer);
+
     // controller angles
     QAngle::VectorAngles(m_LeftControllerForward, m_LeftControllerUp, m_LeftControllerAngAbs);
     QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, m_RightControllerAngAbs);
@@ -1067,6 +1070,59 @@ void VR::UpdateTracking()
     // Viewmodel roll offset
     m_ViewmodelRight = VectorRotate(m_ViewmodelRight, m_ViewmodelForward, m_ViewmodelAngOffset.z);
     m_ViewmodelUp = VectorRotate(m_ViewmodelUp, m_ViewmodelForward, m_ViewmodelAngOffset.z);
+}
+
+void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
+{
+    m_HasAimLine = false;
+
+    if (!m_Game->m_DebugOverlay || !localPlayer || !m_Game->m_EngineClient->IsInGame())
+        return;
+
+    Vector direction = m_RightControllerForward;
+    if (direction.IsZero())
+        direction = m_LastAimDirection;
+
+    if (direction.IsZero())
+        return;
+
+    VectorNormalize(direction);
+    m_LastAimDirection = direction;
+
+    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
+    const float maxDistance = 8192.0f;
+    Vector target = origin + direction * maxDistance;
+
+    Ray_t ray;
+    ray.Init(origin, target);
+
+    CGameTrace trace;
+    CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+
+    if (trace.fraction < 1.0f)
+        target = trace.endpos;
+
+    m_AimLineStart = origin;
+    m_AimLineEnd = target;
+    m_HasAimLine = true;
+
+    const float beamHalfWidth = 0.75f;
+    Vector right = m_RightControllerRight;
+    Vector up = m_RightControllerUp;
+    if (!right.IsZero())
+        VectorNormalize(right);
+    if (!up.IsZero())
+        VectorNormalize(up);
+
+    Vector offsetRight = right * beamHalfWidth;
+    Vector offsetUp = up * beamHalfWidth;
+
+    m_Game->m_DebugOverlay->AddLineOverlay(origin, target, 0, 255, 0, false, 0.05f);
+    m_Game->m_DebugOverlay->AddLineOverlay(origin + offsetRight, target + offsetRight, 0, 255, 0, false, 0.05f);
+    m_Game->m_DebugOverlay->AddLineOverlay(origin - offsetRight, target - offsetRight, 0, 255, 0, false, 0.05f);
+    m_Game->m_DebugOverlay->AddLineOverlay(origin + offsetUp, target + offsetUp, 0, 255, 0, false, 0.05f);
+    m_Game->m_DebugOverlay->AddLineOverlay(origin - offsetUp, target - offsetUp, 0, 255, 0, false, 0.05f);
 }
 
 Vector VR::GetViewAngle()

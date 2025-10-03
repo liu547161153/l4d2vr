@@ -184,27 +184,47 @@ public:
 class CTraceFilterSkipNPCsAndPlayers : public CTraceFilter
 {
 public:
-	CTraceFilterSkipNPCsAndPlayers(IHandleEntity *passentity, int collisionGroup)
-		: CTraceFilter(passentity, collisionGroup)
-	{
-	}
+        CTraceFilterSkipNPCsAndPlayers(IHandleEntity *passentity, int collisionGroup)
+                : CTraceFilter(passentity, collisionGroup)
+        {
+        }
 
-	virtual bool ShouldHitEntity(IHandleEntity *pServerEntity, int contentsMask)
-	{
-		C_BasePlayer *pEntity = (C_BasePlayer *)pServerEntity;
-		if (!pEntity)
-			return true;
+        virtual bool ShouldHitEntity(IHandleEntity *pServerEntity, int contentsMask)
+        {
+                C_BasePlayer *pEntity = (C_BasePlayer *)pServerEntity;
+                if (!pEntity)
+                        return true;
 
-		if (m_pPassEnt == pServerEntity)
-			return false;
+                if (m_pPassEnt == pServerEntity)
+                        return false;
 
-		if (pEntity->IsNPC() || pEntity->IsPlayer())
-		{
-			return false;
-		}
+                if (pEntity->IsNPC() || pEntity->IsPlayer())
+                {
+                        return false;
+                }
 
-		return true;
-	}
+                return true;
+        }
+};
+
+class CTraceFilterSkipSelf : public CTraceFilter
+{
+public:
+        CTraceFilterSkipSelf(IHandleEntity *passentity, int collisionGroup)
+                : CTraceFilter(passentity, collisionGroup)
+        {
+        }
+
+        virtual bool ShouldHitEntity(IHandleEntity *pServerEntity, int contentsMask)
+        {
+                if (!pServerEntity)
+                        return true;
+
+                if (m_pPassEnt == pServerEntity)
+                        return false;
+
+                return true;
+        }
 };
 
 
