@@ -12,3 +12,4 @@ HudAlwaysVisible=false
 ForceNonVRServerMovement=false
 AimLineEnabled=true
 AimLineThickness=2.0
+AntiAliasing=0
