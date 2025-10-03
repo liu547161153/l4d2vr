@@ -45,7 +45,8 @@ VR::VR(Game* game)
     m_System = vr::OpenVRInternal_ModuleContext().VRSystem();
 
     m_System->GetRecommendedRenderTargetSize(&m_RenderWidth, &m_RenderHeight);
-
+    m_AntiAliasing = 0;
+    
     float l_left = 0.0f, l_right = 0.0f, l_top = 0.0f, l_bottom = 0.0f;
     m_System->GetProjectionRaw(vr::EVREye::Eye_Left, &l_left, &l_right, &l_top, &l_bottom);
 
@@ -235,10 +236,10 @@ void VR::CreateVRTextures()
     m_Game->m_MaterialSystem->isGameRunning = true;
 
     m_CreatingTextureID = Texture_LeftEye;
-    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
+    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_RightEye;
-    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
+    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_HUD;
     m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
@@ -1406,6 +1407,7 @@ void VR::ParseConfigFile()
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+    m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
 }
 
 void VR::WaitForConfigUpdate()
