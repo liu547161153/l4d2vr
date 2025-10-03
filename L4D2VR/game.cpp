@@ -106,6 +106,9 @@ Game::Game()
 
     m_Offsets = new Offsets();
     m_VR = new VR(this);
+
+    ResetAllPlayerVRInfo();
+
     m_Hooks = new Hooks(this);
 
     m_Initialized = true;
@@ -157,6 +160,16 @@ void Game::errorMsg(const char* msg)
 {
     logMsg("[ERROR] %s", msg);
     MessageBoxA(nullptr, msg, "L4D2VR Error", MB_ICONERROR | MB_OK);
+}
+
+bool Game::IsValidPlayerIndex(int index) const
+{
+    return index >= 0 && index < static_cast<int>(m_PlayersVRInfo.size());
+}
+
+void Game::ResetAllPlayerVRInfo()
+{
+    m_PlayersVRInfo.fill(Player{});
 }
 
 // === Entity Access ===

@@ -328,12 +328,12 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector &vecOrigin, const
 		vecNewOrigin = m_VR->GetRightControllerAbsPos();
 		vecNewAngles = m_VR->GetRightControllerAbsAngle();
 	}
-	// Clients
-	else if (m_Game->m_PlayersVRInfo[playerId].isUsingVR)
-	{
-		vecNewOrigin = m_Game->m_PlayersVRInfo[playerId].controllerPos;
-		vecNewAngles = m_Game->m_PlayersVRInfo[playerId].controllerAngle;
-	}
+        // Clients
+        else if (m_Game->IsValidPlayerIndex(playerId) && m_Game->m_PlayersVRInfo[playerId].isUsingVR)
+        {
+                vecNewOrigin = m_Game->m_PlayersVRInfo[playerId].controllerPos;
+                vecNewAngles = m_Game->m_PlayersVRInfo[playerId].controllerAngle;
+        }
 
 	return hkServerFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
 }
@@ -377,11 +377,13 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 	float result = hkProcessUsercmds.fOriginal(ecx, player, buf, numcmds, totalcmds, dropped_packets, ignore, paused);
 
 	// ===== 你原有的“近战挥砍检测/追踪”逻辑，保持不变 =====
-	if (m_Game->m_PlayersVRInfo[index].isUsingVR && m_Game->m_PlayersVRInfo[index].isMeleeing)
-	{
-		typedef Server_WeaponCSBase* (__thiscall* tGetActiveWep)(void* thisptr);
-		static tGetActiveWep oGetActiveWep = (tGetActiveWep)(m_Game->m_Offsets->GetActiveWeapon.address);
-		Server_WeaponCSBase* curWep = oGetActiveWep(pPlayer);
+        const bool hasValidPlayer = m_Game->IsValidPlayerIndex(index);
+
+        if (hasValidPlayer && m_Game->m_PlayersVRInfo[index].isUsingVR && m_Game->m_PlayersVRInfo[index].isMeleeing)
+        {
+                typedef Server_WeaponCSBase* (__thiscall* tGetActiveWep)(void* thisptr);
+                static tGetActiveWep oGetActiveWep = (tGetActiveWep)(m_Game->m_Offsets->GetActiveWeapon.address);
+                Server_WeaponCSBase* curWep = oGetActiveWep(pPlayer);
 
 		if (curWep)
 		{
@@ -427,67 +429,89 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 					m_Game->m_Hooks->hkTestMeleeSwingCollisionServer.fOriginal(curWep, traceDirection);
 				}
 
-				m_Game->m_PerformingMelee = false;
-			}
-		}
-	}
-	else
-	{
-		m_Game->m_PlayersVRInfo[index].isNewSwing = true;
-	}
+                                        m_Game->m_PerformingMelee = false;
+                        }
+                }
+        }
+        else if (hasValidPlayer)
+        {
+                m_Game->m_PlayersVRInfo[index].isNewSwing = true;
+        }
 
-	m_Game->m_PlayersVRInfo[index].prevControllerAngle = m_Game->m_PlayersVRInfo[index].controllerAngle;
+        if (hasValidPlayer)
+        {
+                m_Game->m_PlayersVRInfo[index].prevControllerAngle = m_Game->m_PlayersVRInfo[index].controllerAngle;
+        }
 
-	return result;
+        return result;
 }
 
 int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 {
-	hkReadUsercmd.fOriginal(buf, move, from);
+        hkReadUsercmd.fOriginal(buf, move, from);
 
-	int i = m_Game->m_CurrentUsercmdID;
-	if (m_VR->m_EncodeVRUsercmd && move->tick_count < 0) // Signal for VR CUserCmd
-	{
-		move->tick_count *= -1;
+        int i = m_Game->m_CurrentUsercmdID;
+        const bool hasValidPlayer = m_Game->IsValidPlayerIndex(i);
+        if (m_VR->m_EncodeVRUsercmd && move->tick_count < 0) // Signal for VR CUserCmd
+        {
+                move->tick_count *= -1;
 
-		if (move->command_number < 0)
-		{
-			move->command_number *= -1;
-			m_Game->m_PlayersVRInfo[i].isMeleeing = true;
-		}
-		else
-		{
-			m_Game->m_PlayersVRInfo[i].isMeleeing = false;
-		}
+                if (move->command_number < 0)
+                {
+                        move->command_number *= -1;
+                        if (hasValidPlayer)
+                        {
+                                m_Game->m_PlayersVRInfo[i].isMeleeing = true;
+                        }
+                }
+                else
+                {
+                        if (hasValidPlayer)
+                        {
+                                m_Game->m_PlayersVRInfo[i].isMeleeing = false;
+                        }
+                }
 
-		m_Game->m_PlayersVRInfo[i].isUsingVR = true;
-		m_Game->m_PlayersVRInfo[i].controllerAngle.x = (float)move->mousedx / 10;
-		m_Game->m_PlayersVRInfo[i].controllerAngle.y = (float)move->mousedy / 10;
-		m_Game->m_PlayersVRInfo[i].controllerPos.x = move->viewangles.z;
-		m_Game->m_PlayersVRInfo[i].controllerPos.y = move->upmove;
+                if (hasValidPlayer)
+                {
+                        m_Game->m_PlayersVRInfo[i].isUsingVR = true;
+                        m_Game->m_PlayersVRInfo[i].controllerAngle.x = (float)move->mousedx / 10;
+                        m_Game->m_PlayersVRInfo[i].controllerAngle.y = (float)move->mousedy / 10;
+                        m_Game->m_PlayersVRInfo[i].controllerPos.x = move->viewangles.z;
+                        m_Game->m_PlayersVRInfo[i].controllerPos.y = move->upmove;
+                }
 
-		// Decode controllerAngle.z
-		int rollEncoding = move->command_number / 10000000;
-		move->command_number -= rollEncoding * 10000000;
-		m_Game->m_PlayersVRInfo[i].controllerAngle.z = (rollEncoding * 2) - 180;
+                // Decode controllerAngle.z
+                int rollEncoding = move->command_number / 10000000;
+                move->command_number -= rollEncoding * 10000000;
+                if (hasValidPlayer)
+                {
+                        m_Game->m_PlayersVRInfo[i].controllerAngle.z = (rollEncoding * 2) - 180;
+                }
 
-		// Decode viewangles.x
-		int decodedZInt = (move->viewangles.x / 10000);
-		float decodedAngle = fabsf((float)(move->viewangles.x - (decodedZInt * 10000)) / 10);
-		decodedAngle -= 360.0f;
-		float decodedZ = (float)decodedZInt / 10.0f;
+                // Decode viewangles.x
+                int decodedZInt = (move->viewangles.x / 10000);
+                float decodedAngle = fabsf((float)(move->viewangles.x - (decodedZInt * 10000)) / 10);
+                decodedAngle -= 360.0f;
+                float decodedZ = (float)decodedZInt / 10.0f;
 
-		m_Game->m_PlayersVRInfo[i].controllerPos.z = decodedZ;
+                if (hasValidPlayer)
+                {
+                        m_Game->m_PlayersVRInfo[i].controllerPos.z = decodedZ;
+                }
 
-		move->viewangles.x = decodedAngle;
-		move->viewangles.z = 0;
-		move->upmove = 0;
-	}
-	else
-	{
-		m_Game->m_PlayersVRInfo[i].isUsingVR = false;
-	}
-	return 1;
+                move->viewangles.x = decodedAngle;
+                move->viewangles.z = 0;
+                move->upmove = 0;
+        }
+        else
+        {
+                if (hasValidPlayer)
+                {
+                        m_Game->m_PlayersVRInfo[i].isUsingVR = false;
+                }
+        }
+        return 1;
 }
 
 void __fastcall Hooks::dWriteUsercmdDeltaToBuffer(void *ecx, void *edx, int a1, void *buf, int from, int to, bool isnewcommand) 
@@ -615,13 +639,16 @@ Vector *Hooks::dEyePosition(void *ecx, void *edx, Vector *eyePos)
 {
 	Vector *result = hkEyePosition.fOriginal(ecx, eyePos);
 
-	if (m_Game->m_PerformingMelee)
-	{
-		int i = m_Game->m_CurrentUsercmdID;
-		*result = m_Game->m_PlayersVRInfo[i].controllerPos;
-	}
+        if (m_Game->m_PerformingMelee)
+        {
+                int i = m_Game->m_CurrentUsercmdID;
+                if (m_Game->IsValidPlayerIndex(i))
+                {
+                        *result = m_Game->m_PlayersVRInfo[i].controllerPos;
+                }
+        }
 
-	return result;
+        return result;
 }
 
 void Hooks::dDrawModelExecute(void *ecx, void *edx, void *state, const ModelRenderInfo_t &info, void *pCustomBoneToWorld)
