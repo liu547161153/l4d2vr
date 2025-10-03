@@ -4,6 +4,7 @@
 #include "game.h"
 #include "hooks.h"
 #include "trace.h"
+#include "sdk/ivdebugoverlay.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -1043,6 +1044,8 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
+    UpdateAimingLaser(localPlayer);
+
     // controller angles
     QAngle::VectorAngles(m_LeftControllerForward, m_LeftControllerUp, m_LeftControllerAngAbs);
     QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, m_RightControllerAngAbs);
@@ -1067,6 +1070,140 @@ void VR::UpdateTracking()
     // Viewmodel roll offset
     m_ViewmodelRight = VectorRotate(m_ViewmodelRight, m_ViewmodelForward, m_ViewmodelAngOffset.z);
     m_ViewmodelUp = VectorRotate(m_ViewmodelUp, m_ViewmodelForward, m_ViewmodelAngOffset.z);
+}
+
+void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
+{
+    bool hadPreviousLine = m_HasAimLine;
+    Vector previousStart = m_AimLineStart;
+    Vector previousEnd = m_AimLineEnd;
+
+    m_HasAimLine = false;
+
+    if (!m_Game->m_DebugOverlay || !localPlayer || !m_Game->m_EngineClient->IsInGame())
+        return;
+
+    Vector direction = m_RightControllerForward;
+    Vector right = m_RightControllerRight;
+    Vector up = m_RightControllerUp;
+    Vector origin = m_RightControllerPosAbs;
+    Vector target = origin;
+
+    constexpr float maxDistance = 8192.0f;
+    constexpr float overlayLifetime = 0.1f;
+    const float beamHalfWidth = 1.5f;
+
+    auto normalizeOrReuse = [](Vector& vec, const Vector& fallback)
+    {
+        if (vec.IsZero())
+            vec = fallback;
+
+        if (!vec.IsZero())
+            VectorNormalize(vec);
+    };
+
+    auto traceBeam = [&](Vector& start, Vector& end, const Vector& dir)
+    {
+        Vector rayDir = dir;
+        if (rayDir.IsZero())
+            return;
+
+        VectorNormalize(rayDir);
+        start += rayDir * 2.0f;
+        end = start + rayDir * maxDistance;
+
+        Ray_t ray;
+        ray.Init(start, end);
+
+        CGameTrace trace;
+        m_Game->m_EngineTrace->TraceRay(ray, MASK_SHOT, nullptr, &trace);
+
+        if (trace.fraction < 1.0f)
+            end = trace.endpos;
+
+        m_LastAimDirection = rayDir;
+    };
+
+    if (!direction.IsZero())
+    {
+        traceBeam(origin, target, direction);
+        normalizeOrReuse(right, m_LastAimRight);
+        normalizeOrReuse(up, m_LastAimUp);
+    }
+    else if (hadPreviousLine)
+    {
+        origin = previousStart;
+        target = previousEnd;
+
+        normalizeOrReuse(right, m_LastAimRight);
+        normalizeOrReuse(up, m_LastAimUp);
+
+        direction = target - origin;
+        if (!direction.IsZero())
+        {
+            VectorNormalize(direction);
+            m_LastAimDirection = direction;
+        }
+        else
+        {
+            direction = m_LastAimDirection;
+        }
+    }
+    else if (!m_LastAimDirection.IsZero())
+    {
+        traceBeam(origin, target, m_LastAimDirection);
+        normalizeOrReuse(right, m_LastAimRight);
+        normalizeOrReuse(up, m_LastAimUp);
+    }
+    else
+    {
+        return;
+    }
+
+    if (right.IsZero())
+        right = Vector(1.0f, 0.0f, 0.0f);
+    if (up.IsZero())
+        up = Vector(0.0f, 0.0f, 1.0f);
+
+    VectorNormalize(right);
+    VectorNormalize(up);
+
+    m_LastAimRight = right;
+    m_LastAimUp = up;
+
+    m_AimLineStart = origin;
+    m_AimLineEnd = target;
+    m_HasAimLine = true;
+
+    Vector offsetRight = right * beamHalfWidth;
+    Vector offsetUp = up * beamHalfWidth;
+
+    auto addBeam = [&](const Vector& offset)
+    {
+        m_Game->m_DebugOverlay->AddLineOverlay(origin + offset, target + offset, 0, 255, 0, false, overlayLifetime);
+    };
+
+    addBeam(Vector(0.0f, 0.0f, 0.0f));
+    addBeam(offsetRight);
+    addBeam(-offsetRight);
+    addBeam(offsetUp);
+    addBeam(-offsetUp);
+
+    Vector diagonal = offsetRight + offsetUp;
+    if (!diagonal.IsZero())
+    {
+        VectorNormalize(diagonal);
+        addBeam(diagonal * beamHalfWidth);
+        addBeam(-diagonal * beamHalfWidth);
+    }
+
+    Vector crossDiagonal = offsetRight - offsetUp;
+    if (!crossDiagonal.IsZero())
+    {
+        VectorNormalize(crossDiagonal);
+        addBeam(crossDiagonal * beamHalfWidth);
+        addBeam(-crossDiagonal * beamHalfWidth);
+    }
 }
 
 Vector VR::GetViewAngle()

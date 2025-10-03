@@ -22,6 +22,7 @@ class ISurface;
 class CBaseEntity;
 class C_BasePlayer;
 struct model_t;
+class IVDebugOverlay;
 
 // === Forward Declarations for Internal Systems ===
 class Game;
@@ -60,6 +61,7 @@ public:
     IModelRender* m_ModelRender = nullptr;
     IInput* m_VguiInput = nullptr;
     ISurface* m_VguiSurface = nullptr;
+    IVDebugOverlay* m_DebugOverlay = nullptr;
 
     // === Module Base Addresses ===
     uintptr_t m_BaseEngine = 0;
