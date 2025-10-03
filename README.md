@@ -1,13 +1,7 @@
-
 # L4D2 VR Prototype
 ### Use this mod at your own risk of getting VAC banned. Use the -insecure launch option to help protect yourself. (Also contains lots of flashing lights)
 
 #### [Video demo](https://www.youtube.com/watch?v=zU-8-9qe6wQ)
-
-## important:
-This Update
-* Changed the implementation of movement commands, now you can join servers that do not use VRMod.(If you create a lobby first and then try to join a non-VR server, it may cause the movement issue to reappear, requiring a game restart)
-* Optimized rendering performance, now you can achieve higher frame rates.
 
 ## Things that work
 * Singleplayer and multiplayer (see below)
@@ -22,7 +16,7 @@ This Update
 * CPU is underutilized
 
 ## How to use
-1. Download [L4D2VR.zip](https://github.com/liu547161153/l4d2vr/releases) and extract the files to your Left 4 Dead 2 directory (steamapps\common\Left 4 Dead 2)
+1. Download [L4D2VR.zip](https://github.com/sd805/l4d2vr/releases) and extract the files to your Left 4 Dead 2 directory (steamapps\common\Left 4 Dead 2)
 2. Launch SteamVR, then launch Left 4 Dead 2 with these launch options:
    
    ``` -insecure -window -novid +mat_motion_blur_percent_of_screen_max 0 +crosshair 0 -w 1280 -h 720 +mat_queue_mode 0 +mat_vsync 0 +mat_antialias 0 +mat_grain_scale_override 0 ```
@@ -50,7 +44,7 @@ If the game is crashing, try:
 * Re-installing the game
 
 ## Build instructions
-1. ``` git clone --recurse-submodules https://github.com/liu547161153/l4d2vr.git ```
+1. ``` git clone --recurse-submodules https://github.com/sd805/l4d2vr.git ```
 2. Open l4d2vr.sln
 3. Set to x86 Debug or Release
 4. Build -> Build Solution
