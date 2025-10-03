@@ -1095,36 +1095,41 @@ void VR::UpdateTracking()
 
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 {
-    m_HasAimLine = false;
-
-    if (!m_Game->m_DebugOverlay || !localPlayer || !m_Game->m_EngineClient->IsInGame())
+    if (!m_Game->m_DebugOverlay)
         return;
+
+    (void)localPlayer;
 
     Vector direction = m_RightControllerForward;
     if (direction.IsZero())
-        return;
+    {
+        if (m_LastAimDirection.IsZero())
+        {
+            if (!m_HasAimLine)
+                return;
 
+            // Reuse the previous line when the controller forward can't be resolved at all.
+            m_Game->m_DebugOverlay->AddLineOverlay(m_AimLineStart, m_AimLineEnd, 0, 255, 0, false, 0.1f);
+            return;
+        }
+
+        direction = m_LastAimDirection;
+    }
+    else
+    {
+        m_LastAimDirection = direction;
+    }
     VectorNormalize(direction);
 
     Vector origin = m_RightControllerPosAbs + direction * 2.0f;
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
 
-    Ray_t ray;
-    ray.Init(origin, target);
-
-    CGameTrace trace;
-    CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
-    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
-
-    if (trace.fraction < 1.0f)
-        target = trace.endpos;
-
     m_AimLineStart = origin;
     m_AimLineEnd = target;
     m_HasAimLine = true;
 
-    m_Game->m_DebugOverlay->AddLineOverlay(origin, target, 0, 255, 0, false, 0.01f);
+    m_Game->m_DebugOverlay->AddLineOverlay(origin, target, 0, 255, 0, false, 0.1f);
 }
 
 Vector VR::GetViewAngle()

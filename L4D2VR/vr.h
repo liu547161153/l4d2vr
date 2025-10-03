@@ -101,6 +101,7 @@ public:
 
         Vector m_AimLineStart = { 0,0,0 };
         Vector m_AimLineEnd = { 0,0,0 };
+        Vector m_LastAimDirection = { 0,0,0 };
         bool m_HasAimLine = false;
 
 	float m_Ipd;																	
