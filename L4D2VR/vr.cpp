@@ -35,53 +35,41 @@ VR::VR(Game* game)
 
     vr::EVRInitError peError = vr::VRInitError_None;
 
-    // 在 VR_Init 成功、并且 vr::VRCompositor() 非空之后插入：
-    if (vr::VRCompositor())
+    if (!vr::VRCompositor())
     {
-        vr::VRCompositor()->SetExplicitTimingMode(
-            vr::VRCompositorTimingMode_Explicit_ApplicationPerformsPostPresentHandoff);
+        Game::errorMsg("Compositor initialization failed.");
+        return;
     }
 
     m_Input = vr::VRInput();
     m_System = vr::OpenVRInternal_ModuleContext().VRSystem();
 
     m_System->GetRecommendedRenderTargetSize(&m_RenderWidth, &m_RenderHeight);
-    m_AntiAliasing = 0;
     
     float l_left = 0.0f, l_right = 0.0f, l_top = 0.0f, l_bottom = 0.0f;
     m_System->GetProjectionRaw(vr::EVREye::Eye_Left, &l_left, &l_right, &l_top, &l_bottom);
 
     float r_left = 0.0f, r_right = 0.0f, r_top = 0.0f, r_bottom = 0.0f;
     m_System->GetProjectionRaw(vr::EVREye::Eye_Right, &r_left, &r_right, &r_top, &r_bottom);
-    
-    if (m_RenderHeight > 0) {
-        m_Aspect = (float)m_RenderWidth / (float)m_RenderHeight;
-    }
-    else {
-        m_Aspect = 1.0f;
-    }
 
-    float tanHalfFovH = std::max({ -l_left, l_right, -r_left, r_right });
-    float tanHalfFovV = std::max({ -l_top, l_bottom, -r_top, r_bottom });
+    float tanHalfFov[2];
 
+    tanHalfFov[0] = std::max({ -l_left, l_right, -r_left, r_right });
+    tanHalfFov[1] = std::max({ -l_top, l_bottom, -r_top, r_bottom });
     // For some headsets, the driver provided texture size doesn't match the geometric aspect ratio of the lenses.
     // In this case, we need to adjust the vertical tangent while still rendering to the recommended RT size. 
+    m_TextureBounds[0].uMin = 0.5f + 0.5f * l_left / tanHalfFov[0];
+    m_TextureBounds[0].uMax = 0.5f + 0.5f * l_right / tanHalfFov[0];
+    m_TextureBounds[0].vMin = 0.5f - 0.5f * l_bottom / tanHalfFov[1];
+    m_TextureBounds[0].vMax = 0.5f - 0.5f * l_top / tanHalfFov[1];
 
-    float idealAspect = tanHalfFovH / tanHalfFovV;
-    float adjustedTanHalfFovV = tanHalfFovH / m_Aspect; 
-    
-    m_Fov = 2.0f * atan(tanHalfFovH) * 360 / (3.14159265358979323846 * 2);
-    
-    m_TextureBounds[0].uMin = 0.5f + 0.5f * l_left / tanHalfFovH;
-    m_TextureBounds[0].uMax = 0.5f + 0.5f * l_right / tanHalfFovH;
-    m_TextureBounds[0].vMin = 0.5f - 0.5f * l_bottom / adjustedTanHalfFovV;
-    m_TextureBounds[0].vMax = 0.5f - 0.5f * l_top / adjustedTanHalfFovV;
-    
-    m_TextureBounds[1].uMin = 0.5f + 0.5f * r_left / tanHalfFovH;
-    m_TextureBounds[1].uMax = 0.5f + 0.5f * r_right / tanHalfFovH;
-    m_TextureBounds[1].vMin = 0.5f - 0.5f * r_bottom / adjustedTanHalfFovV;
-    m_TextureBounds[1].vMax = 0.5f - 0.5f * r_top / adjustedTanHalfFovV;
+    m_TextureBounds[1].uMin = 0.5f + 0.5f * r_left / tanHalfFov[0];
+    m_TextureBounds[1].uMax = 0.5f + 0.5f * r_right / tanHalfFov[0];
+    m_TextureBounds[1].vMin = 0.5f - 0.5f * r_bottom / tanHalfFov[1];
+    m_TextureBounds[1].vMax = 0.5f - 0.5f * r_top / tanHalfFov[1];
 
+    m_Aspect = tanHalfFov[0] / tanHalfFov[1];
+    m_Fov = 2.0f * atan(tanHalfFov[0]) * 360 / (3.14159265358979323846 * 2);
 
     InstallApplicationManifest("manifest.vrmanifest");
     SetActionManifest("action_manifest.json");
@@ -169,14 +157,6 @@ void VR::InstallApplicationManifest(const char* fileName)
     vr::VRApplications()->AddApplicationManifest(path);
 }
 
-void VR::HandleMissingRenderContext(const char* location)
-{
-    const char* ctx = location ? location : "unknown";
-    LOG("[VR] Missing IMatRenderContext in %s. Disabling VR rendering for this frame.", ctx);
-    m_CreatedVRTextures = false;
-    m_RenderedNewFrame = false;
-    m_RenderedHud = false;
-}
 
 void VR::Update()
 {
@@ -189,20 +169,16 @@ void VR::Update()
         if (!m_Game->m_EngineClient->IsInGame())
         {
             IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
-            if (!rndrContext)
-            {
-                HandleMissingRenderContext("VR::Update");
-                return;
-            }
             rndrContext->SetRenderTarget(NULL);
             m_Game->m_CachedArmsModel = false;
             m_CreatedVRTextures = false; // Have to recreate textures otherwise some workshop maps won't render
         }
     }
 
-    UpdatePosesAndActions();  // 先 WaitGetPoses 拿到“下一帧”的姿态
+    SubmitVRTextures();
+    UpdatePosesAndActions();
     UpdateTracking();
-    SubmitVRTextures();       // 再提交“这一帧”渲染的纹理
+
 
     if (m_Game->m_VguiSurface->IsCursorVisible())
         ProcessMenuInput();
@@ -222,25 +198,18 @@ bool VR::GetWalkAxis(float& x, float& y) {
 
 void VR::CreateVRTextures()
 {
-    IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
-    if (!renderContext)
-    {
-        HandleMissingRenderContext("VR::CreateVRTextures");
-        return;
-    }
-
     int windowWidth, windowHeight;
-    renderContext->GetWindowSize(windowWidth, windowHeight);
+    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
 
     m_Game->m_MaterialSystem->isGameRunning = false;
     m_Game->m_MaterialSystem->BeginRenderTargetAllocation();
     m_Game->m_MaterialSystem->isGameRunning = true;
 
     m_CreatingTextureID = Texture_LeftEye;
-    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
+    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_RightEye;
-    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
+    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_HUD;
     m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
@@ -272,35 +241,25 @@ void VR::SubmitVRTextures()
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
-            // 提交空白画面给双眼（例如在主菜单）
-            vr::VRCompositor()->Submit(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr, vr::Submit_Default);
-            vr::VRCompositor()->Submit(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr, vr::Submit_Default);
-
-            // ★ 新增：显式告诉 Compositor 这一帧提交结束
-            vr::VRCompositor()->PostPresentHandoff();
+            vr::VRCompositor()->Submit(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, NULL, vr::Submit_Default);
+            vr::VRCompositor()->Submit(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, NULL, vr::Submit_Default);
         }
 
         return;
     }
 
-    // In-Game：隐藏主菜单 Overlay，更新 HUD
+
     vr::VROverlay()->HideOverlay(m_MainMenuHandle);
     vr::VROverlay()->SetOverlayTexture(m_HUDHandle, &m_VKHUD.m_VRTexture);
     if (m_Game->m_VguiSurface->IsCursorVisible())
     {
-        // 暂停菜单显示 HUD
         vr::VROverlay()->ShowOverlay(m_HUDHandle);
     }
 
-    // === 真正的本帧提交 ===
     vr::VRCompositor()->Submit(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0], vr::Submit_Default);
     vr::VRCompositor()->Submit(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1], vr::Submit_Default);
 
 
-    // ★ 新增：显式时序交接（请确保构造函数中已 SetExplicitTimingMode(...)）
-    vr::VRCompositor()->PostPresentHandoff();
-
-    // 本帧消费完
     m_RenderedNewFrame = false;
 }
 
@@ -963,6 +922,15 @@ QAngle VR::GetRecommendedViewmodelAbsAngle()
     return result;
 }
 
+void VR::HandleMissingRenderContext(const char* location)
+{
+    const char* ctx = location ? location : "unknown";
+    LOG("[VR] Missing IMatRenderContext in %s. Disabling VR rendering for this frame.", ctx);
+    m_CreatedVRTextures = false;
+    m_RenderedNewFrame = false;
+    m_RenderedHud = false;
+}
+
 void VR::UpdateTracking()
 {
     GetPoses();
@@ -1007,11 +975,11 @@ void VR::UpdateTracking()
         m_HmdPosSmoothed.z += (hmdPosCorrected.z - m_HmdPosSmoothed.z) * lerpFactor;
 
         auto smoothAngle = [&](float target, float& current)
-        {
-            float diff = target - current;
-            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-            current += diff * lerpFactor;
-        };
+            {
+                float diff = target - current;
+                diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+                current += diff * lerpFactor;
+            };
 
         smoothAngle(hmdAngLocal.x, m_HmdAngSmoothed.x);
         smoothAngle(hmdAngLocal.y, m_HmdAngSmoothed.y);
@@ -1024,9 +992,9 @@ void VR::UpdateTracking()
     }
 
     auto wrapAngle = [](float angle)
-    {
-        return angle - 360.0f * std::floor((angle + 180.0f) / 360.0f);
-    };
+        {
+            return angle - 360.0f * std::floor((angle + 180.0f) / 360.0f);
+        };
 
     m_HmdAngSmoothed.x = wrapAngle(m_HmdAngSmoothed.x);
     m_HmdAngSmoothed.y = wrapAngle(m_HmdAngSmoothed.y);
@@ -1242,7 +1210,7 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
     if (!m_AimLineEnabled)
         return;
 
-    const float duration = std::max(m_AimLinePersistence, 0.0f);
+    const float duration = 0.0f;
     m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, false, duration);
 
     const float thickness = std::max(m_AimLineThickness, 0.0f);
@@ -1451,14 +1419,13 @@ void VR::ParseConfigFile()
     m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
-    m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
     m_AimLineColorR = aimColor[0];
     m_AimLineColorG = aimColor[1];
     m_AimLineColorB = aimColor[2];
     m_AimLineColorA = aimColor[3];
+    m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
-    m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
 }
 
 void VR::WaitForConfigUpdate()
