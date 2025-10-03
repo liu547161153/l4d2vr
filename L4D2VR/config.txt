@@ -14,4 +14,3 @@ AimLineEnabled=true
 AimLineThickness=0.3
 AimLinePersistence=0.02
 AimLineColor=255,0,0,180
-AntiAliasing=0
