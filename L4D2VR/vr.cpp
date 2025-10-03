@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <thread>
 #include <algorithm>
+#include <cmath>
 #include <d3d9_vr.h>
 
 VR::VR(Game* game)
@@ -898,16 +899,64 @@ void VR::UpdateTracking()
 
     VectorPivotXY(hmdPosCorrected, m_HmdPosCorrectedPrev, m_RotationOffset);
 
-    m_HmdPosCorrectedPrev = hmdPosCorrected;
-    m_HmdPosLocalPrev = hmdPosLocal;
-
     hmdAngLocal.y += m_RotationOffset;
     // Wrap angle from -180 to 180
     hmdAngLocal.y -= 360 * std::floor((hmdAngLocal.y + 180) / 360);
 
-    QAngle::AngleVectors(hmdAngLocal, &m_HmdForward, &m_HmdRight, &m_HmdUp);
+    Vector hmdPosSmoothed = hmdPosCorrected;
+    QAngle hmdAngSmoothed = hmdAngLocal;
+    float smoothingStrength = std::clamp(m_HeadSmoothing, 0.0f, 0.99f);
 
-    m_HmdPosLocalInWorld = hmdPosCorrected * m_VRScale;
+    if (!m_HmdSmoothingInitialized)
+    {
+        m_HmdPosSmoothed = hmdPosCorrected;
+        m_HmdAngSmoothed = hmdAngLocal;
+        m_HmdSmoothingInitialized = true;
+    }
+
+    if (smoothingStrength > 0.0f)
+    {
+        float lerpFactor = 1.0f - smoothingStrength;
+
+        m_HmdPosSmoothed.x += (hmdPosCorrected.x - m_HmdPosSmoothed.x) * lerpFactor;
+        m_HmdPosSmoothed.y += (hmdPosCorrected.y - m_HmdPosSmoothed.y) * lerpFactor;
+        m_HmdPosSmoothed.z += (hmdPosCorrected.z - m_HmdPosSmoothed.z) * lerpFactor;
+
+        auto smoothAngle = [&](float target, float& current)
+        {
+            float diff = target - current;
+            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+            current += diff * lerpFactor;
+        };
+
+        smoothAngle(hmdAngLocal.x, m_HmdAngSmoothed.x);
+        smoothAngle(hmdAngLocal.y, m_HmdAngSmoothed.y);
+        smoothAngle(hmdAngLocal.z, m_HmdAngSmoothed.z);
+    }
+    else
+    {
+        m_HmdPosSmoothed = hmdPosCorrected;
+        m_HmdAngSmoothed = hmdAngLocal;
+    }
+
+    auto wrapAngle = [](float angle)
+    {
+        return angle - 360.0f * std::floor((angle + 180.0f) / 360.0f);
+    };
+
+    m_HmdAngSmoothed.x = wrapAngle(m_HmdAngSmoothed.x);
+    m_HmdAngSmoothed.y = wrapAngle(m_HmdAngSmoothed.y);
+    m_HmdAngSmoothed.z = wrapAngle(m_HmdAngSmoothed.z);
+
+    hmdPosSmoothed = m_HmdPosSmoothed;
+    hmdAngSmoothed = m_HmdAngSmoothed;
+
+    m_HmdPosCorrectedPrev = hmdPosCorrected;
+    m_HmdPosLocalPrev = hmdPosLocal;
+
+    QAngle::AngleVectors(hmdAngSmoothed, &m_HmdForward, &m_HmdRight, &m_HmdUp);
+
+    m_HmdPosLocalInWorld = hmdPosSmoothed * m_VRScale;
 
     // Roomscale setup
     Vector cameraMovingDirection = m_SetupOrigin - m_SetupOriginPrev;
@@ -954,7 +1003,7 @@ void VR::UpdateTracking()
     if (VectorLength(m_SetupOriginToHMD) > 150)
         ResetPosition();
 
-    m_HmdAngAbs = hmdAngLocal;
+    m_HmdAngAbs = hmdAngSmoothed;
 
     m_HmdPosAbsPrev = m_HmdPosAbs;
     m_SetupOriginPrev = m_SetupOrigin;
@@ -971,10 +1020,10 @@ void VR::UpdateTracking()
     QAngle rightControllerAngLocal = m_RightControllerPose.TrackedDeviceAng;
 
     Vector hmdToController = rightControllerPosLocal - hmdPosLocal;
-    Vector rightControllerPosCorrected = hmdPosCorrected + hmdToController;
+    Vector rightControllerPosCorrected = hmdPosSmoothed + hmdToController;
 
     // When using stick turning, pivot the controllers around the HMD
-    VectorPivotXY(rightControllerPosCorrected, hmdPosCorrected, m_RotationOffset);
+    VectorPivotXY(rightControllerPosCorrected, hmdPosSmoothed, m_RotationOffset);
 
     Vector rightControllerPosLocalInWorld = rightControllerPosCorrected * m_VRScale;
 
@@ -1134,8 +1183,8 @@ void VR::ParseConfigFile()
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
-
-
+    m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
+    m_EncodeVRUsercmd = getBool("EncodeVRUsercmd", m_EncodeVRUsercmd);
 }
 
 void VR::WaitForConfigUpdate()
