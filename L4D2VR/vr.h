@@ -143,8 +143,10 @@ public:
 	bool m_CreatedVRTextures = false;
 	TextureID m_CreatingTextureID = Texture_None;
 
-	bool m_PressedTurn = false;
-	bool m_PushingThumbstick = false;
+        bool m_PressedTurn = false;
+        bool m_PushingThumbstick = false;
+        bool m_CrouchToggleActive = false;
+        bool m_VoiceRecordActive = false;
 
 	// action set
 	vr::VRActionSetHandle_t m_ActionSet;
@@ -222,6 +224,7 @@ public:
         Vector GetViewOriginLeft();
         Vector GetViewOriginRight();
         bool PressedDigitalAction(vr::VRActionHandle_t &actionHandle, bool checkIfActionChanged = false);
+        bool GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigitalActionData_t& digitalDataOut);
         bool GetAnalogActionData(vr::VRActionHandle_t &actionHandle, vr::InputAnalogActionData_t &analogDataOut);
         void ResetPosition();
         void GetPoseData(vr::TrackedDevicePose_t &poseRaw, TrackedDevicePoseData &poseOut);
