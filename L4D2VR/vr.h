@@ -141,9 +141,9 @@ public:
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
-        bool m_RenderedHud = false;
-        bool m_CreatedVRTextures = false;
-        TextureID m_CreatingTextureID = Texture_None;
+	bool m_RenderedHud = false;
+	bool m_CreatedVRTextures = false;
+	TextureID m_CreatingTextureID = Texture_None;
 
         bool m_PressedTurn = false;
         bool m_PushingThumbstick = false;
@@ -196,14 +196,6 @@ public:
         float m_HudDistance = 1.3;
         float m_HudSize = 1.1;
         bool m_HudAlwaysVisible = false;
-        float m_HudVerticalOffset = -0.25f;
-        float m_HudPitchOffset = -8.0f;
-        float m_HudYawLockStrength = 0.85f;
-        float m_HudFollowSmoothing = 0.15f;
-        bool m_HudFollowPitch = true;
-        Vector m_HudForwardSmoothed = { 0.0f, 0.0f, -1.0f };
-        Vector m_HudPositionSmoothed = { 0.0f, 0.0f, 0.0f };
-        bool m_HudPoseInitialized = false;
         float m_HeadSmoothing = 0.0f;
         bool m_HmdSmoothingInitialized = false;
 
