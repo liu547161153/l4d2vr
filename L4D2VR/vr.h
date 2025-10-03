@@ -7,6 +7,7 @@
 
 class Game;
 class C_BasePlayer;
+class C_WeaponCSBase;
 class IDirect3DTexture9;
 class IDirect3DSurface9;
 class ITexture;
@@ -103,6 +104,7 @@ public:
         Vector m_AimLineEnd = { 0,0,0 };
         Vector m_LastAimDirection = { 0,0,0 };
         bool m_HasAimLine = false;
+        float m_AimLineThickness = 2.0f;
 
 	float m_Ipd;																	
 	float m_EyeZ;
@@ -215,17 +217,19 @@ public:
 	Vector GetRightControllerAbsPos();
 	Vector GetRecommendedViewmodelAbsPos();
 	QAngle GetRecommendedViewmodelAbsAngle();
-	void UpdateTracking();
-	Vector GetViewAngle();
-	Vector GetViewOriginLeft();
-	Vector GetViewOriginRight();
-	bool PressedDigitalAction(vr::VRActionHandle_t &actionHandle, bool checkIfActionChanged = false);
-	bool GetAnalogActionData(vr::VRActionHandle_t &actionHandle, vr::InputAnalogActionData_t &analogDataOut);
-	void ResetPosition();
-	void GetPoseData(vr::TrackedDevicePose_t &poseRaw, TrackedDevicePoseData &poseOut);
+        void UpdateTracking();
+        Vector GetViewAngle();
+        Vector GetViewOriginLeft();
+        Vector GetViewOriginRight();
+        bool PressedDigitalAction(vr::VRActionHandle_t &actionHandle, bool checkIfActionChanged = false);
+        bool GetAnalogActionData(vr::VRActionHandle_t &actionHandle, vr::InputAnalogActionData_t &analogDataOut);
+        void ResetPosition();
+        void GetPoseData(vr::TrackedDevicePose_t &poseRaw, TrackedDevicePoseData &poseOut);
         void ParseConfigFile();
         void WaitForConfigUpdate();
         bool GetWalkAxis(float &x, float &y);
         bool m_EncodeVRUsercmd = true;
         void UpdateAimingLaser(C_BasePlayer* localPlayer);
+        bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
+        void DrawAimLine(const Vector& start, const Vector& end);
 };
