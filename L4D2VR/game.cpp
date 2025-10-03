@@ -19,16 +19,23 @@ static std::mutex logMutex;
 using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
 
 // === Utility: Retry module load with logging ===
-static HMODULE GetModuleWithRetry(const char* dllname, int maxTries = 100, int delayMs = 50)
+static HMODULE GetModuleWithRetry(const char* dllname, std::chrono::milliseconds timeout = std::chrono::seconds(30), int delayMs = 50)
 {
-    for (int i = 0; i < maxTries; ++i)
+    const auto start = std::chrono::steady_clock::now();
+    int attempt = 0;
+
+    while (true)
     {
         HMODULE handle = GetModuleHandleA(dllname);
         if (handle)
             return handle;
 
-        Game::logMsg("Waiting for module to load: %s (attempt %d)", dllname, i + 1);
+        ++attempt;
+        Game::logMsg("Waiting for module to load: %s (attempt %d)", dllname, attempt);
         Sleep(delayMs);
+
+        if (timeout.count() >= 0 && std::chrono::steady_clock::now() - start >= timeout)
+            break;
     }
 
     Game::errorMsg(("Failed to load module after retrying: " + std::string(dllname)).c_str());
