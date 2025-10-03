@@ -13,6 +13,7 @@
 #include "hooks.h"
 #include "offsets.h"
 #include "sigscanner.h"
+#include "sdk/ivdebugoverlay.h"
 
 static std::mutex logMutex;
 using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
@@ -67,6 +68,21 @@ static void* GetInterfaceSafe(const char* dllname, const char* interfacename)
     return iface;
 }
 
+// === Utility: Attempt interface fetch without error logging ===
+static void* TryInterfaceNoError(const char* dllname, const char* interfacename)
+{
+    HMODULE mod = GetModuleWithRetry(dllname);
+    if (!mod)
+        return nullptr;
+
+    auto CreateInterface = reinterpret_cast<tCreateInterface>(GetProcAddress(mod, "CreateInterface"));
+    if (!CreateInterface)
+        return nullptr;
+
+    int returnCode = 0;
+    return CreateInterface(interfacename, &returnCode);
+}
+
 // === Game Constructor ===
 Game::Game()
 {
@@ -84,6 +100,9 @@ Game::Game()
     m_ModelRender = static_cast<IModelRender*>(GetInterfaceSafe("engine.dll", "VEngineModel016"));
     m_VguiInput = static_cast<IInput*>(GetInterfaceSafe("vgui2.dll", "VGUI_InputInternal001"));
     m_VguiSurface = static_cast<ISurface*>(GetInterfaceSafe("vguimatsurface.dll", "VGUI_Surface031"));
+    m_DebugOverlay = static_cast<IVDebugOverlay*>(TryInterfaceNoError("engine.dll", "VDebugOverlay004"));
+    if (!m_DebugOverlay)
+        m_DebugOverlay = static_cast<IVDebugOverlay*>(TryInterfaceNoError("engine.dll", "VDebugOverlay003"));
 
     m_Offsets = new Offsets();
     m_VR = new VR(this);
