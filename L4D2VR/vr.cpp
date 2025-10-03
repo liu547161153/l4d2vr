@@ -16,23 +16,6 @@
 #include <cmath>
 #include <d3d9_vr.h>
 
-namespace
-{
-    Vector LerpVector(const Vector& from, const Vector& to, float fraction)
-    {
-        return {
-            from.x + (to.x - from.x) * fraction,
-            from.y + (to.y - from.y) * fraction,
-            from.z + (to.z - from.z) * fraction
-        };
-    }
-
-    float Clamp01(float value)
-    {
-        return std::clamp(value, 0.0f, 1.0f);
-    }
-}
-
 VR::VR(Game* game)
 {
     m_Game = game;
@@ -355,8 +338,7 @@ void VR::RepositionOverlays()
     vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
     vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
     Vector hmdPosition = { hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3] };
-    Vector hmdForwardFull = { -hmdMat.m[0][2], -hmdMat.m[1][2], -hmdMat.m[2][2] };
-    Vector hmdForward = { hmdForwardFull.x, 0.0f, hmdForwardFull.z };
+    Vector hmdForward = { -hmdMat.m[0][2], 0, -hmdMat.m[2][2] };
 
     int windowWidth, windowHeight;
     m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
@@ -401,102 +383,24 @@ void VR::RepositionOverlays()
     vr::VROverlay()->SetOverlayWidthInMeters(m_MainMenuHandle, 1.5 * (1.0 / heightRatio));
 
     // Reposition HUD overlay
-    Vector hudForwardRaw = hmdForwardFull;
-    if (VectorNormalize(hudForwardRaw) < 1e-4f)
-        hudForwardRaw = { 0.0f, 0.0f, -1.0f };
-
-    Vector hudForwardLevel = { hudForwardRaw.x, 0.0f, hudForwardRaw.z };
-    if (VectorNormalize(hudForwardLevel) < 1e-4f)
-        hudForwardLevel = hudForwardRaw;
-
-    if (!m_HudFollowPitch)
-        hudForwardRaw = hudForwardLevel;
-
-    Vector hudForwardTarget = LerpVector(hudForwardLevel, hudForwardRaw, Clamp01(m_HudYawLockStrength));
-    if (VectorNormalize(hudForwardTarget) < 1e-4f)
-        hudForwardTarget = hudForwardLevel;
-
-    float smoothing = std::clamp(m_HudFollowSmoothing, 0.0f, 0.99f);
-    float lerpFactor = std::clamp(1.0f - smoothing, 0.001f, 1.0f);
-
-    if (!m_HudPoseInitialized)
+    vr::HmdMatrix34_t hudTransform =
     {
-        m_HudForwardSmoothed = hudForwardTarget;
-    }
-    else
-    {
-        Vector newForward = LerpVector(m_HudForwardSmoothed, hudForwardTarget, lerpFactor);
-        if (VectorNormalize(newForward) > 1e-4f)
-            m_HudForwardSmoothed = newForward;
-        else
-            m_HudForwardSmoothed = hudForwardTarget;
-    }
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f
+    };
 
-    Vector worldUp = { 0.0f, 1.0f, 0.0f };
-    Vector hudRight = CrossProduct(worldUp, m_HudForwardSmoothed);
-    if (VectorNormalize(hudRight) < 1e-4f)
-        hudRight = { 1.0f, 0.0f, 0.0f };
+    Vector hudDistance = hmdForward * m_HudDistance;
+    Vector hudNewPos = hudDistance + hmdPosition;
 
-    Vector hudUp = CrossProduct(m_HudForwardSmoothed, hudRight);
-    if (VectorNormalize(hudUp) < 1e-4f)
-        hudUp = { 0.0f, 1.0f, 0.0f };
+    hudTransform.m[0][3] = hudNewPos.x;
+    hudTransform.m[1][3] = hudNewPos.y - 0.25;
+    hudTransform.m[2][3] = hudNewPos.z;
 
-    Vector forwardBasis = m_HudForwardSmoothed;
-    Vector upBasis = hudUp;
-
-    if (std::fabs(m_HudPitchOffset) > 0.001f)
-    {
-        float pitchRadians = DEG2RAD(m_HudPitchOffset);
-        float sinPitch = sinf(pitchRadians);
-        float cosPitch = cosf(pitchRadians);
-
-        Vector pitchedForward = {
-            forwardBasis.x * cosPitch + upBasis.x * sinPitch,
-            forwardBasis.y * cosPitch + upBasis.y * sinPitch,
-            forwardBasis.z * cosPitch + upBasis.z * sinPitch
-        };
-
-        Vector pitchedUp = {
-            upBasis.x * cosPitch - forwardBasis.x * sinPitch,
-            upBasis.y * cosPitch - forwardBasis.y * sinPitch,
-            upBasis.z * cosPitch - forwardBasis.z * sinPitch
-        };
-
-        if (VectorNormalize(pitchedForward) > 1e-4f)
-            forwardBasis = pitchedForward;
-        if (VectorNormalize(pitchedUp) > 1e-4f)
-            upBasis = pitchedUp;
-    }
-
-    Vector rightBasis = CrossProduct(upBasis, forwardBasis);
-    if (VectorNormalize(rightBasis) < 1e-4f)
-        rightBasis = hudRight;
-
-    Vector hudPositionTarget = hmdPosition + (forwardBasis * m_HudDistance) + (upBasis * m_HudVerticalOffset);
-
-    if (!m_HudPoseInitialized)
-    {
-        m_HudPositionSmoothed = hudPositionTarget;
-        m_HudPoseInitialized = true;
-    }
-    else
-    {
-        m_HudPositionSmoothed = LerpVector(m_HudPositionSmoothed, hudPositionTarget, lerpFactor);
-    }
-
-    vr::HmdMatrix34_t hudTransform = {};
-    hudTransform.m[0][0] = rightBasis.x;
-    hudTransform.m[0][1] = rightBasis.y;
-    hudTransform.m[0][2] = rightBasis.z;
-    hudTransform.m[1][0] = upBasis.x;
-    hudTransform.m[1][1] = upBasis.y;
-    hudTransform.m[1][2] = upBasis.z;
-    hudTransform.m[2][0] = forwardBasis.x;
-    hudTransform.m[2][1] = forwardBasis.y;
-    hudTransform.m[2][2] = forwardBasis.z;
-    hudTransform.m[0][3] = m_HudPositionSmoothed.x;
-    hudTransform.m[1][3] = m_HudPositionSmoothed.y;
-    hudTransform.m[2][3] = m_HudPositionSmoothed.z;
+    hudTransform.m[0][0] *= cos(hmdRotationDegrees);
+    hudTransform.m[0][2] = sin(hmdRotationDegrees);
+    hudTransform.m[2][0] = -sin(hmdRotationDegrees);
+    hudTransform.m[2][2] *= cos(hmdRotationDegrees);
 
     vr::VROverlay()->SetOverlayTransformAbsolute(m_HUDHandle, trackingOrigin, &hudTransform);
     vr::VROverlay()->SetOverlayWidthInMeters(m_HUDHandle, m_HudSize);
@@ -900,19 +804,14 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
-    bool showHudAction = PressedDigitalAction(m_ShowHUD);
-    bool scoreboardAction = PressedDigitalAction(m_Scoreboard);
     bool isControllerVertical = m_RightControllerAngAbs.x > 60 || m_RightControllerAngAbs.x < -45;
-    bool shouldShowHUD = showHudAction || scoreboardAction || isControllerVertical || m_HudAlwaysVisible;
-    bool overlayVisible = vr::VROverlay()->IsOverlayVisible(m_HUDHandle);
-    bool hasRenderableHud = m_RenderedHud || overlayVisible;
-
-    if (shouldShowHUD && hasRenderableHud)
+    if ((PressedDigitalAction(m_ShowHUD) || PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudAlwaysVisible)
+        && m_RenderedHud)
     {
-        if (!overlayVisible || m_HudAlwaysVisible)
+        if (!vr::VROverlay()->IsOverlayVisible(m_HUDHandle) || m_HudAlwaysVisible)
             RepositionOverlays();
 
-        if (scoreboardAction)
+        if (PressedDigitalAction(m_Scoreboard))
             m_Game->ClientCmd_Unrestricted("+showscores");
         else
             m_Game->ClientCmd_Unrestricted("-showscores");
@@ -921,11 +820,6 @@ void VR::ProcessInput()
     }
     else
     {
-        if (scoreboardAction)
-            m_Game->ClientCmd_Unrestricted("+showscores");
-        else
-            m_Game->ClientCmd_Unrestricted("-showscores");
-
         vr::VROverlay()->HideOverlay(m_HUDHandle);
     }
     m_RenderedHud = false;
@@ -1509,18 +1403,11 @@ void VR::ParseConfigFile()
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
-    m_HudVerticalOffset = getFloat("HudVerticalOffset", m_HudVerticalOffset);
-    m_HudPitchOffset = getFloat("HudPitchOffset", m_HudPitchOffset);
-    m_HudYawLockStrength = Clamp01(getFloat("HudYawLockStrength", m_HudYawLockStrength));
-    m_HudFollowSmoothing = std::clamp(getFloat("HudFollowSmoothing", m_HudFollowSmoothing), 0.0f, 0.99f);
-    m_HudFollowPitch = getBool("HudFollowPitch", m_HudFollowPitch);
     m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
-    m_AntiAliasing = getInt("AntiAliasing", static_cast<int>(m_AntiAliasing));
-
-    m_HudPoseInitialized = false;
+    m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
 }
 
 void VR::WaitForConfigUpdate()
