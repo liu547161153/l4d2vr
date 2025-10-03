@@ -156,6 +156,15 @@ void VR::InstallApplicationManifest(const char* fileName)
     vr::VRApplications()->AddApplicationManifest(path);
 }
 
+void VR::HandleMissingRenderContext(const char* location)
+{
+    const char* ctx = location ? location : "unknown";
+    LOG("[VR] Missing IMatRenderContext in %s. Disabling VR rendering for this frame.", ctx);
+    m_CreatedVRTextures = false;
+    m_RenderedNewFrame = false;
+    m_RenderedHud = false;
+}
+
 void VR::Update()
 {
     if (!m_IsInitialized || !m_Game->m_Initialized)
@@ -167,6 +176,11 @@ void VR::Update()
         if (!m_Game->m_EngineClient->IsInGame())
         {
             IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
+            if (!rndrContext)
+            {
+                HandleMissingRenderContext("VR::Update");
+                return;
+            }
             rndrContext->SetRenderTarget(NULL);
             m_Game->m_CachedArmsModel = false;
             m_CreatedVRTextures = false; // Have to recreate textures otherwise some workshop maps won't render
@@ -195,8 +209,15 @@ bool VR::GetWalkAxis(float& x, float& y) {
 
 void VR::CreateVRTextures()
 {
+    IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+    if (!renderContext)
+    {
+        HandleMissingRenderContext("VR::CreateVRTextures");
+        return;
+    }
+
     int windowWidth, windowHeight;
-    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+    renderContext->GetWindowSize(windowWidth, windowHeight);
 
     m_Game->m_MaterialSystem->isGameRunning = false;
     m_Game->m_MaterialSystem->BeginRenderTargetAllocation();
