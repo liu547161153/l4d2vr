@@ -51,24 +51,35 @@ VR::VR(Game* game)
 
     float r_left = 0.0f, r_right = 0.0f, r_top = 0.0f, r_bottom = 0.0f;
     m_System->GetProjectionRaw(vr::EVREye::Eye_Right, &r_left, &r_right, &r_top, &r_bottom);
+    
+    if (m_RenderHeight > 0) {
+        m_Aspect = (float)m_RenderWidth / (float)m_RenderHeight;
+    }
+    else {
+        m_Aspect = 1.0f;
+    }
 
-    float tanHalfFov[2];
+    float tanHalfFovH = std::max({ -l_left, l_right, -r_left, r_right });
+    float tanHalfFovV = std::max({ -l_top, l_bottom, -r_top, r_bottom });
 
-    tanHalfFov[0] = std::max({ -l_left, l_right, -r_left, r_right });
-    tanHalfFov[1] = std::max({ -l_top, l_bottom, -r_top, r_bottom });
+    // For some headsets, the driver provided texture size doesn't match the geometric aspect ratio of the lenses.
+    // In this case, we need to adjust the vertical tangent while still rendering to the recommended RT size. 
 
-    m_TextureBounds[0].uMin = 0.5f + 0.5f * l_left / tanHalfFov[0];
-    m_TextureBounds[0].uMax = 0.5f + 0.5f * l_right / tanHalfFov[0];
-    m_TextureBounds[0].vMin = 0.5f - 0.5f * l_bottom / tanHalfFov[1];
-    m_TextureBounds[0].vMax = 0.5f - 0.5f * l_top / tanHalfFov[1];
+    float idealAspect = tanHalfFovH / tanHalfFovV;
+    float adjustedTanHalfFovV = tanHalfFovH / m_Aspect; 
+    
+    m_Fov = 2.0f * atan(tanHalfFovH) * 360 / (3.14159265358979323846 * 2);
+    
+    m_TextureBounds[0].uMin = 0.5f + 0.5f * l_left / tanHalfFovH;
+    m_TextureBounds[0].uMax = 0.5f + 0.5f * l_right / tanHalfFovH;
+    m_TextureBounds[0].vMin = 0.5f - 0.5f * l_bottom / adjustedTanHalfFovV;
+    m_TextureBounds[0].vMax = 0.5f - 0.5f * l_top / adjustedTanHalfFovV;
+    
+    m_TextureBounds[1].uMin = 0.5f + 0.5f * r_left / tanHalfFovH;
+    m_TextureBounds[1].uMax = 0.5f + 0.5f * r_right / tanHalfFovH;
+    m_TextureBounds[1].vMin = 0.5f - 0.5f * r_bottom / adjustedTanHalfFovV;
+    m_TextureBounds[1].vMax = 0.5f - 0.5f * r_top / adjustedTanHalfFovV;
 
-    m_TextureBounds[1].uMin = 0.5f + 0.5f * r_left / tanHalfFov[0];
-    m_TextureBounds[1].uMax = 0.5f + 0.5f * r_right / tanHalfFov[0];
-    m_TextureBounds[1].vMin = 0.5f - 0.5f * r_bottom / tanHalfFov[1];
-    m_TextureBounds[1].vMax = 0.5f - 0.5f * r_top / tanHalfFov[1];
-
-    m_Aspect = tanHalfFov[0] / tanHalfFov[1];
-    m_Fov = 2.0f * atan(tanHalfFov[0]) * 360 / (3.14159265358979323846 * 2);
 
     InstallApplicationManifest("manifest.vrmanifest");
     SetActionManifest("action_manifest.json");
