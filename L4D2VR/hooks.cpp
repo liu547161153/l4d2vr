@@ -198,6 +198,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->CreateVRTextures();
 
 	IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
+	if (!rndrContext)
+	{
+		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
+		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
+	}
 
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
@@ -696,9 +701,16 @@ void Hooks::dPushRenderTargetAndViewport(void *ecx, void *edx, ITexture *pTextur
 	// then it pushed the HUD/GUI render target to the RT stack.
 	if (m_PushHUDStep == 3)
 	{
+		ITexture *originalTexture = pTexture;
 		pTexture = m_VR->m_HUDTexture;
 
 		IMatRenderContext *renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+		if (!renderContext)
+		{
+			m_VR->HandleMissingRenderContext("Hooks::dPushRenderTargetAndViewport");
+			return hkPushRenderTargetAndViewport.fOriginal(ecx, originalTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+		}
+
 		renderContext->ClearBuffers(false, true, true);
 
 		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
@@ -725,8 +737,15 @@ void Hooks::dPopRenderTargetAndViewport(void *ecx, void *edx)
 
 	if (m_PushedHud)
 	{
-		m_Game->m_MaterialSystem->GetRenderContext()->OverrideAlphaWriteEnable(false, true);
-		m_Game->m_MaterialSystem->GetRenderContext()->ClearColor4ub(0, 0, 0, 255);
+		IMatRenderContext *renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+		if (!renderContext)
+		{
+			m_VR->HandleMissingRenderContext("Hooks::dPopRenderTargetAndViewport");
+			return hkPopRenderTargetAndViewport.fOriginal(ecx);
+		}
+
+		renderContext->OverrideAlphaWriteEnable(false, true);
+		renderContext->ClearColor4ub(0, 0, 0, 255);
 	}
 
 	hkPopRenderTargetAndViewport.fOriginal(ecx);

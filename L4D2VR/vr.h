@@ -198,6 +198,7 @@ public:
 	void InstallApplicationManifest(const char *fileName);
 	void Update();
 	void CreateVRTextures();
+	void HandleMissingRenderContext(const char* location);
 	void SubmitVRTextures();
 	void RepositionOverlays();
 	void GetPoses();
