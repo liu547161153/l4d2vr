@@ -6,6 +6,7 @@
 #include "vr.h"
 #include "offsets.h"
 #include <iostream>
+#include <cstdint>
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game *game)
 {
@@ -140,15 +141,48 @@ int Hooks::initSourceHooks()
 	LPVOID PrePushRenderTargetAddr = (LPVOID)(m_Game->m_Offsets->PrePushRenderTarget.address);
 	hkPrePushRenderTarget.createHook(PrePushRenderTargetAddr, &dPrePushRenderTarget);
 
-	void *clientMode = nullptr;
-	while (!clientMode)
-	{
-		Sleep(10);
-		clientMode = **(void ***)(m_Game->m_Offsets->g_pClientMode.address);
-	}
-	hkCreateMove.createHook( (*(void ***)clientMode)[27], dCreateMove );
+        uintptr_t clientModeAddress = m_Game->m_Offsets->g_pClientMode.address;
+        if (!clientModeAddress)
+        {
+                Game::errorMsg("g_pClientMode address was null; aborting CreateMove hook installation");
+                return 0;
+        }
 
-	return 1;
+        void *clientMode = nullptr;
+        constexpr int kMaxAttempts = 500;
+        for (int attempt = 0; attempt < kMaxAttempts && !clientMode; ++attempt)
+        {
+                uintptr_t clientModePtr = *reinterpret_cast<uintptr_t *>(clientModeAddress);
+                if (clientModePtr)
+                {
+                        uintptr_t clientModeValue = *reinterpret_cast<uintptr_t *>(clientModePtr);
+                        if (clientModeValue)
+                        {
+                                clientMode = reinterpret_cast<void *>(clientModeValue);
+                                break;
+                        }
+                }
+
+                Sleep(10);
+        }
+
+        if (!clientMode)
+        {
+                Game::errorMsg("Timed out waiting for g_pClientMode; CreateMove hook not installed");
+                return 0;
+        }
+
+        void ***clientModePtr = reinterpret_cast<void ***>(clientMode);
+        void **clientModeVTable = (clientModePtr != nullptr) ? *clientModePtr : nullptr;
+        if (!clientModeVTable)
+        {
+                Game::errorMsg("Client mode vtable pointer was null; CreateMove hook not installed");
+                return 0;
+        }
+
+        hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
+
+        return 1;
 }
 
 
