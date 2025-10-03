@@ -107,6 +107,7 @@ public:
         bool m_HasAimLine = false;
         float m_AimLineThickness = 2.0f;
         bool m_AimLineEnabled = true;
+        float m_AimLinePersistence = 0.02f;
         int m_AimLineColorR = 0;
         int m_AimLineColorG = 255;
         int m_AimLineColorB = 0;

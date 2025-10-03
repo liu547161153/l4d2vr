@@ -1242,7 +1242,7 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
     if (!m_AimLineEnabled)
         return;
 
-    const float duration = 0.0f;
+    const float duration = std::max(m_AimLinePersistence, 0.0f);
     m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, false, duration);
 
     const float thickness = std::max(m_AimLineThickness, 0.0f);
@@ -1451,6 +1451,7 @@ void VR::ParseConfigFile()
     m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
+    m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
     m_AimLineColorR = aimColor[0];
     m_AimLineColorG = aimColor[1];
