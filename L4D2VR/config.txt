@@ -9,4 +9,6 @@ HideArms=false
 HudDistance=1.3
 HudSize=1.1
 HudAlwaysVisible=false
-EncodeVRUsercmd=true
+ForceNonVRServerMovement=false
+AimLineEnabled=true
+AimLineThickness=2.0
