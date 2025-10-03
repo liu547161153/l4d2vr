@@ -73,17 +73,19 @@ public:
 	Vector m_ViewmodelRight;
 	Vector m_ViewmodelUp;
 
-	Vector m_HmdPosAbs = { 0,0,0 };
-	Vector m_HmdPosAbsPrev = { 0,0,0 };
-	QAngle m_HmdAngAbs;
+        Vector m_HmdPosAbs = { 0,0,0 };
+        Vector m_HmdPosAbsPrev = { 0,0,0 };
+        QAngle m_HmdAngAbs;
 
-	Vector m_HmdPosCorrectedPrev = { 0,0,0 };
-	Vector m_HmdPosLocalPrev = { 0,0,0 };
+        Vector m_HmdPosCorrectedPrev = { 0,0,0 };
+        Vector m_HmdPosLocalPrev = { 0,0,0 };
+        Vector m_HmdPosSmoothed = { 0,0,0 };
+        QAngle m_HmdAngSmoothed = { 0,0,0 };
 
-	Vector m_SetupOrigin = { 0,0,0 };
-	Vector m_SetupOriginPrev = { 0,0,0 };
-	Vector m_CameraAnchor = { 0,0,0 };
-	Vector m_SetupOriginToHMD = { 0,0,0 };
+        Vector m_SetupOrigin = { 0,0,0 };
+        Vector m_SetupOriginPrev = { 0,0,0 };
+        Vector m_CameraAnchor = { 0,0,0 };
+        Vector m_SetupOriginToHMD = { 0,0,0 };
 
 	float m_HeightOffset = 0.0;
 	bool m_RoomscaleActive = false;
@@ -176,14 +178,16 @@ public:
 	bool m_SnapTurning = false;
 	float m_SnapTurnAngle = 45.0;
 	bool m_LeftHanded = false;
-	float m_VRScale = 43.2;
-	float m_IpdScale = 1.0;
-	bool m_HideArms = false;
-	float m_HudDistance = 1.3;
-	float m_HudSize = 1.1;
-	bool m_HudAlwaysVisible = false;
+        float m_VRScale = 43.2;
+        float m_IpdScale = 1.0;
+        bool m_HideArms = false;
+        float m_HudDistance = 1.3;
+        float m_HudSize = 1.1;
+        bool m_HudAlwaysVisible = false;
+        float m_HeadSmoothing = 0.0f;
+        bool m_HmdSmoothingInitialized = false;
 
-	VR() {};
+        VR() {};
 	VR(Game *game);
 	int SetActionManifest(const char *fileName);
 	void InstallApplicationManifest(const char *fileName);
