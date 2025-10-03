@@ -1098,7 +1098,16 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     if (!m_Game->m_DebugOverlay)
         return;
 
-    (void)localPlayer;
+    C_WeaponCSBase* activeWeapon = nullptr;
+    if (localPlayer)
+        activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
+
+    if (!ShouldShowAimLine(activeWeapon))
+    {
+        m_LastAimDirection = Vector{ 0.0f, 0.0f, 0.0f };
+        m_HasAimLine = false;
+        return;
+    }
 
     Vector direction = m_RightControllerForward;
     if (direction.IsZero())
@@ -1108,8 +1117,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             if (!m_HasAimLine)
                 return;
 
-            // Reuse the previous line when the controller forward can't be resolved at all.
-            m_Game->m_DebugOverlay->AddLineOverlay(m_AimLineStart, m_AimLineEnd, 0, 255, 0, false, 0.1f);
+            DrawAimLine(m_AimLineStart, m_AimLineEnd);
             return;
         }
 
@@ -1129,7 +1137,92 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     m_AimLineEnd = target;
     m_HasAimLine = true;
 
-    m_Game->m_DebugOverlay->AddLineOverlay(origin, target, 0, 255, 0, false, 0.1f);
+    DrawAimLine(origin, target);
+}
+
+bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
+{
+    if (!weapon)
+        return false;
+
+    switch (weapon->GetWeaponID())
+    {
+    case C_WeaponCSBase::PISTOL:
+    case C_WeaponCSBase::MAGNUM:
+    case C_WeaponCSBase::UZI:
+    case C_WeaponCSBase::PUMPSHOTGUN:
+    case C_WeaponCSBase::AUTOSHOTGUN:
+    case C_WeaponCSBase::M16A1:
+    case C_WeaponCSBase::HUNTING_RIFLE:
+    case C_WeaponCSBase::MAC10:
+    case C_WeaponCSBase::SHOTGUN_CHROME:
+    case C_WeaponCSBase::SCAR:
+    case C_WeaponCSBase::SNIPER_MILITARY:
+    case C_WeaponCSBase::SPAS:
+    case C_WeaponCSBase::AK47:
+    case C_WeaponCSBase::MP5:
+    case C_WeaponCSBase::SG552:
+    case C_WeaponCSBase::AWP:
+    case C_WeaponCSBase::SCOUT:
+    case C_WeaponCSBase::GRENADE_LAUNCHER:
+    case C_WeaponCSBase::M60:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void VR::DrawAimLine(const Vector& start, const Vector& end)
+{
+    if (!m_Game->m_DebugOverlay)
+        return;
+
+    const float duration = 0.0f;
+    m_Game->m_DebugOverlay->AddLineOverlay(start, end, 0, 255, 0, false, duration);
+
+    float thickness = std::max(m_AimLineThickness, 0.0f);
+    if (thickness <= 0.0f)
+        return;
+
+    Vector forward = end - start;
+    if (forward.IsZero())
+        return;
+
+    VectorNormalize(forward);
+
+    Vector referenceUp = m_RightControllerUp;
+    if (referenceUp.IsZero())
+        referenceUp = Vector(0.0f, 0.0f, 1.0f);
+
+    Vector side = CrossProduct(forward, referenceUp);
+    if (side.IsZero())
+    {
+        referenceUp = Vector(0.0f, 1.0f, 0.0f);
+        side = CrossProduct(forward, referenceUp);
+        if (side.IsZero())
+        {
+            referenceUp = Vector(1.0f, 0.0f, 0.0f);
+            side = CrossProduct(forward, referenceUp);
+        }
+    }
+
+    if (side.IsZero())
+        return;
+
+    VectorNormalize(side);
+    Vector offset = side * (thickness * 0.5f);
+
+    Vector startLeft = start - offset;
+    Vector startRight = start + offset;
+    Vector endLeft = end - offset;
+    Vector endRight = end + offset;
+
+    const int r = 0;
+    const int g = 255;
+    const int b = 0;
+    const int a = 192;
+    m_Game->m_DebugOverlay->AddTriangleOverlay(startLeft, startRight, endRight, r, g, b, a, false, duration);
+    m_Game->m_DebugOverlay->AddTriangleOverlay(startLeft, endRight, endLeft, r, g, b, a, false, duration);
 }
 
 Vector VR::GetViewAngle()
@@ -1247,6 +1340,7 @@ void VR::ParseConfigFile()
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
+    m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_EncodeVRUsercmd = getBool("EncodeVRUsercmd", m_EncodeVRUsercmd);
 }
 
