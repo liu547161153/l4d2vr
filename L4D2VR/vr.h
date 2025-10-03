@@ -48,6 +48,7 @@ public:
 
 	uint32_t m_RenderWidth;
 	uint32_t m_RenderHeight;
+	uint32_t m_AntiAliasing;
 	float m_Aspect;
 	float m_Fov;
 
