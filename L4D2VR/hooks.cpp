@@ -255,6 +255,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
     bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
     if (m_VR->m_IsVREnabled) {
+        const bool treatServerAsNonVR = (!Hooks::s_ServerUnderstandsVR) || m_VR->m_ForceNonVRServerMovement;
         float ax = 0.f, ay = 0.f;
         if (m_VR->GetWalkAxis(ax, ay)) {
             // 死区 + 归一化（和平滑转向一致的 0.2 死区）
@@ -284,20 +285,20 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
         }
 
-		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
-		if (!Hooks::s_ServerUnderstandsVR) {
-			QAngle aim = m_VR->GetRightControllerAbsAngle();
-			// 简单夹角，避免异常值
-			if (aim.x > 89.f)  aim.x = 89.f;
-			if (aim.x < -89.f) aim.x = -89.f;
-			// yaw 归一到 [-180,180]
-			while (aim.y > 180.f)  aim.y -= 360.f;
-			while (aim.y < -180.f) aim.y += 360.f;
+        // ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
+        if (treatServerAsNonVR) {
+            QAngle aim = m_VR->GetRightControllerAbsAngle();
+            // 简单夹角，避免异常值
+            if (aim.x > 89.f)  aim.x = 89.f;
+            if (aim.x < -89.f) aim.x = -89.f;
+            // yaw 归一到 [-180,180]
+            while (aim.y > 180.f)  aim.y -= 360.f;
+            while (aim.y < -180.f) aim.y += 360.f;
 
-			cmd->viewangles.x = aim.x;   // pitch
-			cmd->viewangles.y = aim.y;   // yaw
-			cmd->viewangles.z = 0.f;     // roll 一般不用
-		}
+            cmd->viewangles.x = aim.x;   // pitch
+            cmd->viewangles.y = aim.y;   // yaw
+            cmd->viewangles.z = 0.f;     // roll 一般不用
+        }
     }
 
     return result;
@@ -530,8 +531,8 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	if (!m_VR->m_IsVREnabled)
 		return hkWriteUsercmd.fOriginal(buf, to, from);
 
-	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）时才编码
-	const bool canEncode = (m_VR->m_EncodeVRUsercmd && Hooks::s_ServerUnderstandsVR);
+        // 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）且（未强制走非 VR 标准）时才编码
+        const bool canEncode = (m_VR->m_EncodeVRUsercmd && Hooks::s_ServerUnderstandsVR && !m_VR->m_ForceNonVRServerMovement);
 
 	if (!canEncode)
 	{

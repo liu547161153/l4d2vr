@@ -105,6 +105,7 @@ public:
         Vector m_LastAimDirection = { 0,0,0 };
         bool m_HasAimLine = false;
         float m_AimLineThickness = 2.0f;
+        bool m_AimLineEnabled = true;
 
 	float m_Ipd;																	
 	float m_EyeZ;
@@ -196,6 +197,8 @@ public:
         bool m_HudAlwaysVisible = false;
         float m_HeadSmoothing = 0.0f;
         bool m_HmdSmoothingInitialized = false;
+
+        bool m_ForceNonVRServerMovement = false;
 
         VR() {};
 	VR(Game *game);

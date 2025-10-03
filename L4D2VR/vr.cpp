@@ -1191,7 +1191,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
 bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
 {
-    if (!weapon)
+    if (!m_AimLineEnabled || !weapon)
         return false;
 
     switch (weapon->GetWeaponID())
@@ -1224,6 +1224,9 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
 void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
     if (!m_Game->m_DebugOverlay)
+        return;
+
+    if (!m_AimLineEnabled)
         return;
 
     const float duration = 0.0f;
@@ -1390,7 +1393,8 @@ void VR::ParseConfigFile()
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
-    m_EncodeVRUsercmd = getBool("EncodeVRUsercmd", m_EncodeVRUsercmd);
+    m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
+    m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 }
 
 void VR::WaitForConfigUpdate()
