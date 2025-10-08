@@ -13,5 +13,5 @@ ForceNonVRServerMovement=false
 RequireSecondaryAttackForItemSwitch=true
 AimLineEnabled=true
 AimLineThickness=0.3
-AimLineFrameDurationMultiplier=1.0
+AimLineFrameDurationMultiplier=1.5
 AimLineColor=255,0,0,180
