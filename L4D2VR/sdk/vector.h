@@ -923,6 +923,13 @@ inline QAngle::QAngle(vec_t X, vec_t Y, vec_t Z)
 	x = X; y = Y; z = Z;
 }
 
+inline void QAngle::Init(vec_t ix, vec_t iy, vec_t iz)
+{
+	x = ix;
+	y = iy;
+	z = iz;
+}
+
 inline vec_t &QAngle::operator[](int i)
 {
 	return ((vec_t *)this)[i];
