@@ -22,6 +22,7 @@ class ISurface;
 class CBaseEntity;
 class C_BasePlayer;
 struct model_t;
+class IVDebugOverlay;
 
 // === Forward Declarations for Internal Systems ===
 class Game;
@@ -60,6 +61,7 @@ public:
     IModelRender* m_ModelRender = nullptr;
     IInput* m_VguiInput = nullptr;
     ISurface* m_VguiSurface = nullptr;
+    IVDebugOverlay* m_DebugOverlay = nullptr;
 
     // === Module Base Addresses ===
     uintptr_t m_BaseEngine = 0;
@@ -79,7 +81,9 @@ public:
     int m_CurrentUsercmdID = -1;
 
     // === Player VR State (Multiplayer) ===
-    std::array<Player, 24> m_PlayersVRInfo;
+    // Matches Source's MAX_PLAYERS (65) to cover the full player index range.
+    static constexpr size_t kMaxPlayers = 65;
+    std::array<Player, kMaxPlayers> m_PlayersVRInfo;
 
     // === Weapon / Viewmodel State ===
     bool m_IsMeleeWeaponActive = false;
@@ -103,6 +107,10 @@ public:
     // === Logging ===
     static void logMsg(const char* fmt, ...);
     static void errorMsg(const char* msg);
+
+    // === Player Utilities ===
+    bool IsValidPlayerIndex(int index) const;
+    void ResetAllPlayerVRInfo();
 };
 
 // === Logging Macros (Debug Only) ===
