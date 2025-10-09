@@ -1,4 +1,4 @@
-// dllmain.cpp : Defines the entry point for the DLL application.
+﻿// dllmain.cpp : Defines the entry point for the DLL application.
 #include <Windows.h>
 #include <iostream>
 #include <string>
@@ -11,12 +11,12 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
 {
 #ifdef _DEBUG
     AllocConsole();
-    FILE *fp;
+    FILE* fp;
     freopen_s(&fp, "CONOUT$", "w", stdout);
 #endif
 
     // Make sure -insecure is used
-    LPWSTR *szArglist;
+    LPWSTR* szArglist;
     int nArgs;
     szArglist = CommandLineToArgvW(GetCommandLineW(), &nArgs);
     bool insecureEnabled = false;
@@ -36,18 +36,6 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
             L" increasing your ban risk.\n\n"
             L"Press OK to continue anyway or Cancel to exit.";
         std::wstring warningTitle = L"L4D2VR Warning";
-
-        LANGID langId = GetUserDefaultUILanguage();
-        if (PRIMARYLANGID(langId) == LANG_CHINESE)
-        {
-            warningMessage =
-                L"L4D2VR 在未使用 -insecure 参数的情况下启动。\n"
-                L"该启动参数可以阻止 VAC 启动。\n\n"
-                L"如果继续不使用，VAC 可能照常运行并检测到不受支持的修改，"
-                L"从而提高被封禁的风险。\n\n"
-                L"按“确定”继续，或按“取消”退出。";
-            warningTitle = L"L4D2VR 警告";
-        }
         int result = MessageBoxW(
             NULL,
             warningMessage.c_str(),
@@ -65,15 +53,15 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
 
 
 
-BOOL APIENTRY DllMain( HMODULE hModule,
-                       DWORD  ul_reason_for_call,
-                       LPVOID lpReserved
-                     )
+BOOL APIENTRY DllMain(HMODULE hModule,
+    DWORD  ul_reason_for_call,
+    LPVOID lpReserved
+)
 {
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
-            CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)InitL4D2VR, hModule, 0, NULL);
+        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)InitL4D2VR, hModule, 0, NULL);
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
     case DLL_PROCESS_DETACH:
