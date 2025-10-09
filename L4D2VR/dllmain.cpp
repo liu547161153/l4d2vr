@@ -36,11 +36,24 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
             L" increasing your ban risk.\n\n"
             L"Press OK to continue anyway or Cancel to exit.";
         std::wstring warningTitle = L"L4D2VR Warning";
+        UINT messageBoxFlags = MB_ICONWARNING | MB_OKCANCEL | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND | MB_TASKMODAL;
+        HWND ownerWindow = GetForegroundWindow();
+        if (!ownerWindow)
+            ownerWindow = GetActiveWindow();
+        if (!ownerWindow)
+            ownerWindow = GetDesktopWindow();
+
         int result = MessageBoxW(
-            NULL,
+            ownerWindow,
             warningMessage.c_str(),
             warningTitle.c_str(),
-            MB_ICONWARNING | MB_OKCANCEL | MB_DEFBUTTON2);
+            messageBoxFlags);
+
+        if (result == 0)
+        {
+            OutputDebugStringW(L"L4D2VR: Failed to display -insecure warning dialog; continuing without confirmation.\n");
+            result = IDOK;
+        }
 
         if (result != IDOK)
             ExitProcess(0);

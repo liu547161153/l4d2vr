@@ -1026,53 +1026,17 @@ void VR::UpdateTracking()
     // Wrap angle from -180 to 180
     hmdAngLocal.y -= 360 * std::floor((hmdAngLocal.y + 180) / 360);
 
-    Vector hmdPosSmoothed = hmdPosCorrected;
-    QAngle hmdAngSmoothed = hmdAngLocal;
-    float smoothingStrength = std::clamp(m_HeadSmoothing, 0.0f, 0.99f);
-
-    if (!m_HmdSmoothingInitialized)
-    {
-        m_HmdPosSmoothed = hmdPosCorrected;
-        m_HmdAngSmoothed = hmdAngLocal;
-        m_HmdSmoothingInitialized = true;
-    }
-
-    if (smoothingStrength > 0.0f)
-    {
-        float lerpFactor = 1.0f - smoothingStrength;
-
-        m_HmdPosSmoothed.x += (hmdPosCorrected.x - m_HmdPosSmoothed.x) * lerpFactor;
-        m_HmdPosSmoothed.y += (hmdPosCorrected.y - m_HmdPosSmoothed.y) * lerpFactor;
-        m_HmdPosSmoothed.z += (hmdPosCorrected.z - m_HmdPosSmoothed.z) * lerpFactor;
-
-        auto smoothAngle = [&](float target, float& current)
-            {
-                float diff = target - current;
-                diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-                current += diff * lerpFactor;
-            };
-
-        smoothAngle(hmdAngLocal.x, m_HmdAngSmoothed.x);
-        smoothAngle(hmdAngLocal.y, m_HmdAngSmoothed.y);
-        smoothAngle(hmdAngLocal.z, m_HmdAngSmoothed.z);
-    }
-    else
-    {
-        m_HmdPosSmoothed = hmdPosCorrected;
-        m_HmdAngSmoothed = hmdAngLocal;
-    }
-
     auto wrapAngle = [](float angle)
         {
             return angle - 360.0f * std::floor((angle + 180.0f) / 360.0f);
         };
 
-    m_HmdAngSmoothed.x = wrapAngle(m_HmdAngSmoothed.x);
-    m_HmdAngSmoothed.y = wrapAngle(m_HmdAngSmoothed.y);
-    m_HmdAngSmoothed.z = wrapAngle(m_HmdAngSmoothed.z);
+    Vector hmdPosSmoothed = hmdPosCorrected;
+    QAngle hmdAngSmoothed = hmdAngLocal;
 
-    hmdPosSmoothed = m_HmdPosSmoothed;
-    hmdAngSmoothed = m_HmdAngSmoothed;
+    hmdAngSmoothed.x = wrapAngle(hmdAngSmoothed.x);
+    hmdAngSmoothed.y = wrapAngle(hmdAngSmoothed.y);
+    hmdAngSmoothed.z = wrapAngle(hmdAngSmoothed.z);
 
     m_HmdPosCorrectedPrev = hmdPosCorrected;
     m_HmdPosLocalPrev = hmdPosLocal;
@@ -1142,7 +1106,69 @@ void VR::UpdateTracking()
     Vector rightControllerPosLocal = m_RightControllerPose.TrackedDevicePos;
     QAngle rightControllerAngLocal = m_RightControllerPose.TrackedDeviceAng;
 
-    Vector hmdToController = rightControllerPosLocal - hmdPosLocal;
+    float controllerSmoothingStrength = std::clamp(m_ControllerSmoothing, 0.0f, 0.99f);
+
+    if (!m_ControllerSmoothingInitialized)
+    {
+        m_LeftControllerPosSmoothed = leftControllerPosLocal;
+        m_LeftControllerAngSmoothed = leftControllerAngLocal;
+        m_RightControllerPosSmoothed = rightControllerPosLocal;
+        m_RightControllerAngSmoothed = rightControllerAngLocal;
+        m_ControllerSmoothingInitialized = true;
+    }
+
+    if (controllerSmoothingStrength > 0.0f)
+    {
+        float lerpFactor = 1.0f - controllerSmoothingStrength;
+
+        auto smoothVector = [&](const Vector& target, Vector& current)
+            {
+                current.x += (target.x - current.x) * lerpFactor;
+                current.y += (target.y - current.y) * lerpFactor;
+                current.z += (target.z - current.z) * lerpFactor;
+            };
+
+        auto smoothAngleComponent = [&](float target, float& current)
+            {
+                float diff = target - current;
+                diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+                current += diff * lerpFactor;
+            };
+
+        smoothVector(leftControllerPosLocal, m_LeftControllerPosSmoothed);
+        smoothVector(rightControllerPosLocal, m_RightControllerPosSmoothed);
+
+        smoothAngleComponent(leftControllerAngLocal.x, m_LeftControllerAngSmoothed.x);
+        smoothAngleComponent(leftControllerAngLocal.y, m_LeftControllerAngSmoothed.y);
+        smoothAngleComponent(leftControllerAngLocal.z, m_LeftControllerAngSmoothed.z);
+
+        smoothAngleComponent(rightControllerAngLocal.x, m_RightControllerAngSmoothed.x);
+        smoothAngleComponent(rightControllerAngLocal.y, m_RightControllerAngSmoothed.y);
+        smoothAngleComponent(rightControllerAngLocal.z, m_RightControllerAngSmoothed.z);
+    }
+    else
+    {
+        m_LeftControllerPosSmoothed = leftControllerPosLocal;
+        m_LeftControllerAngSmoothed = leftControllerAngLocal;
+        m_RightControllerPosSmoothed = rightControllerPosLocal;
+        m_RightControllerAngSmoothed = rightControllerAngLocal;
+    }
+
+    auto wrapAngles = [&](QAngle& ang)
+        {
+            ang.x = wrapAngle(ang.x);
+            ang.y = wrapAngle(ang.y);
+            ang.z = wrapAngle(ang.z);
+        };
+
+    wrapAngles(m_LeftControllerAngSmoothed);
+    wrapAngles(m_RightControllerAngSmoothed);
+
+    Vector rightControllerPosSmoothed = m_RightControllerPosSmoothed;
+    QAngle leftControllerAngSmoothed = m_LeftControllerAngSmoothed;
+    QAngle rightControllerAngSmoothed = m_RightControllerAngSmoothed;
+
+    Vector hmdToController = rightControllerPosSmoothed - hmdPosLocal;
     Vector rightControllerPosCorrected = hmdPosSmoothed + hmdToController;
 
     // When using stick turning, pivot the controllers around the HMD
@@ -1152,12 +1178,12 @@ void VR::UpdateTracking()
 
     m_RightControllerPosAbs = m_CameraAnchor - Vector(0, 0, 64) + rightControllerPosLocalInWorld;
 
-    rightControllerAngLocal.y += m_RotationOffset;
+    rightControllerAngSmoothed.y += m_RotationOffset;
     // Wrap angle from -180 to 180
-    rightControllerAngLocal.y -= 360 * std::floor((rightControllerAngLocal.y + 180) / 360);
+    rightControllerAngSmoothed.y -= 360 * std::floor((rightControllerAngSmoothed.y + 180) / 360);
 
-    QAngle::AngleVectors(leftControllerAngLocal, &m_LeftControllerForward, &m_LeftControllerRight, &m_LeftControllerUp);
-    QAngle::AngleVectors(rightControllerAngLocal, &m_RightControllerForward, &m_RightControllerRight, &m_RightControllerUp);
+    QAngle::AngleVectors(leftControllerAngSmoothed, &m_LeftControllerForward, &m_LeftControllerRight, &m_LeftControllerUp);
+    QAngle::AngleVectors(rightControllerAngSmoothed, &m_RightControllerForward, &m_RightControllerRight, &m_RightControllerUp);
 
     // Adjust controller angle 45 degrees downward
     m_LeftControllerForward = VectorRotate(m_LeftControllerForward, m_LeftControllerRight, -45.0);
@@ -1488,7 +1514,12 @@ void VR::ParseConfigFile()
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
-    m_HeadSmoothing = std::clamp(getFloat("HeadSmoothing", m_HeadSmoothing), 0.0f, 0.99f);
+    float controllerSmoothingValue = m_ControllerSmoothing;
+    if (userConfig.find("ControllerSmoothing") != userConfig.end())
+        controllerSmoothingValue = getFloat("ControllerSmoothing", controllerSmoothingValue);
+    else if (userConfig.find("HeadSmoothing") != userConfig.end())
+        controllerSmoothingValue = getFloat("HeadSmoothing", controllerSmoothingValue);
+    m_ControllerSmoothing = std::clamp(controllerSmoothingValue, 0.0f, 0.99f);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
     auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
