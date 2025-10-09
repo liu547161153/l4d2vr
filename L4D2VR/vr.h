@@ -82,8 +82,10 @@ public:
 
 	Vector m_HmdPosCorrectedPrev = { 0,0,0 };
 	Vector m_HmdPosLocalPrev = { 0,0,0 };
-	Vector m_HmdPosSmoothed = { 0,0,0 };
-	QAngle m_HmdAngSmoothed = { 0,0,0 };
+        Vector m_LeftControllerPosSmoothed = { 0,0,0 };
+        Vector m_RightControllerPosSmoothed = { 0,0,0 };
+        QAngle m_LeftControllerAngSmoothed = { 0,0,0 };
+        QAngle m_RightControllerAngSmoothed = { 0,0,0 };
 
 	Vector m_SetupOrigin = { 0,0,0 };
 	QAngle m_SetupAngles = { 0,0,0 };
@@ -214,8 +216,8 @@ public:
 	float m_HudDistance = 1.3;
 	float m_HudSize = 1.1;
 	bool m_HudAlwaysVisible = false;
-	float m_HeadSmoothing = 0.0f;
-	bool m_HmdSmoothingInitialized = false;
+        float m_ControllerSmoothing = 0.0f;
+        bool m_ControllerSmoothingInitialized = false;
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
