@@ -254,7 +254,37 @@ void VR::SubmitVRTextures()
     if (!m_Compositor)
         return;
 
-    bool submitted = false;
+    bool successfulSubmit = false;
+    bool timingDataSubmitted = false;
+
+    auto ensureTimingData = [&]()
+    {
+        if (!m_CompositorExplicitTiming || timingDataSubmitted)
+            return;
+
+        vr::EVRCompositorError timingError = m_Compositor->SubmitExplicitTimingData();
+        if (timingError != vr::VRCompositorError_None)
+        {
+            LogCompositorError("SubmitExplicitTimingData", timingError);
+        }
+
+        timingDataSubmitted = true;
+    };
+
+    auto submitEye = [&](vr::EVREye eye, vr::Texture_t* texture, const vr::VRTextureBounds_t* bounds)
+    {
+        ensureTimingData();
+
+        vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
+        if (submitError != vr::VRCompositorError_None)
+        {
+            LogCompositorError("Submit", submitError);
+            return false;
+        }
+
+        successfulSubmit = true;
+        return true;
+    };
 
     // 若这帧没有新内容，就走菜单/Overlay 路径
     if (!m_RenderedNewFrame)
@@ -271,12 +301,11 @@ void VR::SubmitVRTextures()
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
-            m_Compositor->Submit(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr, vr::Submit_Default);
-            m_Compositor->Submit(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr, vr::Submit_Default);
-            submitted = true;
+            submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+            submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
         }
 
-        if (submitted && m_CompositorExplicitTiming)
+        if (successfulSubmit && m_CompositorExplicitTiming)
         {
             m_CompositorNeedsHandoff = true;
             FinishFrame();
@@ -292,12 +321,10 @@ void VR::SubmitVRTextures()
     {
         vr::VROverlay()->ShowOverlay(m_HUDHandle);
     }
+    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
 
-    m_Compositor->Submit(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0], vr::Submit_Default);
-    m_Compositor->Submit(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1], vr::Submit_Default);
-    submitted = true;
-
-    if (submitted && m_CompositorExplicitTiming)
+    if (successfulSubmit && m_CompositorExplicitTiming)
     {
         m_CompositorNeedsHandoff = true;
         FinishFrame();
@@ -305,6 +332,21 @@ void VR::SubmitVRTextures()
 
 
     m_RenderedNewFrame = false;
+}
+
+void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)
+{
+    if (error == vr::VRCompositorError_None || !action)
+        return;
+
+    constexpr auto kLogCooldown = std::chrono::seconds(5);
+    const auto now = std::chrono::steady_clock::now();
+
+    if (now - m_LastCompositorErrorLog < kLogCooldown)
+        return;
+
+    Game::logMsg("[VR] %s failed with VRCompositorError %d", action, static_cast<int>(error));
+    m_LastCompositorErrorLog = now;
 }
 
 

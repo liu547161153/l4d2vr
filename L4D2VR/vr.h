@@ -204,7 +204,8 @@ public:
 	TrackedDevicePoseData m_RightControllerPose;
 
 	float m_RotationOffset = 0;
-	std::chrono::steady_clock::time_point m_PrevFrameTime;
+        std::chrono::steady_clock::time_point m_PrevFrameTime;
+        std::chrono::steady_clock::time_point m_LastCompositorErrorLog{};
 
 	float m_TurnSpeed = 0.3;
 	bool m_SnapTurning = false;
@@ -229,7 +230,8 @@ public:
 	void Update();
 	void CreateVRTextures();
 	void HandleMissingRenderContext(const char* location);
-	void SubmitVRTextures();
+        void SubmitVRTextures();
+        void LogCompositorError(const char* action, vr::EVRCompositorError error);
 	void RepositionOverlays();
 	void GetPoses();
 	bool UpdatePosesAndActions();
