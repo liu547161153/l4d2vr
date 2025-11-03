@@ -226,7 +226,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	QAngle inGameAngle(hmdAngle.x, hmdAngle.y, hmdAngle.z);
 
 
-	const bool treatServerAsNonVR = (!Hooks::s_ServerUnderstandsVR) || m_VR->m_ForceNonVRServerMovement;
+        const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
 	if (!treatServerAsNonVR)
 	{
 		m_Game->m_EngineClient->SetViewAngles(inGameAngle);
@@ -262,7 +262,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	if (m_VR->m_IsVREnabled) {
-		const bool treatServerAsNonVR = (!Hooks::s_ServerUnderstandsVR) || m_VR->m_ForceNonVRServerMovement;
+                const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
 		float ax = 0.f, ay = 0.f;
 		if (m_VR->GetWalkAxis(ax, ay)) {
 			// 死区 + 归一化（和平滑转向一致的 0.2 死区）
@@ -357,8 +357,8 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	QAngle vecNewAngles = vecAngles;
 
 	// 只有当本局服务器端确实运行了 VR 钩子时，才用控制器射线做本地预测
-	if (m_VR->m_IsVREnabled
-		&& Hooks::s_ServerUnderstandsVR
+        if (m_VR->m_IsVREnabled
+                && !m_VR->m_ForceNonVRServerMovement
 		&& playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
 		vecNewOrigin = m_VR->GetRightControllerAbsPos();
@@ -539,7 +539,7 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 		return hkWriteUsercmd.fOriginal(buf, to, from);
 
 	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）且（未强制走非 VR 标准）时才编码
-	const bool canEncode = (m_VR->m_EncodeVRUsercmd && Hooks::s_ServerUnderstandsVR && !m_VR->m_ForceNonVRServerMovement);
+        const bool canEncode = (m_VR->m_EncodeVRUsercmd && !m_VR->m_ForceNonVRServerMovement);
 
 	if (!canEncode)
 	{
