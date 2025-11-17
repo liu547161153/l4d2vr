@@ -176,8 +176,6 @@ void VR::Update()
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
 
-    ApplyFirstPersonArmSwayState();
-
     if (m_IsVREnabled && g_D3DVR9)
     {
         // Prevents crashing at menu
@@ -211,40 +209,6 @@ void VR::Update()
         ProcessMenuInput();
     else
         ProcessInput();
-}
-
-void VR::ApplyFirstPersonArmSwayState()
-{
-    if (!m_Game || !m_Game->m_EngineClient)
-        return;
-
-    if (m_DisableFirstPersonArmSway == m_CurrentArmSwayDisabled)
-        return;
-
-    struct ArmSwayCvar
-    {
-        const char* name;
-        const char* disabledValue;
-        const char* defaultValue;
-    };
-
-    static constexpr ArmSwayCvar kArmSwayCVars[] = {
-        { "cl_bobcycle", "0", "0.98" },
-        { "cl_bobamt_lat", "0", "0.33" },
-        { "cl_bobamt_vert", "0", "0.14" },
-        { "cl_bob_lower_amt", "0", "21" },
-        { "cl_viewmodel_shift_left_amt", "0", "1.5" },
-        { "cl_viewmodel_shift_right_amt", "0", "0.75" }
-    };
-
-    const bool disableSway = m_DisableFirstPersonArmSway;
-    for (const ArmSwayCvar& cvar : kArmSwayCVars)
-    {
-        std::string command = std::string(cvar.name) + " " + (disableSway ? cvar.disabledValue : cvar.defaultValue);
-        m_Game->ClientCmd_Unrestricted(command.c_str());
-    }
-
-    m_CurrentArmSwayDisabled = disableSway;
 }
 
 bool VR::GetWalkAxis(float& x, float& y) {
@@ -294,33 +258,33 @@ void VR::SubmitVRTextures()
     bool timingDataSubmitted = false;
 
     auto ensureTimingData = [&]()
-    {
-        if (!m_CompositorExplicitTiming || timingDataSubmitted)
-            return;
-
-        vr::EVRCompositorError timingError = m_Compositor->SubmitExplicitTimingData();
-        if (timingError != vr::VRCompositorError_None)
         {
-            LogCompositorError("SubmitExplicitTimingData", timingError);
-        }
+            if (!m_CompositorExplicitTiming || timingDataSubmitted)
+                return;
 
-        timingDataSubmitted = true;
-    };
+            vr::EVRCompositorError timingError = m_Compositor->SubmitExplicitTimingData();
+            if (timingError != vr::VRCompositorError_None)
+            {
+                LogCompositorError("SubmitExplicitTimingData", timingError);
+            }
+
+            timingDataSubmitted = true;
+        };
 
     auto submitEye = [&](vr::EVREye eye, vr::Texture_t* texture, const vr::VRTextureBounds_t* bounds)
-    {
-        ensureTimingData();
-
-        vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
-        if (submitError != vr::VRCompositorError_None)
         {
-            LogCompositorError("Submit", submitError);
-            return false;
-        }
+            ensureTimingData();
 
-        successfulSubmit = true;
-        return true;
-    };
+            vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
+            if (submitError != vr::VRCompositorError_None)
+            {
+                LogCompositorError("Submit", submitError);
+                return false;
+            }
+
+            successfulSubmit = true;
+            return true;
+        };
 
     // 若这帧没有新内容，就走菜单/Overlay 路径
     if (!m_RenderedNewFrame)
@@ -1589,7 +1553,6 @@ void VR::ParseConfigFile()
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_HideArms = getBool("HideArms", m_HideArms);
-    m_DisableFirstPersonArmSway = getBool("DisableFirstPersonArmSway", m_DisableFirstPersonArmSway);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
