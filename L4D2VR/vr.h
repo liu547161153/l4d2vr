@@ -82,10 +82,10 @@ public:
 
 	Vector m_HmdPosCorrectedPrev = { 0,0,0 };
 	Vector m_HmdPosLocalPrev = { 0,0,0 };
-        Vector m_LeftControllerPosSmoothed = { 0,0,0 };
-        Vector m_RightControllerPosSmoothed = { 0,0,0 };
-        QAngle m_LeftControllerAngSmoothed = { 0,0,0 };
-        QAngle m_RightControllerAngSmoothed = { 0,0,0 };
+	Vector m_LeftControllerPosSmoothed = { 0,0,0 };
+	Vector m_RightControllerPosSmoothed = { 0,0,0 };
+	QAngle m_LeftControllerAngSmoothed = { 0,0,0 };
+	QAngle m_RightControllerAngSmoothed = { 0,0,0 };
 
 	Vector m_SetupOrigin = { 0,0,0 };
 	QAngle m_SetupAngles = { 0,0,0 };
@@ -204,8 +204,8 @@ public:
 	TrackedDevicePoseData m_RightControllerPose;
 
 	float m_RotationOffset = 0;
-        std::chrono::steady_clock::time_point m_PrevFrameTime;
-        std::chrono::steady_clock::time_point m_LastCompositorErrorLog{};
+	std::chrono::steady_clock::time_point m_PrevFrameTime;
+	std::chrono::steady_clock::time_point m_LastCompositorErrorLog{};
 
 	float m_TurnSpeed = 0.3;
 	bool m_SnapTurning = false;
@@ -214,27 +214,24 @@ public:
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
-	bool m_DisableFirstPersonArmSway = false;
 	float m_HudDistance = 1.3;
 	float m_HudSize = 1.1;
 	bool m_HudAlwaysVisible = false;
-        float m_ControllerSmoothing = 0.0f;
-        bool m_ControllerSmoothingInitialized = false;
+	float m_ControllerSmoothing = 0.0f;
+	bool m_ControllerSmoothingInitialized = false;
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
-	bool m_CurrentArmSwayDisabled = false;
 
 	VR() {};
 	VR(Game* game);
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
-	void ApplyFirstPersonArmSwayState();
 	void CreateVRTextures();
 	void HandleMissingRenderContext(const char* location);
-        void SubmitVRTextures();
-        void LogCompositorError(const char* action, vr::EVRCompositorError error);
+	void SubmitVRTextures();
+	void LogCompositorError(const char* action, vr::EVRCompositorError error);
 	void RepositionOverlays();
 	void GetPoses();
 	bool UpdatePosesAndActions();
