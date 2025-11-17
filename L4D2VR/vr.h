@@ -214,6 +214,7 @@ public:
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
+	bool m_DisableFirstPersonArmSway = false;
 	float m_HudDistance = 1.3;
 	float m_HudSize = 1.1;
 	bool m_HudAlwaysVisible = false;
@@ -222,12 +223,14 @@ public:
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
+	bool m_CurrentArmSwayDisabled = false;
 
 	VR() {};
 	VR(Game* game);
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
+	void ApplyFirstPersonArmSwayState();
 	void CreateVRTextures();
 	void HandleMissingRenderContext(const char* location);
         void SubmitVRTextures();

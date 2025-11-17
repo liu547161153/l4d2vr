@@ -5,6 +5,7 @@ SnapTurning=false
 SnapTurnAngle=45.0
 LeftHanded=false
 HideArms=false
+DisableFirstPersonArmSway=false
 IPDScale=1.0
 HudAlwaysVisible=false
 HudSize=1.8
