@@ -75,6 +75,11 @@ VR::VR(Game* game)
     InstallApplicationManifest("manifest.vrmanifest");
     SetActionManifest("action_manifest.json");
 
+    // Ensure we load the user's config at least once before we begin the
+    // watch loop so settings such as DisableFirstPersonArmSway take effect
+    // immediately instead of waiting for a file change notification.
+    ParseConfigFile();
+
     std::thread configParser(&VR::WaitForConfigUpdate, this);
     configParser.detach();
 
@@ -228,13 +233,19 @@ void VR::ApplyFirstPersonArmSwayState()
         const char* defaultValue;
     };
 
+    // These cvars are documented on Valve's official L4D2 console variable list:
+    // https://developer.valvesoftware.com/wiki/List_of_Left_4_Dead_2_console_commands_and_variables
     static constexpr ArmSwayCvar kArmSwayCVars[] = {
-        { "cl_bobcycle", "0", "0.98" },
-        { "cl_bobamt_lat", "0", "0.33" },
-        { "cl_bobamt_vert", "0", "0.14" },
-        { "cl_bob_lower_amt", "0", "21" },
-        { "cl_viewmodel_shift_left_amt", "0", "1.5" },
-        { "cl_viewmodel_shift_right_amt", "0", "0.75" }
+        { "cl_bob", "0", "0.002" },
+        { "cl_bobcycle", "0", "0.8" },
+        { "cl_bobup", "0", "0.5" },
+        { "cl_viewbob", "0", "1" },
+        { "cl_viewbob_cyclerate_duck", "0", "0.6" },
+        { "cl_viewbob_cyclerate_run", "0", "0.4" },
+        { "cl_viewbob_cyclerate_walk", "0", "0.8" },
+        { "cl_viewbob_scale", "0", "0.01" },
+        { "cl_viewbob_scale_duck", "0", "0.02" },
+        { "cl_viewbob_up", "0", "0.5" }
     };
 
     const bool disableSway = m_DisableFirstPersonArmSway;
