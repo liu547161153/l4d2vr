@@ -1729,12 +1729,6 @@ void VR::ParseConfigFile()
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
-    m_ThrowArcBaseDistance = std::max(0.0f, getFloat("ThrowArcBaseDistance", m_ThrowArcBaseDistance));
-    m_ThrowArcMinDistance = std::max(0.0f, getFloat("ThrowArcMinDistance", m_ThrowArcMinDistance));
-    m_ThrowArcMaxDistance = std::max(m_ThrowArcMinDistance, getFloat("ThrowArcMaxDistance", m_ThrowArcMaxDistance));
-    m_ThrowArcHeightRatio = std::max(0.0f, getFloat("ThrowArcHeightRatio", m_ThrowArcHeightRatio));
-    m_ThrowArcPitchScale = std::max(0.0f, getFloat("ThrowArcPitchScale", m_ThrowArcPitchScale));
-    m_ThrowArcLandingOffset = getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset);
 }
 
 void VR::WaitForConfigUpdate()
