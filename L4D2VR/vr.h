@@ -128,12 +128,12 @@ public:
         std::array<Vector, THROW_ARC_SEGMENTS + 1> m_LastThrowArcPoints{};
         bool m_HasThrowArc = false;
         bool m_LastAimWasThrowable = false;
-        float m_ThrowArcBaseDistance = 600.0f;
-        float m_ThrowArcMinDistance = 150.0f;
-        float m_ThrowArcMaxDistance = 1200.0f;
+        float m_ThrowArcBaseDistance = 500.0f;
+        float m_ThrowArcMinDistance = 20.0f;
+        float m_ThrowArcMaxDistance = 2200.0f;
         float m_ThrowArcHeightRatio = 0.25f;
-        float m_ThrowArcPitchScale = 1.0f;
-        float m_ThrowArcLandingOffset = 0.0f;
+        float m_ThrowArcPitchScale = 6.0f;
+        float m_ThrowArcLandingOffset = -90.0f;
         // Tracks the duration of the previous frame so the aim line can persist when the framerate dips.
         float m_LastFrameDuration = 1.0f / 90.0f;
 
