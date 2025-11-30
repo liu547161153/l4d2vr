@@ -1411,7 +1411,7 @@ bool VR::IsThrowableWeapon(C_WeaponCSBase* weapon) const
     }
 }
 
-float VR::CalculateThrowArcDistance(const Vector& forward) const
+float VR::CalculateThrowArcDistance(const Vector& forward, bool* clampedToMax) const
 {
     Vector direction = forward;
     if (direction.IsZero())
@@ -1422,8 +1422,12 @@ float VR::CalculateThrowArcDistance(const Vector& forward) const
     const float pitchInfluence = direction.z * m_ThrowArcPitchScale;
     const float scaledDistance = m_ThrowArcBaseDistance * (1.0f + pitchInfluence);
     const float maxDistance = std::max(m_ThrowArcMinDistance, m_ThrowArcMaxDistance);
+    const float clampedDistance = std::clamp(scaledDistance, m_ThrowArcMinDistance, maxDistance);
 
-    return std::clamp(scaledDistance, m_ThrowArcMinDistance, maxDistance);
+    if (clampedToMax)
+        *clampedToMax = clampedDistance >= maxDistance;
+
+    return clampedDistance;
 }
 
 void VR::DrawAimLine(const Vector& start, const Vector& end)
@@ -1455,7 +1459,14 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward)
         planarForward = direction;
     VectorNormalize(planarForward);
 
-    const float distance = CalculateThrowArcDistance(direction);
+    bool clampedToMaxDistance = false;
+    const float distance = CalculateThrowArcDistance(direction, &clampedToMaxDistance);
+    if (clampedToMaxDistance)
+    {
+        m_HasThrowArc = false;
+        m_HasAimLine = false;
+        return;
+    }
     const float arcHeight = std::max(distance * m_ThrowArcHeightRatio, m_ThrowArcMinDistance * 0.5f);
 
     Vector landingPoint = origin + planarForward * distance;

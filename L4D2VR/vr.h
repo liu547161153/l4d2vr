@@ -279,7 +279,7 @@ public:
         void UpdateAimingLaser(C_BasePlayer* localPlayer);
         bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
         bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
-        float CalculateThrowArcDistance(const Vector& forward) const;
+        float CalculateThrowArcDistance(const Vector& forward, bool* clampedToMax = nullptr) const;
         void DrawAimLine(const Vector& start, const Vector& end);
         void DrawThrowArc(const Vector& origin, const Vector& forward);
         void DrawThrowArcFromCache(float duration);
