@@ -820,7 +820,10 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-reload");
     }
 
-    bool secondaryAttackActive = PressedDigitalAction(m_ActionSecondaryAttack);
+    vr::InputDigitalActionData_t secondaryAttackActionData{};
+    bool secondaryAttackDataValid = GetDigitalActionData(m_ActionSecondaryAttack, secondaryAttackActionData);
+    bool secondaryAttackActive = secondaryAttackDataValid && secondaryAttackActionData.bState;
+
     if (secondaryAttackActive)
     {
         m_Game->ClientCmd_Unrestricted("+attack2");
@@ -828,6 +831,18 @@ void VR::ProcessInput()
     else
     {
         m_Game->ClientCmd_Unrestricted("-attack2");
+    }
+
+    bool quickTurnComboPressed = secondaryAttackActive && crouchButtonDown;
+    if (quickTurnComboPressed && !m_QuickTurnTriggered)
+    {
+        m_RotationOffset += 180.0f;
+        m_RotationOffset -= 360 * std::floor(m_RotationOffset / 360);
+        m_QuickTurnTriggered = true;
+    }
+    else if (!quickTurnComboPressed)
+    {
+        m_QuickTurnTriggered = false;
     }
 
     if (secondaryAttackActive || !m_RequireSecondaryAttackForItemSwitch)
