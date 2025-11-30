@@ -1350,6 +1350,20 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
     case C_WeaponCSBase::SCOUT:
     case C_WeaponCSBase::GRENADE_LAUNCHER:
     case C_WeaponCSBase::M60:
+    case C_WeaponCSBase::TANK_CLAW:
+    case C_WeaponCSBase::HUNTER_CLAW:
+    case C_WeaponCSBase::CHARGER_CLAW:
+    case C_WeaponCSBase::BOOMER_CLAW:
+    case C_WeaponCSBase::SMOKER_CLAW:
+    case C_WeaponCSBase::SPITTER_CLAW:
+    case C_WeaponCSBase::JOCKEY_CLAW:
+    case C_WeaponCSBase::VOMIT:
+    case C_WeaponCSBase::SPLAT:
+    case C_WeaponCSBase::POUNCE:
+    case C_WeaponCSBase::LOUNGE:
+    case C_WeaponCSBase::PULL:
+    case C_WeaponCSBase::CHOKE:
+    case C_WeaponCSBase::ROCK:
         return true;
     default:
         return false;
