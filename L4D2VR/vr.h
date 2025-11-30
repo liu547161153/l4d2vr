@@ -165,10 +165,11 @@ public:
 	bool m_CompositorNeedsHandoff = false;
 	TextureID m_CreatingTextureID = Texture_None;
 
-	bool m_PressedTurn = false;
-	bool m_PushingThumbstick = false;
-	bool m_CrouchToggleActive = false;
-	bool m_VoiceRecordActive = false;
+        bool m_PressedTurn = false;
+        bool m_PushingThumbstick = false;
+        bool m_CrouchToggleActive = false;
+        bool m_VoiceRecordActive = false;
+        bool m_QuickTurnTriggered = false;
 
 	// action set
 	vr::VRActionSetHandle_t m_ActionSet;
