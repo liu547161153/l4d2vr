@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <thread>
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <cmath>
 #include <d3d9_vr.h>
@@ -1290,36 +1291,57 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     {
         m_LastAimDirection = Vector{ 0.0f, 0.0f, 0.0f };
         m_HasAimLine = false;
+        m_HasThrowArc = false;
+        m_LastAimWasThrowable = false;
         return;
     }
 
+    bool isThrowable = IsThrowableWeapon(activeWeapon);
     Vector direction = m_RightControllerForward;
     if (direction.IsZero())
     {
         if (m_LastAimDirection.IsZero())
         {
+            const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+
+            if (m_LastAimWasThrowable && m_HasThrowArc)
+            {
+                DrawThrowArcFromCache(duration);
+                return;
+            }
+
             if (!m_HasAimLine)
                 return;
 
-            DrawAimLine(m_AimLineStart, m_AimLineEnd);
+            DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
             return;
         }
 
         direction = m_LastAimDirection;
+        isThrowable = m_LastAimWasThrowable;
     }
     else
     {
         m_LastAimDirection = direction;
+        m_LastAimWasThrowable = isThrowable;
     }
     VectorNormalize(direction);
 
     Vector origin = m_RightControllerPosAbs + direction * 2.0f;
+
+    if (isThrowable)
+    {
+        DrawThrowArc(origin, direction);
+        return;
+    }
+
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
 
     m_AimLineStart = origin;
     m_AimLineEnd = target;
     m_HasAimLine = true;
+    m_HasThrowArc = false;
 
     DrawAimLine(origin, target);
 }
@@ -1350,6 +1372,9 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
     case C_WeaponCSBase::SCOUT:
     case C_WeaponCSBase::GRENADE_LAUNCHER:
     case C_WeaponCSBase::M60:
+    case C_WeaponCSBase::MOLOTOV:
+    case C_WeaponCSBase::PIPE_BOMB:
+    case C_WeaponCSBase::VOMITJAR:
     case C_WeaponCSBase::TANK_CLAW:
     case C_WeaponCSBase::HUNTER_CLAW:
     case C_WeaponCSBase::CHARGER_CLAW:
@@ -1370,6 +1395,37 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
     }
 }
 
+bool VR::IsThrowableWeapon(C_WeaponCSBase* weapon) const
+{
+    if (!weapon)
+        return false;
+
+    switch (weapon->GetWeaponID())
+    {
+    case C_WeaponCSBase::MOLOTOV:
+    case C_WeaponCSBase::PIPE_BOMB:
+    case C_WeaponCSBase::VOMITJAR:
+        return true;
+    default:
+        return false;
+    }
+}
+
+float VR::CalculateThrowArcDistance(const Vector& forward) const
+{
+    Vector direction = forward;
+    if (direction.IsZero())
+        return m_ThrowArcMinDistance;
+
+    VectorNormalize(direction);
+
+    const float pitchInfluence = direction.z * m_ThrowArcPitchScale;
+    const float scaledDistance = m_ThrowArcBaseDistance * (1.0f + pitchInfluence);
+    const float maxDistance = std::max(m_ThrowArcMinDistance, m_ThrowArcMaxDistance);
+
+    return std::clamp(scaledDistance, m_ThrowArcMinDistance, maxDistance);
+}
+
 void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
     if (!m_Game->m_DebugOverlay)
@@ -1380,6 +1436,65 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 
     // Keep the overlay alive for at least two frames so it doesn't disappear when the framerate drops.
     const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+
+    DrawLineWithThickness(start, end, duration);
+}
+
+void VR::DrawThrowArc(const Vector& origin, const Vector& forward)
+{
+    if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
+        return;
+
+    Vector direction = forward;
+    if (direction.IsZero())
+        return;
+    VectorNormalize(direction);
+
+    Vector planarForward(direction.x, direction.y, 0.0f);
+    if (planarForward.IsZero())
+        planarForward = direction;
+    VectorNormalize(planarForward);
+
+    const float distance = CalculateThrowArcDistance(direction);
+    const float arcHeight = std::max(distance * m_ThrowArcHeightRatio, m_ThrowArcMinDistance * 0.5f);
+
+    Vector landingPoint = origin + planarForward * distance;
+    Vector apex = origin + planarForward * distance * 0.5f;
+    apex.z += arcHeight;
+
+    auto lerp = [](const Vector& a, const Vector& b, float t)
+        {
+            return a + (b - a) * t;
+        };
+
+    const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+    for (int i = 0; i <= THROW_ARC_SEGMENTS; ++i)
+    {
+        const float t = static_cast<float>(i) / static_cast<float>(THROW_ARC_SEGMENTS);
+        Vector ab = lerp(origin, apex, t);
+        Vector bc = lerp(apex, landingPoint, t);
+        m_LastThrowArcPoints[i] = lerp(ab, bc, t);
+    }
+
+    m_HasThrowArc = true;
+    m_HasAimLine = false;
+
+    DrawThrowArcFromCache(duration);
+}
+
+void VR::DrawThrowArcFromCache(float duration)
+{
+    if (!m_Game->m_DebugOverlay || !m_HasThrowArc)
+        return;
+
+    for (int i = 0; i < THROW_ARC_SEGMENTS; ++i)
+    {
+        DrawLineWithThickness(m_LastThrowArcPoints[i], m_LastThrowArcPoints[i + 1], duration);
+    }
+}
+
+void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float duration)
+{
     m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, false, duration);
 
     const float thickness = std::max(m_AimLineThickness, 0.0f);
@@ -1602,6 +1717,11 @@ void VR::ParseConfigFile()
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
+    m_ThrowArcBaseDistance = std::max(0.0f, getFloat("ThrowArcBaseDistance", m_ThrowArcBaseDistance));
+    m_ThrowArcMinDistance = std::max(0.0f, getFloat("ThrowArcMinDistance", m_ThrowArcMinDistance));
+    m_ThrowArcMaxDistance = std::max(m_ThrowArcMinDistance, getFloat("ThrowArcMaxDistance", m_ThrowArcMaxDistance));
+    m_ThrowArcHeightRatio = std::max(0.0f, getFloat("ThrowArcHeightRatio", m_ThrowArcHeightRatio));
+    m_ThrowArcPitchScale = std::max(0.0f, getFloat("ThrowArcPitchScale", m_ThrowArcPitchScale));
 }
 
 void VR::WaitForConfigUpdate()
