@@ -133,6 +133,7 @@ public:
         float m_ThrowArcMaxDistance = 1200.0f;
         float m_ThrowArcHeightRatio = 0.25f;
         float m_ThrowArcPitchScale = 1.0f;
+        float m_ThrowArcLandingOffset = 0.0f;
         // Tracks the duration of the previous frame so the aim line can persist when the framerate dips.
         float m_LastFrameDuration = 1.0f / 90.0f;
 
@@ -278,7 +279,7 @@ public:
         void UpdateAimingLaser(C_BasePlayer* localPlayer);
         bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
         bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
-        float CalculateThrowArcDistance(const Vector& forward) const;
+        float CalculateThrowArcDistance(const Vector& forward, bool* clampedToMax = nullptr) const;
         void DrawAimLine(const Vector& start, const Vector& end);
         void DrawThrowArc(const Vector& origin, const Vector& forward);
         void DrawThrowArcFromCache(float duration);

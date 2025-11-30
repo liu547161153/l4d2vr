@@ -16,8 +16,10 @@ AimLineEnabled=true
 AimLineThickness=0.3
 AimLineFrameDurationMultiplier=1.5
 AimLineColor=255,0,0,180
+// 投掷轨迹落点高度偏移（单位：Hammer 单位；负数让落点更贴地，正数抬高落点）
 ThrowArcBaseDistance=600
 ThrowArcMinDistance=150
 ThrowArcMaxDistance=1200
 ThrowArcHeightRatio=0.25
 ThrowArcPitchScale=1.0
+ThrowArcLandingOffset=0.0
