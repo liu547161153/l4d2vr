@@ -21,3 +21,4 @@ ThrowArcMinDistance=150
 ThrowArcMaxDistance=1200
 ThrowArcHeightRatio=0.25
 ThrowArcPitchScale=1.0
+ThrowArcLandingOffset=0.0

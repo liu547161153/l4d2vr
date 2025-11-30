@@ -1459,6 +1459,7 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward)
     const float arcHeight = std::max(distance * m_ThrowArcHeightRatio, m_ThrowArcMinDistance * 0.5f);
 
     Vector landingPoint = origin + planarForward * distance;
+    landingPoint.z += m_ThrowArcLandingOffset;
     Vector apex = origin + planarForward * distance * 0.5f;
     apex.z += arcHeight;
 
@@ -1722,6 +1723,7 @@ void VR::ParseConfigFile()
     m_ThrowArcMaxDistance = std::max(m_ThrowArcMinDistance, getFloat("ThrowArcMaxDistance", m_ThrowArcMaxDistance));
     m_ThrowArcHeightRatio = std::max(0.0f, getFloat("ThrowArcHeightRatio", m_ThrowArcHeightRatio));
     m_ThrowArcPitchScale = std::max(0.0f, getFloat("ThrowArcPitchScale", m_ThrowArcPitchScale));
+    m_ThrowArcLandingOffset = getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset);
 }
 
 void VR::WaitForConfigUpdate()
