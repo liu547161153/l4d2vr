@@ -1,4 +1,6 @@
 #pragma once
+#include <Windows.h>
+
 #include "openvr.h"
 #include "vector.h"
 #include <array>
