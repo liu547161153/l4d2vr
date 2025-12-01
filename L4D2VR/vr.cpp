@@ -791,7 +791,7 @@ void VR::ProcessInput()
     {
         if (crouchButtonDown)
         {
-            m_Game->ClientCmd_Unrestricted("vote no");
+            SendFunctionKey(VK_F2);
         }
         else
         {
@@ -871,7 +871,7 @@ void VR::ProcessInput()
     if (flashlightJustPressed)
     {
         if (crouchButtonDown)
-            m_Game->ClientCmd_Unrestricted("vote yes");
+            SendFunctionKey(VK_F1);
         else
             m_Game->ClientCmd_Unrestricted("impulse 100");
     }
@@ -906,6 +906,20 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("gameui_activate");
         RepositionOverlays();
     }
+}
+
+void VR::SendFunctionKey(WORD virtualKey)
+{
+    INPUT inputs[2] = {};
+
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wVk = virtualKey;
+
+    inputs[1].type = INPUT_KEYBOARD;
+    inputs[1].ki.wVk = virtualKey;
+    inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+
+    SendInput(2, inputs, sizeof(INPUT));
 }
 
 VMatrix VR::VMatrixFromHmdMatrix(const vr::HmdMatrix34_t& hmdMat)
