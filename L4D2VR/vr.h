@@ -42,8 +42,9 @@ public:
 	vr::IVROverlay* m_Overlay = nullptr;
 	vr::IVRCompositor* m_Compositor = nullptr;
 
-	vr::VROverlayHandle_t m_MainMenuHandle;
-	vr::VROverlayHandle_t m_HUDHandle;
+        vr::VROverlayHandle_t m_MainMenuHandle;
+        vr::VROverlayHandle_t m_HUDTopHandle;
+        std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
@@ -224,15 +225,18 @@ public:
 	float m_TurnSpeed = 0.3;
 	bool m_SnapTurning = false;
 	float m_SnapTurnAngle = 45.0;
-	bool m_LeftHanded = false;
-	float m_VRScale = 43.2;
-	float m_IpdScale = 1.0;
-	bool m_HideArms = false;
-	float m_HudDistance = 1.3;
-	float m_HudSize = 1.1;
-	bool m_HudAlwaysVisible = false;
-	float m_ControllerSmoothing = 0.0f;
-	bool m_ControllerSmoothingInitialized = false;
+        bool m_LeftHanded = false;
+        float m_VRScale = 43.2;
+        float m_IpdScale = 1.0;
+        bool m_HideArms = false;
+        float m_HudDistance = 1.3;
+        float m_HudSize = 1.1;
+        float m_ControllerHudSize = 0.5f;
+        float m_ControllerHudYOffset = 0.12f;
+        float m_ControllerHudZOffset = 0.0f;
+        bool m_HudAlwaysVisible = false;
+        float m_ControllerSmoothing = 0.0f;
+        bool m_ControllerSmoothingInitialized = false;
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
