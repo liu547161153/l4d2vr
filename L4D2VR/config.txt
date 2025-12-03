@@ -9,6 +9,7 @@ DisableFirstPersonArmSway=false
 IPDScale=1.0
 HudAlwaysVisible=false
 HudSize=1.8
+ControllerHudSize=0.5
 ControllerSmoothing=0
 ForceNonVRServerMovement=false
 RequireSecondaryAttackForItemSwitch=true
