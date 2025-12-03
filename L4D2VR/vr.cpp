@@ -639,11 +639,47 @@ bool VR::GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalog
 
 void VR::ProcessMenuInput()
 {
-    vr::VROverlayHandle_t currentOverlay = m_Game->m_EngineClient->IsInGame() ? m_HUDTopHandle : m_MainMenuHandle;
+    const bool inGame = m_Game->m_EngineClient->IsInGame();
+    vr::VROverlayHandle_t currentOverlay = inGame ? m_HUDTopHandle : m_MainMenuHandle;
 
-    // Check if left or right hand controller is pointing at the overlay
-    const bool isHoveringOverlay = CheckOverlayIntersectionForController(currentOverlay, vr::TrackedControllerRole_LeftHand) ||
-        CheckOverlayIntersectionForController(currentOverlay, vr::TrackedControllerRole_RightHand);
+    const auto controllerHoveringOverlay = [&](vr::VROverlayHandle_t overlay)
+    {
+        return CheckOverlayIntersectionForController(overlay, vr::TrackedControllerRole_LeftHand) ||
+            CheckOverlayIntersectionForController(overlay, vr::TrackedControllerRole_RightHand);
+    };
+
+    vr::VROverlayHandle_t hoveredOverlay = vr::k_ulOverlayHandleInvalid;
+
+    if (inGame)
+    {
+        if (controllerHoveringOverlay(m_HUDTopHandle))
+        {
+            hoveredOverlay = m_HUDTopHandle;
+        }
+        else
+        {
+            for (vr::VROverlayHandle_t overlay : m_HUDBottomHandles)
+            {
+                if (controllerHoveringOverlay(overlay))
+                {
+                    hoveredOverlay = overlay;
+                    break;
+                }
+            }
+        }
+    }
+    else if (controllerHoveringOverlay(m_MainMenuHandle))
+    {
+        hoveredOverlay = m_MainMenuHandle;
+    }
+
+    const bool isHoveringOverlay = hoveredOverlay != vr::k_ulOverlayHandleInvalid;
+
+    if (isHoveringOverlay)
+        currentOverlay = hoveredOverlay;
+
+    const bool isHudOverlay = inGame && (currentOverlay == m_HUDTopHandle ||
+        std::find(m_HUDBottomHandles.begin(), m_HUDBottomHandles.end(), currentOverlay) != m_HUDBottomHandles.end());
 
     // Overlays can't process action inputs if the laser is active, so
     // only activate laser if a controller is pointing at the overlay
@@ -664,7 +700,7 @@ void VR::ProcessMenuInput()
                 float laserX = vrEvent.data.mouse.x;
                 float laserY = vrEvent.data.mouse.y;
 
-                if (currentOverlay == m_HUDTopHandle)
+                if (isHudOverlay)
                 {
                     laserY = -laserY + windowHeight;
                 }
@@ -686,7 +722,7 @@ void VR::ProcessMenuInput()
                 break;
 
             case vr::VREvent_MouseButtonUp:
-                if (currentOverlay == m_HUDTopHandle)
+                if (isHudOverlay)
                     m_Game->m_VguiInput->InternalMousePressed(ButtonCode_t::MOUSE_LEFT);
                 m_Game->m_VguiInput->InternalMouseReleased(ButtonCode_t::MOUSE_LEFT);
                 break;
