@@ -44,7 +44,7 @@ public:
 
         vr::VROverlayHandle_t m_MainMenuHandle;
         vr::VROverlayHandle_t m_HUDTopHandle;
-        std::array<vr::VROverlayHandle_t, 5> m_HUDBottomHandles{};
+        std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
