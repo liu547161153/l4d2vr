@@ -25,12 +25,6 @@
 4. Load into a campaign.
 5. To recenter the camera height, press down on the left stick. To see the HUD, aim the controller up or down.
 
-### 投掷轨迹校准（ThrowArcLandingOffset）
-* 配置文件路径：`VR\\config.txt`。
-* 参数含义：`ThrowArcLandingOffset` 用来微调抛物线落点的高度，单位是 Hammer 游戏单位。
-  * 取 **负值**（如 `-10` 或 `-20`）可以让落点更贴近地面，用于修正落点悬空的问题。
-  * 取 **正值** 会抬高落点，用于避免地形抬升导致的穿地显示。
-* 修改后保存文件即可，游戏会在检测到配置更新时自动重新读取。
 
 ## How to play multiplayer
 * The host must have the mod installed and the server must be set to local. Other players can play in VR too (if they also installed the mod).
