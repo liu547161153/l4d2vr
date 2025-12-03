@@ -19,37 +19,40 @@ struct Hook {
 	LPVOID pTarget;
 	bool isEnabled;
 
-	int createHook(LPVOID targetFunc, LPVOID detourFunc)
-	{
-		if (MH_CreateHook(targetFunc, detourFunc, reinterpret_cast<LPVOID *>(&fOriginal)) != MH_OK)
-		{
-			char errorString[512];
-			sprintf_s(errorString, 512, "Failed to create hook with this signature: %s", typeid(T).name());
-			Game::errorMsg(errorString);
-			return 1;
-		}
-		pTarget = targetFunc;
-	}
+        int createHook(LPVOID targetFunc, LPVOID detourFunc)
+        {
+                if (MH_CreateHook(targetFunc, detourFunc, reinterpret_cast<LPVOID *>(&fOriginal)) != MH_OK)
+                {
+                        char errorString[512];
+                        sprintf_s(errorString, 512, "Failed to create hook with this signature: %s", typeid(T).name());
+                        Game::errorMsg(errorString);
+                        return 1;
+                }
+                pTarget = targetFunc;
+                return 0;
+        }
 
-	int enableHook()
-	{
-		if (MH_EnableHook(pTarget) != MH_OK)
-		{
-			Game::errorMsg("Failed to enable hook");
-			return 1;
-		}
-		isEnabled = true;
-	}
+        int enableHook()
+        {
+                if (MH_EnableHook(pTarget) != MH_OK)
+                {
+                        Game::errorMsg("Failed to enable hook");
+                        return 1;
+                }
+                isEnabled = true;
+                return 0;
+        }
 
-	int disableHook()
-	{
-		if (MH_DisableHook(pTarget) != MH_OK)
-		{
-			Game::errorMsg("Failed to disable hook");
-			return 1;
-		}
-		isEnabled = false;
-	}
+        int disableHook()
+        {
+                if (MH_DisableHook(pTarget) != MH_OK)
+                {
+                        Game::errorMsg("Failed to disable hook");
+                        return 1;
+                }
+                isEnabled = false;
+                return 0;
+        }
 };
 
 

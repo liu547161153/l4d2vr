@@ -250,7 +250,7 @@ public:
 	void HandleMissingRenderContext(const char* location);
 	void SubmitVRTextures();
 	void LogCompositorError(const char* action, vr::EVRCompositorError error);
-        void RepositionOverlays();
+        void RepositionOverlays(bool attachToControllers = true);
         void GetPoses();
         bool UpdatePosesAndActions();
         void GetViewParameters();
