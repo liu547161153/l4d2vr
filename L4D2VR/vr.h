@@ -232,6 +232,8 @@ public:
         float m_HudDistance = 1.3;
         float m_HudSize = 1.1;
         float m_ControllerHudSize = 0.5f;
+        float m_ControllerHudYOffset = 0.12f;
+        float m_ControllerHudZOffset = 0.0f;
         bool m_HudAlwaysVisible = false;
         float m_ControllerSmoothing = 0.0f;
         bool m_ControllerSmoothingInitialized = false;

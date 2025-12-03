@@ -527,12 +527,11 @@ void VR::RepositionOverlays()
 
             if (controllerIndex != vr::k_unTrackedDeviceIndexInvalid)
             {
-                const float controllerHudHeightOffset = 0.12f;
                 vr::HmdMatrix34_t relativeTransform =
                 {
                     1.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 1.0f, 0.0f, controllerHudHeightOffset,
-                    0.0f, 0.0f, 1.0f, 0.0f
+                    0.0f, 1.0f, 0.0f, m_ControllerHudYOffset,
+                    0.0f, 0.0f, 1.0f, m_ControllerHudZOffset
                 };
 
                 vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(overlay, controllerIndex, &relativeTransform);
@@ -1849,6 +1848,8 @@ void VR::ParseConfigFile()
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_ControllerHudSize = getFloat("ControllerHudSize", m_ControllerHudSize);
+    m_ControllerHudYOffset = getFloat("ControllerHudYOffset", m_ControllerHudYOffset);
+    m_ControllerHudZOffset = getFloat("ControllerHudZOffset", m_ControllerHudZOffset);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     float controllerSmoothingValue = m_ControllerSmoothing;
     if (userConfig.find("ControllerSmoothing") != userConfig.end())
