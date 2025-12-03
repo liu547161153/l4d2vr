@@ -434,7 +434,7 @@ void VR::GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& po
     }
 }
 
-void VR::RepositionOverlays()
+void VR::RepositionOverlays(bool attachToControllers)
 {
     vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
     vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
@@ -507,7 +507,14 @@ void VR::RepositionOverlays()
     Vector hudNewPos = hudDistance + hmdPosition;
     hudNewPos.y -= 0.25f;
 
-    vr::HmdMatrix34_t hudTopTransform = buildFacingTransform(hudNewPos);
+    float hudAspect = static_cast<float>(windowHeight) / static_cast<float>(windowWidth);
+    float hudHalfStackOffset = (m_HudSize * hudAspect) * 0.25f;
+
+    Vector hudCenterPos = hudNewPos;
+    Vector hudTopPos = hudCenterPos;
+    hudTopPos.y += hudHalfStackOffset;
+
+    vr::HmdMatrix34_t hudTopTransform = buildFacingTransform(hudTopPos);
 
     vr::VROverlay()->SetOverlayTransformAbsolute(m_HUDTopHandle, trackingOrigin, &hudTopTransform);
     vr::VROverlay()->SetOverlayWidthInMeters(m_HUDTopHandle, m_HudSize);
@@ -520,9 +527,9 @@ void VR::RepositionOverlays()
         vr::VROverlayHandle_t overlay = m_HUDBottomHandles[i];
 
         // Bottom 1 & 4 attach to controllers, 2 & 3 stay fixed in front
-        if (i == 0 || i == 3)
+        if (attachToControllers && (i == 0 || i == 3))
         {
-            vr::TrackedControllerRole controllerRole = (i == 0) ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
+            vr::ETrackedControllerRole controllerRole = (i == 0) ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
             vr::TrackedDeviceIndex_t controllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(controllerRole);
 
             if (controllerIndex != vr::k_unTrackedDeviceIndexInvalid)
@@ -530,7 +537,7 @@ void VR::RepositionOverlays()
                 vr::HmdMatrix34_t relativeTransform =
                 {
                     1.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 1.0f, 0.0f, m_ControllerHudYOffset,
+                    0.0f, 1.0f, 0.0f, m_ControllerHudYOffset - hudHalfStackOffset,
                     0.0f, 0.0f, 1.0f, m_ControllerHudZOffset
                 };
 
@@ -545,7 +552,8 @@ void VR::RepositionOverlays()
         else
         {
             Vector offset = hudRight * ((static_cast<float>(i) - 1.5f) * segmentWidth);
-            Vector segmentPos = hudNewPos + offset;
+            Vector segmentPos = hudCenterPos + offset;
+            segmentPos.y -= hudHalfStackOffset;
             vr::HmdMatrix34_t segmentTransform = buildFacingTransform(segmentPos);
             vr::VROverlay()->SetOverlayTransformAbsolute(overlay, trackingOrigin, &segmentTransform);
             vr::VROverlay()->SetOverlayWidthInMeters(overlay, segmentWidth);
@@ -983,15 +991,18 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
-    auto showHudOverlays = [&]()
+    auto showHudOverlays = [&](bool attachToControllers)
         {
             vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
             for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
             {
-                if (i == 0 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) == vr::k_unTrackedDeviceIndexInvalid)
-                    continue;
-                if (i == 3 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
-                    continue;
+                if (attachToControllers)
+                {
+                    if (i == 0 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) == vr::k_unTrackedDeviceIndexInvalid)
+                        continue;
+                    if (i == 3 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
+                        continue;
+                }
 
                 vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
             }
@@ -1005,17 +1016,18 @@ void VR::ProcessInput()
         };
 
     bool isControllerVertical = m_RightControllerAngAbs.x > 60 || m_RightControllerAngAbs.x < -45;
-    if ((PressedDigitalAction(m_ShowHUD) || PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudAlwaysVisible)
-        && m_RenderedHud)
+    bool menuActive = m_Game->m_EngineClient->IsPaused();
+    bool wantsHud = PressedDigitalAction(m_ShowHUD) || PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudAlwaysVisible;
+    if ((wantsHud && m_RenderedHud) || menuActive)
     {
-        RepositionOverlays();
+        RepositionOverlays(!menuActive);
 
         if (PressedDigitalAction(m_Scoreboard))
             m_Game->ClientCmd_Unrestricted("+showscores");
         else
             m_Game->ClientCmd_Unrestricted("-showscores");
 
-        showHudOverlays();
+        showHudOverlays(!menuActive);
     }
     else
     {
@@ -1026,7 +1038,8 @@ void VR::ProcessInput()
     if (PressedDigitalAction(m_Pause, true))
     {
         m_Game->ClientCmd_Unrestricted("gameui_activate");
-        RepositionOverlays();
+        RepositionOverlays(false);
+        showHudOverlays(false);
     }
 }
 
