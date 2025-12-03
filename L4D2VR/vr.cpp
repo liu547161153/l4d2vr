@@ -87,8 +87,8 @@ VR::VR(Game* game)
     m_Overlay->CreateOverlay("MenuOverlayKey", "MenuOverlay", &m_MainMenuHandle);
     m_Overlay->CreateOverlay("HUDOverlayTopKey", "HUDOverlayTop", &m_HUDTopHandle);
 
-    const char* bottomOverlayKeys[4] = { "HUDOverlayBottom1", "HUDOverlayBottom2", "HUDOverlayBottom3", "HUDOverlayBottom4" };
-    for (int i = 0; i < 4; ++i)
+    const char* bottomOverlayKeys[5] = { "HUDOverlayBottom1", "HUDOverlayBottom2", "HUDOverlayBottom3", "HUDOverlayBottom4", "HUDOverlayBottom5" };
+    for (int i = 0; i < 5; ++i)
     {
         m_Overlay->CreateOverlay(bottomOverlayKeys[i], bottomOverlayKeys[i], &m_HUDBottomHandles[i]);
     }
@@ -315,11 +315,12 @@ void VR::SubmitVRTextures()
         };
 
     const vr::VRTextureBounds_t topBounds{ 0.0f, 0.0f, 1.0f, 0.5f };
-    const std::array<vr::VRTextureBounds_t, 4> bottomBounds{
-        vr::VRTextureBounds_t{ 0.0f, 0.5f, 0.25f, 1.0f },
-        vr::VRTextureBounds_t{ 0.25f, 0.5f, 0.5f, 1.0f },
-        vr::VRTextureBounds_t{ 0.5f, 0.5f, 0.75f, 1.0f },
-        vr::VRTextureBounds_t{ 0.75f, 0.5f, 1.0f, 1.0f }
+    const std::array<vr::VRTextureBounds_t, 5> bottomBounds{
+        vr::VRTextureBounds_t{ 0.0f, 0.5f, 0.2f, 1.0f },
+        vr::VRTextureBounds_t{ 0.2f, 0.5f, 0.4f, 1.0f },
+        vr::VRTextureBounds_t{ 0.4f, 0.5f, 0.6f, 1.0f },
+        vr::VRTextureBounds_t{ 0.6f, 0.5f, 0.8f, 1.0f },
+        vr::VRTextureBounds_t{ 0.8f, 0.5f, 1.0f, 1.0f }
     };
 
     auto applyHudTexture = [&](vr::VROverlayHandle_t overlay, const vr::VRTextureBounds_t& bounds)
@@ -359,7 +360,7 @@ void VR::SubmitVRTextures()
 
     vr::VROverlay()->HideOverlay(m_MainMenuHandle);
     applyHudTexture(m_HUDTopHandle, topBounds);
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 5; ++i)
     {
         applyHudTexture(m_HUDBottomHandles[i], bottomBounds[i]);
     }
@@ -370,7 +371,7 @@ void VR::SubmitVRTextures()
         {
             if (i == 0 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) == vr::k_unTrackedDeviceIndexInvalid)
                 continue;
-            if (i == 3 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
+            if (i == 4 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
                 continue;
 
             vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
@@ -520,25 +521,32 @@ void VR::RepositionOverlays(bool attachToControllers)
     vr::VROverlay()->SetOverlayWidthInMeters(m_HUDTopHandle, m_HudSize);
 
     Vector hudRight = { cos(hmdRotationDegrees), 0.0f, -sin(hmdRotationDegrees) };
-    float segmentWidth = m_HudSize / 4.0f;
+    float segmentWidth = m_HudSize / 5.0f;
 
     for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
     {
         vr::VROverlayHandle_t overlay = m_HUDBottomHandles[i];
 
-        // Bottom 1 & 4 attach to controllers, 2 & 3 stay fixed in front
-        if (attachToControllers && (i == 0 || i == 3))
+        // Bottom 1 & 5 attach to controllers, 2-4 stay fixed in front
+        if (attachToControllers && (i == 0 || i == 4))
         {
             vr::ETrackedControllerRole controllerRole = (i == 0) ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
             vr::TrackedDeviceIndex_t controllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(controllerRole);
 
             if (controllerIndex != vr::k_unTrackedDeviceIndexInvalid)
             {
+                // m_ControllerHudRotation is in degrees; allow any magnitude (e.g., 15, 90, 360+) for easier tuning.
+                const float controllerHudRotationRad = m_ControllerHudRotation * (3.14159265358979323846f / 180.0f);
+                const float cosRotation = cosf(controllerHudRotationRad);
+                const float sinRotation = sinf(controllerHudRotationRad);
+
+                const float controllerHudXOffset = (i == 0) ? -m_ControllerHudXOffset : m_ControllerHudXOffset;
+
                 vr::HmdMatrix34_t relativeTransform =
                 {
-                    1.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 1.0f, 0.0f, m_ControllerHudYOffset - hudHalfStackOffset,
-                    0.0f, 0.0f, 1.0f, m_ControllerHudZOffset
+                    1.0f, 0.0f, 0.0f, controllerHudXOffset,
+                    0.0f, cosRotation, -sinRotation, m_ControllerHudYOffset - hudHalfStackOffset,
+                    0.0f, sinRotation,  cosRotation, m_ControllerHudZOffset
                 };
 
                 vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(overlay, controllerIndex, &relativeTransform);
@@ -551,7 +559,7 @@ void VR::RepositionOverlays(bool attachToControllers)
         }
         else
         {
-            Vector offset = hudRight * ((static_cast<float>(i) - 1.5f) * segmentWidth);
+            Vector offset = hudRight * ((static_cast<float>(i) - 2.0f) * segmentWidth);
             Vector segmentPos = hudCenterPos + offset;
             segmentPos.y -= hudHalfStackOffset;
             vr::HmdMatrix34_t segmentTransform = buildFacingTransform(segmentPos);
@@ -1899,6 +1907,8 @@ void VR::ParseConfigFile()
     m_ControllerHudSize = getFloat("ControllerHudSize", m_ControllerHudSize);
     m_ControllerHudYOffset = getFloat("ControllerHudYOffset", m_ControllerHudYOffset);
     m_ControllerHudZOffset = getFloat("ControllerHudZOffset", m_ControllerHudZOffset);
+    m_ControllerHudRotation = getFloat("ControllerHudRotation", m_ControllerHudRotation);
+    m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     float controllerSmoothingValue = m_ControllerSmoothing;
     if (userConfig.find("ControllerSmoothing") != userConfig.end())
