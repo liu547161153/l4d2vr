@@ -5,18 +5,9 @@ SnapTurning=false
 SnapTurnAngle=45.0
 LeftHanded=false
 HideArms=false
-DisableFirstPersonArmSway=false
 IPDScale=1.0
-HudAlwaysVisible=false
+HudAlwaysVisible=true
 HudSize=1.8
-ControllerHudSize=0.5
-ControllerHudYOffset=0.12
-ControllerHudZOffset=0.0
-# ControllerHudRotation 单位是“度”，可以填任意正负角度（例如 15、45、90）。
-# 值越大 HUD 越朝你抬头；也可以填入大于 360 的值来绕圈调试。
-ControllerHudRotation=0.0
-# ControllerHudXOffset 控制左右分离/靠拢的距离；正值让左右 HUD 向外分开，负值让它们更靠近中线。
-ControllerHudXOffset=0.0
 ControllerSmoothing=0
 ForceNonVRServerMovement=false
 RequireSecondaryAttackForItemSwitch=true
@@ -24,3 +15,8 @@ AimLineEnabled=true
 AimLineThickness=0.3
 AimLineFrameDurationMultiplier=1.5
 AimLineColor=255,0,0,180
+ControllerHudSize=0.1
+ControllerHudYOffset=0.1
+ControllerHudZOffset=-0.3
+ControllerHudRotation=-60
+ControllerHudXOffset=0.1
