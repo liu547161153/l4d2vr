@@ -20,3 +20,6 @@ ControllerHudYOffset=0.1
 ControllerHudZOffset=-0.3
 ControllerHudRotation=-60
 ControllerHudXOffset=0.1
+SpecialInfectedArrowEnabled=true
+SpecialInfectedArrowSize=24.0
+SpecialInfectedArrowColor=255,64,0,255
