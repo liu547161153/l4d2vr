@@ -20,11 +20,10 @@ ControllerHudYOffset=0.1
 ControllerHudZOffset=-0.3
 ControllerHudRotation=-60
 ControllerHudXOffset=0.1
-SpecialInfectedArrowEnabled=true
+SpecialInfectedArrowEnabled=false
 SpecialInfectedArrowSize=24.0
 SpecialInfectedArrowHeight=72.0
 SpecialInfectedArrowThickness=0.0
-// L4D1 特感会自动跟随这些颜色设置
 SpecialInfectedArrowColor=255,64,0,255
 SpecialInfectedArrowColorBoomer=120,220,80,255
 SpecialInfectedArrowColorSmoker=180,80,255,255
