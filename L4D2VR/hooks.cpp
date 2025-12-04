@@ -277,7 +277,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			const float ny = norm(ay);
 
 			// 最大移动速度：给一个安全常数；服务器会按自身规则再夹紧
-			const float maxSpeed = 250.f;
+                        const float maxSpeed = m_VR->m_AdjustingViewmodel ? 25.f : 250.f;
 
 			// 直接写 CUserCmd（服务器端对这两个字段天然支持）
 			cmd->forwardmove += ny * maxSpeed;
