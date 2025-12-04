@@ -1,3 +1,4 @@
+
 #pragma once
 #include <Windows.h>
 
@@ -131,15 +132,15 @@ public:
 	bool m_ViewmodelAdjustmentsDirty = false;
 	std::string m_ViewmodelAdjustmentSavePath;
 
-        bool m_AdjustingViewmodel = false;
-        std::string m_AdjustingKey;
-        Vector m_AdjustStartLeftPos = { 0,0,0 };
-        QAngle m_AdjustStartLeftAng = { 0,0,0 };
-        Vector m_AdjustStartViewmodelPos = { 0,0,0 };
-        QAngle m_AdjustStartViewmodelAng = { 0,0,0 };
-        Vector m_AdjustStartViewmodelForward = { 0,0,0 };
-        Vector m_AdjustStartViewmodelRight = { 0,0,0 };
-        Vector m_AdjustStartViewmodelUp = { 0,0,0 };
+	bool m_AdjustingViewmodel = false;
+	std::string m_AdjustingKey;
+	Vector m_AdjustStartLeftPos = { 0,0,0 };
+	QAngle m_AdjustStartLeftAng = { 0,0,0 };
+	Vector m_AdjustStartViewmodelPos = { 0,0,0 };
+	QAngle m_AdjustStartViewmodelAng = { 0,0,0 };
+	Vector m_AdjustStartViewmodelForward = { 0,0,0 };
+	Vector m_AdjustStartViewmodelRight = { 0,0,0 };
+	Vector m_AdjustStartViewmodelUp = { 0,0,0 };
 
 	Vector m_AimLineStart = { 0,0,0 };
 	Vector m_AimLineEnd = { 0,0,0 };
@@ -268,6 +269,11 @@ public:
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
+	bool m_SpecialInfectedArrowEnabled = true;
+	float m_SpecialInfectedArrowSize = 12.0f;
+	int m_SpecialInfectedArrowColorR = 255;
+	int m_SpecialInfectedArrowColorG = 64;
+	int m_SpecialInfectedArrowColorB = 0;
 
 	VR() {};
 	VR(Game* game);
@@ -325,6 +331,8 @@ public:
 	void DrawThrowArc(const Vector& origin, const Vector& forward);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
+	bool IsSpecialInfectedModel(const std::string& modelName) const;
+	void DrawSpecialInfectedArrow(const Vector& origin);
 	void FinishFrame();
 	void ConfigureExplicitTiming();
 };
