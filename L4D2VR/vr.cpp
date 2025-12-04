@@ -1452,6 +1452,7 @@ void VR::UpdateTracking()
     wrapAngles(m_RightControllerAngSmoothed);
 
     Vector rightControllerPosSmoothed = m_RightControllerPosSmoothed;
+    Vector leftControllerPosSmoothed = m_LeftControllerPosSmoothed;
     QAngle leftControllerAngSmoothed = m_LeftControllerAngSmoothed;
     QAngle rightControllerAngSmoothed = m_RightControllerAngSmoothed;
 
