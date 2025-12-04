@@ -10,7 +10,6 @@
 #include <sstream>
 #include <unordered_map>
 #include <string>
-#include <filesystem>
 #include <thread>
 #include <algorithm>
 #include <cctype>
@@ -40,6 +39,11 @@ VR::VR(Game* game)
         Game::errorMsg("Compositor initialization failed.");
         return;
     }
+
+    char currentDir[MAX_STR_LEN];
+    GetCurrentDirectory(MAX_STR_LEN, currentDir);
+    m_ViewmodelAdjustmentSavePath = std::string(currentDir) + "\\viewmodel_adjustments.txt";
+    LoadViewmodelAdjustments();
 
     ConfigureExplicitTiming();
 
@@ -937,9 +941,41 @@ void VR::ProcessInput()
     bool reloadButtonDown = reloadDataValid && reloadActionData.bState;
     bool reloadJustPressed = reloadDataValid && reloadActionData.bState && reloadActionData.bChanged;
 
+    vr::InputDigitalActionData_t secondaryAttackActionData{};
+    bool secondaryAttackDataValid = GetDigitalActionData(m_ActionSecondaryAttack, secondaryAttackActionData);
+    bool secondaryAttackActive = secondaryAttackDataValid && secondaryAttackActionData.bState;
+
     vr::InputDigitalActionData_t flashlightActionData{};
     bool flashlightDataValid = GetDigitalActionData(m_ActionFlashlight, flashlightActionData);
     bool flashlightJustPressed = flashlightDataValid && flashlightActionData.bState && flashlightActionData.bChanged;
+
+    const bool adjustViewmodelActive = reloadButtonDown && secondaryAttackActive;
+
+    if (adjustViewmodelActive && !m_AdjustingViewmodel)
+    {
+        m_AdjustingViewmodel = true;
+        m_AdjustStartLeftPos = m_LeftControllerPosAbs;
+        m_AdjustStartLeftAng = m_LeftControllerAngAbs;
+        m_AdjustStartViewmodelPos = m_ViewmodelPosAdjust;
+        m_AdjustStartViewmodelAng = m_ViewmodelAngAdjust;
+        m_AdjustingKey = m_CurrentViewmodelKey;
+        Game::logMsg("[VR] Viewmodel adjust start for %s (pos %.2f %.2f %.2f, ang %.2f %.2f %.2f)",
+            m_AdjustingKey.c_str(), m_ViewmodelPosAdjust.x, m_ViewmodelPosAdjust.y, m_ViewmodelPosAdjust.z,
+            m_ViewmodelAngAdjust.x, m_ViewmodelAngAdjust.y, m_ViewmodelAngAdjust.z);
+    }
+    else if (!adjustViewmodelActive && m_AdjustingViewmodel)
+    {
+        m_AdjustingViewmodel = false;
+        m_AdjustingKey.clear();
+        if (m_ViewmodelAdjustmentsDirty)
+        {
+            SaveViewmodelAdjustments();
+        }
+
+        Game::logMsg("[VR] Viewmodel adjust end for %s (pos %.2f %.2f %.2f, ang %.2f %.2f %.2f)",
+            m_CurrentViewmodelKey.c_str(), m_ViewmodelPosAdjust.x, m_ViewmodelPosAdjust.y, m_ViewmodelPosAdjust.z,
+            m_ViewmodelAngAdjust.x, m_ViewmodelAngAdjust.y, m_ViewmodelAngAdjust.z);
+    }
 
     if (resetJustPressed)
     {
@@ -966,7 +1002,7 @@ void VR::ProcessInput()
         m_VoiceRecordActive = false;
     }
 
-    if (!crouchButtonDown && reloadButtonDown)
+    if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
     {
         m_Game->ClientCmd_Unrestricted("+reload");
     }
@@ -975,11 +1011,7 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-reload");
     }
 
-    vr::InputDigitalActionData_t secondaryAttackActionData{};
-    bool secondaryAttackDataValid = GetDigitalActionData(m_ActionSecondaryAttack, secondaryAttackActionData);
-    bool secondaryAttackActive = secondaryAttackDataValid && secondaryAttackActionData.bState;
-
-    if (secondaryAttackActive)
+    if (secondaryAttackActive && !adjustViewmodelActive)
     {
         m_Game->ClientCmd_Unrestricted("+attack2");
     }
@@ -1263,6 +1295,7 @@ void VR::UpdateTracking()
         return;
 
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
+    RefreshActiveViewmodelAdjustment(localPlayer);
 
     // HMD tracking
     QAngle hmdAngLocal = m_HmdPose.TrackedDeviceAng;
@@ -1449,10 +1482,46 @@ void VR::UpdateTracking()
     QAngle::VectorAngles(m_LeftControllerForward, m_LeftControllerUp, m_LeftControllerAngAbs);
     QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, m_RightControllerAngAbs);
 
+    if (m_AdjustingViewmodel)
+    {
+        auto wrapDelta = [](float angle)
+            {
+                angle -= 360.0f * std::floor((angle + 180.0f) / 360.0f);
+                return angle;
+            };
+
+        if (m_AdjustingKey != m_CurrentViewmodelKey)
+        {
+            m_AdjustStartLeftPos = m_LeftControllerPosAbs;
+            m_AdjustStartLeftAng = m_LeftControllerAngAbs;
+            m_AdjustStartViewmodelPos = m_ViewmodelPosAdjust;
+            m_AdjustStartViewmodelAng = m_ViewmodelAngAdjust;
+            m_AdjustingKey = m_CurrentViewmodelKey;
+        }
+
+        Vector deltaPos = m_LeftControllerPosAbs - m_AdjustStartLeftPos;
+        QAngle deltaAng =
+        {
+            wrapDelta(m_LeftControllerAngAbs.x - m_AdjustStartLeftAng.x),
+            wrapDelta(m_LeftControllerAngAbs.y - m_AdjustStartLeftAng.y),
+            wrapDelta(m_LeftControllerAngAbs.z - m_AdjustStartLeftAng.z)
+        };
+
+        m_ViewmodelPosAdjust = m_AdjustStartViewmodelPos + deltaPos;
+        m_ViewmodelAngAdjust =
+        {
+            m_AdjustStartViewmodelAng.x + deltaAng.x,
+            m_AdjustStartViewmodelAng.y + deltaAng.y,
+            m_AdjustStartViewmodelAng.z + deltaAng.z
+        };
+        m_ViewmodelAdjustments[m_CurrentViewmodelKey] = { m_ViewmodelPosAdjust, m_ViewmodelAngAdjust };
+        m_ViewmodelAdjustmentsDirty = true;
+    }
+
     PositionAngle viewmodelOffset = localPlayer->GetViewmodelOffset();
 
-    m_ViewmodelPosOffset = viewmodelOffset.position;
-    m_ViewmodelAngOffset = viewmodelOffset.angle;
+    m_ViewmodelPosOffset = viewmodelOffset.position + m_ViewmodelPosAdjust;
+    m_ViewmodelAngOffset = viewmodelOffset.angle + m_ViewmodelAngAdjust;
 
     m_ViewmodelForward = m_RightControllerForward;
     m_ViewmodelUp = m_RightControllerUp;
@@ -1789,6 +1858,187 @@ void VR::ResetPosition()
     m_HeightOffset += m_SetupOrigin.z - m_HmdPosAbs.z;
 }
 
+std::string VR::GetMeleeWeaponName(C_WeaponCSBase* weapon) const
+{
+    if (!weapon)
+        return std::string();
+
+    if (!m_Game || !m_Game->m_Offsets)
+    {
+        Game::logMsg("[VR] Missing offsets while resolving melee weapon name.");
+        return std::string();
+    }
+
+    typedef CMeleeWeaponInfoStore* (__thiscall* tGetMeleeWepInfo)(void* thisptr);
+    static tGetMeleeWepInfo oGetMeleeWepInfo = nullptr;
+
+    if (!oGetMeleeWepInfo)
+        oGetMeleeWepInfo = (tGetMeleeWepInfo)(m_Game->m_Offsets->GetMeleeWeaponInfoClient.address);
+
+    if (!oGetMeleeWepInfo)
+        return std::string();
+
+    CMeleeWeaponInfoStore* meleeWepInfo = oGetMeleeWepInfo(weapon);
+    if (!meleeWepInfo)
+        return std::string();
+
+    std::string meleeName(meleeWepInfo->meleeWeaponName);
+    std::transform(meleeName.begin(), meleeName.end(), meleeName.begin(), ::tolower);
+    return meleeName;
+}
+
+std::string VR::BuildViewmodelAdjustKey(C_WeaponCSBase* weapon) const
+{
+    if (!weapon)
+        return "weapon:none";
+
+    C_WeaponCSBase::WeaponID weaponId = weapon->GetWeaponID();
+
+    if (weaponId == C_WeaponCSBase::WeaponID::MELEE)
+    {
+        std::string meleeName = GetMeleeWeaponName(weapon);
+        if (!meleeName.empty())
+            return "melee:" + meleeName;
+
+        Game::logMsg("[VR] Failed to resolve melee name, using generic key.");
+        return "melee:unknown";
+    }
+
+    return "weapon:" + std::to_string(static_cast<int>(weaponId));
+}
+
+ViewmodelAdjustment& VR::EnsureViewmodelAdjustment(const std::string& key)
+{
+    auto [it, inserted] = m_ViewmodelAdjustments.emplace(key, m_DefaultViewmodelAdjust);
+    return it->second;
+}
+
+void VR::RefreshActiveViewmodelAdjustment(C_BasePlayer* localPlayer)
+{
+    C_WeaponCSBase* activeWeapon = localPlayer ? (C_WeaponCSBase*)localPlayer->GetActiveWeapon() : nullptr;
+    std::string adjustKey = BuildViewmodelAdjustKey(activeWeapon);
+
+    m_CurrentViewmodelKey = adjustKey;
+
+    if (m_LastLoggedViewmodelKey != m_CurrentViewmodelKey)
+    {
+        Game::logMsg("[VR] Active viewmodel adjust key: %s", m_CurrentViewmodelKey.c_str());
+        m_LastLoggedViewmodelKey = m_CurrentViewmodelKey;
+    }
+
+    ViewmodelAdjustment& adjustment = EnsureViewmodelAdjustment(adjustKey);
+    m_ViewmodelPosAdjust = adjustment.position;
+    m_ViewmodelAngAdjust = adjustment.angle;
+}
+
+void VR::LoadViewmodelAdjustments()
+{
+    m_ViewmodelAdjustments.clear();
+
+    if (m_ViewmodelAdjustmentSavePath.empty())
+    {
+        Game::logMsg("[VR] No viewmodel adjustment save path configured.");
+        return;
+    }
+
+    std::ifstream adjustmentStream(m_ViewmodelAdjustmentSavePath);
+    if (!adjustmentStream)
+    {
+        Game::logMsg("[VR] Viewmodel adjustment file missing, will create on save: %s", m_ViewmodelAdjustmentSavePath.c_str());
+        return;
+    }
+
+    auto ltrim = [](std::string& s) {
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+        };
+    auto rtrim = [](std::string& s) {
+        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
+        };
+    auto trim = [&](std::string& s) { ltrim(s); rtrim(s); };
+
+    auto parseVector3 = [&](const std::string& raw, const Vector& defaults)->Vector
+        {
+            Vector result = defaults;
+            std::stringstream ss(raw);
+            std::string token;
+            float* components[3] = { &result.x, &result.y, &result.z };
+            int index = 0;
+
+            while (std::getline(ss, token, ',') && index < 3)
+            {
+                trim(token);
+                if (!token.empty())
+                {
+                    try
+                    {
+                        *components[index] = std::stof(token);
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+                ++index;
+            }
+
+            return result;
+        };
+
+    std::string line;
+    while (std::getline(adjustmentStream, line))
+    {
+        trim(line);
+        if (line.empty())
+            continue;
+
+        size_t eq = line.find('=');
+        size_t separator = line.find(';', eq == std::string::npos ? 0 : eq + 1);
+
+        if (eq == std::string::npos || separator == std::string::npos || separator <= eq)
+            continue;
+
+        std::string key = line.substr(0, eq);
+        trim(key);
+        if (key.empty())
+            continue;
+
+        std::string posStr = line.substr(eq + 1, separator - eq - 1);
+        std::string angStr = line.substr(separator + 1);
+
+        Vector posAdjust = parseVector3(posStr, m_DefaultViewmodelAdjust.position);
+        Vector angAdjustVec = parseVector3(angStr, Vector{ m_DefaultViewmodelAdjust.angle.x, m_DefaultViewmodelAdjust.angle.y, m_DefaultViewmodelAdjust.angle.z });
+
+        m_ViewmodelAdjustments[key] = { posAdjust, { angAdjustVec.x, angAdjustVec.y, angAdjustVec.z } };
+    }
+
+    Game::logMsg("[VR] Loaded %zu viewmodel adjustment entries from %s", m_ViewmodelAdjustments.size(), m_ViewmodelAdjustmentSavePath.c_str());
+    m_ViewmodelAdjustmentsDirty = false;
+}
+
+void VR::SaveViewmodelAdjustments()
+{
+    if (m_ViewmodelAdjustmentSavePath.empty())
+    {
+        Game::logMsg("[VR] Cannot save viewmodel adjustments: missing path.");
+        return;
+    }
+
+    std::ofstream adjustmentStream(m_ViewmodelAdjustmentSavePath, std::ios::trunc);
+    if (!adjustmentStream)
+    {
+        Game::logMsg("[VR] Failed to open %s for saving viewmodel adjustments", m_ViewmodelAdjustmentSavePath.c_str());
+        return;
+    }
+
+    for (const auto& [key, adjustment] : m_ViewmodelAdjustments)
+    {
+        adjustmentStream << key << '=' << adjustment.position.x << ',' << adjustment.position.y << ',' << adjustment.position.z;
+        adjustmentStream << ';' << adjustment.angle.x << ',' << adjustment.angle.y << ',' << adjustment.angle.z << "\n";
+    }
+
+    Game::logMsg("[VR] Saved %zu viewmodel adjustment entries to %s", m_ViewmodelAdjustments.size(), m_ViewmodelAdjustmentSavePath.c_str());
+    m_ViewmodelAdjustmentsDirty = false;
+}
+
 void VR::ParseConfigFile()
 {
     std::ifstream configStream("VR\\config.txt");
@@ -1893,6 +2143,35 @@ void VR::ParseConfigFile()
 
         return color;
         };
+    auto getVector3 = [&](const char* k, const Vector& defVal)->Vector {
+        auto it = userConfig.find(k);
+        if (it == userConfig.end())
+            return defVal;
+
+        Vector result = defVal;
+        std::stringstream ss(it->second);
+        std::string token;
+        float* components[3] = { &result.x, &result.y, &result.z };
+        int index = 0;
+
+        while (std::getline(ss, token, ',') && index < 3)
+        {
+            trim(token);
+            if (!token.empty())
+            {
+                try
+                {
+                    *components[index] = std::stof(token);
+                }
+                catch (...)
+                {
+                }
+            }
+            ++index;
+        }
+
+        return result;
+        };
 
     // 用当前成员的值作为默认值（构造时已初始化）
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
@@ -1937,27 +2216,27 @@ void VR::WaitForConfigUpdate()
     sprintf_s(configDir, MAX_STR_LEN, "%s\\VR\\", currentDir);
     HANDLE fileChangeHandle = FindFirstChangeNotificationA(configDir, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
 
-    std::filesystem::file_time_type configLastModified;
+    FILETIME configLastModified{};
     while (1)
     {
-        try
-        {
-            // Windows only notifies of change within a directory, so extra check here for just config.txt
-            auto configModifiedTime = std::filesystem::last_write_time("VR\\config.txt");
-            if (configModifiedTime != configLastModified)
-            {
-                configLastModified = configModifiedTime;
-                ParseConfigFile();
-            }
-        }
-        catch (const std::invalid_argument& e)
-        {
-            m_Game->errorMsg("Failed to parse config.txt");
-        }
-        catch (const std::filesystem::filesystem_error& e)
+        WIN32_FILE_ATTRIBUTE_DATA fileAttributes{};
+        if (!GetFileAttributesExA("VR\\config.txt", GetFileExInfoStandard, &fileAttributes))
         {
             m_Game->errorMsg("config.txt not found.");
             return;
+        }
+
+        if (CompareFileTime(&fileAttributes.ftLastWriteTime, &configLastModified) != 0)
+        {
+            configLastModified = fileAttributes.ftLastWriteTime;
+            try
+            {
+                ParseConfigFile();
+            }
+            catch (const std::invalid_argument&)
+            {
+                m_Game->errorMsg("Failed to parse config.txt");
+            }
         }
 
         FindNextChangeNotification(fileChangeHandle);
