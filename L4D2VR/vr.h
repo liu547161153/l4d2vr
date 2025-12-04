@@ -5,6 +5,8 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
+#include <string>
+#include <unordered_map>
 
 #define MAX_STR_LEN 256
 
@@ -14,6 +16,12 @@ class C_WeaponCSBase;
 class IDirect3DTexture9;
 class IDirect3DSurface9;
 class ITexture;
+
+struct ViewmodelAdjustment
+{
+        Vector position;
+        QAngle angle;
+};
 
 
 struct TrackedDevicePoseData
@@ -107,13 +115,28 @@ public:
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.5f;
 
-	Vector m_LeftControllerPosAbs;
-	QAngle m_LeftControllerAngAbs;
-	Vector m_RightControllerPosAbs;
-	QAngle m_RightControllerAngAbs;
+        Vector m_LeftControllerPosAbs;
+        QAngle m_LeftControllerAngAbs;
+        Vector m_RightControllerPosAbs;
+        QAngle m_RightControllerAngAbs;
 
-	Vector m_ViewmodelPosOffset;
-	QAngle m_ViewmodelAngOffset;
+        Vector m_ViewmodelPosOffset;
+        QAngle m_ViewmodelAngOffset;
+        Vector m_ViewmodelPosAdjust = { 0,0,0 };
+        QAngle m_ViewmodelAngAdjust = { 0,0,0 };
+        ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };
+        std::unordered_map<std::string, ViewmodelAdjustment> m_ViewmodelAdjustments{};
+        std::string m_CurrentViewmodelKey;
+        std::string m_LastLoggedViewmodelKey;
+        bool m_ViewmodelAdjustmentsDirty = false;
+        std::string m_ViewmodelAdjustmentSavePath;
+
+        bool m_AdjustingViewmodel = false;
+        std::string m_AdjustingKey;
+        Vector m_AdjustStartLeftPos = { 0,0,0 };
+        QAngle m_AdjustStartLeftAng = { 0,0,0 };
+        Vector m_AdjustStartViewmodelPos = { 0,0,0 };
+        QAngle m_AdjustStartViewmodelAng = { 0,0,0 };
 
         Vector m_AimLineStart = { 0,0,0 };
         Vector m_AimLineEnd = { 0,0,0 };
@@ -279,10 +302,16 @@ public:
 	bool PressedDigitalAction(vr::VRActionHandle_t& actionHandle, bool checkIfActionChanged = false);
 	bool GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigitalActionData_t& digitalDataOut);
 	bool GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut);
-	void ResetPosition();
-	void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
-	void ParseConfigFile();
-	void WaitForConfigUpdate();
+        void ResetPosition();
+        void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
+        void ParseConfigFile();
+        void LoadViewmodelAdjustments();
+        void SaveViewmodelAdjustments();
+        void RefreshActiveViewmodelAdjustment(C_BasePlayer* localPlayer);
+        ViewmodelAdjustment& EnsureViewmodelAdjustment(const std::string& key);
+        std::string BuildViewmodelAdjustKey(C_WeaponCSBase* weapon) const;
+        std::string GetMeleeWeaponName(C_WeaponCSBase* weapon) const;
+        void WaitForConfigUpdate();
         bool GetWalkAxis(float& x, float& y);
         bool m_EncodeVRUsercmd = true;
         void UpdateAimingLaser(C_BasePlayer* localPlayer);
