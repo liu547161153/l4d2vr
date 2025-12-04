@@ -951,6 +951,35 @@ void VR::ProcessInput()
 
     const bool adjustViewmodelActive = reloadButtonDown && secondaryAttackActive;
 
+    PositionAngle viewmodelOffset = localPlayer->GetViewmodelOffset();
+
+    auto updateAdjustStartBasis = [&]()
+        {
+            Vector forward = m_RightControllerForward;
+            Vector up = m_RightControllerUp;
+            Vector right = m_RightControllerRight;
+
+            QAngle angOffset =
+            {
+                viewmodelOffset.angle.x + m_ViewmodelAngAdjust.x,
+                viewmodelOffset.angle.y + m_ViewmodelAngAdjust.y,
+                viewmodelOffset.angle.z + m_ViewmodelAngAdjust.z
+            };
+
+            forward = VectorRotate(forward, up, angOffset.y);
+            right = VectorRotate(right, up, angOffset.y);
+
+            forward = VectorRotate(forward, right, angOffset.x);
+            up = VectorRotate(up, right, angOffset.x);
+
+            right = VectorRotate(right, forward, angOffset.z);
+            up = VectorRotate(up, forward, angOffset.z);
+
+            m_AdjustStartViewmodelForward = forward;
+            m_AdjustStartViewmodelRight = right;
+            m_AdjustStartViewmodelUp = up;
+        };
+
     if (adjustViewmodelActive && !m_AdjustingViewmodel)
     {
         m_AdjustingViewmodel = true;
@@ -959,6 +988,7 @@ void VR::ProcessInput()
         m_AdjustStartViewmodelPos = m_ViewmodelPosAdjust;
         m_AdjustStartViewmodelAng = m_ViewmodelAngAdjust;
         m_AdjustingKey = m_CurrentViewmodelKey;
+        updateAdjustStartBasis();
         Game::logMsg("[VR] Viewmodel adjust start for %s (pos %.2f %.2f %.2f, ang %.2f %.2f %.2f)",
             m_AdjustingKey.c_str(), m_ViewmodelPosAdjust.x, m_ViewmodelPosAdjust.y, m_ViewmodelPosAdjust.z,
             m_ViewmodelAngAdjust.x, m_ViewmodelAngAdjust.y, m_ViewmodelAngAdjust.z);
@@ -1497,6 +1527,7 @@ void VR::UpdateTracking()
             m_AdjustStartViewmodelPos = m_ViewmodelPosAdjust;
             m_AdjustStartViewmodelAng = m_ViewmodelAngAdjust;
             m_AdjustingKey = m_CurrentViewmodelKey;
+            updateAdjustStartBasis();
         }
 
         Vector deltaPos = m_LeftControllerPosAbs - m_AdjustStartLeftPos;
@@ -1507,7 +1538,27 @@ void VR::UpdateTracking()
             wrapDelta(m_LeftControllerAngAbs.z - m_AdjustStartLeftAng.z)
         };
 
-        m_ViewmodelPosAdjust = m_AdjustStartViewmodelPos + deltaPos;
+        Vector viewmodelForward = m_AdjustStartViewmodelForward;
+        Vector viewmodelRight = m_AdjustStartViewmodelRight;
+        Vector viewmodelUp = m_AdjustStartViewmodelUp;
+
+        viewmodelForward = VectorRotate(viewmodelForward, viewmodelUp, deltaAng.y);
+        viewmodelRight = VectorRotate(viewmodelRight, viewmodelUp, deltaAng.y);
+
+        viewmodelForward = VectorRotate(viewmodelForward, viewmodelRight, deltaAng.x);
+        viewmodelUp = VectorRotate(viewmodelUp, viewmodelRight, deltaAng.x);
+
+        viewmodelRight = VectorRotate(viewmodelRight, viewmodelForward, deltaAng.z);
+        viewmodelUp = VectorRotate(viewmodelUp, viewmodelForward, deltaAng.z);
+
+        Vector deltaLocal =
+        {
+            DotProduct(deltaPos, viewmodelForward),
+            DotProduct(deltaPos, viewmodelRight),
+            DotProduct(deltaPos, viewmodelUp)
+        };
+
+        m_ViewmodelPosAdjust = m_AdjustStartViewmodelPos + deltaLocal;
         m_ViewmodelAngAdjust =
         {
             m_AdjustStartViewmodelAng.x + deltaAng.x,
@@ -1517,8 +1568,6 @@ void VR::UpdateTracking()
         m_ViewmodelAdjustments[m_CurrentViewmodelKey] = { m_ViewmodelPosAdjust, m_ViewmodelAngAdjust };
         m_ViewmodelAdjustmentsDirty = true;
     }
-
-    PositionAngle viewmodelOffset = localPlayer->GetViewmodelOffset();
 
     m_ViewmodelPosOffset = viewmodelOffset.position + m_ViewmodelPosAdjust;
     m_ViewmodelAngOffset = viewmodelOffset.angle + m_ViewmodelAngAdjust;
