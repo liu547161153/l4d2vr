@@ -958,6 +958,9 @@ void VR::ProcessInput()
         m_AdjustStartLeftAng = m_LeftControllerAngAbs;
         m_AdjustStartViewmodelPos = m_ViewmodelPosAdjust;
         m_AdjustStartViewmodelAng = m_ViewmodelAngAdjust;
+        m_AdjustStartViewmodelForward = m_ViewmodelForward;
+        m_AdjustStartViewmodelRight = m_ViewmodelRight;
+        m_AdjustStartViewmodelUp = m_ViewmodelUp;
         m_AdjustingKey = m_CurrentViewmodelKey;
         Game::logMsg("[VR] Viewmodel adjust start for %s (pos %.2f %.2f %.2f, ang %.2f %.2f %.2f)",
             m_AdjustingKey.c_str(), m_ViewmodelPosAdjust.x, m_ViewmodelPosAdjust.y, m_ViewmodelPosAdjust.z,
@@ -1454,13 +1457,18 @@ void VR::UpdateTracking()
 
     Vector hmdToController = rightControllerPosSmoothed - hmdPosLocal;
     Vector rightControllerPosCorrected = hmdPosSmoothed + hmdToController;
+    Vector leftHmdToController = leftControllerPosSmoothed - hmdPosLocal;
+    Vector leftControllerPosCorrected = hmdPosSmoothed + leftHmdToController;
 
     // When using stick turning, pivot the controllers around the HMD
     VectorPivotXY(rightControllerPosCorrected, hmdPosSmoothed, m_RotationOffset);
+    VectorPivotXY(leftControllerPosCorrected, hmdPosSmoothed, m_RotationOffset);
 
     Vector rightControllerPosLocalInWorld = rightControllerPosCorrected * m_VRScale;
+    Vector leftControllerPosLocalInWorld = leftControllerPosCorrected * m_VRScale;
 
     m_RightControllerPosAbs = m_CameraAnchor - Vector(0, 0, 64) + rightControllerPosLocalInWorld;
+    m_LeftControllerPosAbs = m_CameraAnchor - Vector(0, 0, 64) + leftControllerPosLocalInWorld;
 
     rightControllerAngSmoothed.y += m_RotationOffset;
     // Wrap angle from -180 to 180
@@ -1496,10 +1504,19 @@ void VR::UpdateTracking()
             m_AdjustStartLeftAng = m_LeftControllerAngAbs;
             m_AdjustStartViewmodelPos = m_ViewmodelPosAdjust;
             m_AdjustStartViewmodelAng = m_ViewmodelAngAdjust;
+            m_AdjustStartViewmodelForward = m_ViewmodelForward;
+            m_AdjustStartViewmodelRight = m_ViewmodelRight;
+            m_AdjustStartViewmodelUp = m_ViewmodelUp;
             m_AdjustingKey = m_CurrentViewmodelKey;
         }
 
         Vector deltaPos = m_LeftControllerPosAbs - m_AdjustStartLeftPos;
+        Vector viewmodelDelta =
+        {
+            DotProduct(deltaPos, m_AdjustStartViewmodelForward),
+            DotProduct(deltaPos, m_AdjustStartViewmodelRight),
+            DotProduct(deltaPos, m_AdjustStartViewmodelUp)
+        };
         QAngle deltaAng =
         {
             wrapDelta(m_LeftControllerAngAbs.x - m_AdjustStartLeftAng.x),
@@ -1507,7 +1524,7 @@ void VR::UpdateTracking()
             wrapDelta(m_LeftControllerAngAbs.z - m_AdjustStartLeftAng.z)
         };
 
-        m_ViewmodelPosAdjust = m_AdjustStartViewmodelPos + deltaPos;
+        m_ViewmodelPosAdjust = m_AdjustStartViewmodelPos + viewmodelDelta;
         m_ViewmodelAngAdjust =
         {
             m_AdjustStartViewmodelAng.x + deltaAng.x,

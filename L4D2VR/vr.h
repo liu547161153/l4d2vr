@@ -131,12 +131,15 @@ public:
 	bool m_ViewmodelAdjustmentsDirty = false;
 	std::string m_ViewmodelAdjustmentSavePath;
 
-	bool m_AdjustingViewmodel = false;
-	std::string m_AdjustingKey;
-	Vector m_AdjustStartLeftPos = { 0,0,0 };
-	QAngle m_AdjustStartLeftAng = { 0,0,0 };
-	Vector m_AdjustStartViewmodelPos = { 0,0,0 };
-	QAngle m_AdjustStartViewmodelAng = { 0,0,0 };
+        bool m_AdjustingViewmodel = false;
+        std::string m_AdjustingKey;
+        Vector m_AdjustStartLeftPos = { 0,0,0 };
+        QAngle m_AdjustStartLeftAng = { 0,0,0 };
+        Vector m_AdjustStartViewmodelPos = { 0,0,0 };
+        QAngle m_AdjustStartViewmodelAng = { 0,0,0 };
+        Vector m_AdjustStartViewmodelForward = { 0,0,0 };
+        Vector m_AdjustStartViewmodelRight = { 0,0,0 };
+        Vector m_AdjustStartViewmodelUp = { 0,0,0 };
 
 	Vector m_AimLineStart = { 0,0,0 };
 	Vector m_AimLineEnd = { 0,0,0 };
