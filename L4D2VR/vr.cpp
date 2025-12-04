@@ -1844,6 +1844,56 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     }
 }
 
+bool VR::IsSpecialInfectedModel(const std::string& modelName) const
+{
+    std::string lower = modelName;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    static const std::array<const char*, 9> specialKeywords =
+    {
+        "boomer",
+        "smoker",
+        "hunter",
+        "spitter",
+        "jockey",
+        "charger",
+        "tank",
+        "hulk",
+        "witch"
+    };
+
+    return std::any_of(specialKeywords.begin(), specialKeywords.end(), [&](const char* keyword)
+        {
+            return lower.find(keyword) != std::string::npos;
+        });
+}
+
+void VR::DrawSpecialInfectedArrow(const Vector& origin)
+{
+    if (!m_SpecialInfectedArrowEnabled || m_SpecialInfectedArrowSize <= 0.0f)
+        return;
+
+    if (!m_Game || !m_Game->m_DebugOverlay)
+        return;
+
+    const float baseHeight = m_SpecialInfectedArrowSize * 3.0f;
+    const float wingLength = m_SpecialInfectedArrowSize;
+    const Vector base = origin + Vector(0.0f, 0.0f, baseHeight);
+    const Vector tip = base + Vector(0.0f, 0.0f, -m_SpecialInfectedArrowSize);
+    const float duration = std::max(m_LastFrameDuration, 0.03f);
+
+    auto drawArrowLine = [&](const Vector& start, const Vector& end)
+        {
+            m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_SpecialInfectedArrowColorR, m_SpecialInfectedArrowColorG, m_SpecialInfectedArrowColorB, true, duration);
+        };
+
+    drawArrowLine(base, tip);
+    drawArrowLine(base + Vector(wingLength, 0.0f, 0.0f), tip);
+    drawArrowLine(base + Vector(-wingLength, 0.0f, 0.0f), tip);
+    drawArrowLine(base + Vector(0.0f, wingLength, 0.0f), tip);
+    drawArrowLine(base + Vector(0.0f, -wingLength, 0.0f), tip);
+}
+
 Vector VR::GetViewAngle()
 {
     return Vector(m_HmdAngAbs.x, m_HmdAngAbs.y, m_HmdAngAbs.z);
@@ -2224,6 +2274,12 @@ void VR::ParseConfigFile()
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
+    m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
+    m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
+    auto specialInfectedArrowColor = getColor("SpecialInfectedArrowColor", m_SpecialInfectedArrowColorR, m_SpecialInfectedArrowColorG, m_SpecialInfectedArrowColorB, 255);
+    m_SpecialInfectedArrowColorR = specialInfectedArrowColor[0];
+    m_SpecialInfectedArrowColorG = specialInfectedArrowColor[1];
+    m_SpecialInfectedArrowColorB = specialInfectedArrowColor[2];
 }
 
 void VR::WaitForConfigUpdate()
