@@ -1844,39 +1844,56 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     }
 }
 
-bool VR::IsSpecialInfectedModel(const std::string& modelName) const
+VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName) const
 {
     std::string lower = modelName;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-    static const std::array<const char*, 9> specialKeywords =
+    static const std::array<std::pair<const char*, SpecialInfectedType>, 19> specialKeywords =
     {
-        "boomer",
-        "smoker",
-        "hunter",
-        "spitter",
-        "jockey",
-        "charger",
-        "tank",
-        "hulk",
-        "witch"
+        // L4D2 defaults
+        std::make_pair("boomer", SpecialInfectedType::Boomer),
+        std::make_pair("smoker", SpecialInfectedType::Smoker),
+        std::make_pair("hunter", SpecialInfectedType::Hunter),
+        std::make_pair("spitter", SpecialInfectedType::Spitter),
+        std::make_pair("jockey", SpecialInfectedType::Jockey),
+        std::make_pair("charger", SpecialInfectedType::Charger),
+        std::make_pair("tank", SpecialInfectedType::Tank),
+        std::make_pair("hulk", SpecialInfectedType::Tank),
+        std::make_pair("witch", SpecialInfectedType::Witch),
+        // L4D1 variants share the same colors
+        std::make_pair("boomer_l4d1", SpecialInfectedType::Boomer),
+        std::make_pair("l4d1_boomer", SpecialInfectedType::Boomer),
+        std::make_pair("smoker_l4d1", SpecialInfectedType::Smoker),
+        std::make_pair("l4d1_smoker", SpecialInfectedType::Smoker),
+        std::make_pair("hunter_l4d1", SpecialInfectedType::Hunter),
+        std::make_pair("l4d1_hunter", SpecialInfectedType::Hunter),
+        std::make_pair("tank_l4d1", SpecialInfectedType::Tank),
+        std::make_pair("l4d1_tank", SpecialInfectedType::Tank),
+        std::make_pair("hulk_l4d1", SpecialInfectedType::Tank),
+        std::make_pair("l4d1_hulk", SpecialInfectedType::Tank)
     };
 
-    return std::any_of(specialKeywords.begin(), specialKeywords.end(), [&](const char* keyword)
+    auto it = std::find_if(specialKeywords.begin(), specialKeywords.end(), [&](const auto& entry)
         {
-            return lower.find(keyword) != std::string::npos;
+            return lower.find(entry.first) != std::string::npos;
         });
+
+    if (it != specialKeywords.end())
+        return it->second;
+
+    return SpecialInfectedType::None;
 }
 
-void VR::DrawSpecialInfectedArrow(const Vector& origin)
+void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type)
 {
-    if (!m_SpecialInfectedArrowEnabled || m_SpecialInfectedArrowSize <= 0.0f)
+    if (!m_SpecialInfectedArrowEnabled || m_SpecialInfectedArrowSize <= 0.0f || type == SpecialInfectedType::None)
         return;
 
     if (!m_Game || !m_Game->m_DebugOverlay)
         return;
 
-    const float baseHeight = m_SpecialInfectedArrowSize * 3.0f;
+    const float baseHeight = m_SpecialInfectedArrowHeight;
     const float wingLength = m_SpecialInfectedArrowSize;
     const Vector base = origin + Vector(0.0f, 0.0f, baseHeight);
     const Vector tip = base + Vector(0.0f, 0.0f, -m_SpecialInfectedArrowSize);
@@ -1884,7 +1901,32 @@ void VR::DrawSpecialInfectedArrow(const Vector& origin)
 
     auto drawArrowLine = [&](const Vector& start, const Vector& end)
         {
-            m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_SpecialInfectedArrowColorR, m_SpecialInfectedArrowColorG, m_SpecialInfectedArrowColorB, true, duration);
+            const float offset = m_SpecialInfectedArrowThickness * 0.5f;
+
+            const size_t typeIndex = static_cast<size_t>(type);
+            const RgbColor& arrowColor = typeIndex < m_SpecialInfectedArrowColors.size()
+                ? m_SpecialInfectedArrowColors[typeIndex]
+                : m_SpecialInfectedArrowDefaultColor;
+
+            if (offset <= 0.0f)
+            {
+                m_Game->m_DebugOverlay->AddLineOverlay(start, end, arrowColor.r, arrowColor.g, arrowColor.b, true, duration);
+                return;
+            }
+
+            const std::array<Vector, 5> offsets =
+            {
+                Vector(0.0f, 0.0f, 0.0f),
+                Vector(offset, 0.0f, 0.0f),
+                Vector(-offset, 0.0f, 0.0f),
+                Vector(0.0f, offset, 0.0f),
+                Vector(0.0f, -offset, 0.0f)
+            };
+
+            for (const auto& lineOffset : offsets)
+            {
+                m_Game->m_DebugOverlay->AddLineOverlay(start + lineOffset, end + lineOffset, arrowColor.r, arrowColor.g, arrowColor.b, true, duration);
+            }
         };
 
     drawArrowLine(base, tip);
@@ -2276,10 +2318,48 @@ void VR::ParseConfigFile()
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
     m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
-    auto specialInfectedArrowColor = getColor("SpecialInfectedArrowColor", m_SpecialInfectedArrowColorR, m_SpecialInfectedArrowColorG, m_SpecialInfectedArrowColorB, 255);
-    m_SpecialInfectedArrowColorR = specialInfectedArrowColor[0];
-    m_SpecialInfectedArrowColorG = specialInfectedArrowColor[1];
-    m_SpecialInfectedArrowColorB = specialInfectedArrowColor[2];
+    m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
+    m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
+    auto specialInfectedArrowColor = getColor("SpecialInfectedArrowColor", m_SpecialInfectedArrowDefaultColor.r, m_SpecialInfectedArrowDefaultColor.g, m_SpecialInfectedArrowDefaultColor.b, 255);
+    const bool hasGlobalArrowColor = userConfig.find("SpecialInfectedArrowColor") != userConfig.end();
+    m_SpecialInfectedArrowDefaultColor.r = specialInfectedArrowColor[0];
+    m_SpecialInfectedArrowDefaultColor.g = specialInfectedArrowColor[1];
+    m_SpecialInfectedArrowDefaultColor.b = specialInfectedArrowColor[2];
+
+    if (hasGlobalArrowColor)
+    {
+        for (auto& color : m_SpecialInfectedArrowColors)
+        {
+            color.r = m_SpecialInfectedArrowDefaultColor.r;
+            color.g = m_SpecialInfectedArrowDefaultColor.g;
+            color.b = m_SpecialInfectedArrowDefaultColor.b;
+        }
+    }
+
+    static const std::array<std::pair<SpecialInfectedType, const char*>, 8> arrowColorConfigKeys =
+    {
+        std::make_pair(SpecialInfectedType::Boomer, "Boomer"),
+        std::make_pair(SpecialInfectedType::Smoker, "Smoker"),
+        std::make_pair(SpecialInfectedType::Hunter, "Hunter"),
+        std::make_pair(SpecialInfectedType::Spitter, "Spitter"),
+        std::make_pair(SpecialInfectedType::Jockey, "Jockey"),
+        std::make_pair(SpecialInfectedType::Charger, "Charger"),
+        std::make_pair(SpecialInfectedType::Tank, "Tank"),
+        std::make_pair(SpecialInfectedType::Witch, "Witch")
+    };
+
+    for (const auto& [type, suffix] : arrowColorConfigKeys)
+    {
+        const size_t typeIndex = static_cast<size_t>(type);
+        if (typeIndex >= m_SpecialInfectedArrowColors.size())
+            continue;
+
+        std::string key = std::string("SpecialInfectedArrowColor") + suffix;
+        auto color = getColor(key.c_str(), m_SpecialInfectedArrowColors[typeIndex].r, m_SpecialInfectedArrowColors[typeIndex].g, m_SpecialInfectedArrowColors[typeIndex].b, 255);
+        m_SpecialInfectedArrowColors[typeIndex].r = color[0];
+        m_SpecialInfectedArrowColors[typeIndex].g = color[1];
+        m_SpecialInfectedArrowColors[typeIndex].b = color[2];
+    }
 }
 
 void VR::WaitForConfigUpdate()
