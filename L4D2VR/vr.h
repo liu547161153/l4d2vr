@@ -268,43 +268,12 @@ public:
 	bool m_ControllerSmoothingInitialized = false;
 
 	bool m_ForceNonVRServerMovement = false;
-        bool m_RequireSecondaryAttackForItemSwitch = true;
-        struct RgbColor
-        {
-            int r;
-            int g;
-            int b;
-        };
-
-        enum class SpecialInfectedType
-        {
-            None = -1,
-            Boomer,
-            Smoker,
-            Hunter,
-            Spitter,
-            Jockey,
-            Charger,
-            Tank,
-            Witch,
-            Count
-        };
-
-        bool m_SpecialInfectedArrowEnabled = true;
-        float m_SpecialInfectedArrowSize = 12.0f;
-        float m_SpecialInfectedArrowHeight = 36.0f;
-        float m_SpecialInfectedArrowThickness = 0.0f;
-        RgbColor m_SpecialInfectedArrowDefaultColor{ 255, 64, 0 };
-        std::array<RgbColor, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedArrowColors{
-            RgbColor{ 120, 220, 80 },   // Boomer
-            RgbColor{ 180, 80, 255 },   // Smoker
-            RgbColor{ 0, 170, 255 },    // Hunter
-            RgbColor{ 60, 220, 120 },   // Spitter
-            RgbColor{ 255, 140, 20 },   // Jockey
-            RgbColor{ 0, 200, 200 },    // Charger
-            RgbColor{ 240, 40, 40 },    // Tank
-            RgbColor{ 255, 255, 255 }   // Witch
-        };
+	bool m_RequireSecondaryAttackForItemSwitch = true;
+	bool m_SpecialInfectedArrowEnabled = true;
+	float m_SpecialInfectedArrowSize = 12.0f;
+	int m_SpecialInfectedArrowColorR = 255;
+	int m_SpecialInfectedArrowColorG = 64;
+	int m_SpecialInfectedArrowColorB = 0;
 
 	VR() {};
 	VR(Game* game);
@@ -362,8 +331,8 @@ public:
 	void DrawThrowArc(const Vector& origin, const Vector& forward);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
-    SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
-    void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
+	bool IsSpecialInfectedModel(const std::string& modelName) const;
+	void DrawSpecialInfectedArrow(const Vector& origin);
 	void FinishFrame();
 	void ConfigureExplicitTiming();
 };
