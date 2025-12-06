@@ -678,10 +678,9 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
 
-                const auto infectedType = m_VR->GetSpecialInfectedType(modelName);
-                if (infectedType != VR::SpecialInfectedType::None)
-                        m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
-        }
+		if (m_VR->IsSpecialInfectedModel(modelName))
+			m_VR->DrawSpecialInfectedArrow(info.origin);
+	}
 
 	if (info.pModel && hideArms && !m_Game->m_CachedArmsModel)
 	{
