@@ -228,7 +228,6 @@ void VR::Update()
     }
 
     UpdateTracking();
-    ScanSpecialInfectedEntities();
 
 
     if (m_Game->m_VguiSurface->IsCursorVisible())
@@ -1945,146 +1944,31 @@ void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type
     drawArrowLine(base + Vector(0.0f, -wingLength, 0.0f), tip);
 }
 
-void VR::ScanSpecialInfectedEntities()
-{
-    struct ScanDebug
-    {
-        bool enabled = false;
-        int highestIndex = -1;
-        int totalEntities = 0;
-        int nullEntities = 0;
-        int missingClassName = 0;
-        int specialInfected = 0;
-        int blindSpotCandidates = 0;
-        int warningsActivated = 0;
-        int arrowsDrawn = 0;
-        float lastDistance = -1.0f;
-    } debug;
-
-    debug.enabled = m_SpecialInfectedWarningDebugLog;
-
-    if (!m_Game || !m_Game->m_ClientEntityList || !m_Game->m_ModelInfo || !m_Game->m_EngineClient)
-    {
-        if (debug.enabled)
-            Game::logMsg("[S.I.Warn] Scan skipped: missing interfaces (game=%p, list=%p, modelInfo=%p, engine=%p)", m_Game, m_Game ? m_Game->m_ClientEntityList : nullptr, m_Game ? m_Game->m_ModelInfo : nullptr, m_Game ? m_Game->m_EngineClient : nullptr);
-        return;
-    }
-
-    if (!m_Game->m_EngineClient->IsInGame())
-    {
-        if (debug.enabled)
-            Game::logMsg("[S.I.Warn] Scan skipped: not in game");
-        return;
-    }
-
-    const int highestIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
-    debug.highestIndex = highestIndex;
-    for (int entityIndex = 0; entityIndex <= highestIndex; ++entityIndex)
-    {
-        ++debug.totalEntities;
-
-        C_BaseEntity* entity = m_Game->GetClientEntity(entityIndex);
-        if (!entity)
-        {
-            ++debug.nullEntities;
-            continue;
-        }
-
-        const char* className = m_Game->GetNetworkClassName(entity);
-        if (!className)
-        {
-            ++debug.missingClassName;
-            continue;
-        }
-
-        const auto infectedType = GetSpecialInfectedType(className);
-        if (infectedType == SpecialInfectedType::None)
-            continue;
-
-        ++debug.specialInfected;
-
-        const Vector& origin = entity->GetAbsOrigin();
-        float distanceSqr = -1.0f;
-        const bool isInBlindSpot = IsSpecialInfectedInBlindSpot(origin, &distanceSqr);
-        if (isInBlindSpot)
-            ++debug.blindSpotCandidates;
-        if (distanceSqr >= 0.0f)
-            debug.lastDistance = std::sqrt(distanceSqr);
-
-        if (RefreshSpecialInfectedBlindSpotWarning(origin, isInBlindSpot, distanceSqr))
-            ++debug.warningsActivated;
-
-        const bool arrowWouldDraw = m_SpecialInfectedArrowEnabled && m_SpecialInfectedArrowSize > 0.0f && infectedType != SpecialInfectedType::None && m_Game && m_Game->m_DebugOverlay;
-        if (arrowWouldDraw)
-            ++debug.arrowsDrawn;
-        DrawSpecialInfectedArrow(origin, infectedType);
-    }
-
-    if (debug.enabled)
-    {
-        Game::logMsg("[S.I.Warn] Scan frame: highest=%d total=%d null=%d noClass=%d special=%d blindSpot=%d activated=%d arrows=%d lastDist=%.1f", debug.highestIndex, debug.totalEntities, debug.nullEntities, debug.missingClassName, debug.specialInfected, debug.blindSpotCandidates, debug.warningsActivated, debug.arrowsDrawn, debug.lastDistance);
-    }
-}
-
-bool VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin, bool isInBlindSpot, float distanceSqr)
+void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
 {
     if (m_SpecialInfectedBlindSpotDistance <= 0.0f)
-    {
-        if (m_SpecialInfectedWarningDebugLog)
-            Game::logMsg("[S.I.Warn] Blind-spot disabled (distance=%.2f)", m_SpecialInfectedBlindSpotDistance);
-        return false;
-    }
+        return;
 
-    float computedDistanceSqr = distanceSqr;
-    if (computedDistanceSqr < 0.0f)
-    {
-        isInBlindSpot = IsSpecialInfectedInBlindSpot(infectedOrigin, &computedDistanceSqr);
-    }
-
-    if (!isInBlindSpot)
-    {
-        if (m_SpecialInfectedWarningDebugLog && computedDistanceSqr >= 0.0f)
-            Game::logMsg("[S.I.Warn] Outside blind-spot (dist=%.1f, max=%.1f)", std::sqrt(computedDistanceSqr), m_SpecialInfectedBlindSpotDistance);
-        return false;
-    }
+    if (!IsSpecialInfectedInBlindSpot(infectedOrigin))
+        return;
 
     m_SpecialInfectedBlindSpotWarningActive = true;
     m_LastSpecialInfectedWarningTime = std::chrono::steady_clock::now();
-
-    if (m_SpecialInfectedWarningDebugLog)
-    {
-        const float distance = computedDistanceSqr >= 0.0f ? std::sqrt(computedDistanceSqr) : -1.0f;
-        Game::logMsg("[S.I.Warn] Warning activated (dist=%.1f, threshold=%.1f)", distance, m_SpecialInfectedBlindSpotDistance);
-    }
-
-    return true;
 }
 
-bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin, float* distanceSqrOut) const
+bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
 {
     Vector toInfected = infectedOrigin - m_HmdPosAbs;
     toInfected.z = 0.0f;
     if (toInfected.IsZero())
-    {
-        if (distanceSqrOut)
-            *distanceSqrOut = 0.0f;
         return false;
-    }
 
     const float maxDistance = m_SpecialInfectedBlindSpotDistance;
     if (maxDistance <= 0.0f)
-    {
-        if (distanceSqrOut)
-            *distanceSqrOut = 0.0f;
         return false;
-    }
-
-    const float distanceSqr = toInfected.LengthSqr();
-    if (distanceSqrOut)
-        *distanceSqrOut = distanceSqr;
 
     const float maxDistanceSq = maxDistance * maxDistance;
-    return distanceSqr <= maxDistanceSq;
+    return toInfected.LengthSqr() <= maxDistanceSq;
 }
 
 void VR::UpdateSpecialInfectedWarningState()
@@ -2495,14 +2379,13 @@ void VR::ParseConfigFile()
     m_AimLineColorA = aimColor[3];
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
-	m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
-	m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
-	m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
-	m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
-	m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
-	m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
-	m_SpecialInfectedWarningDebugLog = getBool("SpecialInfectedWarningDebugLog", m_SpecialInfectedWarningDebugLog);
-	m_SpecialInfectedBlindSpotDistance = std::max(0.0f, getFloat("SpecialInfectedBlindSpotDistance", m_SpecialInfectedBlindSpotDistance));
+    m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+    m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
+    m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
+    m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
+    m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
+    m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
+    m_SpecialInfectedBlindSpotDistance = std::max(0.0f, getFloat("SpecialInfectedBlindSpotDistance", m_SpecialInfectedBlindSpotDistance));
     auto specialInfectedArrowColor = getColor("SpecialInfectedArrowColor", m_SpecialInfectedArrowDefaultColor.r, m_SpecialInfectedArrowDefaultColor.g, m_SpecialInfectedArrowDefaultColor.b, 255);
     const bool hasGlobalArrowColor = userConfig.find("SpecialInfectedArrowColor") != userConfig.end();
     m_SpecialInfectedArrowDefaultColor.r = specialInfectedArrowColor[0];
