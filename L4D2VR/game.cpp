@@ -180,45 +180,37 @@ void Game::ResetAllPlayerVRInfo()
 }
 
 // === Entity Access ===
-C_BaseEntity* Game::GetClientEntity(int entityIndex)
+CBaseEntity* Game::GetClientEntity(int entityIndex)
 {
     if (!m_ClientEntityList)
         return nullptr;
 
-    return static_cast<C_BaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
-}
-
-namespace
-{
-    ClientClass* GetClientClassFromEntity(void* entity)
-    {
-        if (!entity)
-            return nullptr;
-
-        IClientUnknown* unknown = static_cast<IClientUnknown*>(entity);
-        IClientNetworkable* networkable = static_cast<IClientNetworkable*>(unknown->GetClientNetworkable());
-        if (!networkable)
-            return nullptr;
-
-        return networkable->GetClientClass();
-    }
+    return static_cast<CBaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
 }
 
 // === Network Name Utility ===
 char* Game::getNetworkName(uintptr_t* entity)
 {
-    ClientClass* clientClass = GetClientClassFromEntity(reinterpret_cast<void*>(entity));
-    const char* name = clientClass ? clientClass->m_pNetworkName : nullptr;
-    const int classID = clientClass ? clientClass->m_ClassID : 0;
+    if (!entity)
+        return nullptr;
+
+    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
+    if (!vtable)
+        return nullptr;
+
+    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
+    if (!getClientClassFn)
+        return nullptr;
+
+    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
+    if (!clientClass)
+        return nullptr;
+
+    char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
+    int classID = static_cast<int>(*(clientClass + 0x10));
 
     Game::logMsg("[NetworkClass] ID: %d, Name: %s", classID, name ? name : "nullptr");
-    return const_cast<char*>(name);
-}
-
-const char* Game::GetNetworkClassName(void* entity) const
-{
-    ClientClass* clientClass = GetClientClassFromEntity(entity);
-    return clientClass ? clientClass->m_pNetworkName : nullptr;
+    return name;
 }
 
 // === Commands ===

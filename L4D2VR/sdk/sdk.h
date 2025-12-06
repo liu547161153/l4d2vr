@@ -42,23 +42,6 @@ public:
     virtual int					GetMaxEntities() = 0;
 };
 
-struct ClientClass
-{
-        void* m_pCreateFn;
-        void* m_pCreateEventFn;
-        const char* m_pNetworkName;
-        void* m_pRecvTable;
-        ClientClass* m_pNext;
-        int m_ClassID;
-};
-
-class IClientNetworkable
-{
-public:
-        virtual IClientUnknown* GetIClientUnknown() = 0;
-        virtual void Release() = 0;
-        virtual ClientClass* GetClientClass() = 0;
-};
 
 
 typedef struct player_info_s
