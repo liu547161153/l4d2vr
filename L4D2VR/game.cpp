@@ -180,12 +180,35 @@ void Game::ResetAllPlayerVRInfo()
 }
 
 // === Entity Access ===
-CBaseEntity* Game::GetClientEntity(int entityIndex)
+C_BaseEntity* Game::GetClientEntity(int entityIndex)
 {
     if (!m_ClientEntityList)
         return nullptr;
 
-    return static_cast<CBaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
+    return static_cast<C_BaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
+}
+
+namespace
+{
+    const char* ExtractNetworkClassNameFromEntity(uintptr_t* entity)
+    {
+        if (!entity)
+            return nullptr;
+
+        uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
+        if (!vtable)
+            return nullptr;
+
+        uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
+        if (!getClientClassFn)
+            return nullptr;
+
+        uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
+        if (!clientClass)
+            return nullptr;
+
+        return reinterpret_cast<char*>(*(clientClass + 0x8));
+    }
 }
 
 // === Network Name Utility ===
@@ -194,23 +217,28 @@ char* Game::getNetworkName(uintptr_t* entity)
     if (!entity)
         return nullptr;
 
+    const char* name = ExtractNetworkClassNameFromEntity(entity);
+
+    int classID = 0;
     uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
-    if (!vtable)
-        return nullptr;
-
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return nullptr;
-
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
-    if (!clientClass)
-        return nullptr;
-
-    char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
-    int classID = static_cast<int>(*(clientClass + 0x10));
+    if (vtable)
+    {
+        uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
+        if (getClientClassFn)
+        {
+            uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
+            if (clientClass)
+                classID = static_cast<int>(*(clientClass + 0x10));
+        }
+    }
 
     Game::logMsg("[NetworkClass] ID: %d, Name: %s", classID, name ? name : "nullptr");
-    return name;
+    return const_cast<char*>(name);
+}
+
+const char* Game::GetNetworkClassName(void* entity) const
+{
+    return ExtractNetworkClassNameFromEntity(reinterpret_cast<uintptr_t*>(entity));
 }
 
 // === Commands ===
