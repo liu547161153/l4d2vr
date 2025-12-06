@@ -19,7 +19,7 @@ class IModelRender;
 class IMaterial;
 class IInput;
 class ISurface;
-class CBaseEntity;
+class C_BaseEntity;
 class C_BasePlayer;
 struct model_t;
 class IVDebugOverlay;
@@ -97,9 +97,9 @@ public:
 
     // === Interface Utilities ===
     void* GetInterface(const char* dllname, const char* interfacename);
-    CBaseEntity* GetClientEntity(int entityIndex);
+    C_BaseEntity* GetClientEntity(int entityIndex);
     char* getNetworkName(uintptr_t* entity);
-    std::string GetClientClassName(CBaseEntity* entity) const;
+    std::string GetClientClassName(C_BaseEntity* entity) const;
 
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);

@@ -182,12 +182,12 @@ void Game::ResetAllPlayerVRInfo()
 }
 
 // === Entity Access ===
-CBaseEntity* Game::GetClientEntity(int entityIndex)
+C_BaseEntity* Game::GetClientEntity(int entityIndex)
 {
     if (!m_ClientEntityList)
         return nullptr;
 
-    return static_cast<CBaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
+    return static_cast<C_BaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
 }
 
 // === Network Name Utility ===
@@ -215,7 +215,7 @@ char* Game::getNetworkName(uintptr_t* entity)
     return name;
 }
 
-std::string Game::GetClientClassName(CBaseEntity* entity) const
+std::string Game::GetClientClassName(C_BaseEntity* entity) const
 {
     if (!entity)
         return {};

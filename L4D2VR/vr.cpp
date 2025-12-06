@@ -1900,7 +1900,7 @@ bool VR::HasBehindInfectedThreat(C_BasePlayer* localPlayer)
     const int highestIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
     for (int i = 0; i <= highestIndex; ++i)
     {
-        auto* entity = static_cast<C_BaseEntity*>(m_Game->GetClientEntity(i));
+        auto* entity = m_Game->GetClientEntity(i);
         if (!entity || entity == localPlayer)
             continue;
 
