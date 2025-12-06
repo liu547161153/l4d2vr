@@ -7,7 +7,6 @@
 #include <chrono>
 #include <ctime>
 #include <mutex>
-#include <string>
 
 #include "sdk.h"
 #include "vr.h"
@@ -15,7 +14,6 @@
 #include "offsets.h"
 #include "sigscanner.h"
 #include "sdk/ivdebugoverlay.h"
-
 
 static std::mutex logMutex;
 using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
@@ -182,12 +180,12 @@ void Game::ResetAllPlayerVRInfo()
 }
 
 // === Entity Access ===
-C_BaseEntity* Game::GetClientEntity(int entityIndex)
+CBaseEntity* Game::GetClientEntity(int entityIndex)
 {
     if (!m_ClientEntityList)
         return nullptr;
 
-    return static_cast<C_BaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
+    return static_cast<CBaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
 }
 
 // === Network Name Utility ===
@@ -213,31 +211,6 @@ char* Game::getNetworkName(uintptr_t* entity)
 
     Game::logMsg("[NetworkClass] ID: %d, Name: %s", classID, name ? name : "nullptr");
     return name;
-}
-
-std::string Game::GetClientClassName(C_BaseEntity* entity) const
-{
-    if (!entity)
-        return {};
-
-    uintptr_t* entityPtr = reinterpret_cast<uintptr_t*>(entity);
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entityPtr + 0x8));
-    if (!vtable)
-        return {};
-
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return {};
-
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
-    if (!clientClass)
-        return {};
-
-    char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
-    if (!name)
-        return {};
-
-    return std::string(name);
 }
 
 // === Commands ===
