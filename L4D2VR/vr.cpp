@@ -1563,8 +1563,6 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     if (!m_Game->m_DebugOverlay)
         return;
 
-    m_BehindInfectedThreatActive = HasBehindInfectedThreat(localPlayer);
-
     C_WeaponCSBase* activeWeapon = nullptr;
     if (localPlayer)
         activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
@@ -1789,9 +1787,7 @@ void VR::DrawThrowArcFromCache(float duration)
 
 void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float duration)
 {
-    const RgbaColor color = GetAimLineDrawColor();
-
-    m_Game->m_DebugOverlay->AddLineOverlay(start, end, color.r, color.g, color.b, false, duration);
+    m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, false, duration);
 
     const float thickness = std::max(m_AimLineThickness, 0.0f);
     if (thickness <= 0.0f)
@@ -1843,89 +1839,10 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
         Vector end0 = end + offset0;
         Vector end1 = end + offset1;
 
-        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, start1, end1, color.r, color.g, color.b, color.a, false, duration);
-        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, end1, end0, color.r, color.g, color.b, color.a, false, duration);
+        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, start1, end1, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA, false, duration);
+        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, end1, end0, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA, false, duration);
     }
 }
-
-VR::RgbaColor VR::GetAimLineDrawColor() const
-{
-    if (m_BehindInfectedThreatActive)
-    {
-        return { m_AimLineAlertColorR, m_AimLineAlertColorG, m_AimLineAlertColorB, m_AimLineColorA };
-    }
-
-    return { m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA };
-}
-
-bool VR::IsInfectedClassName(const std::string& className) const
-{
-    if (className.empty())
-        return false;
-
-    std::string lowered = className;
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-    static const std::array<const char*, 9> infectedKeywords =
-    {
-        "infected",
-        "boomer",
-        "smoker",
-        "hunter",
-        "spitter",
-        "jockey",
-        "charger",
-        "tank",
-        "witch"
-    };
-
-    return std::any_of(infectedKeywords.begin(), infectedKeywords.end(), [&](const char* keyword)
-        {
-            return lowered.find(keyword) != std::string::npos;
-        });
-}
-
-bool VR::HasBehindInfectedThreat(C_BasePlayer* localPlayer)
-{
-    if (!localPlayer || !m_Game || !m_Game->m_ClientEntityList || m_BehindInfectedAlertDistance <= 0.0f)
-        return false;
-
-    Vector playerOrigin = localPlayer->GetAbsOrigin();
-    Vector forward = m_HmdForward;
-    forward.z = 0.0f;
-    if (forward.IsZero())
-        return false;
-    VectorNormalize(forward);
-
-    const int highestIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
-    for (int i = 0; i <= highestIndex; ++i)
-    {
-        auto* entity = m_Game->GetClientEntity(i);
-        if (!entity || entity == localPlayer)
-            continue;
-
-        const std::string className = m_Game->GetClientClassName(entity);
-        if (!IsInfectedClassName(className))
-            continue;
-
-        Vector toEntity = entity->GetAbsOrigin() - playerOrigin;
-        const float distance = toEntity.Length();
-        if (distance > m_BehindInfectedAlertDistance)
-            continue;
-
-        toEntity.z = 0.0f;
-        if (toEntity.IsZero())
-            continue;
-        VectorNormalize(toEntity);
-
-        const float dot = DotProduct(forward, toEntity);
-        if (dot < 0.0f)
-            return true;
-    }
-
-    return false;
-}
-
 
 VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName) const
 {
@@ -2397,7 +2314,6 @@ void VR::ParseConfigFile()
     m_AimLineColorA = aimColor[3];
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
-    m_BehindInfectedAlertDistance = std::max(0.0f, getFloat("BehindInfectedAlertDistance", m_BehindInfectedAlertDistance));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
