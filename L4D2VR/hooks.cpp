@@ -678,15 +678,13 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
 
-		const auto infectedType = m_VR->GetSpecialInfectedType(modelName);
-		if (infectedType != VR::SpecialInfectedType::None)
-		{
-			float distanceSqr = -1.0f;
-			const bool isInBlindSpot = m_VR->IsSpecialInfectedInBlindSpot(info.origin, &distanceSqr);
-			m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin, isInBlindSpot, distanceSqr);
-			m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
-		}
-	}
+                const auto infectedType = m_VR->GetSpecialInfectedType(modelName);
+                if (infectedType != VR::SpecialInfectedType::None)
+                {
+                        m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+                        m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
+                }
+        }
 
 	if (info.pModel && hideArms && !m_Game->m_CachedArmsModel)
 	{

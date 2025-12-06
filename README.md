@@ -44,12 +44,6 @@ If the game is crashing, try:
 * Disabling all add-ons then verifying integrity of game files
 * Re-installing the game
 
-## Special infected debug logs
-If you need to inspect the blind-spot warning debug output:
-1. Open `L4D2VR/config.txt` and set `SpecialInfectedWarningDebugLog=true`.
-2. Launch the game with the mod; debug lines print to the game console and are also written to `vrmod_log.txt` in your Left 4 Dead 2 install folder.
-3. Disable the flag again when you no longer need detailed logging.
-
 ## Build instructions
 1. ``` git clone --recurse-submodules https://github.com/liu547161153/l4d2vr.git ```
 2. Open l4d2vr.sln
