@@ -1560,6 +1560,8 @@ void VR::UpdateTracking()
 
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 {
+    UpdateSpecialInfectedWarningState();
+
     if (!m_Game->m_DebugOverlay)
         return;
 
@@ -1787,7 +1789,13 @@ void VR::DrawThrowArcFromCache(float duration)
 
 void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float duration)
 {
-    m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, false, duration);
+    int colorR = 0;
+    int colorG = 0;
+    int colorB = 0;
+    int colorA = 0;
+    GetAimLineColor(colorR, colorG, colorB, colorA);
+
+    m_Game->m_DebugOverlay->AddLineOverlay(start, end, colorR, colorG, colorB, false, duration);
 
     const float thickness = std::max(m_AimLineThickness, 0.0f);
     if (thickness <= 0.0f)
@@ -1839,8 +1847,8 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
         Vector end0 = end + offset0;
         Vector end1 = end + offset1;
 
-        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, start1, end1, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA, false, duration);
-        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, end1, end0, m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA, false, duration);
+        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, start1, end1, colorR, colorG, colorB, colorA, false, duration);
+        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, end1, end0, colorR, colorG, colorB, colorA, false, duration);
     }
 }
 
@@ -1934,6 +1942,75 @@ void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type
     drawArrowLine(base + Vector(-wingLength, 0.0f, 0.0f), tip);
     drawArrowLine(base + Vector(0.0f, wingLength, 0.0f), tip);
     drawArrowLine(base + Vector(0.0f, -wingLength, 0.0f), tip);
+}
+
+void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
+{
+    if (m_SpecialInfectedBlindSpotDistance <= 0.0f)
+        return;
+
+    if (!IsSpecialInfectedInBlindSpot(infectedOrigin))
+        return;
+
+    m_SpecialInfectedBlindSpotWarningActive = true;
+    m_LastSpecialInfectedWarningTime = std::chrono::steady_clock::now();
+}
+
+bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
+{
+    Vector forward = m_HmdForward;
+    forward.z = 0.0f;
+    if (forward.IsZero())
+        return false;
+
+    Vector toInfected = infectedOrigin - m_HmdPosAbs;
+    toInfected.z = 0.0f;
+    if (toInfected.IsZero())
+        return false;
+
+    const float maxDistance = m_SpecialInfectedBlindSpotDistance;
+    if (maxDistance <= 0.0f)
+        return false;
+
+    const float maxDistanceSq = maxDistance * maxDistance;
+    if (toInfected.LengthSqr() > maxDistanceSq)
+        return false;
+
+    VectorNormalize(forward);
+    VectorNormalize(toInfected);
+
+    const float dot = DotProduct(forward, toInfected);
+    return dot < 0.0f;
+}
+
+void VR::UpdateSpecialInfectedWarningState()
+{
+    if (!m_SpecialInfectedBlindSpotWarningActive)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto elapsedSeconds = std::chrono::duration<float>(now - m_LastSpecialInfectedWarningTime).count();
+
+    if (elapsedSeconds > m_SpecialInfectedBlindSpotWarningDuration)
+        m_SpecialInfectedBlindSpotWarningActive = false;
+}
+
+void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
+{
+    if (m_SpecialInfectedBlindSpotWarningActive)
+    {
+        r = m_AimLineWarningColorR;
+        g = m_AimLineWarningColorG;
+        b = m_AimLineWarningColorB;
+    }
+    else
+    {
+        r = m_AimLineColorR;
+        g = m_AimLineColorG;
+        b = m_AimLineColorB;
+    }
+
+    a = m_AimLineColorA;
 }
 
 Vector VR::GetViewAngle()
@@ -2320,6 +2397,7 @@ void VR::ParseConfigFile()
     m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
     m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
     m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
+    m_SpecialInfectedBlindSpotDistance = std::max(0.0f, getFloat("SpecialInfectedBlindSpotDistance", m_SpecialInfectedBlindSpotDistance));
     auto specialInfectedArrowColor = getColor("SpecialInfectedArrowColor", m_SpecialInfectedArrowDefaultColor.r, m_SpecialInfectedArrowDefaultColor.g, m_SpecialInfectedArrowDefaultColor.b, 255);
     const bool hasGlobalArrowColor = userConfig.find("SpecialInfectedArrowColor") != userConfig.end();
     m_SpecialInfectedArrowDefaultColor.r = specialInfectedArrowColor[0];
