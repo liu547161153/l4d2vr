@@ -1,4 +1,5 @@
 
+
 #pragma once
 #include <Windows.h>
 
@@ -264,8 +265,12 @@ public:
 	float m_ControllerHudRotation = 0.0f;
 	float m_ControllerHudXOffset = 0.0f;
 	bool m_HudAlwaysVisible = false;
+
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
+
+	float m_MaxWalkSpeed = 250.0f;
+	float m_AdjustingViewmodelWalkSpeed = 25.0f;
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
