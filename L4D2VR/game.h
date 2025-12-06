@@ -99,6 +99,7 @@ public:
     void* GetInterface(const char* dllname, const char* interfacename);
     CBaseEntity* GetClientEntity(int entityIndex);
     char* getNetworkName(uintptr_t* entity);
+    std::string GetClientClassName(CBaseEntity* entity) const;
 
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);
