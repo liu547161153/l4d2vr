@@ -19,7 +19,10 @@ class IModelRender;
 class IMaterial;
 class IInput;
 class ISurface;
-class CBaseEntity;
+class IClientUnknown;
+class IClientNetworkable;
+struct ClientClass;
+class C_BaseEntity;
 class C_BasePlayer;
 struct model_t;
 class IVDebugOverlay;
@@ -97,8 +100,9 @@ public:
 
     // === Interface Utilities ===
     void* GetInterface(const char* dllname, const char* interfacename);
-    CBaseEntity* GetClientEntity(int entityIndex);
+    C_BaseEntity* GetClientEntity(int entityIndex);
     char* getNetworkName(uintptr_t* entity);
+    const char* GetNetworkClassName(void* entity) const;
 
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);
