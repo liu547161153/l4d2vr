@@ -154,11 +154,6 @@ public:
 	int m_AimLineColorG = 255;
 	int m_AimLineColorB = 0;
 	int m_AimLineColorA = 192;
-	int m_AimLineAlertColorR = 255;
-	int m_AimLineAlertColorG = 255;
-	int m_AimLineAlertColorB = 0;
-	bool m_BehindInfectedThreatActive = false;
-	float m_BehindInfectedAlertDistance = 250.0f;
 	static constexpr int THROW_ARC_SEGMENTS = 16;
 	std::array<Vector, THROW_ARC_SEGMENTS + 1> m_LastThrowArcPoints{};
 	bool m_HasThrowArc = false;
@@ -369,16 +364,6 @@ public:
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
 	SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
-	bool HasBehindInfectedThreat(C_BasePlayer* localPlayer);
-	bool IsInfectedClassName(const std::string& className) const;
-	struct RgbaColor
-	{
-		int r;
-		int g;
-		int b;
-		int a;
-	};
-	RgbaColor GetAimLineDrawColor() const;
 	void FinishFrame();
 	void ConfigureExplicitTiming();
 };
