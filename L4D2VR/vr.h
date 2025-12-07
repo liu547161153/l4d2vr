@@ -292,9 +292,9 @@ public:
 	bool m_SpecialInfectedArrowEnabled = true;
 	float m_SpecialInfectedArrowSize = 12.0f;
 	float m_SpecialInfectedArrowHeight = 36.0f;
-	float m_SpecialInfectedArrowThickness = 0.0f;
-	RgbColor m_SpecialInfectedArrowDefaultColor{ 255, 64, 0 };
-	std::array<RgbColor, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedArrowColors{
+        float m_SpecialInfectedArrowThickness = 0.0f;
+        RgbColor m_SpecialInfectedArrowDefaultColor{ 255, 64, 0 };
+        std::array<RgbColor, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedArrowColors{
 			RgbColor{ 120, 220, 80 },   // Boomer
 			RgbColor{ 180, 80, 255 },   // Smoker
 			RgbColor{ 0, 170, 255 },    // Hunter
@@ -304,13 +304,27 @@ public:
 			RgbColor{ 240, 40, 40 },    // Tank
 			RgbColor{ 255, 255, 255 }   // Witch
 	};
-	float m_SpecialInfectedBlindSpotDistance = 300.0f;
-	float m_SpecialInfectedBlindSpotWarningDuration = 0.5f;
-	bool m_SpecialInfectedBlindSpotWarningActive = false;
-	std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
-	int m_AimLineWarningColorR = 255;
-	int m_AimLineWarningColorG = 255;
-	int m_AimLineWarningColorB = 0;
+        float m_SpecialInfectedBlindSpotDistance = 300.0f;
+        float m_SpecialInfectedBlindSpotWarningDuration = 0.5f;
+        bool m_SpecialInfectedBlindSpotWarningActive = false;
+        std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
+        float m_SpecialInfectedWarningSecondaryHoldDuration = 0.15f;
+        float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
+        float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
+        bool m_SuppressPlayerInput = false;
+        enum class SpecialInfectedWarningActionStep
+        {
+                None,
+                PressSecondaryAttack,
+                ReleaseSecondaryAttack,
+                PressJumpBack,
+                ReleaseJumpBack
+        };
+        SpecialInfectedWarningActionStep m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
+        std::chrono::steady_clock::time_point m_SpecialInfectedWarningNextActionTime{};
+        int m_AimLineWarningColorR = 255;
+        int m_AimLineWarningColorG = 255;
+        int m_AimLineWarningColorB = 0;
 
 	VR() {};
 	VR(Game* game);
@@ -368,12 +382,15 @@ public:
 	void DrawThrowArc(const Vector& origin, const Vector& forward);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
-	SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
-	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
-	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
-	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
-	void UpdateSpecialInfectedWarningState();
-	void GetAimLineColor(int& r, int& g, int& b, int& a) const;
-	void FinishFrame();
-	void ConfigureExplicitTiming();
+        SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
+        void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
+        void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
+        bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
+        void UpdateSpecialInfectedWarningState();
+        void StartSpecialInfectedWarningAction();
+        void UpdateSpecialInfectedWarningAction();
+        void ResetSpecialInfectedWarningAction();
+        void GetAimLineColor(int& r, int& g, int& b, int& a) const;
+        void FinishFrame();
+        void ConfigureExplicitTiming();
 };
