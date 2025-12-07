@@ -808,6 +808,11 @@ void VR::ProcessInput()
     m_PrevFrameTime = currentTime;
     m_LastFrameDuration = std::clamp(deltaTime * 0.001f, 0.0f, 0.25f);
 
+    UpdateSpecialInfectedWarningAction();
+
+    if (m_SuppressPlayerInput)
+        return;
+
     vr::InputAnalogActionData_t analogActionData;
 
     if (GetAnalogActionData(m_ActionTurn, analogActionData))
@@ -1952,8 +1957,12 @@ void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
     if (!IsSpecialInfectedInBlindSpot(infectedOrigin))
         return;
 
+    const bool wasActive = m_SpecialInfectedBlindSpotWarningActive;
     m_SpecialInfectedBlindSpotWarningActive = true;
     m_LastSpecialInfectedWarningTime = std::chrono::steady_clock::now();
+
+    if (!wasActive)
+        StartSpecialInfectedWarningAction();
 }
 
 bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
@@ -1981,6 +1990,74 @@ void VR::UpdateSpecialInfectedWarningState()
 
     if (elapsedSeconds > m_SpecialInfectedBlindSpotWarningDuration)
         m_SpecialInfectedBlindSpotWarningActive = false;
+}
+
+void VR::StartSpecialInfectedWarningAction()
+{
+    if (m_SpecialInfectedWarningActionStep != SpecialInfectedWarningActionStep::None)
+        return;
+
+    m_Game->ClientCmd_Unrestricted("-attack");
+    m_Game->ClientCmd_Unrestricted("-attack2");
+    m_Game->ClientCmd_Unrestricted("-jump");
+    m_Game->ClientCmd_Unrestricted("-use");
+    m_Game->ClientCmd_Unrestricted("-reload");
+    m_Game->ClientCmd_Unrestricted("-back");
+    m_Game->ClientCmd_Unrestricted("-forward");
+    m_Game->ClientCmd_Unrestricted("-moveleft");
+    m_Game->ClientCmd_Unrestricted("-moveright");
+    m_Game->ClientCmd_Unrestricted("-voicerecord");
+
+    m_SuppressPlayerInput = true;
+    m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressSecondaryAttack;
+    m_SpecialInfectedWarningNextActionTime = std::chrono::steady_clock::now();
+}
+
+void VR::UpdateSpecialInfectedWarningAction()
+{
+    if (m_SpecialInfectedWarningActionStep == SpecialInfectedWarningActionStep::None)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now < m_SpecialInfectedWarningNextActionTime)
+        return;
+
+    const auto secondsToDuration = [](float seconds)
+    {
+        return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
+    };
+
+    switch (m_SpecialInfectedWarningActionStep)
+    {
+    case SpecialInfectedWarningActionStep::PressSecondaryAttack:
+        m_Game->ClientCmd_Unrestricted("+attack2");
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseSecondaryAttack;
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningSecondaryHoldDuration);
+        break;
+    case SpecialInfectedWarningActionStep::ReleaseSecondaryAttack:
+        m_Game->ClientCmd_Unrestricted("-attack2");
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressJump;
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningPostAttackDelay);
+        break;
+    case SpecialInfectedWarningActionStep::PressJump:
+        m_Game->ClientCmd_Unrestricted("+jump");
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseJump;
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningJumpHoldDuration);
+        break;
+    case SpecialInfectedWarningActionStep::ReleaseJump:
+        m_Game->ClientCmd_Unrestricted("-jump");
+        ResetSpecialInfectedWarningAction();
+        break;
+    default:
+        break;
+    }
+}
+
+void VR::ResetSpecialInfectedWarningAction()
+{
+    m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
+    m_SpecialInfectedWarningNextActionTime = {};
+    m_SuppressPlayerInput = false;
 }
 
 void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
@@ -2386,6 +2463,9 @@ void VR::ParseConfigFile()
     m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
     m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
     m_SpecialInfectedBlindSpotDistance = std::max(0.0f, getFloat("SpecialInfectedBlindSpotDistance", m_SpecialInfectedBlindSpotDistance));
+    m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
+    m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
+    m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));
     auto specialInfectedArrowColor = getColor("SpecialInfectedArrowColor", m_SpecialInfectedArrowDefaultColor.r, m_SpecialInfectedArrowDefaultColor.g, m_SpecialInfectedArrowDefaultColor.b, 255);
     const bool hasGlobalArrowColor = userConfig.find("SpecialInfectedArrowColor") != userConfig.end();
     m_SpecialInfectedArrowDefaultColor.r = specialInfectedArrowColor[0];
