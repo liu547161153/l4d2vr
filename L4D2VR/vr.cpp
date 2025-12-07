@@ -2022,23 +2022,28 @@ void VR::UpdateSpecialInfectedWarningAction()
     if (now < m_SpecialInfectedWarningNextActionTime)
         return;
 
+    const auto secondsToDuration = [](float seconds)
+    {
+        return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
+    };
+
     switch (m_SpecialInfectedWarningActionStep)
     {
     case SpecialInfectedWarningActionStep::PressSecondaryAttack:
         m_Game->ClientCmd_Unrestricted("+attack2");
         m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseSecondaryAttack;
-        m_SpecialInfectedWarningNextActionTime = now + std::chrono::duration<float>(m_SpecialInfectedWarningSecondaryHoldDuration);
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningSecondaryHoldDuration);
         break;
     case SpecialInfectedWarningActionStep::ReleaseSecondaryAttack:
         m_Game->ClientCmd_Unrestricted("-attack2");
         m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressJumpBack;
-        m_SpecialInfectedWarningNextActionTime = now + std::chrono::duration<float>(m_SpecialInfectedWarningPostAttackDelay);
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningPostAttackDelay);
         break;
     case SpecialInfectedWarningActionStep::PressJumpBack:
         m_Game->ClientCmd_Unrestricted("+back");
         m_Game->ClientCmd_Unrestricted("+jump");
         m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseJumpBack;
-        m_SpecialInfectedWarningNextActionTime = now + std::chrono::duration<float>(m_SpecialInfectedWarningJumpHoldDuration);
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningJumpHoldDuration);
         break;
     case SpecialInfectedWarningActionStep::ReleaseJumpBack:
         m_Game->ClientCmd_Unrestricted("-jump");
