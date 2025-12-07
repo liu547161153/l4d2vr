@@ -317,8 +317,8 @@ public:
                 None,
                 PressSecondaryAttack,
                 ReleaseSecondaryAttack,
-                PressJumpBack,
-                ReleaseJumpBack
+                PressJump,
+                ReleaseJump
         };
         SpecialInfectedWarningActionStep m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
         std::chrono::steady_clock::time_point m_SpecialInfectedWarningNextActionTime{};

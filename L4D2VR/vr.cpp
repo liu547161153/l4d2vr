@@ -2036,18 +2036,16 @@ void VR::UpdateSpecialInfectedWarningAction()
         break;
     case SpecialInfectedWarningActionStep::ReleaseSecondaryAttack:
         m_Game->ClientCmd_Unrestricted("-attack2");
-        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressJumpBack;
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressJump;
         m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningPostAttackDelay);
         break;
-    case SpecialInfectedWarningActionStep::PressJumpBack:
-        m_Game->ClientCmd_Unrestricted("+back");
+    case SpecialInfectedWarningActionStep::PressJump:
         m_Game->ClientCmd_Unrestricted("+jump");
-        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseJumpBack;
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseJump;
         m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningJumpHoldDuration);
         break;
-    case SpecialInfectedWarningActionStep::ReleaseJumpBack:
+    case SpecialInfectedWarningActionStep::ReleaseJump:
         m_Game->ClientCmd_Unrestricted("-jump");
-        m_Game->ClientCmd_Unrestricted("-back");
         ResetSpecialInfectedWarningAction();
         break;
     default:
