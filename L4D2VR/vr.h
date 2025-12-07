@@ -308,6 +308,7 @@ public:
         float m_SpecialInfectedBlindSpotDistance = 300.0f;
         float m_SpecialInfectedBlindSpotWarningDuration = 0.5f;
         bool m_SpecialInfectedBlindSpotWarningActive = false;
+        bool m_SpecialInfectedWarningActionQueued = false;
         std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
         int m_AimLineWarningColorR = 255;
         int m_AimLineWarningColorG = 255;
@@ -373,6 +374,7 @@ public:
         void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
         void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
         bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
+        void PerformSpecialInfectedWarningReaction();
         void UpdateSpecialInfectedWarningState();
         void GetAimLineColor(int& r, int& g, int& b, int& a) const;
 	void FinishFrame();

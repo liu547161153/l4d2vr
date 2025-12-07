@@ -1952,8 +1952,12 @@ void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
     if (!IsSpecialInfectedInBlindSpot(infectedOrigin))
         return;
 
+    const bool warningWasActive = m_SpecialInfectedBlindSpotWarningActive;
     m_SpecialInfectedBlindSpotWarningActive = true;
     m_LastSpecialInfectedWarningTime = std::chrono::steady_clock::now();
+
+    if (!warningWasActive)
+        m_SpecialInfectedWarningActionQueued = true;
 }
 
 bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
@@ -1971,16 +1975,42 @@ bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
     return toInfected.LengthSqr() <= maxDistanceSq;
 }
 
+void VR::PerformSpecialInfectedWarningReaction()
+{
+    if (!m_Game)
+        return;
+
+    m_Game->ClientCmd_Unrestricted("+attack2");
+    m_Game->ClientCmd_Unrestricted("-attack2");
+    m_Game->ClientCmd_Unrestricted("+back");
+    m_Game->ClientCmd_Unrestricted("+jump");
+    m_Game->ClientCmd_Unrestricted("-back");
+    m_Game->ClientCmd_Unrestricted("-jump");
+}
+
 void VR::UpdateSpecialInfectedWarningState()
 {
     if (!m_SpecialInfectedBlindSpotWarningActive)
+    {
+        m_SpecialInfectedWarningActionQueued = false;
         return;
+    }
 
     const auto now = std::chrono::steady_clock::now();
     const auto elapsedSeconds = std::chrono::duration<float>(now - m_LastSpecialInfectedWarningTime).count();
 
     if (elapsedSeconds > m_SpecialInfectedBlindSpotWarningDuration)
+    {
         m_SpecialInfectedBlindSpotWarningActive = false;
+        m_SpecialInfectedWarningActionQueued = false;
+        return;
+    }
+
+    if (m_SpecialInfectedWarningActionQueued)
+    {
+        PerformSpecialInfectedWarningReaction();
+        m_SpecialInfectedWarningActionQueued = false;
+    }
 }
 
 void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
