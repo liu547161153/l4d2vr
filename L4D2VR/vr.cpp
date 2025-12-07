@@ -1958,6 +1958,11 @@ void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
 
 bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
 {
+    Vector forward = m_HmdForward;
+    forward.z = 0.0f;
+    if (forward.IsZero())
+        return false;
+
     Vector toInfected = infectedOrigin - m_HmdPosAbs;
     toInfected.z = 0.0f;
     if (toInfected.IsZero())
@@ -1968,7 +1973,14 @@ bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
         return false;
 
     const float maxDistanceSq = maxDistance * maxDistance;
-    return toInfected.LengthSqr() <= maxDistanceSq;
+    if (toInfected.LengthSqr() > maxDistanceSq)
+        return false;
+
+    VectorNormalize(forward);
+    VectorNormalize(toInfected);
+
+    const float dot = DotProduct(forward, toInfected);
+    return dot < 0.0f;
 }
 
 void VR::UpdateSpecialInfectedWarningState()
