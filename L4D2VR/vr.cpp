@@ -1736,6 +1736,8 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
     case C_WeaponCSBase::PULL:
     case C_WeaponCSBase::CHOKE:
     case C_WeaponCSBase::ROCK:
+    case C_WeaponCSBase::MELEE:
+    case C_WeaponCSBase::CHAINSAW:
         return true;
     default:
         return false;
@@ -2092,9 +2094,9 @@ void VR::UpdateSpecialInfectedWarningAction()
         return;
 
     const auto secondsToDuration = [](float seconds)
-    {
-        return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
-    };
+        {
+            return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
+        };
 
     switch (m_SpecialInfectedWarningActionStep)
     {
