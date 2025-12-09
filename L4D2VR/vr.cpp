@@ -15,6 +15,7 @@
 #include <cctype>
 #include <array>
 #include <cmath>
+#include <vector>
 #include <d3d9_vr.h>
 
 VR::VR(Game* game)
@@ -1015,7 +1016,7 @@ void VR::ProcessInput()
     [[maybe_unused]] bool viewmodelSecondaryJustPressed = false;
     bool viewmodelComboValid = getComboStates(m_ViewmodelAdjustCombo, viewmodelPrimaryData, viewmodelSecondaryData,
         viewmodelPrimaryDown, viewmodelSecondaryDown, viewmodelPrimaryJustPressed, viewmodelSecondaryJustPressed);
-    const bool adjustViewmodelActive = viewmodelComboValid && viewmodelPrimaryDown && viewmodelSecondaryDown;
+    const bool adjustViewmodelActive = m_ViewmodelAdjustEnabled && viewmodelComboValid && viewmodelPrimaryDown && viewmodelSecondaryDown;
 
     if (adjustViewmodelActive && !m_AdjustingViewmodel)
     {
@@ -1738,7 +1739,7 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
     case C_WeaponCSBase::ROCK:
     case C_WeaponCSBase::MELEE:
     case C_WeaponCSBase::CHAINSAW:
-        return true;
+        return m_MeleeAimLineEnabled;
     default:
         return false;
     }
@@ -2210,6 +2211,100 @@ std::string VR::GetMeleeWeaponName(C_WeaponCSBase* weapon) const
     return meleeName;
 }
 
+std::string VR::WeaponIdToString(int weaponId) const
+{
+    static const std::vector<std::string> weaponNames =
+    {
+        "none",
+        "pistol",
+        "uzi",
+        "pumpshotgun",
+        "autoshotgun",
+        "m16a1",
+        "hunting_rifle",
+        "mac10",
+        "shotgun_chrome",
+        "scar",
+        "sniper_military",
+        "spas",
+        "first_aid_kit",
+        "molotov",
+        "pipe_bomb",
+        "pain_pills",
+        "gascan",
+        "propane_tank",
+        "oxygen_tank",
+        "melee",
+        "chainsaw",
+        "grenade_launcher",
+        "ammo_pack",
+        "adrenaline",
+        "defibrillator",
+        "vomitjar",
+        "ak47",
+        "gnome_chompski",
+        "cola_bottles",
+        "fireworks_box",
+        "incendiary_ammo",
+        "frag_ammo",
+        "magnum",
+        "mp5",
+        "sg552",
+        "awp",
+        "scout",
+        "m60",
+        "tank_claw",
+        "hunter_claw",
+        "charger_claw",
+        "boomer_claw",
+        "smoker_claw",
+        "spitter_claw",
+        "jockey_claw",
+        "machinegun",
+        "vomit",
+        "splat",
+        "pounce",
+        "lounge",
+        "pull",
+        "choke",
+        "rock",
+        "physics",
+        "ammo",
+        "upgrade_item"
+    };
+
+    size_t index = static_cast<size_t>(weaponId);
+    if (index < weaponNames.size())
+        return weaponNames[index];
+
+    return std::string();
+}
+
+std::string VR::NormalizeViewmodelAdjustKey(const std::string& rawKey) const
+{
+    const std::string weaponPrefix = "weapon:";
+    if (rawKey.rfind(weaponPrefix, 0) == 0)
+    {
+        std::string weaponIdString = rawKey.substr(weaponPrefix.size());
+        if (!weaponIdString.empty() &&
+            std::all_of(weaponIdString.begin(), weaponIdString.end(), [](unsigned char c) { return std::isdigit(c); }))
+        {
+            try
+            {
+                int weaponId = std::stoi(weaponIdString);
+                std::string weaponName = WeaponIdToString(weaponId);
+                if (!weaponName.empty())
+                    return weaponPrefix + weaponName;
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    return rawKey;
+}
+
 std::string VR::BuildViewmodelAdjustKey(C_WeaponCSBase* weapon) const
 {
     if (!weapon)
@@ -2226,6 +2321,10 @@ std::string VR::BuildViewmodelAdjustKey(C_WeaponCSBase* weapon) const
         Game::logMsg("[VR] Failed to resolve melee name, using generic key.");
         return "melee:unknown";
     }
+
+    std::string weaponName = WeaponIdToString(static_cast<int>(weaponId));
+    if (!weaponName.empty())
+        return "weapon:" + weaponName;
 
     return "weapon:" + std::to_string(static_cast<int>(weaponId));
 }
@@ -2327,10 +2426,14 @@ void VR::LoadViewmodelAdjustments()
         std::string posStr = line.substr(eq + 1, separator - eq - 1);
         std::string angStr = line.substr(separator + 1);
 
+        std::string normalizedKey = NormalizeViewmodelAdjustKey(key);
+        if (normalizedKey != key)
+            Game::logMsg("[VR] Normalized viewmodel adjust key '%s' -> '%s'", key.c_str(), normalizedKey.c_str());
+
         Vector posAdjust = parseVector3(posStr, m_DefaultViewmodelAdjust.position);
         Vector angAdjustVec = parseVector3(angStr, Vector{ m_DefaultViewmodelAdjust.angle.x, m_DefaultViewmodelAdjust.angle.y, m_DefaultViewmodelAdjust.angle.z });
 
-        m_ViewmodelAdjustments[key] = { posAdjust, { angAdjustVec.x, angAdjustVec.y, angAdjustVec.z } };
+        m_ViewmodelAdjustments[normalizedKey] = { posAdjust, { angAdjustVec.x, angAdjustVec.y, angAdjustVec.z } };
     }
 
     Game::logMsg("[VR] Loaded %zu viewmodel adjustment entries from %s", m_ViewmodelAdjustments.size(), m_ViewmodelAdjustmentSavePath.c_str());
@@ -2589,8 +2692,10 @@ void VR::ParseConfigFile()
     else if (userConfig.find("HeadSmoothing") != userConfig.end())
         controllerSmoothingValue = getFloat("HeadSmoothing", controllerSmoothingValue);
     m_ControllerSmoothing = std::clamp(controllerSmoothingValue, 0.0f, 0.99f);
+    m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
+    m_MeleeAimLineEnabled = getBool("MeleeAimLineEnabled", m_MeleeAimLineEnabled);
     auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
     m_AimLineColorR = aimColor[0];
     m_AimLineColorG = aimColor[1];
