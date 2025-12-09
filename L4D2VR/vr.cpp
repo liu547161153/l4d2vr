@@ -932,29 +932,90 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-use");
     }
 
+    auto getActionState = [&](vr::VRActionHandle_t* handle, vr::InputDigitalActionData_t& data, bool& isDown, bool& justPressed)
+        {
+            isDown = false;
+            justPressed = false;
+            if (!handle)
+                return false;
+
+            const bool valid = GetDigitalActionData(*handle, data);
+            if (!valid)
+                return false;
+
+            isDown = data.bState;
+            justPressed = data.bState && data.bChanged;
+            return true;
+        };
+
+    auto getComboStates = [&](const ActionCombo& combo,
+        vr::InputDigitalActionData_t& primaryData,
+        vr::InputDigitalActionData_t& secondaryData,
+        bool& primaryDown,
+        bool& secondaryDown,
+        bool& primaryJustPressed,
+        bool& secondaryJustPressed)
+        {
+            const bool primaryValid = getActionState(combo.primary, primaryData, primaryDown, primaryJustPressed);
+            const bool secondaryValid = getActionState(combo.secondary, secondaryData, secondaryDown, secondaryJustPressed);
+            return primaryValid && secondaryValid;
+        };
+
     vr::InputDigitalActionData_t crouchActionData{};
-    bool crouchDataValid = GetDigitalActionData(m_ActionCrouch, crouchActionData);
-    bool crouchButtonDown = crouchDataValid && crouchActionData.bState;
-    bool crouchJustPressed = crouchDataValid && crouchActionData.bState && crouchActionData.bChanged;
+    bool crouchButtonDown = false;
+    bool crouchJustPressed = false;
+    bool crouchDataValid = getActionState(&m_ActionCrouch, crouchActionData, crouchButtonDown, crouchJustPressed);
 
     vr::InputDigitalActionData_t resetActionData{};
-    bool resetDataValid = GetDigitalActionData(m_ActionResetPosition, resetActionData);
-    bool resetJustPressed = resetDataValid && resetActionData.bState && resetActionData.bChanged;
+    [[maybe_unused]] bool resetButtonDown = false;
+    bool resetJustPressed = false;
+    bool resetDataValid = getActionState(&m_ActionResetPosition, resetActionData, resetButtonDown, resetJustPressed);
 
     vr::InputDigitalActionData_t reloadActionData{};
-    bool reloadDataValid = GetDigitalActionData(m_ActionReload, reloadActionData);
-    bool reloadButtonDown = reloadDataValid && reloadActionData.bState;
-    bool reloadJustPressed = reloadDataValid && reloadActionData.bState && reloadActionData.bChanged;
+    bool reloadButtonDown = false;
+    bool reloadJustPressed = false;
+    bool reloadDataValid = getActionState(&m_ActionReload, reloadActionData, reloadButtonDown, reloadJustPressed);
 
     vr::InputDigitalActionData_t secondaryAttackActionData{};
-    bool secondaryAttackDataValid = GetDigitalActionData(m_ActionSecondaryAttack, secondaryAttackActionData);
-    bool secondaryAttackActive = secondaryAttackDataValid && secondaryAttackActionData.bState;
+    bool secondaryAttackActive = false;
+    [[maybe_unused]] bool secondaryAttackJustPressed = false;
+    bool secondaryAttackDataValid = getActionState(&m_ActionSecondaryAttack, secondaryAttackActionData, secondaryAttackActive, secondaryAttackJustPressed);
 
     vr::InputDigitalActionData_t flashlightActionData{};
-    bool flashlightDataValid = GetDigitalActionData(m_ActionFlashlight, flashlightActionData);
-    bool flashlightJustPressed = flashlightDataValid && flashlightActionData.bState && flashlightActionData.bChanged;
+    bool flashlightButtonDown = false;
+    bool flashlightJustPressed = false;
+    bool flashlightDataValid = getActionState(&m_ActionFlashlight, flashlightActionData, flashlightButtonDown, flashlightJustPressed);
 
-    const bool adjustViewmodelActive = reloadButtonDown && secondaryAttackActive;
+    vr::InputDigitalActionData_t voicePrimaryData{};
+    vr::InputDigitalActionData_t voiceSecondaryData{};
+    bool voicePrimaryDown = false;
+    bool voiceSecondaryDown = false;
+    bool voicePrimaryJustPressed = false;
+    bool voiceSecondaryJustPressed = false;
+    bool voiceComboValid = getComboStates(m_VoiceRecordCombo, voicePrimaryData, voiceSecondaryData,
+        voicePrimaryDown, voiceSecondaryDown, voicePrimaryJustPressed, voiceSecondaryJustPressed);
+    const bool voiceComboActive = voiceComboValid && voicePrimaryDown && voiceSecondaryDown;
+    const bool voiceComboJustActivated = voiceComboValid && ((voicePrimaryJustPressed && voiceSecondaryDown) || (voiceSecondaryJustPressed && voicePrimaryDown));
+
+    vr::InputDigitalActionData_t quickTurnPrimaryData{};
+    vr::InputDigitalActionData_t quickTurnSecondaryData{};
+    bool quickTurnPrimaryDown = false;
+    bool quickTurnSecondaryDown = false;
+    [[maybe_unused]] bool quickTurnPrimaryJustPressed = false;
+    [[maybe_unused]] bool quickTurnSecondaryJustPressed = false;
+    bool quickTurnComboValid = getComboStates(m_QuickTurnCombo, quickTurnPrimaryData, quickTurnSecondaryData,
+        quickTurnPrimaryDown, quickTurnSecondaryDown, quickTurnPrimaryJustPressed, quickTurnSecondaryJustPressed);
+    bool quickTurnComboPressed = quickTurnComboValid && quickTurnPrimaryDown && quickTurnSecondaryDown;
+
+    vr::InputDigitalActionData_t viewmodelPrimaryData{};
+    vr::InputDigitalActionData_t viewmodelSecondaryData{};
+    bool viewmodelPrimaryDown = false;
+    bool viewmodelSecondaryDown = false;
+    [[maybe_unused]] bool viewmodelPrimaryJustPressed = false;
+    [[maybe_unused]] bool viewmodelSecondaryJustPressed = false;
+    bool viewmodelComboValid = getComboStates(m_ViewmodelAdjustCombo, viewmodelPrimaryData, viewmodelSecondaryData,
+        viewmodelPrimaryDown, viewmodelSecondaryDown, viewmodelPrimaryJustPressed, viewmodelSecondaryJustPressed);
+    const bool adjustViewmodelActive = viewmodelComboValid && viewmodelPrimaryDown && viewmodelSecondaryDown;
 
     if (adjustViewmodelActive && !m_AdjustingViewmodel)
     {
@@ -998,13 +1059,13 @@ void VR::ProcessInput()
         }
     }
 
-    if (!m_VoiceRecordActive && ((crouchButtonDown && reloadJustPressed) || (reloadButtonDown && crouchJustPressed)))
+    if (!m_VoiceRecordActive && voiceComboJustActivated)
     {
         m_Game->ClientCmd_Unrestricted("+voicerecord");
         m_VoiceRecordActive = true;
     }
 
-    if (m_VoiceRecordActive && (!crouchButtonDown || !reloadButtonDown || !crouchDataValid || !reloadDataValid))
+    if (m_VoiceRecordActive && (!voiceComboActive || !voiceComboValid))
     {
         m_Game->ClientCmd_Unrestricted("-voicerecord");
         m_VoiceRecordActive = false;
@@ -1028,7 +1089,6 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-attack2");
     }
 
-    bool quickTurnComboPressed = secondaryAttackActive && crouchButtonDown;
     if (quickTurnComboPressed && !m_QuickTurnTriggered)
     {
         m_RotationOffset += 180.0f;
@@ -1961,7 +2021,7 @@ void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
     m_SpecialInfectedBlindSpotWarningActive = true;
     m_LastSpecialInfectedWarningTime = std::chrono::steady_clock::now();
 
-    if (!wasActive)
+    if (!wasActive && m_SpecialInfectedWarningActionEnabled)
         StartSpecialInfectedWarningAction();
 }
 
@@ -1994,6 +2054,9 @@ void VR::UpdateSpecialInfectedWarningState()
 
 void VR::StartSpecialInfectedWarningAction()
 {
+    if (!m_SpecialInfectedWarningActionEnabled)
+        return;
+
     if (m_SpecialInfectedWarningActionStep != SpecialInfectedWarningActionStep::None)
         return;
 
@@ -2015,6 +2078,12 @@ void VR::StartSpecialInfectedWarningAction()
 
 void VR::UpdateSpecialInfectedWarningAction()
 {
+    if (!m_SpecialInfectedWarningActionEnabled)
+    {
+        ResetSpecialInfectedWarningAction();
+        return;
+    }
+
     if (m_SpecialInfectedWarningActionStep == SpecialInfectedWarningActionStep::None)
         return;
 
@@ -2429,6 +2498,77 @@ void VR::ParseConfigFile()
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
+    const std::unordered_map<std::string, vr::VRActionHandle_t*> actionLookup =
+    {
+        {"jump", &m_ActionJump},
+        {"primaryattack", &m_ActionPrimaryAttack},
+        {"secondaryattack", &m_ActionSecondaryAttack},
+        {"reload", &m_ActionReload},
+        {"walk", &m_ActionWalk},
+        {"turn", &m_ActionTurn},
+        {"use", &m_ActionUse},
+        {"nextitem", &m_ActionNextItem},
+        {"previtem", &m_ActionPrevItem},
+        {"resetposition", &m_ActionResetPosition},
+        {"crouch", &m_ActionCrouch},
+        {"flashlight", &m_ActionFlashlight},
+        {"activatevr", &m_ActionActivateVR},
+        {"menuselect", &m_MenuSelect},
+        {"menuback", &m_MenuBack},
+        {"menuup", &m_MenuUp},
+        {"menudown", &m_MenuDown},
+        {"menuleft", &m_MenuLeft},
+        {"menuright", &m_MenuRight},
+        {"spray", &m_Spray},
+        {"scoreboard", &m_Scoreboard},
+        {"showhud", &m_ShowHUD},
+        {"pause", &m_Pause}
+    };
+
+    auto parseActionCombo = [&](const char* key, const ActionCombo& defaultCombo) -> ActionCombo
+        {
+            auto it = userConfig.find(key);
+            if (it == userConfig.end())
+                return defaultCombo;
+
+            ActionCombo combo{};
+            std::stringstream ss(it->second);
+            std::string token;
+            int index = 0;
+            while (std::getline(ss, token, '+') && index < 2)
+            {
+                trim(token);
+                std::transform(token.begin(), token.end(), token.begin(), [](unsigned char c) { return std::tolower(c); });
+                if (token.empty())
+                {
+                    ++index;
+                    continue;
+                }
+
+                auto actionIt = actionLookup.find(token);
+                if (actionIt != actionLookup.end())
+                {
+                    if (index == 0)
+                        combo.primary = actionIt->second;
+                    else
+                        combo.secondary = actionIt->second;
+                }
+                ++index;
+            }
+
+            if (!combo.primary || !combo.secondary)
+            {
+                Game::logMsg("[VR] Invalid %s combo '%s', using defaults.", key, it->second.c_str());
+                return defaultCombo;
+            }
+
+            return combo;
+        };
+
+    m_VoiceRecordCombo = parseActionCombo("VoiceRecordCombo", m_VoiceRecordCombo);
+    m_QuickTurnCombo = parseActionCombo("QuickTurnCombo", m_QuickTurnCombo);
+    m_ViewmodelAdjustCombo = parseActionCombo("ViewmodelAdjustCombo", m_ViewmodelAdjustCombo);
+
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
@@ -2458,6 +2598,7 @@ void VR::ParseConfigFile()
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
+    m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
     m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
     m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));

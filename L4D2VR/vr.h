@@ -208,8 +208,18 @@ public:
 	bool m_PressedTurn = false;
 	bool m_PushingThumbstick = false;
 	bool m_CrouchToggleActive = false;
-	bool m_VoiceRecordActive = false;
-	bool m_QuickTurnTriggered = false;
+        bool m_VoiceRecordActive = false;
+        bool m_QuickTurnTriggered = false;
+
+        struct ActionCombo
+        {
+                vr::VRActionHandle_t* primary = nullptr;
+                vr::VRActionHandle_t* secondary = nullptr;
+        };
+
+        ActionCombo m_VoiceRecordCombo{ &m_ActionCrouch, &m_ActionReload };
+        ActionCombo m_QuickTurnCombo{ &m_ActionCrouch, &m_ActionSecondaryAttack };
+        ActionCombo m_ViewmodelAdjustCombo{ &m_ActionReload, &m_ActionSecondaryAttack };
 
 	// action set
 	vr::VRActionSetHandle_t m_ActionSet;
@@ -289,9 +299,9 @@ public:
 		Count
 	};
 
-	bool m_SpecialInfectedArrowEnabled = true;
-	float m_SpecialInfectedArrowSize = 12.0f;
-	float m_SpecialInfectedArrowHeight = 36.0f;
+        bool m_SpecialInfectedArrowEnabled = false;
+        float m_SpecialInfectedArrowSize = 12.0f;
+        float m_SpecialInfectedArrowHeight = 36.0f;
         float m_SpecialInfectedArrowThickness = 0.0f;
         RgbColor m_SpecialInfectedArrowDefaultColor{ 255, 64, 0 };
         std::array<RgbColor, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedArrowColors{
@@ -311,6 +321,7 @@ public:
         float m_SpecialInfectedWarningSecondaryHoldDuration = 0.15f;
         float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
         float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
+        bool m_SpecialInfectedWarningActionEnabled = false;
         bool m_SuppressPlayerInput = false;
         enum class SpecialInfectedWarningActionStep
         {
