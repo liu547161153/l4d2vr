@@ -392,10 +392,10 @@ public:
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
-	float CalculateThrowArcDistance(const Vector& forward, bool* clampedToMax = nullptr) const;
-	void DrawAimLine(const Vector& start, const Vector& end);
-	void DrawThrowArc(const Vector& origin, const Vector& forward);
-	void DrawThrowArcFromCache(float duration);
+        float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
+        void DrawAimLine(const Vector& start, const Vector& end);
+        void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
+        void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
         SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
         void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);

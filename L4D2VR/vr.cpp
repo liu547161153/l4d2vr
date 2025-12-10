@@ -1679,7 +1679,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     if (isThrowable)
     {
-        DrawThrowArc(origin, direction);
+        Vector pitchSource = direction;
+        if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
+            pitchSource = m_HmdForward;
+
+        DrawThrowArc(origin, direction, pitchSource);
         return;
     }
 
@@ -1761,9 +1765,9 @@ bool VR::IsThrowableWeapon(C_WeaponCSBase* weapon) const
     }
 }
 
-float VR::CalculateThrowArcDistance(const Vector& forward, bool* clampedToMax) const
+float VR::CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax) const
 {
-    Vector direction = forward;
+    Vector direction = pitchSource;
     if (direction.IsZero())
         return m_ThrowArcMinDistance;
 
@@ -1794,7 +1798,7 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
     DrawLineWithThickness(start, end, duration);
 }
 
-void VR::DrawThrowArc(const Vector& origin, const Vector& forward)
+void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource)
 {
     if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
         return;
@@ -1809,8 +1813,11 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward)
         planarForward = direction;
     VectorNormalize(planarForward);
 
+    Vector distanceSource = pitchSource.IsZero() ? direction : pitchSource;
+    VectorNormalize(distanceSource);
+
     bool clampedToMaxDistance = false;
-    const float distance = CalculateThrowArcDistance(direction, &clampedToMaxDistance);
+    const float distance = CalculateThrowArcDistance(distanceSource, &clampedToMaxDistance);
     if (clampedToMaxDistance)
     {
         m_HasThrowArc = false;
