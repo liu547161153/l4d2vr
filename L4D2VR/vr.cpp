@@ -2636,8 +2636,19 @@ void VR::ParseConfigFile()
             if (it == userConfig.end())
                 return defaultCombo;
 
+            std::string rawValue = it->second;
+            trim(rawValue);
+            std::transform(rawValue.begin(), rawValue.end(), rawValue.begin(), [](unsigned char c) { return std::tolower(c); });
+
+            // Allow disabling a combo by setting it to "false" in the config file.
+            if (rawValue == "false")
+            {
+                Game::logMsg("[VR] %s combo disabled via config", key);
+                return ActionCombo{};
+            }
+
             ActionCombo combo{};
-            std::stringstream ss(it->second);
+            std::stringstream ss(rawValue);
             std::string token;
             int index = 0;
             while (std::getline(ss, token, '+') && index < 2)
