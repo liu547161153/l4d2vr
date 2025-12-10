@@ -1679,7 +1679,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     if (isThrowable)
     {
-        DrawThrowArc(origin, direction);
+        Vector pitchSource = direction;
+        if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
+            pitchSource = m_HmdForward;
+
+        DrawThrowArc(origin, direction, pitchSource);
         return;
     }
 
@@ -1761,9 +1765,9 @@ bool VR::IsThrowableWeapon(C_WeaponCSBase* weapon) const
     }
 }
 
-float VR::CalculateThrowArcDistance(const Vector& forward, bool* clampedToMax) const
+float VR::CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax) const
 {
-    Vector direction = forward;
+    Vector direction = pitchSource;
     if (direction.IsZero())
         return m_ThrowArcMinDistance;
 
@@ -1794,7 +1798,7 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
     DrawLineWithThickness(start, end, duration);
 }
 
-void VR::DrawThrowArc(const Vector& origin, const Vector& forward)
+void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource)
 {
     if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
         return;
@@ -1809,8 +1813,11 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward)
         planarForward = direction;
     VectorNormalize(planarForward);
 
+    Vector distanceSource = pitchSource.IsZero() ? direction : pitchSource;
+    VectorNormalize(distanceSource);
+
     bool clampedToMaxDistance = false;
-    const float distance = CalculateThrowArcDistance(direction, &clampedToMaxDistance);
+    const float distance = CalculateThrowArcDistance(distanceSource, &clampedToMaxDistance);
     if (clampedToMaxDistance)
     {
         m_HasThrowArc = false;
@@ -2636,8 +2643,19 @@ void VR::ParseConfigFile()
             if (it == userConfig.end())
                 return defaultCombo;
 
+            std::string rawValue = it->second;
+            trim(rawValue);
+            std::transform(rawValue.begin(), rawValue.end(), rawValue.begin(), [](unsigned char c) { return std::tolower(c); });
+
+            // Allow disabling a combo by setting it to "false" in the config file.
+            if (rawValue == "false")
+            {
+                Game::logMsg("[VR] %s combo disabled via config", key);
+                return ActionCombo{};
+            }
+
             ActionCombo combo{};
-            std::stringstream ss(it->second);
+            std::stringstream ss(rawValue);
             std::string token;
             int index = 0;
             while (std::getline(ss, token, '+') && index < 2)

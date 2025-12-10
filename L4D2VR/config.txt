@@ -10,6 +10,7 @@ HudAlwaysVisible=true
 HudSize=1.8
 ControllerSmoothing=0
 ForceNonVRServerMovement=false
+# Set to true to emulate non-VR movement on the server. When false, throwable arc distance is driven by your HMD aim.
 RequireSecondaryAttackForItemSwitch=true
 AimLineEnabled=true
 MeleeAimLineEnabled=true
@@ -24,6 +25,7 @@ ControllerHudXOffset=0.1
 VoiceRecordCombo=Crouch+Reload
 QuickTurnCombo=Crouch+SecondaryAttack
 ViewmodelAdjustCombo=Reload+SecondaryAttack
+# Any combo can be disabled by setting it to "false".
 ViewmodelAdjustEnabled=true
 SpecialInfectedArrowEnabled=false
 SpecialInfectedArrowSize=24.0
