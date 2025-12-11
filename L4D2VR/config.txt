@@ -33,3 +33,14 @@ ViewmodelAdjustCombo=Reload+SecondaryAttack
 # Any combo can be disabled by setting it to "false".
 ViewmodelAdjustEnabled=true
 SpecialInfectedBlindSpotDistance=300.0
+
+# Manual reload tuning
+ManualReloadEnabled=true
+ManualReloadGunForwardOffset=0.05
+ManualReloadPouchSideOffset=0.18
+ManualReloadPouchVerticalOffset=-0.35
+ManualReloadGrabRadius=0.12
+ManualReloadRemoveDistance=0.25
+ManualReloadPouchRadius=0.18
+ManualReloadInsertRadius=0.14
+ManualReloadBoltDistance=0.16

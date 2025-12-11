@@ -906,15 +906,6 @@ void VR::ProcessInput()
     // Movement via console commands disabled; handled in Hooks::dCreateMove via CUserCmd.
 #endif
 
-    if (PressedDigitalAction(m_ActionPrimaryAttack))
-    {
-        m_Game->ClientCmd_Unrestricted("+attack");
-    }
-    else
-    {
-        m_Game->ClientCmd_Unrestricted("-attack");
-    }
-
     const bool jumpGestureActive = currentTime < m_JumpGestureHoldUntil;
     if (PressedDigitalAction(m_ActionJump) || jumpGestureActive)
     {
@@ -1079,7 +1070,16 @@ void VR::ProcessInput()
     reloadButtonDown = reloadButtonDown || gestureReloadActive;
     secondaryAttackActive = secondaryAttackActive || gestureSecondaryAttackActive;
 
-    if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
+    const bool weaponHandIsRight = !m_LeftHanded;
+    const Vector weaponHandPos = weaponHandIsRight ? m_RightControllerPosAbs : m_LeftControllerPosAbs;
+    const Vector weaponHandForward = weaponHandIsRight ? m_RightControllerForward : m_LeftControllerForward;
+    const Vector offHandPos = weaponHandIsRight ? m_LeftControllerPosAbs : m_RightControllerPosAbs;
+
+    if (m_ManualReloadEnabled)
+    {
+        UpdateManualReload(weaponHandPos, weaponHandForward, offHandPos, reloadButtonDown, reloadJustPressed, adjustViewmodelActive);
+    }
+    else if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
     {
         m_Game->ClientCmd_Unrestricted("+reload");
     }
@@ -1088,7 +1088,18 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-reload");
     }
 
-    if (secondaryAttackActive && !adjustViewmodelActive)
+    const bool manualReloadBlockingFire = m_ManualReloadPhase != ManualReloadPhase::None;
+
+    if (PressedDigitalAction(m_ActionPrimaryAttack) && !manualReloadBlockingFire)
+    {
+        m_Game->ClientCmd_Unrestricted("+attack");
+    }
+    else
+    {
+        m_Game->ClientCmd_Unrestricted("-attack");
+    }
+
+    if (secondaryAttackActive && !adjustViewmodelActive && !manualReloadBlockingFire)
     {
         m_Game->ClientCmd_Unrestricted("+attack2");
     }
@@ -1142,6 +1153,8 @@ void VR::ProcessInput()
     {
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
+
+    DrawManualReloadDebug();
 
     auto showHudOverlays = [&](bool attachToControllers)
         {
@@ -2011,6 +2024,143 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     }
 }
 
+void VR::BeginManualReload(const Vector& weaponHandPos, const Vector& weaponForward)
+{
+    m_ManualReloadPhase = ManualReloadPhase::AwaitMagRelease;
+    m_ManualReloadCommandIssued = false;
+    m_ManualReloadOldMagGrabbed = false;
+    m_ManualReloadNewMagGrabbed = false;
+    m_ManualReloadGunAnchor = weaponHandPos;
+    m_ManualReloadBoltStart = weaponHandPos;
+
+    const Vector pouchSide = m_LeftHanded ? m_HmdRight : -m_HmdRight;
+    m_ManualReloadPouchAnchor = m_HmdPosAbs + pouchSide * m_ManualReloadPouchSideOffset + m_HmdUp * m_ManualReloadPouchVerticalOffset;
+
+    if (!weaponForward.IsZero())
+    {
+        Vector forwardNorm = weaponForward;
+        VectorNormalize(forwardNorm);
+        m_ManualReloadGunAnchor = weaponHandPos + forwardNorm * m_ManualReloadGunForwardOffset;
+    }
+
+    Game::logMsg("[VR] Manual reload start (anchors set, pouch at %.2f %.2f %.2f)",
+        m_ManualReloadPouchAnchor.x, m_ManualReloadPouchAnchor.y, m_ManualReloadPouchAnchor.z);
+}
+
+void VR::CancelManualReload()
+{
+    if (m_ManualReloadCommandIssued)
+    {
+        m_Game->ClientCmd_Unrestricted("-reload");
+    }
+
+    m_ManualReloadPhase = ManualReloadPhase::None;
+    m_ManualReloadCommandIssued = false;
+    m_ManualReloadOldMagGrabbed = false;
+    m_ManualReloadNewMagGrabbed = false;
+}
+
+void VR::UpdateManualReload(const Vector& weaponHandPos, const Vector& weaponForward, const Vector& offHandPos, bool reloadButtonDown, bool reloadJustPressed, bool adjustViewmodelActive)
+{
+    if (!m_ManualReloadEnabled)
+        return;
+
+    Vector forwardNorm = weaponForward;
+    if (!forwardNorm.IsZero())
+        VectorNormalize(forwardNorm);
+    else
+        forwardNorm = Vector{ 1.0f, 0.0f, 0.0f };
+
+    const Vector pouchSide = m_LeftHanded ? m_HmdRight : -m_HmdRight;
+    m_ManualReloadPouchAnchor = m_HmdPosAbs + pouchSide * m_ManualReloadPouchSideOffset + m_HmdUp * m_ManualReloadPouchVerticalOffset;
+
+    if (adjustViewmodelActive)
+    {
+        CancelManualReload();
+        return;
+    }
+
+    if (reloadJustPressed && m_ManualReloadPhase == ManualReloadPhase::None)
+    {
+        BeginManualReload(weaponHandPos, weaponForward);
+    }
+
+    if (m_ManualReloadPhase == ManualReloadPhase::None)
+        return;
+
+    const float distanceToGunAnchor = VectorLength(offHandPos - m_ManualReloadGunAnchor);
+    const float distanceToPouch = VectorLength(offHandPos - m_ManualReloadPouchAnchor);
+
+    switch (m_ManualReloadPhase)
+    {
+    case ManualReloadPhase::AwaitMagRelease:
+        if (distanceToGunAnchor <= m_ManualReloadGrabRadius)
+        {
+            m_ManualReloadOldMagGrabbed = true;
+        }
+
+        if (m_ManualReloadOldMagGrabbed && distanceToGunAnchor >= m_ManualReloadRemoveDistance)
+        {
+            m_ManualReloadPhase = ManualReloadPhase::AwaitNewMag;
+        }
+        break;
+
+    case ManualReloadPhase::AwaitNewMag:
+        if (distanceToPouch <= m_ManualReloadPouchRadius)
+        {
+            m_ManualReloadNewMagGrabbed = true;
+            m_ManualReloadPhase = ManualReloadPhase::AwaitInsert;
+            m_ManualReloadGunAnchor = weaponHandPos + forwardNorm * m_ManualReloadGunForwardOffset;
+        }
+        break;
+
+    case ManualReloadPhase::AwaitInsert:
+        if (distanceToGunAnchor <= m_ManualReloadInsertRadius)
+        {
+            m_ManualReloadPhase = ManualReloadPhase::AwaitBolt;
+            if (!m_ManualReloadCommandIssued)
+            {
+                m_Game->ClientCmd_Unrestricted("+reload");
+                m_ManualReloadCommandIssued = true;
+            }
+        }
+        break;
+
+    case ManualReloadPhase::AwaitBolt:
+        const float pullAmount = DotProduct(weaponHandPos - m_ManualReloadBoltStart, -forwardNorm);
+        if (pullAmount >= m_ManualReloadBoltDistance)
+        {
+            CancelManualReload();
+        }
+        break;
+
+    case ManualReloadPhase::None:
+    default:
+        break;
+    }
+
+    if (!reloadButtonDown && m_ManualReloadPhase == ManualReloadPhase::AwaitMagRelease)
+    {
+        CancelManualReload();
+    }
+}
+
+void VR::DrawManualReloadDebug() const
+{
+    if (m_ManualReloadPhase == ManualReloadPhase::None)
+        return;
+
+    if (!m_Game || !m_Game->m_DebugOverlay)
+        return;
+
+    const float duration = std::max(m_LastFrameDuration, 0.03f);
+    const Vector boxExtents{ 0.04f, 0.04f, 0.04f };
+
+    m_Game->m_DebugOverlay->AddBoxOverlay(m_ManualReloadGunAnchor, -boxExtents, boxExtents, QAngle(0, 0, 0), 0, 180, 255, 64, duration);
+    m_Game->m_DebugOverlay->AddBoxOverlay(m_ManualReloadPouchAnchor, -boxExtents, boxExtents, QAngle(0, 0, 0), 255, 200, 0, 64, duration);
+    m_Game->m_DebugOverlay->AddBoxOverlay(m_ManualReloadBoltStart, -boxExtents * 0.6f, boxExtents * 0.6f, QAngle(0, 0, 0), 255, 64, 64, 64, duration);
+}
+
 VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName) const
 {
     std::string lower = modelName;
@@ -2812,6 +2962,15 @@ void VR::ParseConfigFile()
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
+    m_ManualReloadEnabled = getBool("ManualReloadEnabled", m_ManualReloadEnabled);
+    m_ManualReloadGunForwardOffset = getFloat("ManualReloadGunForwardOffset", m_ManualReloadGunForwardOffset);
+    m_ManualReloadPouchSideOffset = getFloat("ManualReloadPouchSideOffset", m_ManualReloadPouchSideOffset);
+    m_ManualReloadPouchVerticalOffset = getFloat("ManualReloadPouchVerticalOffset", m_ManualReloadPouchVerticalOffset);
+    m_ManualReloadGrabRadius = std::max(0.0f, getFloat("ManualReloadGrabRadius", m_ManualReloadGrabRadius));
+    m_ManualReloadRemoveDistance = std::max(0.0f, getFloat("ManualReloadRemoveDistance", m_ManualReloadRemoveDistance));
+    m_ManualReloadInsertRadius = std::max(0.0f, getFloat("ManualReloadInsertRadius", m_ManualReloadInsertRadius));
+    m_ManualReloadPouchRadius = std::max(0.0f, getFloat("ManualReloadPouchRadius", m_ManualReloadPouchRadius));
+    m_ManualReloadBoltDistance = std::max(0.0f, getFloat("ManualReloadBoltDistance", m_ManualReloadBoltDistance));
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
     m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
