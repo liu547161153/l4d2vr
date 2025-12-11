@@ -274,9 +274,26 @@ public:
 	float m_ControllerHudZOffset = 0.0f;
 	float m_ControllerHudRotation = 0.0f;
 	float m_ControllerHudXOffset = 0.0f;
-	bool m_HudAlwaysVisible = false;
-	float m_ControllerSmoothing = 0.0f;
-	bool m_ControllerSmoothingInitialized = false;
+        bool m_HudAlwaysVisible = false;
+        float m_ControllerSmoothing = 0.0f;
+        bool m_ControllerSmoothingInitialized = false;
+
+        float m_MotionGestureSwingThreshold = 1.1f;
+        float m_MotionGestureDownSwingThreshold = 1.0f;
+        float m_MotionGestureJumpThreshold = 1.0f;
+        float m_MotionGestureCooldown = 0.8f;
+        float m_MotionGestureHoldDuration = 0.2f;
+        bool m_MotionGestureInitialized = false;
+        std::chrono::steady_clock::time_point m_LastGestureUpdateTime{};
+        Vector m_PrevLeftControllerLocalPos = { 0,0,0 };
+        Vector m_PrevRightControllerLocalPos = { 0,0,0 };
+        Vector m_PrevHmdLocalPos = { 0,0,0 };
+        std::chrono::steady_clock::time_point m_SecondaryAttackGestureHoldUntil{};
+        std::chrono::steady_clock::time_point m_ReloadGestureHoldUntil{};
+        std::chrono::steady_clock::time_point m_JumpGestureHoldUntil{};
+        std::chrono::steady_clock::time_point m_SecondaryGestureCooldownEnd{};
+        std::chrono::steady_clock::time_point m_ReloadGestureCooldownEnd{};
+        std::chrono::steady_clock::time_point m_JumpGestureCooldownEnd{};
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
@@ -364,8 +381,9 @@ public:
 	Vector GetRightControllerAbsPos();
 	Vector GetRecommendedViewmodelAbsPos();
 	QAngle GetRecommendedViewmodelAbsAngle();
-	void UpdateTracking();
-	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
+        void UpdateTracking();
+        void UpdateMotionGestures(C_BasePlayer* localPlayer);
+        bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
 	Vector GetViewAngle();
 	Vector GetViewOriginLeft();
 	Vector GetViewOriginRight();

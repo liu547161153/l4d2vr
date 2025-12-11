@@ -915,7 +915,8 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-attack");
     }
 
-    if (PressedDigitalAction(m_ActionJump))
+    const bool jumpGestureActive = currentTime < m_JumpGestureHoldUntil;
+    if (PressedDigitalAction(m_ActionJump) || jumpGestureActive)
     {
         m_Game->ClientCmd_Unrestricted("+jump");
     }
@@ -981,6 +982,9 @@ void VR::ProcessInput()
     bool secondaryAttackActive = false;
     [[maybe_unused]] bool secondaryAttackJustPressed = false;
     bool secondaryAttackDataValid = getActionState(&m_ActionSecondaryAttack, secondaryAttackActionData, secondaryAttackActive, secondaryAttackJustPressed);
+
+    const bool gestureSecondaryAttackActive = currentTime < m_SecondaryAttackGestureHoldUntil;
+    const bool gestureReloadActive = currentTime < m_ReloadGestureHoldUntil;
 
     vr::InputDigitalActionData_t flashlightActionData{};
     bool flashlightButtonDown = false;
@@ -1071,6 +1075,9 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-voicerecord");
         m_VoiceRecordActive = false;
     }
+
+    reloadButtonDown = reloadButtonDown || gestureReloadActive;
+    secondaryAttackActive = secondaryAttackActive || gestureSecondaryAttackActive;
 
     if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
     {
@@ -1622,6 +1629,78 @@ void VR::UpdateTracking()
     // Viewmodel roll offset
     m_ViewmodelRight = VectorRotate(m_ViewmodelRight, m_ViewmodelForward, m_ViewmodelAngOffset.z);
     m_ViewmodelUp = VectorRotate(m_ViewmodelUp, m_ViewmodelForward, m_ViewmodelAngOffset.z);
+
+    UpdateMotionGestures(localPlayer);
+}
+
+void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
+{
+    const auto now = std::chrono::steady_clock::now();
+    const float deltaSeconds = m_LastGestureUpdateTime.time_since_epoch().count() == 0
+        ? 0.0f
+        : std::chrono::duration<float>(now - m_LastGestureUpdateTime).count();
+    m_LastGestureUpdateTime = now;
+
+    if (!m_MotionGestureInitialized)
+    {
+        m_PrevLeftControllerLocalPos = m_LeftControllerPose.TrackedDevicePos;
+        m_PrevRightControllerLocalPos = m_RightControllerPose.TrackedDevicePos;
+        m_PrevHmdLocalPos = m_HmdPose.TrackedDevicePos;
+        m_MotionGestureInitialized = true;
+        return;
+    }
+
+    if (deltaSeconds <= 0.0f)
+    {
+        m_PrevLeftControllerLocalPos = m_LeftControllerPose.TrackedDevicePos;
+        m_PrevRightControllerLocalPos = m_RightControllerPose.TrackedDevicePos;
+        m_PrevHmdLocalPos = m_HmdPose.TrackedDevicePos;
+        return;
+    }
+
+    const Vector leftDelta = m_LeftControllerPose.TrackedDevicePos - m_PrevLeftControllerLocalPos;
+    const Vector rightDelta = m_RightControllerPose.TrackedDevicePos - m_PrevRightControllerLocalPos;
+    const Vector hmdDelta = m_HmdPose.TrackedDevicePos - m_PrevHmdLocalPos;
+
+    const Vector leftDeltaHorizontal{ leftDelta.x, leftDelta.y, 0.0f };
+    const float leftSwingSpeed = VectorLength(leftDeltaHorizontal) / deltaSeconds;
+    const float rightDownSpeed = (-rightDelta.z) / deltaSeconds;
+    const float hmdVerticalSpeed = hmdDelta.z / deltaSeconds;
+
+    auto startHold = [&](std::chrono::steady_clock::time_point& holdUntil)
+        {
+            holdUntil = now + std::chrono::duration_cast<std::chrono::steady_clock::time_point::duration>(
+                std::chrono::duration<float>(m_MotionGestureHoldDuration));
+        };
+
+    auto startCooldown = [&](std::chrono::steady_clock::time_point& cooldownEnd)
+        {
+            cooldownEnd = now + std::chrono::duration_cast<std::chrono::steady_clock::time_point::duration>(
+                std::chrono::duration<float>(m_MotionGestureCooldown));
+        };
+
+    if (leftSwingSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
+    {
+        startHold(m_SecondaryAttackGestureHoldUntil);
+        startCooldown(m_SecondaryGestureCooldownEnd);
+    }
+
+    if (rightDownSpeed >= m_MotionGestureDownSwingThreshold && now >= m_ReloadGestureCooldownEnd)
+    {
+        startHold(m_ReloadGestureHoldUntil);
+        startCooldown(m_ReloadGestureCooldownEnd);
+    }
+
+    const bool onGround = localPlayer && localPlayer->m_hGroundEntity != -1;
+    if (onGround && hmdVerticalSpeed >= m_MotionGestureJumpThreshold && now >= m_JumpGestureCooldownEnd)
+    {
+        startHold(m_JumpGestureHoldUntil);
+        startCooldown(m_JumpGestureCooldownEnd);
+    }
+
+    m_PrevLeftControllerLocalPos = m_LeftControllerPose.TrackedDevicePos;
+    m_PrevRightControllerLocalPos = m_RightControllerPose.TrackedDevicePos;
+    m_PrevHmdLocalPos = m_HmdPose.TrackedDevicePos;
 }
 
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
@@ -2710,6 +2789,11 @@ void VR::ParseConfigFile()
     else if (userConfig.find("HeadSmoothing") != userConfig.end())
         controllerSmoothingValue = getFloat("HeadSmoothing", controllerSmoothingValue);
     m_ControllerSmoothing = std::clamp(controllerSmoothingValue, 0.0f, 0.99f);
+    m_MotionGestureSwingThreshold = std::max(0.0f, getFloat("MotionGestureSwingThreshold", m_MotionGestureSwingThreshold));
+    m_MotionGestureDownSwingThreshold = std::max(0.0f, getFloat("MotionGestureDownSwingThreshold", m_MotionGestureDownSwingThreshold));
+    m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));
+    m_MotionGestureCooldown = std::max(0.0f, getFloat("MotionGestureCooldown", m_MotionGestureCooldown));
+    m_MotionGestureHoldDuration = std::max(0.0f, getFloat("MotionGestureHoldDuration", m_MotionGestureHoldDuration));
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
