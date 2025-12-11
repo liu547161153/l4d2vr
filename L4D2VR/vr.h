@@ -281,7 +281,6 @@ public:
         float m_MotionGestureSwingThreshold = 1.1f;
         float m_MotionGestureDownSwingThreshold = 1.0f;
         float m_MotionGestureJumpThreshold = 1.0f;
-        float m_MotionGestureCrouchThreshold = 1.0f;
         float m_MotionGestureCooldown = 0.8f;
         float m_MotionGestureHoldDuration = 0.2f;
         bool m_MotionGestureInitialized = false;
@@ -292,11 +291,9 @@ public:
         std::chrono::steady_clock::time_point m_SecondaryAttackGestureHoldUntil{};
         std::chrono::steady_clock::time_point m_ReloadGestureHoldUntil{};
         std::chrono::steady_clock::time_point m_JumpGestureHoldUntil{};
-        std::chrono::steady_clock::time_point m_CrouchGestureHoldUntil{};
         std::chrono::steady_clock::time_point m_SecondaryGestureCooldownEnd{};
         std::chrono::steady_clock::time_point m_ReloadGestureCooldownEnd{};
         std::chrono::steady_clock::time_point m_JumpGestureCooldownEnd{};
-        std::chrono::steady_clock::time_point m_CrouchGestureCooldownEnd{};
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
