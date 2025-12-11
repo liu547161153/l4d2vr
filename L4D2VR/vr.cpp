@@ -1660,12 +1660,16 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
 
     const Vector leftDelta = m_LeftControllerPose.TrackedDevicePos - m_PrevLeftControllerLocalPos;
     const Vector rightDelta = m_RightControllerPose.TrackedDevicePos - m_PrevRightControllerLocalPos;
-    const Vector hmdDelta = m_HmdPose.TrackedDevicePos - m_PrevHmdLocalPos;
 
-    const Vector leftDeltaHorizontal{ leftDelta.x, leftDelta.y, 0.0f };
-    const float leftSwingSpeed = VectorLength(leftDeltaHorizontal) / deltaSeconds;
+    const Vector leftForwardHorizontal{ m_LeftControllerForward.x, m_LeftControllerForward.y, 0.0f };
+    const float leftForwardHorizontalLength = VectorLength(leftForwardHorizontal);
+    const Vector leftForwardHorizontalNorm = leftForwardHorizontalLength > 0.0f
+        ? leftForwardHorizontal / leftForwardHorizontalLength
+        : Vector(0.0f, 0.0f, 0.0f);
+
+    const float leftOutwardSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
     const float rightDownSpeed = (-rightDelta.z) / deltaSeconds;
-    const float hmdVerticalSpeed = hmdDelta.z / deltaSeconds;
+    const float rightUpSpeed = rightDelta.z / deltaSeconds;
 
     auto startHold = [&](std::chrono::steady_clock::time_point& holdUntil)
         {
@@ -1679,7 +1683,7 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
                 std::chrono::duration<float>(m_MotionGestureCooldown));
         };
 
-    if (leftSwingSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
+    if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
     {
         startHold(m_SecondaryAttackGestureHoldUntil);
         startCooldown(m_SecondaryGestureCooldownEnd);
@@ -1692,7 +1696,7 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     }
 
     const bool onGround = localPlayer && localPlayer->m_hGroundEntity != -1;
-    if (onGround && hmdVerticalSpeed >= m_MotionGestureJumpThreshold && now >= m_JumpGestureCooldownEnd)
+    if (onGround && rightUpSpeed >= m_MotionGestureJumpThreshold && now >= m_JumpGestureCooldownEnd)
     {
         startHold(m_JumpGestureHoldUntil);
         startCooldown(m_JumpGestureCooldownEnd);
