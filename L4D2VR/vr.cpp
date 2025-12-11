@@ -916,6 +916,7 @@ void VR::ProcessInput()
     }
 
     const bool jumpGestureActive = currentTime < m_JumpGestureHoldUntil;
+    const bool crouchGestureActive = currentTime < m_CrouchGestureHoldUntil;
     if (PressedDigitalAction(m_ActionJump) || jumpGestureActive)
     {
         m_Game->ClientCmd_Unrestricted("+jump");
@@ -1120,7 +1121,7 @@ void VR::ProcessInput()
         }
     }
 
-    bool crouchActive = crouchButtonDown || m_CrouchToggleActive;
+    bool crouchActive = crouchButtonDown || m_CrouchToggleActive || crouchGestureActive;
     if (crouchActive)
     {
         m_Game->ClientCmd_Unrestricted("+duck");
@@ -1670,6 +1671,7 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     const float leftOutwardSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
     const float rightDownSpeed = (-rightDelta.z) / deltaSeconds;
     const float rightUpSpeed = rightDelta.z / deltaSeconds;
+    const float hmdVerticalSpeed = std::abs(m_HmdPose.TrackedDevicePos.z - m_PrevHmdLocalPos.z) / deltaSeconds;
 
     auto startHold = [&](std::chrono::steady_clock::time_point& holdUntil)
         {
@@ -1700,6 +1702,12 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     {
         startHold(m_JumpGestureHoldUntil);
         startCooldown(m_JumpGestureCooldownEnd);
+    }
+
+    if (hmdVerticalSpeed >= m_MotionGestureCrouchThreshold && now >= m_CrouchGestureCooldownEnd)
+    {
+        startHold(m_CrouchGestureHoldUntil);
+        startCooldown(m_CrouchGestureCooldownEnd);
     }
 
     m_PrevLeftControllerLocalPos = m_LeftControllerPose.TrackedDevicePos;
@@ -2796,6 +2804,7 @@ void VR::ParseConfigFile()
     m_MotionGestureSwingThreshold = std::max(0.0f, getFloat("MotionGestureSwingThreshold", m_MotionGestureSwingThreshold));
     m_MotionGestureDownSwingThreshold = std::max(0.0f, getFloat("MotionGestureDownSwingThreshold", m_MotionGestureDownSwingThreshold));
     m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));
+    m_MotionGestureCrouchThreshold = std::max(0.0f, getFloat("MotionGestureCrouchThreshold", m_MotionGestureCrouchThreshold));
     m_MotionGestureCooldown = std::max(0.0f, getFloat("MotionGestureCooldown", m_MotionGestureCooldown));
     m_MotionGestureHoldDuration = std::max(0.0f, getFloat("MotionGestureHoldDuration", m_MotionGestureHoldDuration));
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
