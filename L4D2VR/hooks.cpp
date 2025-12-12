@@ -667,11 +667,10 @@ Vector* Hooks::dEyePosition(void* ecx, void* edx, Vector* eyePos)
 
 void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRenderInfo_t& info, void* pCustomBoneToWorld)
 {
-    if (m_Game->m_SwitchedWeapons)
-        m_Game->m_CachedArmsModel = false;
+	if (m_Game->m_SwitchedWeapons)
+		m_Game->m_CachedArmsModel = false;
 
-    const bool hideViewmodel = m_VR->m_ManualReloadHidingViewmodel;
-    bool hideArms = m_Game->m_IsMeleeWeaponActive || m_VR->m_HideArms || hideViewmodel;
+	bool hideArms = m_Game->m_IsMeleeWeaponActive || m_VR->m_HideArms;
 
 	std::string modelName;
 	if (info.pModel)
@@ -686,36 +685,15 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		}
 	}
 
-    if (info.pModel && hideArms && !m_Game->m_CachedArmsModel)
-    {
-        if (modelName.find("/arms/") != std::string::npos)
-        {
-            m_Game->m_ArmsMaterial = m_Game->m_MaterialSystem->FindMaterial(modelName.c_str(), "Model textures");
-            m_Game->m_ArmsModel = info.pModel;
-            m_Game->m_CachedArmsModel = true;
-        }
-    }
-
-    if (info.pModel && hideViewmodel)
-    {
-        if (modelName.empty())
-        {
-            modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
-        }
-
-        if (modelName.find("/v_") != std::string::npos)
-        {
-            IMaterial* viewmodelMaterial = m_Game->m_MaterialSystem->FindMaterial(modelName.c_str(), "Model textures");
-            if (viewmodelMaterial)
-            {
-                viewmodelMaterial->SetMaterialVarFlag(MATERIAL_VAR_NO_DRAW, true);
-                m_Game->m_ModelRender->ForcedMaterialOverride(viewmodelMaterial);
-                hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
-                m_Game->m_ModelRender->ForcedMaterialOverride(NULL);
-                return;
-            }
-        }
-    }
+	if (info.pModel && hideArms && !m_Game->m_CachedArmsModel)
+	{
+		if (modelName.find("/arms/") != std::string::npos)
+		{
+			m_Game->m_ArmsMaterial = m_Game->m_MaterialSystem->FindMaterial(modelName.c_str(), "Model textures");
+			m_Game->m_ArmsModel = info.pModel;
+			m_Game->m_CachedArmsModel = true;
+		}
+	}
 
 	if (info.pModel && info.pModel == m_Game->m_ArmsModel && hideArms)
 	{

@@ -294,38 +294,6 @@ public:
         std::chrono::steady_clock::time_point m_SecondaryGestureCooldownEnd{};
         std::chrono::steady_clock::time_point m_ReloadGestureCooldownEnd{};
         std::chrono::steady_clock::time_point m_JumpGestureCooldownEnd{};
-        bool m_ReloadGestureTriggered = false;
-
-        enum class ManualReloadPhase
-        {
-                None,
-                AwaitMagRelease,
-                AwaitNewMag,
-                AwaitInsert,
-                AwaitBolt
-        };
-
-        ManualReloadPhase m_ManualReloadPhase = ManualReloadPhase::None;
-        bool m_ManualReloadEnabled = true;
-        bool m_ManualReloadCommandIssued = false;
-        bool m_ManualReloadOldMagGrabbed = false;
-        bool m_ManualReloadNewMagGrabbed = false;
-        bool m_ManualReloadBoltPulled = false;
-        bool m_ManualReloadGripWasDown = false;
-        bool m_ManualReloadHideAnimation = false;
-        bool m_ManualReloadHidingViewmodel = false;
-        std::chrono::steady_clock::time_point m_ManualReloadLastGripTapTime{};
-        Vector m_ManualReloadGunAnchor = { 0,0,0 };
-        Vector m_ManualReloadPouchAnchor = { 0,0,0 };
-        Vector m_ManualReloadBoltStart = { 0,0,0 };
-        float m_ManualReloadGunForwardOffset = 0.05f;
-        float m_ManualReloadPouchSideOffset = 0.18f;
-        float m_ManualReloadPouchVerticalOffset = -0.35f;
-        float m_ManualReloadGrabRadius = 0.12f;
-        float m_ManualReloadRemoveDistance = 0.25f;
-        float m_ManualReloadPouchRadius = 0.18f;
-        float m_ManualReloadInsertRadius = 0.14f;
-        float m_ManualReloadBoltDistance = 0.16f;
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
@@ -439,18 +407,14 @@ public:
         void WaitForConfigUpdate();
 	bool GetWalkAxis(float& x, float& y);
 	bool m_EncodeVRUsercmd = true;
-        void UpdateAimingLaser(C_BasePlayer* localPlayer);
-        bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
-        bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
+	void UpdateAimingLaser(C_BasePlayer* localPlayer);
+	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
+	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
         float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
         void DrawAimLine(const Vector& start, const Vector& end);
         void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
         void DrawThrowArcFromCache(float duration);
-        void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
-        void BeginManualReload(const Vector& weaponHandPos, const Vector& weaponForward);
-        void CancelManualReload();
-        void UpdateManualReload(const Vector& weaponHandPos, const Vector& weaponForward, const Vector& offHandPos, bool reloadButtonDown, bool reloadJustPressed, bool reloadGestureTriggered, bool adjustViewmodelActive);
-        void DrawManualReloadDebug() const;
+	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
         SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
         void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
         void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
