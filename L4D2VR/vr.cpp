@@ -1030,6 +1030,8 @@ void VR::ProcessInput()
         };
 
     const float gestureRange = m_InventoryGestureRange * m_VRScale;
+    const float chestGestureRange = gestureRange * 0.5f;
+
     auto buildAnchor = [&](const Vector& offsets)
         {
             return m_HmdPosAbs
@@ -1043,14 +1045,14 @@ void VR::ProcessInput()
     const Vector leftWaistAnchor = buildAnchor(m_InventoryLeftWaistOffset);
     const Vector rightWaistAnchor = buildAnchor(m_InventoryRightWaistOffset);
 
-    auto isControllerNear = [&](const Vector& controllerPos, const Vector& anchor)
+    auto isControllerNear = [&](const Vector& controllerPos, const Vector& anchor, float range)
         {
-            return VectorLength(controllerPos - anchor) <= gestureRange;
+            return VectorLength(controllerPos - anchor) <= range;
         };
 
     if (m_DrawInventoryAnchors && m_Game->m_DebugOverlay)
     {
-        auto drawCircle = [&](const Vector& center, const Vector& axisA, const Vector& axisB)
+        auto drawCircle = [&](const Vector& center, const Vector& axisA, const Vector& axisB, float range)
             {
                 const int segments = 24;
                 const float twoPi = 6.28318530718f;
@@ -1060,23 +1062,23 @@ void VR::ProcessInput()
                     const float t1 = (twoPi * (i + 1)) / segments;
                     const Vector dir0 = (axisA * std::cos(t0)) + (axisB * std::sin(t0));
                     const Vector dir1 = (axisA * std::cos(t1)) + (axisB * std::sin(t1));
-                    const Vector start = center + (dir0 * gestureRange);
-                    const Vector end = center + (dir1 * gestureRange);
+                    const Vector start = center + (dir0 * range);
+                    const Vector end = center + (dir1 * range);
                     m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_InventoryAnchorColorR, m_InventoryAnchorColorG, m_InventoryAnchorColorB, true, m_LastFrameDuration * 2.0f);
                 }
             };
 
-        auto drawAnchor = [&](const Vector& anchor)
+        auto drawAnchor = [&](const Vector& anchor, float range)
             {
-                drawCircle(anchor, m_HmdRight, m_HmdForward);
-                drawCircle(anchor, m_HmdUp, m_HmdRight);
-                drawCircle(anchor, m_HmdForward, m_HmdUp);
+                drawCircle(anchor, m_HmdRight, m_HmdForward, range);
+                drawCircle(anchor, m_HmdUp, m_HmdRight, range);
+                drawCircle(anchor, m_HmdForward, m_HmdUp, range);
             };
 
-        drawAnchor(chestAnchor);
-        drawAnchor(backAnchor);
-        drawAnchor(leftWaistAnchor);
-        drawAnchor(rightWaistAnchor);
+        drawAnchor(chestAnchor, chestGestureRange);
+        drawAnchor(backAnchor, gestureRange);
+        drawAnchor(leftWaistAnchor, gestureRange);
+        drawAnchor(rightWaistAnchor, gestureRange);
     }
 
     bool inventoryGripActiveLeft = false;
@@ -1098,10 +1100,10 @@ void VR::ProcessInput()
             if (!gripDown)
                 return;
 
-            const bool nearBack = isControllerNear(controllerPos, backAnchor);
-            const bool nearChest = isControllerNear(controllerPos, chestAnchor);
-            const bool nearLeftWaist = isControllerNear(controllerPos, leftWaistAnchor);
-            const bool nearRightWaist = isControllerNear(controllerPos, rightWaistAnchor);
+            const bool nearBack = isControllerNear(controllerPos, backAnchor, gestureRange);
+            const bool nearChest = isControllerNear(controllerPos, chestAnchor, chestGestureRange);
+            const bool nearLeftWaist = isControllerNear(controllerPos, leftWaistAnchor, gestureRange);
+            const bool nearRightWaist = isControllerNear(controllerPos, rightWaistAnchor, gestureRange);
 
             if (!(nearBack || nearChest || nearLeftWaist || nearRightWaist))
                 return;
