@@ -1025,7 +1025,7 @@ void VR::ProcessInput()
             case C_WeaponCSBase::WeaponID::M60:
                 return 1;
             default:
-                return 1;
+                return 0;
             }
         };
 
@@ -1079,11 +1079,6 @@ void VR::ProcessInput()
         drawAnchor(rightWaistAnchor);
     }
 
-    const bool leftNearChest = isControllerNear(m_LeftControllerPosAbs, chestAnchor);
-    const bool rightNearChest = isControllerNear(m_RightControllerPosAbs, chestAnchor);
-
-    const bool flashlightGestureTriggered = primaryAttackJustPressed && (leftNearChest || rightNearChest);
-
     bool inventoryGripActiveLeft = false;
     bool inventoryGripActiveRight = false;
 
@@ -1091,7 +1086,10 @@ void VR::ProcessInput()
         {
             C_WeaponCSBase* activeWeapon = localPlayer ? static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon()) : nullptr;
             const int currentSlot = getWeaponSlot(activeWeapon);
-            const char* targetSlotCmd = currentSlot == 1 ? "slot2" : "slot1";
+            const char* targetSlotCmd = "slot1";
+
+            if (currentSlot == 1)
+                targetSlotCmd = "slot2";
             m_Game->ClientCmd_Unrestricted(targetSlotCmd);
         };
 
@@ -1124,13 +1122,13 @@ void VR::ProcessInput()
 
             if (nearChest)
             {
-                m_Game->ClientCmd_Unrestricted("slot4");
+                m_Game->ClientCmd_Unrestricted("slot3");
                 return;
             }
 
             if (nearLeftWaist)
             {
-                m_Game->ClientCmd_Unrestricted("slot3");
+                m_Game->ClientCmd_Unrestricted("slot4");
                 return;
             }
 
@@ -1156,11 +1154,6 @@ void VR::ProcessInput()
     {
         crouchButtonDown = false;
         crouchJustPressed = false;
-    }
-
-    if (flashlightGestureTriggered)
-    {
-        primaryAttackDown = false;
     }
 
     if (primaryAttackDown)
@@ -1311,7 +1304,7 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-duck");
     }
 
-    if (flashlightJustPressed || flashlightGestureTriggered)
+    if (flashlightJustPressed)
     {
         if (crouchButtonDown)
             SendFunctionKey(VK_F1);
@@ -1768,9 +1761,9 @@ void VR::UpdateTracking()
         Vector deltaPos = m_LeftControllerPosAbs - m_AdjustStartLeftPos;
         Vector viewmodelDelta =
         {
-            DotProduct(deltaPos, m_AdjustStartViewmodelForward),
-            DotProduct(deltaPos, m_AdjustStartViewmodelRight),
-            DotProduct(deltaPos, m_AdjustStartViewmodelUp)
+            -DotProduct(deltaPos, m_AdjustStartViewmodelForward),
+            -DotProduct(deltaPos, m_AdjustStartViewmodelRight),
+            -DotProduct(deltaPos, m_AdjustStartViewmodelUp)
         };
         QAngle deltaAng =
         {
