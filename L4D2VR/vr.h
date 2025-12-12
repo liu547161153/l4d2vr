@@ -294,6 +294,16 @@ public:
         std::chrono::steady_clock::time_point m_SecondaryGestureCooldownEnd{};
         std::chrono::steady_clock::time_point m_ReloadGestureCooldownEnd{};
         std::chrono::steady_clock::time_point m_JumpGestureCooldownEnd{};
+        float m_InventoryGestureRange = 0.25f;
+        Vector m_InventoryChestOffset = { 0.20f, 0.0f, -0.20f };
+        Vector m_InventoryBackOffset = { -0.25f, 0.0f, -0.10f };
+        Vector m_InventoryLeftWaistOffset = { 0.05f, -0.25f, -0.45f };
+        Vector m_InventoryRightWaistOffset = { 0.05f, 0.25f, -0.45f };
+        bool m_DrawInventoryAnchors = false;
+        int m_InventoryAnchorColorR = 0;
+        int m_InventoryAnchorColorG = 255;
+        int m_InventoryAnchorColorB = 255;
+        int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;

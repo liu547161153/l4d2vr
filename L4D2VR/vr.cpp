@@ -906,15 +906,6 @@ void VR::ProcessInput()
     // Movement via console commands disabled; handled in Hooks::dCreateMove via CUserCmd.
 #endif
 
-    if (PressedDigitalAction(m_ActionPrimaryAttack))
-    {
-        m_Game->ClientCmd_Unrestricted("+attack");
-    }
-    else
-    {
-        m_Game->ClientCmd_Unrestricted("-attack");
-    }
-
     const bool jumpGestureActive = currentTime < m_JumpGestureHoldUntil;
     if (PressedDigitalAction(m_ActionJump) || jumpGestureActive)
     {
@@ -963,6 +954,11 @@ void VR::ProcessInput()
             return primaryValid && secondaryValid;
         };
 
+    vr::InputDigitalActionData_t primaryAttackActionData{};
+    bool primaryAttackDown = false;
+    bool primaryAttackJustPressed = false;
+    getActionState(&m_ActionPrimaryAttack, primaryAttackActionData, primaryAttackDown, primaryAttackJustPressed);
+
     vr::InputDigitalActionData_t crouchActionData{};
     bool crouchButtonDown = false;
     bool crouchJustPressed = false;
@@ -990,6 +986,191 @@ void VR::ProcessInput()
     bool flashlightButtonDown = false;
     bool flashlightJustPressed = false;
     bool flashlightDataValid = getActionState(&m_ActionFlashlight, flashlightActionData, flashlightButtonDown, flashlightJustPressed);
+
+    C_BasePlayer* localPlayer = nullptr;
+    {
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
+    }
+
+    auto getWeaponSlot = [](C_WeaponCSBase* weapon) -> int
+        {
+            if (!weapon)
+                return 1;
+
+            switch (weapon->GetWeaponID())
+            {
+            case C_WeaponCSBase::WeaponID::PISTOL:
+            case C_WeaponCSBase::WeaponID::MAGNUM:
+            case C_WeaponCSBase::WeaponID::MELEE:
+                return 2;
+
+            case C_WeaponCSBase::WeaponID::UZI:
+            case C_WeaponCSBase::WeaponID::PUMPSHOTGUN:
+            case C_WeaponCSBase::WeaponID::AUTOSHOTGUN:
+            case C_WeaponCSBase::WeaponID::M16A1:
+            case C_WeaponCSBase::WeaponID::HUNTING_RIFLE:
+            case C_WeaponCSBase::WeaponID::MAC10:
+            case C_WeaponCSBase::WeaponID::SHOTGUN_CHROME:
+            case C_WeaponCSBase::WeaponID::SCAR:
+            case C_WeaponCSBase::WeaponID::SNIPER_MILITARY:
+            case C_WeaponCSBase::WeaponID::SPAS:
+            case C_WeaponCSBase::WeaponID::CHAINSAW:
+            case C_WeaponCSBase::WeaponID::GRENADE_LAUNCHER:
+            case C_WeaponCSBase::WeaponID::AK47:
+            case C_WeaponCSBase::WeaponID::MP5:
+            case C_WeaponCSBase::WeaponID::SG552:
+            case C_WeaponCSBase::WeaponID::AWP:
+            case C_WeaponCSBase::WeaponID::SCOUT:
+            case C_WeaponCSBase::WeaponID::M60:
+                return 1;
+            default:
+                return 1;
+            }
+        };
+
+    const float gestureRange = m_InventoryGestureRange * m_VRScale;
+    auto buildAnchor = [&](const Vector& offsets)
+        {
+            return m_HmdPosAbs
+                + (m_HmdForward * (offsets.x * m_VRScale))
+                + (m_HmdRight * (offsets.y * m_VRScale))
+                + (m_HmdUp * (offsets.z * m_VRScale));
+        };
+
+    const Vector chestAnchor = buildAnchor(m_InventoryChestOffset);
+    const Vector backAnchor = buildAnchor(m_InventoryBackOffset);
+    const Vector leftWaistAnchor = buildAnchor(m_InventoryLeftWaistOffset);
+    const Vector rightWaistAnchor = buildAnchor(m_InventoryRightWaistOffset);
+
+    auto isControllerNear = [&](const Vector& controllerPos, const Vector& anchor)
+        {
+            return VectorLength(controllerPos - anchor) <= gestureRange;
+        };
+
+    if (m_DrawInventoryAnchors && m_Game->m_DebugOverlay)
+    {
+        auto drawCircle = [&](const Vector& center, const Vector& axisA, const Vector& axisB)
+            {
+                const int segments = 24;
+                const float twoPi = 6.28318530718f;
+                for (int i = 0; i < segments; ++i)
+                {
+                    const float t0 = (twoPi * i) / segments;
+                    const float t1 = (twoPi * (i + 1)) / segments;
+                    const Vector dir0 = (axisA * std::cos(t0)) + (axisB * std::sin(t0));
+                    const Vector dir1 = (axisA * std::cos(t1)) + (axisB * std::sin(t1));
+                    const Vector start = center + (dir0 * gestureRange);
+                    const Vector end = center + (dir1 * gestureRange);
+                    m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_InventoryAnchorColorR, m_InventoryAnchorColorG, m_InventoryAnchorColorB, true, m_LastFrameDuration * 2.0f);
+                }
+            };
+
+        auto drawAnchor = [&](const Vector& anchor)
+            {
+                drawCircle(anchor, m_HmdRight, m_HmdForward);
+                drawCircle(anchor, m_HmdUp, m_HmdRight);
+                drawCircle(anchor, m_HmdForward, m_HmdUp);
+            };
+
+        drawAnchor(chestAnchor);
+        drawAnchor(backAnchor);
+        drawAnchor(leftWaistAnchor);
+        drawAnchor(rightWaistAnchor);
+    }
+
+    const bool leftNearChest = isControllerNear(m_LeftControllerPosAbs, chestAnchor);
+    const bool rightNearChest = isControllerNear(m_RightControllerPosAbs, chestAnchor);
+
+    const bool flashlightGestureTriggered = primaryAttackJustPressed && (leftNearChest || rightNearChest);
+
+    bool inventoryGripActiveLeft = false;
+    bool inventoryGripActiveRight = false;
+
+    auto togglePrimarySecondary = [&]()
+        {
+            C_WeaponCSBase* activeWeapon = localPlayer ? static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon()) : nullptr;
+            const int currentSlot = getWeaponSlot(activeWeapon);
+            const char* targetSlotCmd = currentSlot == 1 ? "slot2" : "slot1";
+            m_Game->ClientCmd_Unrestricted(targetSlotCmd);
+        };
+
+    auto handleGripInventoryGesture = [&](const Vector& controllerPos, bool gripDown, bool gripJustPressed, bool isRightHand)
+        {
+            if (!gripDown)
+                return;
+
+            const bool nearBack = isControllerNear(controllerPos, backAnchor);
+            const bool nearChest = isControllerNear(controllerPos, chestAnchor);
+            const bool nearLeftWaist = isControllerNear(controllerPos, leftWaistAnchor);
+            const bool nearRightWaist = isControllerNear(controllerPos, rightWaistAnchor);
+
+            if (!(nearBack || nearChest || nearLeftWaist || nearRightWaist))
+                return;
+
+            if (isRightHand)
+                inventoryGripActiveRight = true;
+            else
+                inventoryGripActiveLeft = true;
+
+            if (!gripJustPressed)
+                return;
+
+            if (nearBack)
+            {
+                togglePrimarySecondary();
+                return;
+            }
+
+            if (nearChest)
+            {
+                m_Game->ClientCmd_Unrestricted("slot4");
+                return;
+            }
+
+            if (nearLeftWaist)
+            {
+                m_Game->ClientCmd_Unrestricted("slot3");
+                return;
+            }
+
+            if (nearRightWaist)
+            {
+                m_Game->ClientCmd_Unrestricted("slot5");
+            }
+        };
+
+    handleGripInventoryGesture(m_LeftControllerPosAbs, reloadButtonDown, reloadJustPressed, false);
+    handleGripInventoryGesture(m_RightControllerPosAbs, crouchButtonDown, crouchJustPressed, true);
+
+    const bool suppressReload = inventoryGripActiveLeft;
+    const bool suppressCrouch = inventoryGripActiveRight;
+
+    if (suppressReload)
+    {
+        reloadButtonDown = false;
+        reloadJustPressed = false;
+    }
+
+    if (suppressCrouch)
+    {
+        crouchButtonDown = false;
+        crouchJustPressed = false;
+    }
+
+    if (flashlightGestureTriggered)
+    {
+        primaryAttackDown = false;
+    }
+
+    if (primaryAttackDown)
+    {
+        m_Game->ClientCmd_Unrestricted("+attack");
+    }
+    else
+    {
+        m_Game->ClientCmd_Unrestricted("-attack");
+    }
 
     vr::InputDigitalActionData_t voicePrimaryData{};
     vr::InputDigitalActionData_t voiceSecondaryData{};
@@ -1076,7 +1257,7 @@ void VR::ProcessInput()
         m_VoiceRecordActive = false;
     }
 
-    reloadButtonDown = reloadButtonDown || gestureReloadActive;
+    reloadButtonDown = (reloadButtonDown || gestureReloadActive) && !suppressReload;
     secondaryAttackActive = secondaryAttackActive || gestureSecondaryAttackActive;
 
     if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
@@ -1120,7 +1301,7 @@ void VR::ProcessInput()
         }
     }
 
-    bool crouchActive = crouchButtonDown || m_CrouchToggleActive;
+    bool crouchActive = (!suppressCrouch) && (crouchButtonDown || m_CrouchToggleActive);
     if (crouchActive)
     {
         m_Game->ClientCmd_Unrestricted("+duck");
@@ -1130,7 +1311,7 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-duck");
     }
 
-    if (flashlightJustPressed)
+    if (flashlightJustPressed || flashlightGestureTriggered)
     {
         if (crouchButtonDown)
             SendFunctionKey(VK_F1);
@@ -2694,6 +2875,17 @@ void VR::ParseConfigFile()
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
+    m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
+    m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
+    m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
+    m_InventoryLeftWaistOffset = getVector3("InventoryLeftWaistOffset", m_InventoryLeftWaistOffset);
+    m_InventoryRightWaistOffset = getVector3("InventoryRightWaistOffset", m_InventoryRightWaistOffset);
+    m_DrawInventoryAnchors = getBool("ShowInventoryAnchors", m_DrawInventoryAnchors);
+    const auto inventoryColor = getColor("InventoryAnchorColor", m_InventoryAnchorColorR, m_InventoryAnchorColorG, m_InventoryAnchorColorB, m_InventoryAnchorColorA);
+    m_InventoryAnchorColorR = inventoryColor[0];
+    m_InventoryAnchorColorG = inventoryColor[1];
+    m_InventoryAnchorColorB = inventoryColor[2];
+    m_InventoryAnchorColorA = inventoryColor[3];
     const std::unordered_map<std::string, vr::VRActionHandle_t*> actionLookup =
     {
         {"jump", &m_ActionJump},
