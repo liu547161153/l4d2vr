@@ -1120,13 +1120,13 @@ void VR::ProcessInput()
                 return;
             }
 
-            if (nearChest)
+            if (nearLeftWaist)
             {
                 m_Game->ClientCmd_Unrestricted("slot3");
                 return;
             }
 
-            if (nearLeftWaist)
+            if (nearChest)
             {
                 m_Game->ClientCmd_Unrestricted("slot4");
                 return;
