@@ -8,26 +8,6 @@
 #include <iostream>
 #include <cstdint>
 #include <string>
-#include <algorithm>
-
-namespace
-{
-        constexpr int kInJump = 1 << 1;
-        constexpr int kInForward = 1 << 3;
-        constexpr int kInBack = 1 << 4;
-        constexpr int kInMoveLeft = 1 << 9;
-        constexpr int kInMoveRight = 1 << 10;
-
-        float NormalizeYaw(float yaw)
-        {
-                while (yaw > 180.f)
-                        yaw -= 360.f;
-                while (yaw < -180.f)
-                        yaw += 360.f;
-
-                return yaw;
-        }
-}
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -280,11 +260,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	if (!cmd->command_number)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
-        bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
+	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
-        if (m_VR->m_IsVREnabled) {
-                const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
-                float ax = 0.f, ay = 0.f;
+	if (m_VR->m_IsVREnabled) {
+		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
+		float ax = 0.f, ay = 0.f;
 		if (m_VR->GetWalkAxis(ax, ay)) {
 			// 死区 + 归一化（和平滑转向一致的 0.2 死区）
 			const float dz = 0.2f;
@@ -324,60 +304,12 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			while (aim.y < -180.f) aim.y += 360.f;
 
 			cmd->viewangles.x = aim.x;   // pitch
-                        cmd->viewangles.y = aim.y;   // yaw
-                        cmd->viewangles.z = 0.f;     // roll 一般不用
-                }
-        }
+			cmd->viewangles.y = aim.y;   // yaw
+			cmd->viewangles.z = 0.f;     // roll 一般不用
+		}
+	}
 
-        static bool bunnyHopToggled = false;
-
-        const bool bunnyHopPressed = m_VR->m_IsVREnabled ? m_VR->PressedDigitalAction(m_VR->m_ActionBunnyHop, true) : false;
-        const bool bunnyHopHeld = m_VR->m_IsVREnabled ? m_VR->PressedDigitalAction(m_VR->m_ActionBunnyHop) : false;
-
-        if (!m_Game->m_EngineClient->IsInGame())
-        {
-                bunnyHopToggled = false;
-        }
-        else if (bunnyHopPressed)
-        {
-                bunnyHopToggled = !bunnyHopToggled;
-        }
-
-        if ((bunnyHopHeld || bunnyHopToggled) && m_Game->m_EngineClient->IsInGame())
-        {
-                const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
-                auto* localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
-
-                if (localPlayer)
-                {
-                        // 覆盖玩家输入，避免影响自动加速逻辑
-                        cmd->buttons &= ~(kInForward | kInBack | kInMoveLeft | kInMoveRight);
-                        cmd->forwardmove = 0.f;
-                        cmd->sidemove = 0.f;
-
-                        const bool onGround = localPlayer->m_hGroundEntity != -1;
-
-                        if (onGround)
-                        {
-                                cmd->buttons |= kInJump;
-                        }
-                        else
-                        {
-                                static bool strafeRight = false;
-                                strafeRight = !strafeRight;
-
-                                cmd->sidemove = strafeRight ? 450.f : -450.f;
-
-                                const float speed = std::max(localPlayer->m_vecVelocity.Length2D(), 0.01f);
-                                const float idealTurn = std::clamp(30.f / speed, 0.5f, 5.f);
-                                const float yawDelta = strafeRight ? idealTurn : -idealTurn;
-
-                                cmd->viewangles.y = NormalizeYaw(cmd->viewangles.y + yawDelta);
-                        }
-                }
-        }
-
-        return result;
+	return result;
 }
 
 void __fastcall Hooks::dEndFrame(void* ecx, void* edx)

@@ -168,7 +168,6 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/ResetPosition", &m_ActionResetPosition);
     m_Input->GetActionHandle("/actions/main/in/Crouch", &m_ActionCrouch);
     m_Input->GetActionHandle("/actions/main/in/Flashlight", &m_ActionFlashlight);
-    m_Input->GetActionHandle("/actions/main/in/BunnyHop", &m_ActionBunnyHop);
     m_Input->GetActionHandle("/actions/main/in/MenuSelect", &m_MenuSelect);
     m_Input->GetActionHandle("/actions/main/in/MenuBack", &m_MenuBack);
     m_Input->GetActionHandle("/actions/main/in/MenuUp", &m_MenuUp);
