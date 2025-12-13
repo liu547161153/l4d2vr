@@ -8,8 +8,6 @@
 #include <iostream>
 #include <cstdint>
 #include <string>
-#include <algorithm>
-#include <cmath>
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -264,10 +262,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
-        if (m_VR->m_IsVREnabled) {
-                const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
-                float ax = 0.f, ay = 0.f;
-                if (m_VR->GetWalkAxis(ax, ay)) {
+	if (m_VR->m_IsVREnabled) {
+		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
+		float ax = 0.f, ay = 0.f;
+		if (m_VR->GetWalkAxis(ax, ay)) {
 			// 死区 + 归一化（和平滑转向一致的 0.2 死区）
 			const float dz = 0.2f;
 			auto norm = [&](float v) {
@@ -301,65 +299,17 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			// 简单夹角，避免异常值
 			if (aim.x > 89.f)  aim.x = 89.f;
 			if (aim.x < -89.f) aim.x = -89.f;
-                        // yaw 归一到 [-180,180]
-                        while (aim.y > 180.f)  aim.y -= 360.f;
-                        while (aim.y < -180.f) aim.y += 360.f;
+			// yaw 归一到 [-180,180]
+			while (aim.y > 180.f)  aim.y -= 360.f;
+			while (aim.y < -180.f) aim.y += 360.f;
 
-                        cmd->viewangles.x = aim.x;   // pitch
-                        cmd->viewangles.y = aim.y;   // yaw
-                        cmd->viewangles.z = 0.f;     // roll 一般不用
-                }
-        }
+			cmd->viewangles.x = aim.x;   // pitch
+			cmd->viewangles.y = aim.y;   // yaw
+			cmd->viewangles.z = 0.f;     // roll 一般不用
+		}
+	}
 
-        // === 自动兔子跳 / 空中样来滑 ===
-        if (m_VR->m_AutoBhopEnabled)
-        {
-                constexpr int IN_JUMP = (1 << 1);
-
-                static bool strafeRight = false;
-                static bool wasOnGround = false;
-
-                bool onGround = false;
-                Vector velocity{ 0.f, 0.f, 0.f };
-
-                const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
-                C_BasePlayer* localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
-                if (localPlayer)
-                {
-                        onGround = localPlayer->m_hGroundEntity != -1;
-                        velocity = localPlayer->m_vecVelocity;
-                }
-
-                if (onGround)
-                {
-                        if (!wasOnGround)
-                        {
-                                cmd->buttons |= IN_JUMP; // 落地那一帧插入跳跃
-                        }
-                }
-                else if (localPlayer)
-                {
-                        const float horizontalSpeed = std::max(1.f, sqrtf(velocity.x * velocity.x + velocity.y * velocity.y));
-                        float yawDelta = 15.f / horizontalSpeed;
-                        yawDelta = std::clamp(yawDelta, 0.5f, 3.f);
-
-                        const float strafeSpeed = 450.f * (strafeRight ? 1.f : -1.f);
-                        cmd->sidemove = strafeSpeed;
-
-                        cmd->forwardmove *= 0.1f; // 不按 W，最多留空间强度
-
-                        const float yawAdjust = yawDelta * (strafeRight ? 1.f : -1.f);
-                        cmd->viewangles.y += yawAdjust;
-                        while (cmd->viewangles.y > 180.f)  cmd->viewangles.y -= 360.f;
-                        while (cmd->viewangles.y < -180.f) cmd->viewangles.y += 360.f;
-
-                        strafeRight = !strafeRight;
-                }
-
-                wasOnGround = onGround;
-        }
-
-        return result;
+	return result;
 }
 
 void __fastcall Hooks::dEndFrame(void* ecx, void* edx)

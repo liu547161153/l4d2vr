@@ -44,10 +44,6 @@ If the game is crashing, try:
 * Disabling all add-ons then verifying integrity of game files
 * Re-installing the game
 
-## Optional settings
-* Auto bunny hop / air-strafe: edit `VR/config.txt` and add `AutoBhopEnabled=true` to let the mod handle jump timing and strafe inputs for you while airborne.
-* Force non-VR server movement: keep `ForceNonVRServerMovement=false` when hosting/playing on a server with the VR hooks so throws follow your HMD aim and VR usercmd encoding stays enabled; flip it to `true` only when you join a vanilla server that doesn't understand VR inputs so the game emulates standard mouse/keyboard movement instead.
-
 ## Build instructions
 1. ``` git clone --recurse-submodules https://github.com/liu547161153/l4d2vr.git ```
 2. Open l4d2vr.sln
