@@ -5,6 +5,7 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -35,8 +36,14 @@ struct TrackedDevicePoseData
 
 struct SharedTextureHolder
 {
-	vr::VRVulkanTextureData_t m_VulkanData;
-	vr::Texture_t m_VRTexture;
+        vr::VRVulkanTextureData_t m_VulkanData;
+        vr::Texture_t m_VRTexture;
+};
+
+struct CustomActionBinding
+{
+        std::string command;
+        std::optional<WORD> virtualKey;
 };
 
 
@@ -282,11 +289,11 @@ public:
         bool m_HudAlwaysVisible = false;
         float m_ControllerSmoothing = 0.0f;
         bool m_ControllerSmoothingInitialized = false;
-        std::string m_CustomAction1Command{};
-        std::string m_CustomAction2Command{};
-        std::string m_CustomAction3Command{};
-        std::string m_CustomAction4Command{};
-        std::string m_CustomAction5Command{};
+        CustomActionBinding m_CustomAction1{};
+        CustomActionBinding m_CustomAction2{};
+        CustomActionBinding m_CustomAction3{};
+        CustomActionBinding m_CustomAction4{};
+        CustomActionBinding m_CustomAction5{};
 
         float m_MotionGestureSwingThreshold = 1.1f;
         float m_MotionGestureDownSwingThreshold = 1.0f;
@@ -390,8 +397,9 @@ public:
 	bool UpdatePosesAndActions();
 	void GetViewParameters();
 	void ProcessMenuInput();
-	void ProcessInput();
-	void SendFunctionKey(WORD virtualKey);
+        void ProcessInput();
+        void SendVirtualKey(WORD virtualKey);
+        void SendFunctionKey(WORD virtualKey);
 	VMatrix VMatrixFromHmdMatrix(const vr::HmdMatrix34_t& hmdMat);
 	vr::HmdMatrix34_t VMatrixToHmdMatrix(const VMatrix& vMat);
 	vr::HmdMatrix34_t GetControllerTipMatrix(vr::ETrackedControllerRole controllerRole);

@@ -1324,28 +1324,32 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
-    auto triggerCustomAction = [&](const std::string& command)
+    auto triggerCustomAction = [&](const CustomActionBinding& binding)
         {
-            if (command.empty())
+            if (binding.virtualKey.has_value())
+            {
+                SendVirtualKey(*binding.virtualKey);
                 return;
+            }
 
-            m_Game->ClientCmd_Unrestricted(command.c_str());
+            if (!binding.command.empty())
+                m_Game->ClientCmd_Unrestricted(binding.command.c_str());
         };
 
     if (PressedDigitalAction(m_CustomAction1, true))
-        triggerCustomAction(m_CustomAction1Command);
+        triggerCustomAction(m_CustomAction1);
 
     if (PressedDigitalAction(m_CustomAction2, true))
-        triggerCustomAction(m_CustomAction2Command);
+        triggerCustomAction(m_CustomAction2);
 
     if (PressedDigitalAction(m_CustomAction3, true))
-        triggerCustomAction(m_CustomAction3Command);
+        triggerCustomAction(m_CustomAction3);
 
     if (PressedDigitalAction(m_CustomAction4, true))
-        triggerCustomAction(m_CustomAction4Command);
+        triggerCustomAction(m_CustomAction4);
 
     if (PressedDigitalAction(m_CustomAction5, true))
-        triggerCustomAction(m_CustomAction5Command);
+        triggerCustomAction(m_CustomAction5);
 
     auto showHudOverlays = [&](bool attachToControllers)
         {
@@ -1399,7 +1403,7 @@ void VR::ProcessInput()
     }
 }
 
-void VR::SendFunctionKey(WORD virtualKey)
+void VR::SendVirtualKey(WORD virtualKey)
 {
     INPUT inputs[2] = {};
 
@@ -1411,6 +1415,11 @@ void VR::SendFunctionKey(WORD virtualKey)
     inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
 
     SendInput(2, inputs, sizeof(INPUT));
+}
+
+void VR::SendFunctionKey(WORD virtualKey)
+{
+    SendVirtualKey(virtualKey);
 }
 
 VMatrix VR::VMatrixFromHmdMatrix(const vr::HmdMatrix34_t& hmdMat)
@@ -2905,6 +2914,72 @@ void VR::ParseConfigFile()
         return value.empty() ? defVal : value;
         };
 
+    auto parseVirtualKey = [&](const std::string& rawValue)->std::optional<WORD>
+        {
+            std::string value = rawValue;
+            trim(value);
+            if (value.size() < 5) // key:<x>
+                return std::nullopt;
+
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); });
+
+            const std::string prefix = "key:";
+            if (value.rfind(prefix, 0) != 0)
+                return std::nullopt;
+
+            std::string keyToken = value.substr(prefix.size());
+            trim(keyToken);
+            if (keyToken.empty())
+                return std::nullopt;
+
+            static const std::unordered_map<std::string, WORD> keyLookup = {
+                { "space", VK_SPACE }, { "enter", VK_RETURN }, { "return", VK_RETURN },
+                { "tab", VK_TAB }, { "escape", VK_ESCAPE }, { "esc", VK_ESCAPE },
+                { "shift", VK_SHIFT }, { "lshift", VK_LSHIFT }, { "rshift", VK_RSHIFT },
+                { "ctrl", VK_CONTROL }, { "lctrl", VK_LCONTROL }, { "rctrl", VK_RCONTROL },
+                { "alt", VK_MENU }, { "lalt", VK_LMENU }, { "ralt", VK_RMENU },
+                { "backspace", VK_BACK }, { "delete", VK_DELETE }, { "insert", VK_INSERT },
+                { "home", VK_HOME }, { "end", VK_END }, { "pageup", VK_PRIOR }, { "pagedown", VK_NEXT },
+                { "up", VK_UP }, { "down", VK_DOWN }, { "left", VK_LEFT }, { "right", VK_RIGHT }
+            };
+
+            auto lookupIt = keyLookup.find(keyToken);
+            if (lookupIt != keyLookup.end())
+                return lookupIt->second;
+
+            if (keyToken.size() == 1)
+            {
+                char ch = keyToken[0];
+                if (ch >= 'a' && ch <= 'z')
+                    return static_cast<WORD>('A' + (ch - 'a'));
+                if (ch >= '0' && ch <= '9')
+                    return static_cast<WORD>(ch);
+            }
+
+            if (keyToken.size() > 1 && keyToken[0] == 'f')
+            {
+                try
+                {
+                    int functionIndex = std::stoi(keyToken.substr(1));
+                    if (functionIndex >= 1 && functionIndex <= 24)
+                        return static_cast<WORD>(VK_F1 + functionIndex - 1);
+                }
+                catch (...)
+                {
+                }
+            }
+
+            return std::nullopt;
+        };
+
+    auto parseCustomActionBinding = [&](const char* key, CustomActionBinding& binding)
+        {
+            binding.command = getString(key, binding.command);
+            binding.virtualKey = parseVirtualKey(binding.command);
+            if (!binding.command.empty() && binding.virtualKey.has_value())
+                Game::logMsg("[VR] %s mapped to virtual key 0x%02X", key, *binding.virtualKey);
+        };
+
     // 用当前成员的值作为默认值（构造时已初始化）
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
@@ -3001,11 +3076,11 @@ void VR::ParseConfigFile()
     m_VoiceRecordCombo = parseActionCombo("VoiceRecordCombo", m_VoiceRecordCombo);
     m_QuickTurnCombo = parseActionCombo("QuickTurnCombo", m_QuickTurnCombo);
     m_ViewmodelAdjustCombo = parseActionCombo("ViewmodelAdjustCombo", m_ViewmodelAdjustCombo);
-    m_CustomAction1Command = getString("CustomAction1Command", m_CustomAction1Command);
-    m_CustomAction2Command = getString("CustomAction2Command", m_CustomAction2Command);
-    m_CustomAction3Command = getString("CustomAction3Command", m_CustomAction3Command);
-    m_CustomAction4Command = getString("CustomAction4Command", m_CustomAction4Command);
-    m_CustomAction5Command = getString("CustomAction5Command", m_CustomAction5Command);
+    parseCustomActionBinding("CustomAction1Command", m_CustomAction1);
+    parseCustomActionBinding("CustomAction2Command", m_CustomAction2);
+    parseCustomActionBinding("CustomAction3Command", m_CustomAction3);
+    parseCustomActionBinding("CustomAction4Command", m_CustomAction4);
+    parseCustomActionBinding("CustomAction5Command", m_CustomAction5);
 
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
     m_VRScale = getFloat("VRScale", m_VRScale);
