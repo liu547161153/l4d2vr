@@ -40,3 +40,6 @@ ViewmodelAdjustCombo=Reload+SecondaryAttack
 # Any combo can be disabled by setting it to "false".
 ViewmodelAdjustEnabled=true
 SpecialInfectedBlindSpotDistance=300.0
+# Console commands executed when pressing the custom SteamVR bindings (leave empty to disable)
+CustomAction1Command=
+CustomAction2Command=
