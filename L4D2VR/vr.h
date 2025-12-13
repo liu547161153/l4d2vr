@@ -5,6 +5,7 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -35,8 +36,14 @@ struct TrackedDevicePoseData
 
 struct SharedTextureHolder
 {
-	vr::VRVulkanTextureData_t m_VulkanData;
-	vr::Texture_t m_VRTexture;
+        vr::VRVulkanTextureData_t m_VulkanData;
+        vr::Texture_t m_VRTexture;
+};
+
+struct CustomActionBinding
+{
+        std::string command;
+        std::optional<WORD> virtualKey;
 };
 
 
@@ -272,21 +279,21 @@ public:
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
-	float m_HudDistance = 1.3;
-	float m_HudSize = 1.1;
-	float m_ControllerHudSize = 0.5f;
-	float m_ControllerHudYOffset = 0.12f;
+        float m_HudDistance = 1.3;
+        float m_HudSize = 1.1;
+        float m_ControllerHudSize = 0.5f;
+        float m_ControllerHudYOffset = 0.12f;
         float m_ControllerHudZOffset = 0.0f;
         float m_ControllerHudRotation = 0.0f;
         float m_ControllerHudXOffset = 0.0f;
         bool m_HudAlwaysVisible = false;
         float m_ControllerSmoothing = 0.0f;
         bool m_ControllerSmoothingInitialized = false;
-        std::string m_CustomAction1Command{};
-        std::string m_CustomAction2Command{};
-        std::string m_CustomAction3Command{};
-        std::string m_CustomAction4Command{};
-        std::string m_CustomAction5Command{};
+        CustomActionBinding m_CustomAction1Binding{};
+        CustomActionBinding m_CustomAction2Binding{};
+        CustomActionBinding m_CustomAction3Binding{};
+        CustomActionBinding m_CustomAction4Binding{};
+        CustomActionBinding m_CustomAction5Binding{};
 
         float m_MotionGestureSwingThreshold = 1.1f;
         float m_MotionGestureDownSwingThreshold = 1.0f;
@@ -390,8 +397,9 @@ public:
 	bool UpdatePosesAndActions();
 	void GetViewParameters();
 	void ProcessMenuInput();
-	void ProcessInput();
-	void SendFunctionKey(WORD virtualKey);
+        void ProcessInput();
+        void SendVirtualKey(WORD virtualKey);
+        void SendFunctionKey(WORD virtualKey);
 	VMatrix VMatrixFromHmdMatrix(const vr::HmdMatrix34_t& hmdMat);
 	vr::HmdMatrix34_t VMatrixToHmdMatrix(const VMatrix& vMat);
 	vr::HmdMatrix34_t GetControllerTipMatrix(vr::ETrackedControllerRole controllerRole);
