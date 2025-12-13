@@ -247,10 +247,12 @@ public:
 	vr::VRActionHandle_t m_MenuDown;
 	vr::VRActionHandle_t m_MenuLeft;
 	vr::VRActionHandle_t m_MenuRight;
-	vr::VRActionHandle_t m_Spray;
-	vr::VRActionHandle_t m_Scoreboard;
-	vr::VRActionHandle_t m_ShowHUD;
-	vr::VRActionHandle_t m_Pause;
+        vr::VRActionHandle_t m_Spray;
+        vr::VRActionHandle_t m_Scoreboard;
+        vr::VRActionHandle_t m_ShowHUD;
+        vr::VRActionHandle_t m_Pause;
+        vr::VRActionHandle_t m_CustomAction1;
+        vr::VRActionHandle_t m_CustomAction2;
 
 	TrackedDevicePoseData m_HmdPose;
 	TrackedDevicePoseData m_LeftControllerPose;
@@ -271,12 +273,14 @@ public:
 	float m_HudSize = 1.1;
 	float m_ControllerHudSize = 0.5f;
 	float m_ControllerHudYOffset = 0.12f;
-	float m_ControllerHudZOffset = 0.0f;
-	float m_ControllerHudRotation = 0.0f;
-	float m_ControllerHudXOffset = 0.0f;
+        float m_ControllerHudZOffset = 0.0f;
+        float m_ControllerHudRotation = 0.0f;
+        float m_ControllerHudXOffset = 0.0f;
         bool m_HudAlwaysVisible = false;
         float m_ControllerSmoothing = 0.0f;
         bool m_ControllerSmoothingInitialized = false;
+        std::string m_CustomAction1Command{};
+        std::string m_CustomAction2Command{};
 
         float m_MotionGestureSwingThreshold = 1.1f;
         float m_MotionGestureDownSwingThreshold = 1.0f;

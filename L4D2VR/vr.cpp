@@ -178,6 +178,8 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/Scoreboard", &m_Scoreboard);
     m_Input->GetActionHandle("/actions/main/in/ShowHUD", &m_ShowHUD);
     m_Input->GetActionHandle("/actions/main/in/Pause", &m_Pause);
+    m_Input->GetActionHandle("/actions/main/in/CustomAction1", &m_CustomAction1);
+    m_Input->GetActionHandle("/actions/main/in/CustomAction2", &m_CustomAction2);
 
     m_Input->GetActionSetHandle("/actions/main", &m_ActionSet);
     m_ActiveActionSet = {};
@@ -1318,6 +1320,20 @@ void VR::ProcessInput()
     {
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
+
+    auto triggerCustomAction = [&](const std::string& command)
+        {
+            if (command.empty())
+                return;
+
+            m_Game->ClientCmd_Unrestricted(command.c_str());
+        };
+
+    if (PressedDigitalAction(m_CustomAction1, true))
+        triggerCustomAction(m_CustomAction1Command);
+
+    if (PressedDigitalAction(m_CustomAction2, true))
+        triggerCustomAction(m_CustomAction2Command);
 
     auto showHudOverlays = [&](bool attachToControllers)
         {
@@ -2866,6 +2882,17 @@ void VR::ParseConfigFile()
         return result;
         };
 
+    auto getString = [&](const char* k, const std::string& defVal)->std::string {
+        auto it = userConfig.find(k);
+        if (it == userConfig.end())
+            return defVal;
+
+        std::string value = it->second;
+        trim(value);
+
+        return value.empty() ? defVal : value;
+        };
+
     // 用当前成员的值作为默认值（构造时已初始化）
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
@@ -2962,6 +2989,8 @@ void VR::ParseConfigFile()
     m_VoiceRecordCombo = parseActionCombo("VoiceRecordCombo", m_VoiceRecordCombo);
     m_QuickTurnCombo = parseActionCombo("QuickTurnCombo", m_QuickTurnCombo);
     m_ViewmodelAdjustCombo = parseActionCombo("ViewmodelAdjustCombo", m_ViewmodelAdjustCombo);
+    m_CustomAction1Command = getString("CustomAction1Command", m_CustomAction1Command);
+    m_CustomAction2Command = getString("CustomAction2Command", m_CustomAction2Command);
 
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
     m_VRScale = getFloat("VRScale", m_VRScale);
