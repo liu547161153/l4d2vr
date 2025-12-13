@@ -85,15 +85,20 @@
 			"name": "/actions/main/in/Crouch",
 			"type": "boolean"
 		},
-		{
-			"name": "/actions/main/in/Flashlight",
-			"type": "boolean"
-		},
-		{
-			"name": "/actions/main/in/ActivateVR",
-			"type": "boolean"
-		},
-		{
+                {
+                        "name": "/actions/main/in/Flashlight",
+                        "type": "boolean"
+                },
+                {
+                        "name": "/actions/main/in/BunnyHop",
+                        "type": "boolean",
+                        "requirement": "optional"
+                },
+                {
+                        "name": "/actions/main/in/ActivateVR",
+                        "type": "boolean"
+                },
+                {
 			"name": "/actions/main/in/MenuSelect",
 			"type": "boolean"
 		},
@@ -195,11 +200,12 @@
 			"/actions/main/in/MenuUp" : "Menu Up",
 			"/actions/main/in/MenuDown" : "Menu Down",
 			"/actions/main/in/MenuLeft" : "Menu Left",
-			"/actions/main/in/MenuRight" : "Menu Right",
+                        "/actions/main/in/MenuRight" : "Menu Right",
                         "/actions/main/in/Spray" : "Spray",
                         "/actions/main/in/Scoreboard" : "Show Scoreboard",
                         "/actions/main/in/ShowHUD" : "Show HUD",
                         "/actions/main/in/Pause" : "Pause",
+                        "/actions/main/in/BunnyHop" : "Bunny Hop",
                         "/actions/main/in/CustomAction1" : "Custom Action 1",
                         "/actions/main/in/CustomAction2" : "Custom Action 2",
                         "/actions/main/in/CustomAction3" : "Custom Action 3",
