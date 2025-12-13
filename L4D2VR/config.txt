@@ -41,7 +41,6 @@ ViewmodelAdjustCombo=Reload+SecondaryAttack
 ViewmodelAdjustEnabled=true
 SpecialInfectedBlindSpotDistance=300.0
 # Console commands executed when pressing the custom SteamVR bindings (leave empty to disable)
-# Prefix a value with "key:" to send a keyboard key instead of a console command (e.g. key:space, key:f5, key:k)
 CustomAction1Command=
 CustomAction2Command=
 CustomAction3Command=
