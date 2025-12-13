@@ -322,8 +322,9 @@ public:
         int m_InventoryAnchorColorB = 255;
         int m_InventoryAnchorColorA = 64;
 
-	bool m_ForceNonVRServerMovement = false;
-	bool m_RequireSecondaryAttackForItemSwitch = true;
+        bool m_AutoBhopEnabled = false;
+        bool m_ForceNonVRServerMovement = false;
+        bool m_RequireSecondaryAttackForItemSwitch = true;
 	struct RgbColor
 	{
 		int r;
