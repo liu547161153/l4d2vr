@@ -244,14 +244,15 @@ public:
 	vr::VRActionHandle_t m_ActionUse;
 	vr::VRActionHandle_t m_ActionNextItem;
 	vr::VRActionHandle_t m_ActionPrevItem;
-	vr::VRActionHandle_t m_ActionResetPosition;
-	vr::VRActionHandle_t m_ActionCrouch;
-	vr::VRActionHandle_t m_ActionFlashlight;
-	vr::VRActionHandle_t m_ActionActivateVR;
-	vr::VRActionHandle_t m_MenuSelect;
-	vr::VRActionHandle_t m_MenuBack;
-	vr::VRActionHandle_t m_MenuUp;
-	vr::VRActionHandle_t m_MenuDown;
+        vr::VRActionHandle_t m_ActionResetPosition;
+        vr::VRActionHandle_t m_ActionCrouch;
+        vr::VRActionHandle_t m_ActionFlashlight;
+        vr::VRActionHandle_t m_ActionBunnyHop;
+        vr::VRActionHandle_t m_ActionActivateVR;
+        vr::VRActionHandle_t m_MenuSelect;
+        vr::VRActionHandle_t m_MenuBack;
+        vr::VRActionHandle_t m_MenuUp;
+        vr::VRActionHandle_t m_MenuDown;
 	vr::VRActionHandle_t m_MenuLeft;
 	vr::VRActionHandle_t m_MenuRight;
         vr::VRActionHandle_t m_Spray;
@@ -322,12 +323,12 @@ public:
         int m_InventoryAnchorColorB = 255;
         int m_InventoryAnchorColorA = 64;
 
-	bool m_ForceNonVRServerMovement = false;
-	bool m_RequireSecondaryAttackForItemSwitch = true;
-	struct RgbColor
-	{
-		int r;
-		int g;
+        bool m_ForceNonVRServerMovement = false;
+        bool m_RequireSecondaryAttackForItemSwitch = true;
+        struct RgbColor
+        {
+                int r;
+                int g;
 		int b;
 	};
 

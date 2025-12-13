@@ -302,6 +302,21 @@ inline vec_t Vector::operator[](int i) const
 	return ((vec_t *)this)[i];
 }
 
+inline vec_t Vector::Length() const
+{
+	return static_cast<vec_t>(sqrt(x * x + y * y + z * z));
+}
+
+inline vec_t Vector::Length2D(void) const
+{
+	return static_cast<vec_t>(sqrt(x * x + y * y));
+}
+
+inline vec_t Vector::Length2DSqr(void) const
+{
+	return (x * x + y * y);
+}
+
 class VectorByValue : public Vector
 {
 public:
