@@ -144,6 +144,21 @@
                         "name": "/actions/main/in/CustomAction2",
                         "type": "boolean",
                         "requirement": "optional"
+                },
+                {
+                        "name": "/actions/main/in/CustomAction3",
+                        "type": "boolean",
+                        "requirement": "optional"
+                },
+                {
+                        "name": "/actions/main/in/CustomAction4",
+                        "type": "boolean",
+                        "requirement": "optional"
+                },
+                {
+                        "name": "/actions/main/in/CustomAction5",
+                        "type": "boolean",
+                        "requirement": "optional"
                 }
         ],
 
@@ -186,7 +201,10 @@
                         "/actions/main/in/ShowHUD" : "Show HUD",
                         "/actions/main/in/Pause" : "Pause",
                         "/actions/main/in/CustomAction1" : "Custom Action 1",
-                        "/actions/main/in/CustomAction2" : "Custom Action 2"
+                        "/actions/main/in/CustomAction2" : "Custom Action 2",
+                        "/actions/main/in/CustomAction3" : "Custom Action 3",
+                        "/actions/main/in/CustomAction4" : "Custom Action 4",
+                        "/actions/main/in/CustomAction5" : "Custom Action 5"
                 }
         ]
 }
