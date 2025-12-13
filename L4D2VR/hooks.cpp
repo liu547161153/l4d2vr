@@ -13,6 +13,10 @@
 namespace
 {
         constexpr int kInJump = 1 << 1;
+        constexpr int kInForward = 1 << 3;
+        constexpr int kInBack = 1 << 4;
+        constexpr int kInMoveLeft = 1 << 9;
+        constexpr int kInMoveRight = 1 << 10;
 
         float NormalizeYaw(float yaw)
         {
@@ -334,6 +338,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
                 if (localPlayer)
                 {
+                        // 覆盖玩家输入，避免影响自动加速逻辑
+                        cmd->buttons &= ~(kInForward | kInBack | kInMoveLeft | kInMoveRight);
+                        cmd->forwardmove = 0.f;
+                        cmd->sidemove = 0.f;
+
                         const bool onGround = localPlayer->m_hGroundEntity != -1;
 
                         if (onGround)
