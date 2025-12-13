@@ -253,6 +253,9 @@ public:
         vr::VRActionHandle_t m_Pause;
         vr::VRActionHandle_t m_CustomAction1;
         vr::VRActionHandle_t m_CustomAction2;
+        vr::VRActionHandle_t m_CustomAction3;
+        vr::VRActionHandle_t m_CustomAction4;
+        vr::VRActionHandle_t m_CustomAction5;
 
 	TrackedDevicePoseData m_HmdPose;
 	TrackedDevicePoseData m_LeftControllerPose;
@@ -281,6 +284,9 @@ public:
         bool m_ControllerSmoothingInitialized = false;
         std::string m_CustomAction1Command{};
         std::string m_CustomAction2Command{};
+        std::string m_CustomAction3Command{};
+        std::string m_CustomAction4Command{};
+        std::string m_CustomAction5Command{};
 
         float m_MotionGestureSwingThreshold = 1.1f;
         float m_MotionGestureDownSwingThreshold = 1.0f;

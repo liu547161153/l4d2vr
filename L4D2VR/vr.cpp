@@ -180,6 +180,9 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/Pause", &m_Pause);
     m_Input->GetActionHandle("/actions/main/in/CustomAction1", &m_CustomAction1);
     m_Input->GetActionHandle("/actions/main/in/CustomAction2", &m_CustomAction2);
+    m_Input->GetActionHandle("/actions/main/in/CustomAction3", &m_CustomAction3);
+    m_Input->GetActionHandle("/actions/main/in/CustomAction4", &m_CustomAction4);
+    m_Input->GetActionHandle("/actions/main/in/CustomAction5", &m_CustomAction5);
 
     m_Input->GetActionSetHandle("/actions/main", &m_ActionSet);
     m_ActiveActionSet = {};
@@ -1334,6 +1337,15 @@ void VR::ProcessInput()
 
     if (PressedDigitalAction(m_CustomAction2, true))
         triggerCustomAction(m_CustomAction2Command);
+
+    if (PressedDigitalAction(m_CustomAction3, true))
+        triggerCustomAction(m_CustomAction3Command);
+
+    if (PressedDigitalAction(m_CustomAction4, true))
+        triggerCustomAction(m_CustomAction4Command);
+
+    if (PressedDigitalAction(m_CustomAction5, true))
+        triggerCustomAction(m_CustomAction5Command);
 
     auto showHudOverlays = [&](bool attachToControllers)
         {
@@ -2991,6 +3003,9 @@ void VR::ParseConfigFile()
     m_ViewmodelAdjustCombo = parseActionCombo("ViewmodelAdjustCombo", m_ViewmodelAdjustCombo);
     m_CustomAction1Command = getString("CustomAction1Command", m_CustomAction1Command);
     m_CustomAction2Command = getString("CustomAction2Command", m_CustomAction2Command);
+    m_CustomAction3Command = getString("CustomAction3Command", m_CustomAction3Command);
+    m_CustomAction4Command = getString("CustomAction4Command", m_CustomAction4Command);
+    m_CustomAction5Command = getString("CustomAction5Command", m_CustomAction5Command);
 
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
     m_VRScale = getFloat("VRScale", m_VRScale);
