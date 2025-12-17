@@ -1881,7 +1881,9 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
         ? leftForwardHorizontal / leftForwardHorizontalLength
         : Vector(0.0f, 0.0f, 0.0f);
 
-    const float leftOutwardSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
+    const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
+    const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
+    const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
     const float rightDownSpeed = (-rightDelta.z) / deltaSeconds;
     const float hmdVerticalSpeed = hmdDelta.z / deltaSeconds;
 
