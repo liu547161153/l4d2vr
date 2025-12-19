@@ -5,7 +5,6 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
-#include <deque>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -373,13 +372,11 @@ public:
         bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
         bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
         float m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = 0.6f;
-        float m_SpecialInfectedPreWarningAimDelay = 0.0f;
         bool m_SpecialInfectedPreWarningActive = false;
         bool m_SpecialInfectedPreWarningInRange = false;
         bool m_SpecialInfectedPreWarningCrouchHoldActive = false;
         std::chrono::steady_clock::time_point m_SpecialInfectedPreWarningCrouchHoldStart{};
         Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
-        std::deque<std::pair<std::chrono::steady_clock::time_point, Vector>> m_SpecialInfectedPreWarningTargetHistory{};
         std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
             Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
             Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
