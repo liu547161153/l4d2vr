@@ -1163,30 +1163,6 @@ void VR::ProcessInput()
         crouchJustPressed = false;
     }
 
-    if (!crouchButtonDown)
-    {
-        m_SpecialInfectedPreWarningCrouchHoldActive = false;
-        m_SpecialInfectedPreWarningCrouchHoldTriggered = false;
-    }
-    else
-    {
-        if (!m_SpecialInfectedPreWarningCrouchHoldActive)
-        {
-            m_SpecialInfectedPreWarningCrouchHoldActive = true;
-            m_SpecialInfectedPreWarningCrouchHoldStart = currentTime;
-        }
-
-        if (!m_SpecialInfectedPreWarningCrouchHoldTriggered && m_SpecialInfectedPreWarningAutoAimConfigEnabled)
-        {
-            const float holdSeconds = std::chrono::duration<float>(currentTime - m_SpecialInfectedPreWarningCrouchHoldStart).count();
-            if (holdSeconds >= m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration)
-            {
-                m_SpecialInfectedPreWarningAutoAimEnabled = !m_SpecialInfectedPreWarningAutoAimEnabled;
-                m_SpecialInfectedPreWarningCrouchHoldTriggered = true;
-            }
-        }
-    }
-
     if (primaryAttackDown)
     {
         m_Game->ClientCmd_Unrestricted("+attack");
@@ -1265,6 +1241,14 @@ void VR::ProcessInput()
         else
         {
             m_CrouchToggleActive = !m_CrouchToggleActive;
+            if (m_SpecialInfectedPreWarningAutoAimConfigEnabled)
+            {
+                m_SpecialInfectedPreWarningAutoAimEnabled = !m_SpecialInfectedPreWarningAutoAimEnabled;
+            }
+            else
+            {
+                m_SpecialInfectedPreWarningAutoAimEnabled = false;
+            }
             ResetPosition();
         }
     }
@@ -3242,7 +3226,6 @@ void VR::ParseConfigFile()
     m_SpecialInfectedPreWarningAutoAimConfigEnabled = getBool("SpecialInfectedPreWarningAutoAimEnabled", m_SpecialInfectedPreWarningAutoAimConfigEnabled);
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
-    m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = std::max(0.0f, getFloat("SpecialInfectedPreWarningAutoAimCrouchHoldDuration", m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration));
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
