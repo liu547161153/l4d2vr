@@ -368,6 +368,8 @@ public:
         float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
         float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
         bool m_SpecialInfectedWarningActionEnabled = false;
+        Vector m_SpecialInfectedWarningTarget = { 0.0f, 0.0f, 0.0f };
+        bool m_SpecialInfectedWarningTargetActive = false;
         bool m_SuppressPlayerInput = false;
         enum class SpecialInfectedWarningActionStep
         {

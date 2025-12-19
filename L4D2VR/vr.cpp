@@ -1771,6 +1771,19 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
+    if (m_SpecialInfectedWarningActionEnabled && m_SpecialInfectedBlindSpotWarningActive && m_SpecialInfectedWarningTargetActive)
+    {
+        Vector toTarget = m_SpecialInfectedWarningTarget - m_RightControllerPosAbs;
+        if (!toTarget.IsZero())
+        {
+            VectorNormalize(toTarget);
+
+            QAngle forcedAngles;
+            QAngle::VectorAngles(toTarget, m_HmdUp, forcedAngles);
+            QAngle::AngleVectors(forcedAngles, &m_RightControllerForward, &m_RightControllerRight, &m_RightControllerUp);
+        }
+    }
+
     UpdateAimingLaser(localPlayer);
 
     // controller angles
@@ -2326,6 +2339,9 @@ void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
     if (!IsSpecialInfectedInBlindSpot(infectedOrigin))
         return;
 
+    m_SpecialInfectedWarningTarget = infectedOrigin;
+    m_SpecialInfectedWarningTargetActive = true;
+
     const bool wasActive = m_SpecialInfectedBlindSpotWarningActive;
     m_SpecialInfectedBlindSpotWarningActive = true;
     m_LastSpecialInfectedWarningTime = std::chrono::steady_clock::now();
@@ -2352,13 +2368,19 @@ bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
 void VR::UpdateSpecialInfectedWarningState()
 {
     if (!m_SpecialInfectedBlindSpotWarningActive)
+    {
+        m_SpecialInfectedWarningTargetActive = false;
         return;
+    }
 
     const auto now = std::chrono::steady_clock::now();
     const auto elapsedSeconds = std::chrono::duration<float>(now - m_LastSpecialInfectedWarningTime).count();
 
     if (elapsedSeconds > m_SpecialInfectedBlindSpotWarningDuration)
+    {
         m_SpecialInfectedBlindSpotWarningActive = false;
+        m_SpecialInfectedWarningTargetActive = false;
+    }
 }
 
 void VR::StartSpecialInfectedWarningAction()
