@@ -358,12 +358,18 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	QAngle vecNewAngles = vecAngles;
 
 	// 只有当本局服务器端确实运行了 VR 钩子时，才用控制器射线做本地预测
-	if (m_VR->m_IsVREnabled
-		&& !m_VR->m_ForceNonVRServerMovement
-		&& playerId == m_Game->m_EngineClient->GetLocalPlayer())
+	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-		vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		if (!m_VR->m_ForceNonVRServerMovement)
+		{
+			vecNewOrigin = m_VR->GetRightControllerAbsPos();
+			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		}
+		else
+		{
+			// 非 VR 服务器：服务器仍以常规射线起点为准，但视角需要跟随控制器
+			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		}
 	}
 
 	return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
