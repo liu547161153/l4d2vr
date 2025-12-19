@@ -368,6 +368,25 @@ public:
         float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
         float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
         bool m_SpecialInfectedWarningActionEnabled = false;
+        float m_SpecialInfectedPreWarningDistance = 450.0f;
+        bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
+        bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
+        bool m_SpecialInfectedPreWarningActive = false;
+        bool m_SpecialInfectedPreWarningInRange = false;
+        Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
+        std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
+            Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
+            Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
+            Vector{ 0.0f, 0.0f, 0.0f }, // Hunter
+            Vector{ 0.0f, 0.0f, 0.0f }, // Spitter
+            Vector{ 0.0f, 0.0f, 0.0f }, // Jockey
+            Vector{ 0.0f, 0.0f, 0.0f }, // Charger
+            Vector{ 0.0f, 0.0f, 0.0f }, // Tank
+            Vector{ 0.0f, 0.0f, 0.0f }  // Witch
+        };
+        std::chrono::steady_clock::time_point m_LastSpecialInfectedPreWarningSeenTime{};
+        Vector m_SpecialInfectedWarningTarget = { 0.0f, 0.0f, 0.0f };
+        bool m_SpecialInfectedWarningTargetActive = false;
         bool m_SuppressPlayerInput = false;
         enum class SpecialInfectedWarningActionStep
         {
@@ -445,9 +464,11 @@ public:
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
         SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
         void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
+        void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
         void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
         bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
         void UpdateSpecialInfectedWarningState();
+        void UpdateSpecialInfectedPreWarningState();
         void StartSpecialInfectedWarningAction();
         void UpdateSpecialInfectedWarningAction();
         void ResetSpecialInfectedWarningAction();
