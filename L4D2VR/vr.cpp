@@ -2419,6 +2419,25 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             adjustedTarget += (m_HmdRight * offset.x) + (m_HmdForward * offset.y) + (m_HmdUp * offset.z);
         }
 
+        C_BasePlayer* localPlayer = nullptr;
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        if (playerIndex > 0)
+            localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
+
+        if (localPlayer)
+        {
+            CGameTrace trace;
+            Ray_t ray;
+            CTraceFilterSkipNPCsAndPlayers tracefilter((IHandleEntity*)localPlayer, 0);
+            ray.Init(m_HmdPosAbs, adjustedTarget);
+            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+            if (trace.fraction < 1.0f)
+            {
+                m_SpecialInfectedPreWarningInRange = false;
+                return;
+            }
+        }
+
         const float lockDelaySeconds = m_SpecialInfectedPreWarningLockDelay;
         bool targetSwitched = false;
         if (m_SpecialInfectedPreWarningHasLastTarget)
