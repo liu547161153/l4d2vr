@@ -41,6 +41,7 @@ ViewmodelAdjustCombo=Reload+SecondaryAttack
 ViewmodelAdjustEnabled=true
 SpecialInfectedBlindSpotDistance=300.0
 SpecialInfectedPreWarningAutoAimEnabled=false
+SpecialInfectedPreWarningAutoAimCrouchHoldDuration=0.6
 SpecialInfectedPreWarningDistance=450.0
 SpecialInfectedPreWarningAimOffsetBoomer=0,0,0
 SpecialInfectedPreWarningAimOffsetSmoker=0,0,0
