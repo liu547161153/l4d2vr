@@ -376,6 +376,9 @@ public:
         bool m_SpecialInfectedPreWarningActive = false;
         bool m_SpecialInfectedPreWarningInRange = false;
         float m_SpecialInfectedPreWarningAimDelay = 0.1f;
+        float m_SpecialInfectedPreWarningAimSmoothing = 0.0f;
+        Vector m_SpecialInfectedPreWarningSmoothedTarget = Vector(0.0f, 0.0f, 0.0f);
+        bool m_SpecialInfectedPreWarningSmoothedTargetValid = false;
         struct TimedPreWarningTarget
         {
                 std::chrono::steady_clock::time_point time;

@@ -1781,10 +1781,29 @@ void VR::UpdateTracking()
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
     const bool shouldForceAim = m_SpecialInfectedPreWarningActive;
-    const Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
+    Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
 
     if (shouldForceAim)
     {
+        if (m_SpecialInfectedPreWarningAimSmoothing > 0.0f)
+        {
+            if (!m_SpecialInfectedPreWarningSmoothedTargetValid)
+            {
+                m_SpecialInfectedPreWarningSmoothedTarget = forcedTarget;
+                m_SpecialInfectedPreWarningSmoothedTargetValid = true;
+            }
+
+            const float lerpFactor = std::clamp(m_LastFrameDuration / m_SpecialInfectedPreWarningAimSmoothing, 0.0f, 1.0f);
+            m_SpecialInfectedPreWarningSmoothedTarget.x += (forcedTarget.x - m_SpecialInfectedPreWarningSmoothedTarget.x) * lerpFactor;
+            m_SpecialInfectedPreWarningSmoothedTarget.y += (forcedTarget.y - m_SpecialInfectedPreWarningSmoothedTarget.y) * lerpFactor;
+            m_SpecialInfectedPreWarningSmoothedTarget.z += (forcedTarget.z - m_SpecialInfectedPreWarningSmoothedTarget.z) * lerpFactor;
+            forcedTarget = m_SpecialInfectedPreWarningSmoothedTarget;
+        }
+        else
+        {
+            m_SpecialInfectedPreWarningSmoothedTargetValid = false;
+        }
+
         Vector toTarget = forcedTarget - m_RightControllerPosAbs;
         if (!toTarget.IsZero())
         {
@@ -1797,6 +1816,8 @@ void VR::UpdateTracking()
     }
 
     UpdateAimingLaser(localPlayer);
+    if (!shouldForceAim)
+        m_SpecialInfectedPreWarningSmoothedTargetValid = false;
 
     // controller angles
     QAngle::VectorAngles(m_LeftControllerForward, m_LeftControllerUp, m_LeftControllerAngAbs);
@@ -2490,6 +2511,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningActive = false;
         m_SpecialInfectedPreWarningInRange = false;
         m_SpecialInfectedPreWarningTargetHistory.clear();
+        m_SpecialInfectedPreWarningSmoothedTargetValid = false;
         return;
     }
 
@@ -2507,6 +2529,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
     {
         m_SpecialInfectedPreWarningActive = false;
         m_SpecialInfectedPreWarningTargetHistory.clear();
+        m_SpecialInfectedPreWarningSmoothedTargetValid = false;
     }
 
     if (!m_SpecialInfectedPreWarningInRange && !m_SpecialInfectedPreWarningActive)
@@ -3288,6 +3311,7 @@ void VR::ParseConfigFile()
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningAimDelay = std::max(0.0f, getFloat("SpecialInfectedPreWarningAimDelay", m_SpecialInfectedPreWarningAimDelay));
+    m_SpecialInfectedPreWarningAimSmoothing = std::max(0.0f, getFloat("SpecialInfectedPreWarningAimSmoothing", m_SpecialInfectedPreWarningAimSmoothing));
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
