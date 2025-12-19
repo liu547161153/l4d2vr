@@ -2419,10 +2419,90 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             adjustedTarget += (m_HmdRight * offset.x) + (m_HmdForward * offset.y) + (m_HmdUp * offset.z);
         }
 
-        m_SpecialInfectedPreWarningTarget = adjustedTarget;
+        C_BasePlayer* localPlayer = nullptr;
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        if (playerIndex > 0)
+            localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
+
+        if (localPlayer)
+        {
+            CGameTrace trace;
+            Ray_t ray;
+            CTraceFilterSkipNPCsAndPlayers tracefilter((IHandleEntity*)localPlayer, 0);
+            ray.Init(m_HmdPosAbs, adjustedTarget);
+            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+            if (trace.fraction < 1.0f)
+            {
+                m_SpecialInfectedPreWarningInRange = false;
+                return;
+            }
+        }
+
+        const float lockDelaySeconds = m_SpecialInfectedPreWarningLockDelay;
+        bool targetSwitched = false;
+        if (m_SpecialInfectedPreWarningHasLastTarget)
+        {
+            const Vector delta = adjustedTarget - m_SpecialInfectedPreWarningLastRawTarget;
+            const float targetSwitchDistanceSq = 100.0f * 100.0f;
+            targetSwitched = (type != m_SpecialInfectedPreWarningLastType) || (delta.LengthSqr() >= targetSwitchDistanceSq);
+        }
+
+        if (lockDelaySeconds > 0.0f && (!m_SpecialInfectedPreWarningActive || targetSwitched))
+        {
+            if (!m_SpecialInfectedPreWarningLockPending || targetSwitched)
+            {
+                m_SpecialInfectedPreWarningLockPending = true;
+                m_SpecialInfectedPreWarningLockStart = now;
+                if (m_SpecialInfectedPreWarningActive)
+                {
+                    m_SpecialInfectedPreWarningLockStartTarget = m_SpecialInfectedPreWarningTarget;
+                }
+                else if (!m_RightControllerForward.IsZero())
+                {
+                    const float maxDistance = 8192.0f;
+                    m_SpecialInfectedPreWarningLockStartTarget = m_RightControllerPosAbs + (m_RightControllerForward * maxDistance);
+                }
+                else
+                {
+                    m_SpecialInfectedPreWarningLockStartTarget = adjustedTarget;
+                }
+                m_SpecialInfectedPreWarningPendingTarget = adjustedTarget;
+                m_SpecialInfectedPreWarningPendingType = type;
+            }
+            else
+            {
+                m_SpecialInfectedPreWarningPendingTarget = adjustedTarget;
+                m_SpecialInfectedPreWarningPendingType = type;
+            }
+
+            m_SpecialInfectedPreWarningInRange = true;
+            m_LastSpecialInfectedPreWarningSeenTime = now;
+            m_SpecialInfectedPreWarningLastRawTarget = adjustedTarget;
+            m_SpecialInfectedPreWarningLastType = type;
+            m_SpecialInfectedPreWarningHasLastTarget = true;
+
+            const auto elapsed = std::chrono::duration<float>(now - m_SpecialInfectedPreWarningLockStart).count();
+            if (elapsed < lockDelaySeconds)
+            {
+                const float t = std::clamp(elapsed / lockDelaySeconds, 0.0f, 1.0f);
+                m_SpecialInfectedPreWarningTarget = m_SpecialInfectedPreWarningLockStartTarget +
+                    (m_SpecialInfectedPreWarningPendingTarget - m_SpecialInfectedPreWarningLockStartTarget) * t;
+                m_SpecialInfectedPreWarningActive = true;
+                return;
+            }
+
+            m_SpecialInfectedPreWarningLockPending = false;
+        }
+
+        m_SpecialInfectedPreWarningTargetHistory.push_back({ now, adjustedTarget });
+        if (m_SpecialInfectedPreWarningAimDelay <= 0.0f)
+            m_SpecialInfectedPreWarningTarget = adjustedTarget;
         m_SpecialInfectedPreWarningActive = true;
         m_SpecialInfectedPreWarningInRange = true;
         m_LastSpecialInfectedPreWarningSeenTime = now;
+        m_SpecialInfectedPreWarningLastRawTarget = adjustedTarget;
+        m_SpecialInfectedPreWarningLastType = type;
+        m_SpecialInfectedPreWarningHasLastTarget = true;
         return;
     }
 
@@ -2453,6 +2533,9 @@ void VR::UpdateSpecialInfectedPreWarningState()
     {
         m_SpecialInfectedPreWarningActive = false;
         m_SpecialInfectedPreWarningInRange = false;
+        m_SpecialInfectedPreWarningTargetHistory.clear();
+        m_SpecialInfectedPreWarningLockPending = false;
+        m_SpecialInfectedPreWarningHasLastTarget = false;
         return;
     }
 
@@ -2466,8 +2549,70 @@ void VR::UpdateSpecialInfectedPreWarningState()
             m_SpecialInfectedPreWarningInRange = false;
     }
 
+    if (m_SpecialInfectedPreWarningActive && !m_SpecialInfectedPreWarningTargetHistory.empty())
+    {
+        const float delaySeconds = m_SpecialInfectedPreWarningAimDelay;
+        const auto targetTime = now - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<float>(delaySeconds));
+
+        const float maxHistorySeconds = std::max(0.5f, delaySeconds + 0.5f);
+        while (!m_SpecialInfectedPreWarningTargetHistory.empty())
+        {
+            const float ageSeconds = std::chrono::duration<float>(now - m_SpecialInfectedPreWarningTargetHistory.front().first).count();
+            if (ageSeconds <= maxHistorySeconds)
+                break;
+            m_SpecialInfectedPreWarningTargetHistory.pop_front();
+        }
+
+        if (!m_SpecialInfectedPreWarningTargetHistory.empty())
+        {
+            if (delaySeconds <= 0.0f)
+            {
+                m_SpecialInfectedPreWarningTarget = m_SpecialInfectedPreWarningTargetHistory.back().second;
+            }
+            else if (m_SpecialInfectedPreWarningTargetHistory.back().first <= targetTime)
+            {
+                m_SpecialInfectedPreWarningTarget = m_SpecialInfectedPreWarningTargetHistory.back().second;
+            }
+            else if (m_SpecialInfectedPreWarningTargetHistory.front().first > targetTime)
+            {
+                // Not enough history yet; keep the existing target until the delay window fills.
+            }
+            else
+            {
+                while (m_SpecialInfectedPreWarningTargetHistory.size() > 1 &&
+                    m_SpecialInfectedPreWarningTargetHistory[1].first <= targetTime)
+                {
+                    m_SpecialInfectedPreWarningTargetHistory.pop_front();
+                }
+
+                if (m_SpecialInfectedPreWarningTargetHistory.size() > 1 &&
+                    m_SpecialInfectedPreWarningTargetHistory.front().first <= targetTime)
+                {
+                    const auto& older = m_SpecialInfectedPreWarningTargetHistory[0];
+                    const auto& newer = m_SpecialInfectedPreWarningTargetHistory[1];
+                    const float spanSeconds = std::chrono::duration<float>(newer.first - older.first).count();
+                    const float elapsedSeconds = std::chrono::duration<float>(targetTime - older.first).count();
+                    const float t = spanSeconds > 0.0f ? std::clamp(elapsedSeconds / spanSeconds, 0.0f, 1.0f) : 0.0f;
+                    m_SpecialInfectedPreWarningTarget = older.second + (newer.second - older.second) * t;
+                }
+                else
+                {
+                    m_SpecialInfectedPreWarningTarget = m_SpecialInfectedPreWarningTargetHistory.front().second;
+                }
+            }
+        }
+    }
+
     if (m_SpecialInfectedPreWarningActive && !m_SpecialInfectedPreWarningInRange)
         m_SpecialInfectedPreWarningActive = false;
+
+    if (!m_SpecialInfectedPreWarningActive && !m_SpecialInfectedPreWarningInRange)
+    {
+        m_SpecialInfectedPreWarningTargetHistory.clear();
+        m_SpecialInfectedPreWarningLockPending = false;
+        m_SpecialInfectedPreWarningHasLastTarget = false;
+    }
 }
 
 void VR::StartSpecialInfectedWarningAction()
@@ -3245,6 +3390,8 @@ void VR::ParseConfigFile()
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = std::max(0.0f, getFloat("SpecialInfectedPreWarningAutoAimCrouchHoldDuration", m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration));
+    m_SpecialInfectedPreWarningAimDelay = std::max(0.0f, getFloat("SpecialInfectedPreWarningAimDelay", m_SpecialInfectedPreWarningAimDelay));
+    m_SpecialInfectedPreWarningLockDelay = std::max(0.0f, getFloat("SpecialInfectedPreWarningLockDelay", m_SpecialInfectedPreWarningLockDelay));
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
