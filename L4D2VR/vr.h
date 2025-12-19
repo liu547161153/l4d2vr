@@ -5,6 +5,7 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
+#include <deque>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -248,6 +249,7 @@ public:
 	vr::VRActionHandle_t m_ActionCrouch;
 	vr::VRActionHandle_t m_ActionFlashlight;
 	vr::VRActionHandle_t m_ActionActivateVR;
+	vr::VRActionHandle_t m_ActionSpecialInfectedPreWarningToggle;
 	vr::VRActionHandle_t m_MenuSelect;
 	vr::VRActionHandle_t m_MenuBack;
 	vr::VRActionHandle_t m_MenuUp;
@@ -371,11 +373,15 @@ public:
         float m_SpecialInfectedPreWarningDistance = 450.0f;
         bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
         bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
-        float m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = 0.6f;
         bool m_SpecialInfectedPreWarningActive = false;
         bool m_SpecialInfectedPreWarningInRange = false;
-        bool m_SpecialInfectedPreWarningCrouchHoldActive = false;
-        std::chrono::steady_clock::time_point m_SpecialInfectedPreWarningCrouchHoldStart{};
+        float m_SpecialInfectedPreWarningAimDelay = 0.1f;
+        struct TimedPreWarningTarget
+        {
+                std::chrono::steady_clock::time_point time;
+                Vector position;
+        };
+        std::deque<TimedPreWarningTarget> m_SpecialInfectedPreWarningTargetHistory{};
         Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
         std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
             Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
