@@ -1241,6 +1241,14 @@ void VR::ProcessInput()
         else
         {
             m_CrouchToggleActive = !m_CrouchToggleActive;
+            if (m_SpecialInfectedPreWarningAutoAimConfigEnabled)
+            {
+                m_SpecialInfectedPreWarningAutoAimEnabled = !m_SpecialInfectedPreWarningAutoAimEnabled;
+            }
+            else
+            {
+                m_SpecialInfectedPreWarningAutoAimEnabled = false;
+            }
             ResetPosition();
         }
     }
@@ -1771,6 +1779,26 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
+    const bool shouldForceBlindSpotAim = m_SpecialInfectedWarningActionEnabled
+        && m_SpecialInfectedBlindSpotWarningActive
+        && m_SpecialInfectedWarningTargetActive;
+    const bool shouldForcePreWarningAim = m_SpecialInfectedPreWarningActive && !shouldForceBlindSpotAim;
+    const bool shouldForceAim = shouldForceBlindSpotAim || shouldForcePreWarningAim;
+    const Vector forcedTarget = shouldForceBlindSpotAim ? m_SpecialInfectedWarningTarget : m_SpecialInfectedPreWarningTarget;
+
+    if (shouldForceAim)
+    {
+        Vector toTarget = forcedTarget - m_RightControllerPosAbs;
+        if (!toTarget.IsZero())
+        {
+            VectorNormalize(toTarget);
+
+            QAngle forcedAngles;
+            QAngle::VectorAngles(toTarget, m_HmdUp, forcedAngles);
+            QAngle::AngleVectors(forcedAngles, &m_RightControllerForward, &m_RightControllerRight, &m_RightControllerUp);
+        }
+    }
+
     UpdateAimingLaser(localPlayer);
 
     // controller angles
@@ -1926,6 +1954,7 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 {
     UpdateSpecialInfectedWarningState();
+    UpdateSpecialInfectedPreWarningState();
 
     if (!m_Game->m_DebugOverlay)
         return;
@@ -2326,6 +2355,9 @@ void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
     if (!IsSpecialInfectedInBlindSpot(infectedOrigin))
         return;
 
+    m_SpecialInfectedWarningTarget = infectedOrigin;
+    m_SpecialInfectedWarningTargetActive = true;
+
     const bool wasActive = m_SpecialInfectedBlindSpotWarningActive;
     m_SpecialInfectedBlindSpotWarningActive = true;
     m_LastSpecialInfectedWarningTime = std::chrono::steady_clock::now();
@@ -2349,16 +2381,71 @@ bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
     return toInfected.LengthSqr() <= maxDistanceSq;
 }
 
+void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin)
+{
+    if (m_SpecialInfectedPreWarningDistance <= 0.0f || !m_SpecialInfectedPreWarningAutoAimEnabled)
+        return;
+
+    Vector toInfected = infectedOrigin - m_HmdPosAbs;
+    toInfected.z = 0.0f;
+    if (toInfected.IsZero())
+        return;
+
+    const float maxDistanceSq = m_SpecialInfectedPreWarningDistance * m_SpecialInfectedPreWarningDistance;
+    const bool inRange = toInfected.LengthSqr() <= maxDistanceSq;
+    const auto now = std::chrono::steady_clock::now();
+
+    if (inRange)
+    {
+        m_SpecialInfectedPreWarningTarget = infectedOrigin;
+        m_SpecialInfectedPreWarningActive = true;
+        m_SpecialInfectedPreWarningInRange = true;
+        m_LastSpecialInfectedPreWarningSeenTime = now;
+        return;
+    }
+
+    m_SpecialInfectedPreWarningInRange = false;
+}
+
 void VR::UpdateSpecialInfectedWarningState()
 {
     if (!m_SpecialInfectedBlindSpotWarningActive)
+    {
+        m_SpecialInfectedWarningTargetActive = false;
         return;
+    }
 
     const auto now = std::chrono::steady_clock::now();
     const auto elapsedSeconds = std::chrono::duration<float>(now - m_LastSpecialInfectedWarningTime).count();
 
     if (elapsedSeconds > m_SpecialInfectedBlindSpotWarningDuration)
+    {
         m_SpecialInfectedBlindSpotWarningActive = false;
+        m_SpecialInfectedWarningTargetActive = false;
+    }
+}
+
+void VR::UpdateSpecialInfectedPreWarningState()
+{
+    if (!m_SpecialInfectedPreWarningAutoAimEnabled)
+    {
+        m_SpecialInfectedPreWarningActive = false;
+        m_SpecialInfectedPreWarningInRange = false;
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const float seenTimeout = 0.1f;
+
+    if (m_SpecialInfectedPreWarningInRange)
+    {
+        const auto elapsed = std::chrono::duration<float>(now - m_LastSpecialInfectedPreWarningSeenTime).count();
+        if (elapsed > seenTimeout)
+            m_SpecialInfectedPreWarningInRange = false;
+    }
+
+    if (m_SpecialInfectedPreWarningActive && !m_SpecialInfectedPreWarningInRange)
+        m_SpecialInfectedPreWarningActive = false;
 }
 
 void VR::StartSpecialInfectedWarningAction()
@@ -2445,6 +2532,12 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
         r = m_AimLineWarningColorR;
         g = m_AimLineWarningColorG;
         b = m_AimLineWarningColorB;
+    }
+    else if (m_SpecialInfectedPreWarningActive)
+    {
+        r = 0;
+        g = 255;
+        b = 0;
     }
     else
     {
@@ -3126,6 +3219,10 @@ void VR::ParseConfigFile()
     m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
     m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
     m_SpecialInfectedBlindSpotDistance = std::max(0.0f, getFloat("SpecialInfectedBlindSpotDistance", m_SpecialInfectedBlindSpotDistance));
+    m_SpecialInfectedPreWarningAutoAimConfigEnabled = getBool("SpecialInfectedPreWarningAutoAimEnabled", m_SpecialInfectedPreWarningAutoAimConfigEnabled);
+    if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
+        m_SpecialInfectedPreWarningAutoAimEnabled = false;
+    m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
     m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));
