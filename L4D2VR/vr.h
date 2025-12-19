@@ -371,8 +371,12 @@ public:
         float m_SpecialInfectedPreWarningDistance = 450.0f;
         bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
         bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
+        float m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = 0.6f;
         bool m_SpecialInfectedPreWarningActive = false;
         bool m_SpecialInfectedPreWarningInRange = false;
+        bool m_SpecialInfectedPreWarningCrouchHoldActive = false;
+        bool m_SpecialInfectedPreWarningCrouchHoldTriggered = false;
+        std::chrono::steady_clock::time_point m_SpecialInfectedPreWarningCrouchHoldStart{};
         Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
         std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
             Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
