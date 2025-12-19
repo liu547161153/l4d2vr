@@ -686,6 +686,7 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		const auto infectedType = m_VR->GetSpecialInfectedType(modelName);
 		if (infectedType != VR::SpecialInfectedType::None)
 		{
+			m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType);
 			m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
 			m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
 		}
