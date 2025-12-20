@@ -2288,48 +2288,7 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     }
 }
 
-VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName) const
-{
-    std::string lower = modelName;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-    static const std::array<std::pair<const char*, SpecialInfectedType>, 19> specialKeywords =
-    {
-        // L4D2 defaults
-        std::make_pair("boomer", SpecialInfectedType::Boomer),
-        std::make_pair("smoker", SpecialInfectedType::Smoker),
-        std::make_pair("hunter", SpecialInfectedType::Hunter),
-        std::make_pair("spitter", SpecialInfectedType::Spitter),
-        std::make_pair("jockey", SpecialInfectedType::Jockey),
-        std::make_pair("charger", SpecialInfectedType::Charger),
-        std::make_pair("tank", SpecialInfectedType::Tank),
-        std::make_pair("hulk", SpecialInfectedType::Tank),
-        std::make_pair("witch", SpecialInfectedType::Witch),
-        // L4D1 variants share the same colors
-        std::make_pair("boomer_l4d1", SpecialInfectedType::Boomer),
-        std::make_pair("l4d1_boomer", SpecialInfectedType::Boomer),
-        std::make_pair("smoker_l4d1", SpecialInfectedType::Smoker),
-        std::make_pair("l4d1_smoker", SpecialInfectedType::Smoker),
-        std::make_pair("hunter_l4d1", SpecialInfectedType::Hunter),
-        std::make_pair("l4d1_hunter", SpecialInfectedType::Hunter),
-        std::make_pair("tank_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_tank", SpecialInfectedType::Tank),
-        std::make_pair("hulk_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_hulk", SpecialInfectedType::Tank)
-    };
-
-    auto it = std::find_if(specialKeywords.begin(), specialKeywords.end(), [&](const auto& entry)
-        {
-            return lower.find(entry.first) != std::string::npos;
-        });
-
-    if (it != specialKeywords.end())
-        return it->second;
-
-    return SpecialInfectedType::None;
-}
-
-VR::SpecialInfectedType VR::GetSpecialInfectedTypeFromNetvar(const C_BaseEntity* entity) const
+VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity) const
 {
     if (!entity)
         return SpecialInfectedType::None;
@@ -2358,6 +2317,46 @@ VR::SpecialInfectedType VR::GetSpecialInfectedTypeFromNetvar(const C_BaseEntity*
     default:
         return SpecialInfectedType::None;
     }
+}
+
+VR::SpecialInfectedType VR::GetSpecialInfectedTypeFromModel(const std::string& modelName) const
+{
+    std::string lower = modelName;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    static const std::array<std::pair<const char*, SpecialInfectedType>, 7> specialKeywords =
+    {
+        // L4D2 defaults
+        std::make_pair("tank", SpecialInfectedType::Tank),
+        std::make_pair("hulk", SpecialInfectedType::Tank),
+        std::make_pair("witch", SpecialInfectedType::Witch),
+        // L4D1 variants share the same colors
+        std::make_pair("tank_l4d1", SpecialInfectedType::Tank),
+        std::make_pair("l4d1_tank", SpecialInfectedType::Tank),
+        std::make_pair("hulk_l4d1", SpecialInfectedType::Tank),
+        std::make_pair("l4d1_hulk", SpecialInfectedType::Tank)
+    };
+
+    auto it = std::find_if(specialKeywords.begin(), specialKeywords.end(), [&](const auto& entry)
+        {
+            return lower.find(entry.first) != std::string::npos;
+        });
+
+    if (it != specialKeywords.end())
+        return it->second;
+
+    return SpecialInfectedType::None;
+}
+
+bool VR::IsEntityAlive(const C_BaseEntity* entity) const
+{
+    if (!entity)
+        return false;
+
+    const auto base = reinterpret_cast<const std::uint8_t*>(entity);
+    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+
+    return lifeState == 0;
 }
 
 void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type)
@@ -2475,8 +2474,9 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
     if (toInfected.IsZero())
         return;
 
+    const float distanceSq = toInfected.LengthSqr();
     const float maxDistanceSq = m_SpecialInfectedPreWarningDistance * m_SpecialInfectedPreWarningDistance;
-    const bool inRange = toInfected.LengthSqr() <= maxDistanceSq;
+    const bool inRange = distanceSq <= maxDistanceSq;
     const auto now = std::chrono::steady_clock::now();
 
     if (inRange)
@@ -2484,9 +2484,11 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         if (!HasLineOfSightToSpecialInfected(infectedOrigin))
             return;
 
+        const bool isCloser = distanceSq < m_SpecialInfectedPreWarningTargetDistanceSq;
+        const bool isCandidate = isCloser || distanceSq <= (m_SpecialInfectedPreWarningTargetDistanceSq + 0.01f);
         const float updateInterval = std::max(0.0f, m_SpecialInfectedPreWarningTargetUpdateInterval);
         const auto elapsedUpdate = std::chrono::duration<float>(now - m_LastSpecialInfectedPreWarningTargetUpdateTime).count();
-        if (updateInterval <= 0.0f || elapsedUpdate >= updateInterval)
+        if (isCandidate && (isCloser || updateInterval <= 0.0f || elapsedUpdate >= updateInterval))
         {
             Vector adjustedTarget = infectedOrigin;
             const size_t typeIndex = static_cast<size_t>(type);
@@ -2498,6 +2500,8 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
 
             m_SpecialInfectedPreWarningTarget = adjustedTarget;
             m_LastSpecialInfectedPreWarningTargetUpdateTime = now;
+            if (isCloser)
+                m_SpecialInfectedPreWarningTargetDistanceSq = distanceSq;
         }
 
         m_SpecialInfectedPreWarningActive = true;
@@ -2533,6 +2537,8 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningInRange = false;
         return;
     }
+
+    m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
 
     const auto now = std::chrono::steady_clock::now();
     const float seenTimeout = 0.1f;
