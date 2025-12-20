@@ -5,7 +5,6 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
-#include <deque>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -37,14 +36,14 @@ struct TrackedDevicePoseData
 
 struct SharedTextureHolder
 {
-        vr::VRVulkanTextureData_t m_VulkanData;
-        vr::Texture_t m_VRTexture;
+	vr::VRVulkanTextureData_t m_VulkanData;
+	vr::Texture_t m_VRTexture;
 };
 
 struct CustomActionBinding
 {
-        std::string command;
-        std::optional<WORD> virtualKey;
+	std::string command;
+	std::optional<WORD> virtualKey;
 };
 
 
@@ -133,12 +132,12 @@ public:
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
 	ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };
-        std::unordered_map<std::string, ViewmodelAdjustment> m_ViewmodelAdjustments{};
-        std::string m_CurrentViewmodelKey;
-        std::string m_LastLoggedViewmodelKey;
-        bool m_ViewmodelAdjustmentsDirty = false;
-        std::string m_ViewmodelAdjustmentSavePath;
-        bool m_ViewmodelAdjustEnabled = true;
+	std::unordered_map<std::string, ViewmodelAdjustment> m_ViewmodelAdjustments{};
+	std::string m_CurrentViewmodelKey;
+	std::string m_LastLoggedViewmodelKey;
+	bool m_ViewmodelAdjustmentsDirty = false;
+	std::string m_ViewmodelAdjustmentSavePath;
+	bool m_ViewmodelAdjustEnabled = true;
 
 	bool m_AdjustingViewmodel = false;
 	std::string m_AdjustingKey;
@@ -150,15 +149,15 @@ public:
 	Vector m_AdjustStartViewmodelRight = { 0,0,0 };
 	Vector m_AdjustStartViewmodelUp = { 0,0,0 };
 
-        Vector m_AimLineStart = { 0,0,0 };
-        Vector m_AimLineEnd = { 0,0,0 };
-        Vector m_LastAimDirection = { 0,0,0 };
-        bool m_HasAimLine = false;
-        float m_AimLineThickness = 2.0f;
-        bool m_AimLineEnabled = true;
-        bool m_MeleeAimLineEnabled = true;
-        float m_AimLinePersistence = 0.02f;
-        float m_AimLineFrameDurationMultiplier = 2.0f;
+	Vector m_AimLineStart = { 0,0,0 };
+	Vector m_AimLineEnd = { 0,0,0 };
+	Vector m_LastAimDirection = { 0,0,0 };
+	bool m_HasAimLine = false;
+	float m_AimLineThickness = 2.0f;
+	bool m_AimLineEnabled = true;
+	bool m_MeleeAimLineEnabled = true;
+	float m_AimLinePersistence = 0.02f;
+	float m_AimLineFrameDurationMultiplier = 2.0f;
 	int m_AimLineColorR = 0;
 	int m_AimLineColorG = 255;
 	int m_AimLineColorB = 0;
@@ -218,18 +217,18 @@ public:
 	bool m_PressedTurn = false;
 	bool m_PushingThumbstick = false;
 	bool m_CrouchToggleActive = false;
-        bool m_VoiceRecordActive = false;
-        bool m_QuickTurnTriggered = false;
+	bool m_VoiceRecordActive = false;
+	bool m_QuickTurnTriggered = false;
 
-        struct ActionCombo
-        {
-                vr::VRActionHandle_t* primary = nullptr;
-                vr::VRActionHandle_t* secondary = nullptr;
-        };
+	struct ActionCombo
+	{
+		vr::VRActionHandle_t* primary = nullptr;
+		vr::VRActionHandle_t* secondary = nullptr;
+	};
 
-        ActionCombo m_VoiceRecordCombo{ &m_ActionCrouch, &m_ActionReload };
-        ActionCombo m_QuickTurnCombo{ &m_ActionCrouch, &m_ActionSecondaryAttack };
-        ActionCombo m_ViewmodelAdjustCombo{ &m_ActionReload, &m_ActionSecondaryAttack };
+	ActionCombo m_VoiceRecordCombo{ &m_ActionCrouch, &m_ActionReload };
+	ActionCombo m_QuickTurnCombo{ &m_ActionCrouch, &m_ActionSecondaryAttack };
+	ActionCombo m_ViewmodelAdjustCombo{ &m_ActionReload, &m_ActionSecondaryAttack };
 
 	// action set
 	vr::VRActionSetHandle_t m_ActionSet;
@@ -249,22 +248,21 @@ public:
 	vr::VRActionHandle_t m_ActionCrouch;
 	vr::VRActionHandle_t m_ActionFlashlight;
 	vr::VRActionHandle_t m_ActionActivateVR;
-	vr::VRActionHandle_t m_ActionSpecialInfectedPreWarningToggle;
 	vr::VRActionHandle_t m_MenuSelect;
 	vr::VRActionHandle_t m_MenuBack;
 	vr::VRActionHandle_t m_MenuUp;
 	vr::VRActionHandle_t m_MenuDown;
 	vr::VRActionHandle_t m_MenuLeft;
 	vr::VRActionHandle_t m_MenuRight;
-        vr::VRActionHandle_t m_Spray;
-        vr::VRActionHandle_t m_Scoreboard;
-        vr::VRActionHandle_t m_ShowHUD;
-        vr::VRActionHandle_t m_Pause;
-        vr::VRActionHandle_t m_CustomAction1;
-        vr::VRActionHandle_t m_CustomAction2;
-        vr::VRActionHandle_t m_CustomAction3;
-        vr::VRActionHandle_t m_CustomAction4;
-        vr::VRActionHandle_t m_CustomAction5;
+	vr::VRActionHandle_t m_Spray;
+	vr::VRActionHandle_t m_Scoreboard;
+	vr::VRActionHandle_t m_ShowHUD;
+	vr::VRActionHandle_t m_Pause;
+	vr::VRActionHandle_t m_CustomAction1;
+	vr::VRActionHandle_t m_CustomAction2;
+	vr::VRActionHandle_t m_CustomAction3;
+	vr::VRActionHandle_t m_CustomAction4;
+	vr::VRActionHandle_t m_CustomAction5;
 
 	TrackedDevicePoseData m_HmdPose;
 	TrackedDevicePoseData m_LeftControllerPose;
@@ -281,48 +279,48 @@ public:
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
-        float m_HudDistance = 1.3;
-        float m_HudSize = 1.1;
-        float m_ControllerHudSize = 0.5f;
-        float m_ControllerHudYOffset = 0.12f;
-        float m_ControllerHudZOffset = 0.0f;
-        float m_ControllerHudRotation = 0.0f;
-        float m_ControllerHudXOffset = 0.0f;
-        bool m_HudAlwaysVisible = false;
-        float m_ControllerSmoothing = 0.0f;
-        bool m_ControllerSmoothingInitialized = false;
-        CustomActionBinding m_CustomAction1Binding{};
-        CustomActionBinding m_CustomAction2Binding{};
-        CustomActionBinding m_CustomAction3Binding{};
-        CustomActionBinding m_CustomAction4Binding{};
-        CustomActionBinding m_CustomAction5Binding{};
+	float m_HudDistance = 1.3;
+	float m_HudSize = 1.1;
+	float m_ControllerHudSize = 0.5f;
+	float m_ControllerHudYOffset = 0.12f;
+	float m_ControllerHudZOffset = 0.0f;
+	float m_ControllerHudRotation = 0.0f;
+	float m_ControllerHudXOffset = 0.0f;
+	bool m_HudAlwaysVisible = false;
+	float m_ControllerSmoothing = 0.0f;
+	bool m_ControllerSmoothingInitialized = false;
+	CustomActionBinding m_CustomAction1Binding{};
+	CustomActionBinding m_CustomAction2Binding{};
+	CustomActionBinding m_CustomAction3Binding{};
+	CustomActionBinding m_CustomAction4Binding{};
+	CustomActionBinding m_CustomAction5Binding{};
 
-        float m_MotionGestureSwingThreshold = 1.1f;
-        float m_MotionGestureDownSwingThreshold = 1.0f;
-        float m_MotionGestureJumpThreshold = 1.0f;
-        float m_MotionGestureCooldown = 0.8f;
-        float m_MotionGestureHoldDuration = 0.2f;
-        bool m_MotionGestureInitialized = false;
-        std::chrono::steady_clock::time_point m_LastGestureUpdateTime{};
-        Vector m_PrevLeftControllerLocalPos = { 0,0,0 };
-        Vector m_PrevRightControllerLocalPos = { 0,0,0 };
-        Vector m_PrevHmdLocalPos = { 0,0,0 };
-        std::chrono::steady_clock::time_point m_SecondaryAttackGestureHoldUntil{};
-        std::chrono::steady_clock::time_point m_ReloadGestureHoldUntil{};
-        std::chrono::steady_clock::time_point m_JumpGestureHoldUntil{};
-        std::chrono::steady_clock::time_point m_SecondaryGestureCooldownEnd{};
-        std::chrono::steady_clock::time_point m_ReloadGestureCooldownEnd{};
-        std::chrono::steady_clock::time_point m_JumpGestureCooldownEnd{};
-        float m_InventoryGestureRange = 0.25f;
-        Vector m_InventoryChestOffset = { 0.20f, 0.0f, -0.20f };
-        Vector m_InventoryBackOffset = { -0.25f, 0.0f, -0.10f };
-        Vector m_InventoryLeftWaistOffset = { 0.05f, -0.25f, -0.45f };
-        Vector m_InventoryRightWaistOffset = { 0.05f, 0.25f, -0.45f };
-        bool m_DrawInventoryAnchors = false;
-        int m_InventoryAnchorColorR = 0;
-        int m_InventoryAnchorColorG = 255;
-        int m_InventoryAnchorColorB = 255;
-        int m_InventoryAnchorColorA = 64;
+	float m_MotionGestureSwingThreshold = 1.1f;
+	float m_MotionGestureDownSwingThreshold = 1.0f;
+	float m_MotionGestureJumpThreshold = 1.0f;
+	float m_MotionGestureCooldown = 0.8f;
+	float m_MotionGestureHoldDuration = 0.2f;
+	bool m_MotionGestureInitialized = false;
+	std::chrono::steady_clock::time_point m_LastGestureUpdateTime{};
+	Vector m_PrevLeftControllerLocalPos = { 0,0,0 };
+	Vector m_PrevRightControllerLocalPos = { 0,0,0 };
+	Vector m_PrevHmdLocalPos = { 0,0,0 };
+	std::chrono::steady_clock::time_point m_SecondaryAttackGestureHoldUntil{};
+	std::chrono::steady_clock::time_point m_ReloadGestureHoldUntil{};
+	std::chrono::steady_clock::time_point m_JumpGestureHoldUntil{};
+	std::chrono::steady_clock::time_point m_SecondaryGestureCooldownEnd{};
+	std::chrono::steady_clock::time_point m_ReloadGestureCooldownEnd{};
+	std::chrono::steady_clock::time_point m_JumpGestureCooldownEnd{};
+	float m_InventoryGestureRange = 0.25f;
+	Vector m_InventoryChestOffset = { 0.20f, 0.0f, -0.20f };
+	Vector m_InventoryBackOffset = { -0.25f, 0.0f, -0.10f };
+	Vector m_InventoryLeftWaistOffset = { 0.05f, -0.25f, -0.45f };
+	Vector m_InventoryRightWaistOffset = { 0.05f, 0.25f, -0.45f };
+	bool m_DrawInventoryAnchors = false;
+	int m_InventoryAnchorColorR = 0;
+	int m_InventoryAnchorColorG = 255;
+	int m_InventoryAnchorColorB = 255;
+	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
@@ -347,72 +345,65 @@ public:
 		Count
 	};
 
-        bool m_SpecialInfectedArrowEnabled = false;
-        float m_SpecialInfectedArrowSize = 12.0f;
-        float m_SpecialInfectedArrowHeight = 36.0f;
-        float m_SpecialInfectedArrowThickness = 0.0f;
-        RgbColor m_SpecialInfectedArrowDefaultColor{ 255, 64, 0 };
-        std::array<RgbColor, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedArrowColors{
-			RgbColor{ 120, 220, 80 },   // Boomer
-			RgbColor{ 180, 80, 255 },   // Smoker
-			RgbColor{ 0, 170, 255 },    // Hunter
-			RgbColor{ 60, 220, 120 },   // Spitter
-			RgbColor{ 255, 140, 20 },   // Jockey
-			RgbColor{ 0, 200, 200 },    // Charger
-			RgbColor{ 240, 40, 40 },    // Tank
-			RgbColor{ 255, 255, 255 }   // Witch
+	bool m_SpecialInfectedArrowEnabled = false;
+	float m_SpecialInfectedArrowSize = 12.0f;
+	float m_SpecialInfectedArrowHeight = 36.0f;
+	float m_SpecialInfectedArrowThickness = 0.0f;
+	RgbColor m_SpecialInfectedArrowDefaultColor{ 255, 64, 0 };
+	std::array<RgbColor, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedArrowColors{
+		RgbColor{ 120, 220, 80 },   // Boomer
+		RgbColor{ 180, 80, 255 },   // Smoker
+		RgbColor{ 0, 170, 255 },    // Hunter
+		RgbColor{ 60, 220, 120 },   // Spitter
+		RgbColor{ 255, 140, 20 },   // Jockey
+		RgbColor{ 0, 200, 200 },    // Charger
+		RgbColor{ 240, 40, 40 },    // Tank
+		RgbColor{ 255, 255, 255 }   // Witch
 	};
-        float m_SpecialInfectedBlindSpotDistance = 300.0f;
-        float m_SpecialInfectedBlindSpotWarningDuration = 0.5f;
-        bool m_SpecialInfectedBlindSpotWarningActive = false;
-        std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
-        float m_SpecialInfectedWarningSecondaryHoldDuration = 0.15f;
-        float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
-        float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
-        bool m_SpecialInfectedWarningActionEnabled = false;
-        float m_SpecialInfectedPreWarningDistance = 450.0f;
-        bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
-        bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
-        bool m_SpecialInfectedPreWarningActive = false;
-        bool m_SpecialInfectedPreWarningInRange = false;
-        float m_SpecialInfectedPreWarningAimDelay = 0.1f;
-        float m_SpecialInfectedPreWarningAimSmoothing = 0.0f;
-        Vector m_SpecialInfectedPreWarningSmoothedTarget = Vector(0.0f, 0.0f, 0.0f);
-        bool m_SpecialInfectedPreWarningSmoothedTargetValid = false;
-        struct TimedPreWarningTarget
-        {
-                std::chrono::steady_clock::time_point time;
-                Vector position;
-        };
-        std::deque<TimedPreWarningTarget> m_SpecialInfectedPreWarningTargetHistory{};
-        Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
-        std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
-            Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
-            Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
-            Vector{ 0.0f, 0.0f, 0.0f }, // Hunter
-            Vector{ 0.0f, 0.0f, 0.0f }, // Spitter
-            Vector{ 0.0f, 0.0f, 0.0f }, // Jockey
-            Vector{ 0.0f, 0.0f, 0.0f }, // Charger
-            Vector{ 0.0f, 0.0f, 0.0f }, // Tank
-            Vector{ 0.0f, 0.0f, 0.0f }  // Witch
-        };
-        std::chrono::steady_clock::time_point m_LastSpecialInfectedPreWarningSeenTime{};
-        Vector m_SpecialInfectedWarningTarget = { 0.0f, 0.0f, 0.0f };
-        bool m_SpecialInfectedWarningTargetActive = false;
-        bool m_SuppressPlayerInput = false;
-        enum class SpecialInfectedWarningActionStep
-        {
-                None,
-                PressSecondaryAttack,
-                ReleaseSecondaryAttack,
-                PressJump,
-                ReleaseJump
-        };
-        SpecialInfectedWarningActionStep m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
-        std::chrono::steady_clock::time_point m_SpecialInfectedWarningNextActionTime{};
-        int m_AimLineWarningColorR = 255;
-        int m_AimLineWarningColorG = 255;
-        int m_AimLineWarningColorB = 0;
+	float m_SpecialInfectedBlindSpotDistance = 300.0f;
+	float m_SpecialInfectedBlindSpotWarningDuration = 0.5f;
+	bool m_SpecialInfectedBlindSpotWarningActive = false;
+	std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
+	float m_SpecialInfectedWarningSecondaryHoldDuration = 0.15f;
+	float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
+	float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
+	bool m_SpecialInfectedWarningActionEnabled = false;
+	float m_SpecialInfectedPreWarningDistance = 450.0f;
+	bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
+	bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
+	float m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = 0.6f;
+	bool m_SpecialInfectedPreWarningActive = false;
+	bool m_SpecialInfectedPreWarningInRange = false;
+	bool m_SpecialInfectedPreWarningCrouchHoldActive = false;
+	std::chrono::steady_clock::time_point m_SpecialInfectedPreWarningCrouchHoldStart{};
+	Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
+	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
+		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
+		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
+		Vector{ 0.0f, 0.0f, 0.0f }, // Hunter
+		Vector{ 0.0f, 0.0f, 0.0f }, // Spitter
+		Vector{ 0.0f, 0.0f, 0.0f }, // Jockey
+		Vector{ 0.0f, 0.0f, 0.0f }, // Charger
+		Vector{ 0.0f, 0.0f, 0.0f }, // Tank
+		Vector{ 0.0f, 0.0f, 0.0f }  // Witch
+	};
+	std::chrono::steady_clock::time_point m_LastSpecialInfectedPreWarningSeenTime{};
+	Vector m_SpecialInfectedWarningTarget = { 0.0f, 0.0f, 0.0f };
+	bool m_SpecialInfectedWarningTargetActive = false;
+	bool m_SuppressPlayerInput = false;
+	enum class SpecialInfectedWarningActionStep
+	{
+		None,
+		PressSecondaryAttack,
+		ReleaseSecondaryAttack,
+		PressJump,
+		ReleaseJump
+	};
+	SpecialInfectedWarningActionStep m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
+	std::chrono::steady_clock::time_point m_SpecialInfectedWarningNextActionTime{};
+	int m_AimLineWarningColorR = 255;
+	int m_AimLineWarningColorG = 255;
+	int m_AimLineWarningColorB = 0;
 
 	VR() {};
 	VR(Game* game);
@@ -428,9 +419,9 @@ public:
 	bool UpdatePosesAndActions();
 	void GetViewParameters();
 	void ProcessMenuInput();
-        void ProcessInput();
-        void SendVirtualKey(WORD virtualKey);
-        void SendFunctionKey(WORD virtualKey);
+	void ProcessInput();
+	void SendVirtualKey(WORD virtualKey);
+	void SendFunctionKey(WORD virtualKey);
 	VMatrix VMatrixFromHmdMatrix(const vr::HmdMatrix34_t& hmdMat);
 	vr::HmdMatrix34_t VMatrixToHmdMatrix(const VMatrix& vMat);
 	vr::HmdMatrix34_t GetControllerTipMatrix(vr::ETrackedControllerRole controllerRole);
@@ -440,9 +431,9 @@ public:
 	Vector GetRightControllerAbsPos();
 	Vector GetRecommendedViewmodelAbsPos();
 	QAngle GetRecommendedViewmodelAbsAngle();
-        void UpdateTracking();
-        void UpdateMotionGestures(C_BasePlayer* localPlayer);
-        bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
+	void UpdateTracking();
+	void UpdateMotionGestures(C_BasePlayer* localPlayer);
+	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
 	Vector GetViewAngle();
 	Vector GetViewOriginLeft();
 	Vector GetViewOriginRight();
@@ -455,36 +446,36 @@ public:
 	void ResetPosition();
 	void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
 	void ParseConfigFile();
-        void LoadViewmodelAdjustments();
-        void SaveViewmodelAdjustments();
-        void RefreshActiveViewmodelAdjustment(C_BasePlayer* localPlayer);
-        ViewmodelAdjustment& EnsureViewmodelAdjustment(const std::string& key);
-        std::string BuildViewmodelAdjustKey(C_WeaponCSBase* weapon) const;
-        std::string WeaponIdToString(int weaponId) const;
-        std::string NormalizeViewmodelAdjustKey(const std::string& rawKey) const;
-        std::string GetMeleeWeaponName(C_WeaponCSBase* weapon) const;
-        void WaitForConfigUpdate();
+	void LoadViewmodelAdjustments();
+	void SaveViewmodelAdjustments();
+	void RefreshActiveViewmodelAdjustment(C_BasePlayer* localPlayer);
+	ViewmodelAdjustment& EnsureViewmodelAdjustment(const std::string& key);
+	std::string BuildViewmodelAdjustKey(C_WeaponCSBase* weapon) const;
+	std::string WeaponIdToString(int weaponId) const;
+	std::string NormalizeViewmodelAdjustKey(const std::string& rawKey) const;
+	std::string GetMeleeWeaponName(C_WeaponCSBase* weapon) const;
+	void WaitForConfigUpdate();
 	bool GetWalkAxis(float& x, float& y);
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
-        float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
-        void DrawAimLine(const Vector& start, const Vector& end);
-        void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
-        void DrawThrowArcFromCache(float duration);
+	float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
+	void DrawAimLine(const Vector& start, const Vector& end);
+	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
+	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
-        SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
-        void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
-        void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
-        void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
-        bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
-        void UpdateSpecialInfectedWarningState();
-        void UpdateSpecialInfectedPreWarningState();
-        void StartSpecialInfectedWarningAction();
-        void UpdateSpecialInfectedWarningAction();
-        void ResetSpecialInfectedWarningAction();
-        void GetAimLineColor(int& r, int& g, int& b, int& a) const;
-        void FinishFrame();
-        void ConfigureExplicitTiming();
+	SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
+	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
+	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
+	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
+	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
+	void UpdateSpecialInfectedWarningState();
+	void UpdateSpecialInfectedPreWarningState();
+	void StartSpecialInfectedWarningAction();
+	void UpdateSpecialInfectedWarningAction();
+	void ResetSpecialInfectedWarningAction();
+	void GetAimLineColor(int& r, int& g, int& b, int& a) const;
+	void FinishFrame();
+	void ConfigureExplicitTiming();
 };
