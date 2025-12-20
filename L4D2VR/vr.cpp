@@ -2321,12 +2321,73 @@ VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName)
         std::make_pair("l4d1_hulk", SpecialInfectedType::Tank)
     };
 
+    auto containsToken = [](const std::string& text, const std::string& token) -> bool
+        {
+            size_t pos = text.find(token);
+            while (pos != std::string::npos)
+            {
+                const bool startOk = pos == 0 || !std::isalnum(static_cast<unsigned char>(text[pos - 1]));
+                const size_t endPos = pos + token.size();
+                const bool endOk = endPos >= text.size() || !std::isalnum(static_cast<unsigned char>(text[endPos]));
+                if (startOk && endOk)
+                    return true;
+                pos = text.find(token, pos + 1);
+            }
+            return false;
+        };
+
     auto it = std::find_if(specialKeywords.begin(), specialKeywords.end(), [&](const auto& entry)
         {
-            return lower.find(entry.first) != std::string::npos;
+            return containsToken(lower, entry.first);
         });
 
     if (it != specialKeywords.end())
+        return it->second;
+
+    return SpecialInfectedType::None;
+}
+
+VR::SpecialInfectedType VR::GetSpecialInfectedTypeFromClassName(const std::string& className) const
+{
+    if (className.empty())
+        return SpecialInfectedType::None;
+
+    std::string lower = className;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    static const std::array<std::pair<const char*, SpecialInfectedType>, 8> classKeywords =
+    {
+        std::make_pair("boomer", SpecialInfectedType::Boomer),
+        std::make_pair("smoker", SpecialInfectedType::Smoker),
+        std::make_pair("hunter", SpecialInfectedType::Hunter),
+        std::make_pair("spitter", SpecialInfectedType::Spitter),
+        std::make_pair("jockey", SpecialInfectedType::Jockey),
+        std::make_pair("charger", SpecialInfectedType::Charger),
+        std::make_pair("tank", SpecialInfectedType::Tank),
+        std::make_pair("witch", SpecialInfectedType::Witch)
+    };
+
+    auto containsToken = [](const std::string& text, const std::string& token) -> bool
+        {
+            size_t pos = text.find(token);
+            while (pos != std::string::npos)
+            {
+                const bool startOk = pos == 0 || !std::isalnum(static_cast<unsigned char>(text[pos - 1]));
+                const size_t endPos = pos + token.size();
+                const bool endOk = endPos >= text.size() || !std::isalnum(static_cast<unsigned char>(text[endPos]));
+                if (startOk && endOk)
+                    return true;
+                pos = text.find(token, pos + 1);
+            }
+            return false;
+        };
+
+    auto it = std::find_if(classKeywords.begin(), classKeywords.end(), [&](const auto& entry)
+        {
+            return containsToken(lower, entry.first);
+        });
+
+    if (it != classKeywords.end())
         return it->second;
 
     return SpecialInfectedType::None;
