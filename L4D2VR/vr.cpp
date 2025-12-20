@@ -13,6 +13,8 @@
 #include <thread>
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <cstdint>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -2287,8 +2289,42 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     }
 }
 
-VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName) const
+namespace
 {
+    // From thirdparty/minhook/offsets.txt (DT_TerrorPlayer::m_zombieClass).
+    constexpr ptrdiff_t kZombieClassOffset = 0x1c90;
+}
+
+VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity, const std::string& modelName) const
+{
+    if (entity)
+    {
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(entity);
+        const int zombieClass = *reinterpret_cast<const int*>(bytes + kZombieClassOffset);
+
+        switch (zombieClass)
+        {
+        case 1:
+            return SpecialInfectedType::Smoker;
+        case 2:
+            return SpecialInfectedType::Boomer;
+        case 3:
+            return SpecialInfectedType::Hunter;
+        case 4:
+            return SpecialInfectedType::Spitter;
+        case 5:
+            return SpecialInfectedType::Jockey;
+        case 6:
+            return SpecialInfectedType::Charger;
+        case 7:
+            return SpecialInfectedType::Witch;
+        case 8:
+            return SpecialInfectedType::Tank;
+        default:
+            break;
+        }
+    }
+
     std::string lower = modelName;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     std::replace(lower.begin(), lower.end(), '\\', '/');
