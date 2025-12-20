@@ -15,6 +15,7 @@
 #include <cctype>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 #include <d3d9_vr.h>
 
@@ -2326,6 +2327,37 @@ VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName)
         return it->second;
 
     return SpecialInfectedType::None;
+}
+
+VR::SpecialInfectedType VR::GetSpecialInfectedTypeFromNetvar(const C_BaseEntity* entity) const
+{
+    if (!entity)
+        return SpecialInfectedType::None;
+
+    const auto base = reinterpret_cast<const std::uint8_t*>(entity);
+    const int zombieClass = *reinterpret_cast<const int*>(base + kZombieClassOffset);
+
+    switch (zombieClass)
+    {
+    case 1:
+        return SpecialInfectedType::Smoker;
+    case 2:
+        return SpecialInfectedType::Boomer;
+    case 3:
+        return SpecialInfectedType::Hunter;
+    case 4:
+        return SpecialInfectedType::Spitter;
+    case 5:
+        return SpecialInfectedType::Jockey;
+    case 6:
+        return SpecialInfectedType::Charger;
+    case 7:
+        return SpecialInfectedType::Witch;
+    case 8:
+        return SpecialInfectedType::Tank;
+    default:
+        return SpecialInfectedType::None;
+    }
 }
 
 void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type)
