@@ -683,7 +683,15 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
 
-		const auto infectedType = m_VR->GetSpecialInfectedType(modelName);
+		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
+		if (C_BaseEntity* entity = m_Game->GetClientEntity(info.entity_index))
+		{
+			const char* className = m_Game->GetClientClassName(entity);
+			if (className)
+				infectedType = m_VR->GetSpecialInfectedTypeFromClassName(className);
+		}
+		if (infectedType == VR::SpecialInfectedType::None)
+			infectedType = m_VR->GetSpecialInfectedType(modelName);
 		if (infectedType != VR::SpecialInfectedType::None)
 		{
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;

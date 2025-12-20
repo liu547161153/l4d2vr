@@ -98,7 +98,7 @@ public:
     // === Interface Utilities ===
     void* GetInterface(const char* dllname, const char* interfacename);
     C_BaseEntity* GetClientEntity(int entityIndex);
-    char* getNetworkName(uintptr_t* entity);
+    const char* GetClientClassName(C_BaseEntity* entity) const;
 
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);
