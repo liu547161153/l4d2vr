@@ -685,18 +685,26 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
 
 		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
+		bool isAlive = true;
 		if (info.entity_index >= 0)
 		{
 			C_BaseEntity* entity = m_Game->GetClientEntity(info.entity_index);
 			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity));
 			if (className && std::strcmp(className, "CTerrorPlayer") == 0)
+			{
+				isAlive = m_VR->IsEntityAlive(entity);
 				infectedType = m_VR->GetSpecialInfectedTypeFromNetvar(entity);
+			}
 		}
 
-		if (infectedType == VR::SpecialInfectedType::None)
-			infectedType = m_VR->GetSpecialInfectedType(modelName);
+		if (isAlive && infectedType == VR::SpecialInfectedType::None)
+		{
+			const auto modelType = m_VR->GetSpecialInfectedType(modelName);
+			if (modelType == VR::SpecialInfectedType::Tank || modelType == VR::SpecialInfectedType::Witch)
+				infectedType = modelType;
+		}
 
-		if (infectedType != VR::SpecialInfectedType::None)
+		if (isAlive && infectedType != VR::SpecialInfectedType::None)
 		{
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
 			if (!isRagdoll)
