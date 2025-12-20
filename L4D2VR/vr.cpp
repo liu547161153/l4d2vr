@@ -1816,7 +1816,7 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
-    const bool shouldForceAim = m_SpecialInfectedPreWarningActive && m_PrimaryAttackDown;
+    const bool shouldForceAim = m_SpecialInfectedPreWarningActive;
     const Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
 
     if (shouldForceAim)
