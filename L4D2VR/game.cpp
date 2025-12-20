@@ -149,9 +149,13 @@ void Game::logMsg(const char* fmt, ...)
 
     printf("\n");
 
-    FILE* file = fopen("vrmod_log.txt", "a");
-    if (file)
+    const char* logFiles[] = { "vrmod_log.txt", "test.log" };
+    for (const char* logFile : logFiles)
     {
+        FILE* file = fopen(logFile, "a");
+        if (!file)
+            continue;
+
         fprintf(file, "[%s] ", timebuf);
         va_list args2;
         va_start(args2, fmt);
