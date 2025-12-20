@@ -219,6 +219,7 @@ public:
 	bool m_CrouchToggleActive = false;
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
+	bool m_PrimaryAttackDown = false;
 
 	struct ActionCombo
 	{

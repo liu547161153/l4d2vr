@@ -818,7 +818,10 @@ void VR::ProcessInput()
     UpdateSpecialInfectedWarningAction();
 
     if (m_SuppressPlayerInput)
+    {
+        m_PrimaryAttackDown = false;
         return;
+    }
 
     vr::InputAnalogActionData_t analogActionData;
 
@@ -964,6 +967,7 @@ void VR::ProcessInput()
     bool primaryAttackDown = false;
     bool primaryAttackJustPressed = false;
     getActionState(&m_ActionPrimaryAttack, primaryAttackActionData, primaryAttackDown, primaryAttackJustPressed);
+    m_PrimaryAttackDown = primaryAttackDown;
 
     vr::InputDigitalActionData_t crouchActionData{};
     bool crouchButtonDown = false;
@@ -1786,7 +1790,7 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
-    const bool shouldForceAim = m_SpecialInfectedPreWarningActive;
+    const bool shouldForceAim = m_SpecialInfectedPreWarningActive && m_PrimaryAttackDown;
     const Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
 
     if (shouldForceAim)
