@@ -90,6 +90,11 @@
 			"type": "boolean"
 		},
 		{
+			"name": "/actions/main/in/SpecialInfectedAutoAimToggle",
+			"type": "boolean",
+			"requirement": "optional"
+		},
+		{
 			"name": "/actions/main/in/ActivateVR",
 			"type": "boolean"
 		},
@@ -189,6 +194,7 @@
 			"/actions/main/in/ResetPosition" : "Reset Position",
 			"/actions/main/in/Crouch" : "Crouch",
 			"/actions/main/in/Flashlight" : "Flashlight",
+			"/actions/main/in/SpecialInfectedAutoAimToggle" : "Special Infected Auto Aim Toggle",
 			"/actions/main/in/ActivateVR" : "Activate VR",
 			"/actions/main/in/MenuSelect" : "Menu Select",
 			"/actions/main/in/MenuBack" : "Menu Back",
