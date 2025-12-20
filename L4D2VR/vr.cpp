@@ -2384,6 +2384,26 @@ bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
     return toInfected.LengthSqr() <= maxDistanceSq;
 }
 
+bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin) const
+{
+    if (!m_Game || !m_Game->m_EngineTrace || !m_Game->m_EngineClient)
+        return true;
+
+    int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+    C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+    if (!localPlayer)
+        return true;
+
+    CGameTrace trace;
+    Ray_t ray;
+    CTraceFilterSkipNPCsAndPlayers tracefilter((IHandleEntity*)localPlayer, 0);
+
+    ray.Init(m_RightControllerPosAbs, infectedOrigin);
+    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+
+    return trace.fraction >= 1.0f;
+}
+
 void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type)
 {
     if (m_SpecialInfectedPreWarningDistance <= 0.0f || !m_SpecialInfectedPreWarningAutoAimEnabled)
@@ -2400,6 +2420,9 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
 
     if (inRange)
     {
+        if (!HasLineOfSightToSpecialInfected(infectedOrigin))
+            return;
+
         Vector adjustedTarget = infectedOrigin;
         const size_t typeIndex = static_cast<size_t>(type);
         if (typeIndex < m_SpecialInfectedPreWarningAimOffsets.size())
@@ -2414,8 +2437,6 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         m_LastSpecialInfectedPreWarningSeenTime = now;
         return;
     }
-
-    m_SpecialInfectedPreWarningInRange = false;
 }
 
 void VR::UpdateSpecialInfectedWarningState()
