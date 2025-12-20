@@ -42,6 +42,7 @@ ViewmodelAdjustEnabled=true
 SpecialInfectedBlindSpotDistance=300.0
 SpecialInfectedPreWarningAutoAimEnabled=false
 SpecialInfectedPreWarningDistance=450.0
+SpecialInfectedPreWarningAimAngle=30.0
 SpecialInfectedPreWarningTargetUpdateInterval=0.2
 SpecialInfectedAutoAimLerp=0.2
 SpecialInfectedPreWarningAimOffsetBoomer=0,0,0

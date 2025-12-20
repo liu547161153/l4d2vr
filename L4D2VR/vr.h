@@ -379,6 +379,7 @@ public:
 	bool m_SpecialInfectedWarningActionEnabled = false;
 	float m_SpecialInfectedPreWarningDistance = 450.0f;
 	float m_SpecialInfectedPreWarningTargetUpdateInterval = 0.2f;
+	float m_SpecialInfectedPreWarningAimAngle = 30.0f;
 	bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
 	bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
 	bool m_SpecialInfectedPreWarningActive = false;
