@@ -2293,6 +2293,9 @@ VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName)
     std::string lower = modelName;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
+    if (lower.find("infected") == std::string::npos)
+        return SpecialInfectedType::None;
+
     static const std::array<std::pair<const char*, SpecialInfectedType>, 19> specialKeywords =
     {
         // L4D2 defaults
