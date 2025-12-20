@@ -13,6 +13,7 @@
 #include <thread>
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -2379,6 +2380,78 @@ void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type
     drawArrowLine(base + Vector(0.0f, -wingLength, 0.0f), tip);
 }
 
+bool VR::UpdateSpecialInfectedHealth(int entityIndex, SpecialInfectedType type)
+{
+    if (m_SpecialInfectedHealthOffset < 0 || !m_Game || entityIndex <= 0)
+        return false;
+
+    C_BaseEntity* entity = m_Game->GetClientEntity(entityIndex);
+    if (!entity)
+        return false;
+
+    const auto base = reinterpret_cast<const uint8_t*>(entity);
+    const int health = *reinterpret_cast<const int*>(base + m_SpecialInfectedHealthOffset);
+    const auto it = m_SpecialInfectedHealthByEntity.find(entityIndex);
+    const bool healthChanged = it == m_SpecialInfectedHealthByEntity.end() || it->second != health;
+    m_SpecialInfectedHealthByEntity[entityIndex] = health;
+
+    if (m_SpecialInfectedHealthLogEnabled && healthChanged)
+    {
+        const char* typeLabel = "Unknown";
+        switch (type)
+        {
+        case SpecialInfectedType::Boomer:
+            typeLabel = "Boomer";
+            break;
+        case SpecialInfectedType::Smoker:
+            typeLabel = "Smoker";
+            break;
+        case SpecialInfectedType::Hunter:
+            typeLabel = "Hunter";
+            break;
+        case SpecialInfectedType::Spitter:
+            typeLabel = "Spitter";
+            break;
+        case SpecialInfectedType::Jockey:
+            typeLabel = "Jockey";
+            break;
+        case SpecialInfectedType::Charger:
+            typeLabel = "Charger";
+            break;
+        case SpecialInfectedType::Tank:
+            typeLabel = "Tank";
+            break;
+        case SpecialInfectedType::Witch:
+            typeLabel = "Witch";
+            break;
+        case SpecialInfectedType::None:
+            typeLabel = "None";
+            break;
+        case SpecialInfectedType::Count:
+            typeLabel = "Unknown";
+            break;
+        }
+
+        FILE* file = fopen("sp.log", "a");
+        if (file)
+        {
+            fprintf(file, "SpecialInfected [%s] entity=%d health=%d\n", typeLabel, entityIndex, health);
+            fclose(file);
+        }
+    }
+
+    return true;
+}
+
+std::optional<int> VR::GetSpecialInfectedHealth(int entityIndex) const
+{
+    const auto it = m_SpecialInfectedHealthByEntity.find(entityIndex);
+    if (it == m_SpecialInfectedHealthByEntity.end())
+        return std::nullopt;
+
+    return it->second;
+}
+
 void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
 {
     if (m_SpecialInfectedBlindSpotDistance <= 0.0f)
@@ -3292,7 +3365,9 @@ void VR::ParseConfigFile()
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
+    m_SpecialInfectedHealthOffset = getInt("SpecialInfectedHealthOffset", m_SpecialInfectedHealthOffset);
     m_SpecialInfectedAutoAimLerp = std::clamp(getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp), 0.0f, 1.0f);
+    m_SpecialInfectedHealthLogEnabled = getBool("SpecialInfectedHealthLogEnabled", m_SpecialInfectedHealthLogEnabled);
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
     m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));
