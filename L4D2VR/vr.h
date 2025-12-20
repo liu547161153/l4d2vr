@@ -378,9 +378,6 @@ public:
 	bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
 	bool m_SpecialInfectedPreWarningActive = false;
 	bool m_SpecialInfectedPreWarningInRange = false;
-	int m_SpecialInfectedHealthOffset = -1;
-	std::unordered_map<int, int> m_SpecialInfectedHealthByEntity;
-	bool m_SpecialInfectedHealthLogEnabled = false;
 	Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
 	Vector m_SpecialInfectedAutoAimDirection = { 0.0f, 0.0f, 0.0f };
 	float m_SpecialInfectedAutoAimLerp = 0.2f;
@@ -477,8 +474,6 @@ public:
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
 	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
-	bool UpdateSpecialInfectedHealth(int entityIndex, SpecialInfectedType type);
-	std::optional<int> GetSpecialInfectedHealth(int entityIndex) const;
 	bool HasLineOfSightToSpecialInfected(const Vector& infectedOrigin) const;
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
