@@ -13,6 +13,8 @@
 #include <thread>
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <cstdint>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -2287,43 +2289,54 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     }
 }
 
-VR::SpecialInfectedType VR::GetSpecialInfectedType(const std::string& modelName) const
+namespace
 {
+    // From thirdparty/minhook/offsets.txt (DT_TerrorPlayer::m_zombieClass).
+    constexpr ptrdiff_t kZombieClassOffset = 0x1c90;
+}
+
+VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity, const std::string& modelName) const
+{
+    if (!entity)
+        return SpecialInfectedType::None;
+
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(entity);
+    const int zombieClass = *reinterpret_cast<const int*>(bytes + kZombieClassOffset);
+
+    switch (zombieClass)
+    {
+    case 1:
+        return SpecialInfectedType::Smoker;
+    case 2:
+        return SpecialInfectedType::Boomer;
+    case 3:
+        return SpecialInfectedType::Hunter;
+    case 4:
+        return SpecialInfectedType::Spitter;
+    case 5:
+        return SpecialInfectedType::Jockey;
+    case 6:
+        return SpecialInfectedType::Charger;
+    case 7:
+        return SpecialInfectedType::Witch;
+    case 8:
+        return SpecialInfectedType::Tank;
+    default:
+        break;
+    }
+
     std::string lower = modelName;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::replace(lower.begin(), lower.end(), '\\', '/');
 
-    static const std::array<std::pair<const char*, SpecialInfectedType>, 19> specialKeywords =
+    if (lower.find("/infected/") != std::string::npos)
     {
-        // L4D2 defaults
-        std::make_pair("boomer", SpecialInfectedType::Boomer),
-        std::make_pair("smoker", SpecialInfectedType::Smoker),
-        std::make_pair("hunter", SpecialInfectedType::Hunter),
-        std::make_pair("spitter", SpecialInfectedType::Spitter),
-        std::make_pair("jockey", SpecialInfectedType::Jockey),
-        std::make_pair("charger", SpecialInfectedType::Charger),
-        std::make_pair("tank", SpecialInfectedType::Tank),
-        std::make_pair("hulk", SpecialInfectedType::Tank),
-        std::make_pair("witch", SpecialInfectedType::Witch),
-        // L4D1 variants share the same colors
-        std::make_pair("boomer_l4d1", SpecialInfectedType::Boomer),
-        std::make_pair("l4d1_boomer", SpecialInfectedType::Boomer),
-        std::make_pair("smoker_l4d1", SpecialInfectedType::Smoker),
-        std::make_pair("l4d1_smoker", SpecialInfectedType::Smoker),
-        std::make_pair("hunter_l4d1", SpecialInfectedType::Hunter),
-        std::make_pair("l4d1_hunter", SpecialInfectedType::Hunter),
-        std::make_pair("tank_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_tank", SpecialInfectedType::Tank),
-        std::make_pair("hulk_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_hulk", SpecialInfectedType::Tank)
-    };
+        if (lower.find("witch") != std::string::npos)
+            return SpecialInfectedType::Witch;
 
-    auto it = std::find_if(specialKeywords.begin(), specialKeywords.end(), [&](const auto& entry)
-        {
-            return lower.find(entry.first) != std::string::npos;
-        });
-
-    if (it != specialKeywords.end())
-        return it->second;
+        if (lower.find("tank") != std::string::npos || lower.find("hulk") != std::string::npos)
+            return SpecialInfectedType::Tank;
+    }
 
     return SpecialInfectedType::None;
 }
