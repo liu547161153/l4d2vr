@@ -8,6 +8,7 @@
 #include <iostream>
 #include <cstdint>
 #include <string>
+#include <cstring>
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -683,7 +684,18 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
 
-		const auto infectedType = m_VR->GetSpecialInfectedType(modelName);
+		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
+		if (info.entity_index >= 0)
+		{
+			C_BaseEntity* entity = m_Game->GetClientEntity(info.entity_index);
+			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity));
+			if (className && std::strcmp(className, "CTerrorPlayer") == 0)
+				infectedType = m_VR->GetSpecialInfectedTypeFromNetvar(entity);
+		}
+
+		if (infectedType == VR::SpecialInfectedType::None)
+			infectedType = m_VR->GetSpecialInfectedType(modelName);
+
 		if (infectedType != VR::SpecialInfectedType::None)
 		{
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;

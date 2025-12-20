@@ -12,6 +12,7 @@
 #define MAX_STR_LEN 256
 
 class Game;
+class C_BaseEntity;
 class C_BasePlayer;
 class C_WeaponCSBase;
 class IDirect3DTexture9;
@@ -349,6 +350,8 @@ public:
 		Count
 	};
 
+	static constexpr int kZombieClassOffset = 0x1c90;
+
 	bool m_SpecialInfectedArrowEnabled = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
 	float m_SpecialInfectedArrowHeight = 36.0f;
@@ -471,6 +474,7 @@ public:
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
 	SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
+	SpecialInfectedType GetSpecialInfectedTypeFromNetvar(const C_BaseEntity* entity) const;
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
 	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
