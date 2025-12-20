@@ -189,13 +189,12 @@ C_BaseEntity* Game::GetClientEntity(int entityIndex)
 }
 
 // === Network Name Utility ===
-const char* Game::GetClientClassName(C_BaseEntity* entity) const
+char* Game::getNetworkName(uintptr_t* entity)
 {
     if (!entity)
         return nullptr;
 
-    auto entityPtr = reinterpret_cast<uintptr_t*>(entity);
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entityPtr + 0x8));
+    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
     if (!vtable)
         return nullptr;
 
@@ -207,7 +206,11 @@ const char* Game::GetClientClassName(C_BaseEntity* entity) const
     if (!clientClass)
         return nullptr;
 
-    return reinterpret_cast<const char*>(*(clientClass + 0x8));
+    char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
+    int classID = static_cast<int>(*(clientClass + 0x10));
+
+    Game::logMsg("[NetworkClass] ID: %d, Name: %s", classID, name ? name : "nullptr");
+    return name;
 }
 
 // === Commands ===
