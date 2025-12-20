@@ -168,6 +168,7 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/ResetPosition", &m_ActionResetPosition);
     m_Input->GetActionHandle("/actions/main/in/Crouch", &m_ActionCrouch);
     m_Input->GetActionHandle("/actions/main/in/Flashlight", &m_ActionFlashlight);
+    m_Input->GetActionHandle("/actions/main/in/SpecialInfectedAutoAimToggle", &m_ActionSpecialInfectedAutoAimToggle);
     m_Input->GetActionHandle("/actions/main/in/MenuSelect", &m_MenuSelect);
     m_Input->GetActionHandle("/actions/main/in/MenuBack", &m_MenuBack);
     m_Input->GetActionHandle("/actions/main/in/MenuUp", &m_MenuUp);
@@ -992,6 +993,11 @@ void VR::ProcessInput()
     bool flashlightJustPressed = false;
     bool flashlightDataValid = getActionState(&m_ActionFlashlight, flashlightActionData, flashlightButtonDown, flashlightJustPressed);
 
+    vr::InputDigitalActionData_t autoAimToggleActionData{};
+    [[maybe_unused]] bool autoAimToggleDown = false;
+    bool autoAimToggleJustPressed = false;
+    [[maybe_unused]] bool autoAimToggleDataValid = getActionState(&m_ActionSpecialInfectedAutoAimToggle, autoAimToggleActionData, autoAimToggleDown, autoAimToggleJustPressed);
+
     C_BasePlayer* localPlayer = nullptr;
     {
         const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
@@ -1163,30 +1169,13 @@ void VR::ProcessInput()
         crouchJustPressed = false;
     }
 
-    if (!crouchButtonDown)
+    if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
     {
-        m_SpecialInfectedPreWarningCrouchHoldActive = false;
-        if (m_SpecialInfectedPreWarningAutoAimEnabled)
-        {
-            m_SpecialInfectedPreWarningAutoAimEnabled = false;
-        }
+        m_SpecialInfectedPreWarningAutoAimEnabled = false;
     }
-    else
+    else if (autoAimToggleJustPressed)
     {
-        if (!m_SpecialInfectedPreWarningCrouchHoldActive)
-        {
-            m_SpecialInfectedPreWarningCrouchHoldActive = true;
-            m_SpecialInfectedPreWarningCrouchHoldStart = currentTime;
-        }
-
-        if (m_SpecialInfectedPreWarningAutoAimConfigEnabled)
-        {
-            const float holdSeconds = std::chrono::duration<float>(currentTime - m_SpecialInfectedPreWarningCrouchHoldStart).count();
-            if (holdSeconds >= m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration)
-            {
-                m_SpecialInfectedPreWarningAutoAimEnabled = true;
-            }
-        }
+        m_SpecialInfectedPreWarningAutoAimEnabled = !m_SpecialInfectedPreWarningAutoAimEnabled;
     }
 
     if (primaryAttackDown)
@@ -3244,7 +3233,6 @@ void VR::ParseConfigFile()
     m_SpecialInfectedPreWarningAutoAimConfigEnabled = getBool("SpecialInfectedPreWarningAutoAimEnabled", m_SpecialInfectedPreWarningAutoAimConfigEnabled);
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
-    m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = std::max(0.0f, getFloat("SpecialInfectedPreWarningAutoAimCrouchHoldDuration", m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration));
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
