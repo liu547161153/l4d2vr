@@ -45,6 +45,7 @@ SpecialInfectedPreWarningDistance=450.0
 SpecialInfectedPreWarningAimAngle=30.0
 SpecialInfectedPreWarningTargetUpdateInterval=0.2
 SpecialInfectedAutoAimLerp=0.2
+SpecialInfectedAutoAimCooldown=0.0
 SpecialInfectedPreWarningAimOffsetBoomer=0,0,0
 SpecialInfectedPreWarningAimOffsetSmoker=0,0,0
 SpecialInfectedPreWarningAimOffsetHunter=0,0,0

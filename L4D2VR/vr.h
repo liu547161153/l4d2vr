@@ -390,6 +390,8 @@ public:
 	float m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
 	Vector m_SpecialInfectedAutoAimDirection = { 0.0f, 0.0f, 0.0f };
 	float m_SpecialInfectedAutoAimLerp = 0.2f;
+	float m_SpecialInfectedAutoAimCooldown = 0.0f;
+	std::chrono::steady_clock::time_point m_SpecialInfectedAutoAimCooldownEnd{};
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
 		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
