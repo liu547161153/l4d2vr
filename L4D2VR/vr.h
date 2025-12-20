@@ -260,6 +260,7 @@ public:
 	vr::VRActionHandle_t m_Scoreboard;
 	vr::VRActionHandle_t m_ShowHUD;
 	vr::VRActionHandle_t m_Pause;
+	vr::VRActionHandle_t m_NonVRServerMovementAngleToggle;
 	vr::VRActionHandle_t m_CustomAction1;
 	vr::VRActionHandle_t m_CustomAction2;
 	vr::VRActionHandle_t m_CustomAction3;
@@ -325,6 +326,7 @@ public:
 	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
+	bool m_NonVRServerMovementAngleOverride = false;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
 	struct RgbColor
 	{

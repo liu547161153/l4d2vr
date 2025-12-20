@@ -365,7 +365,7 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			vecNewOrigin = m_VR->GetRightControllerAbsPos();
 			vecNewAngles = m_VR->GetRightControllerAbsAngle();
 		}
-		else
+		else if (m_VR->m_NonVRServerMovementAngleOverride)
 		{
 			// 非 VR 服务器：服务器仍以常规射线起点为准，但视角需要跟随控制器
 			vecNewAngles = m_VR->GetRightControllerAbsAngle();
