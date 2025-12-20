@@ -471,7 +471,7 @@ public:
 	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
-	SpecialInfectedType GetSpecialInfectedType(const C_BaseEntity* entity, const std::string& modelName) const;
+	SpecialInfectedType GetSpecialInfectedType(const C_BaseEntity* entity) const;
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
 	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);

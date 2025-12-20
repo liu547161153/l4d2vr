@@ -2295,7 +2295,7 @@ namespace
     constexpr ptrdiff_t kZombieClassOffset = 0x1c90;
 }
 
-VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity, const std::string& modelName) const
+VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity) const
 {
     if (entity)
     {
@@ -2324,46 +2324,6 @@ VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity, c
             break;
         }
     }
-
-    std::string lower = modelName;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    std::replace(lower.begin(), lower.end(), '\\', '/');
-
-    if (lower.find("/infected/") == std::string::npos)
-        return SpecialInfectedType::None;
-
-    static const std::array<std::pair<const char*, SpecialInfectedType>, 19> specialKeywords =
-    {
-        // L4D2 defaults
-        std::make_pair("boomer", SpecialInfectedType::Boomer),
-        std::make_pair("smoker", SpecialInfectedType::Smoker),
-        std::make_pair("hunter", SpecialInfectedType::Hunter),
-        std::make_pair("spitter", SpecialInfectedType::Spitter),
-        std::make_pair("jockey", SpecialInfectedType::Jockey),
-        std::make_pair("charger", SpecialInfectedType::Charger),
-        std::make_pair("tank", SpecialInfectedType::Tank),
-        std::make_pair("hulk", SpecialInfectedType::Tank),
-        std::make_pair("witch", SpecialInfectedType::Witch),
-        // L4D1 variants share the same colors
-        std::make_pair("boomer_l4d1", SpecialInfectedType::Boomer),
-        std::make_pair("l4d1_boomer", SpecialInfectedType::Boomer),
-        std::make_pair("smoker_l4d1", SpecialInfectedType::Smoker),
-        std::make_pair("l4d1_smoker", SpecialInfectedType::Smoker),
-        std::make_pair("hunter_l4d1", SpecialInfectedType::Hunter),
-        std::make_pair("l4d1_hunter", SpecialInfectedType::Hunter),
-        std::make_pair("tank_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_tank", SpecialInfectedType::Tank),
-        std::make_pair("hulk_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_hulk", SpecialInfectedType::Tank)
-    };
-
-    auto it = std::find_if(specialKeywords.begin(), specialKeywords.end(), [&](const auto& entry)
-        {
-            return lower.find(entry.first) != std::string::npos;
-        });
-
-    if (it != specialKeywords.end())
-        return it->second;
 
     return SpecialInfectedType::None;
 }
