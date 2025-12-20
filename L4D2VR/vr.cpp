@@ -2305,7 +2305,12 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
 
 VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity) const
 {
-    if (!entity)
+    if (!entity || !m_Game)
+        return SpecialInfectedType::None;
+
+    const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
+    const bool isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
+    if (!isPlayerClass)
         return SpecialInfectedType::None;
 
     const auto base = reinterpret_cast<const std::uint8_t*>(entity);

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <unordered_set>
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -677,6 +678,8 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	if (m_Game->m_SwitchedWeapons)
 		m_Game->m_CachedArmsModel = false;
 
+	static std::unordered_set<int> s_LoggedEntityIndices;
+
 	bool hideArms = m_Game->m_IsMeleeWeaponActive || m_VR->m_HideArms;
 
 	std::string modelName;
@@ -698,6 +701,13 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		{
 			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
 			isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
+			if (s_LoggedEntityIndices.insert(info.entity_index).second)
+			{
+				Game::logMsg("[EntityDebug] index=%d class=%s model=%s",
+					info.entity_index,
+					className ? className : "null",
+					modelName.empty() ? "null" : modelName.c_str());
+			}
 			if (isPlayerClass)
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
