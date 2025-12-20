@@ -168,7 +168,6 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/ResetPosition", &m_ActionResetPosition);
     m_Input->GetActionHandle("/actions/main/in/Crouch", &m_ActionCrouch);
     m_Input->GetActionHandle("/actions/main/in/Flashlight", &m_ActionFlashlight);
-    m_Input->GetActionHandle("/actions/main/in/SpecialInfectedPreWarningToggle", &m_ActionSpecialInfectedPreWarningToggle);
     m_Input->GetActionHandle("/actions/main/in/MenuSelect", &m_MenuSelect);
     m_Input->GetActionHandle("/actions/main/in/MenuBack", &m_MenuBack);
     m_Input->GetActionHandle("/actions/main/in/MenuUp", &m_MenuUp);
@@ -970,11 +969,6 @@ void VR::ProcessInput()
     bool crouchJustPressed = false;
     bool crouchDataValid = getActionState(&m_ActionCrouch, crouchActionData, crouchButtonDown, crouchJustPressed);
 
-    vr::InputDigitalActionData_t autoAimToggleActionData{};
-    [[maybe_unused]] bool autoAimToggleDown = false;
-    bool autoAimToggleJustPressed = false;
-    getActionState(&m_ActionSpecialInfectedPreWarningToggle, autoAimToggleActionData, autoAimToggleDown, autoAimToggleJustPressed);
-
     vr::InputDigitalActionData_t resetActionData{};
     [[maybe_unused]] bool resetButtonDown = false;
     bool resetJustPressed = false;
@@ -1169,8 +1163,31 @@ void VR::ProcessInput()
         crouchJustPressed = false;
     }
 
-    if (m_SpecialInfectedPreWarningAutoAimConfigEnabled && autoAimToggleJustPressed)
-        m_SpecialInfectedPreWarningAutoAimEnabled = !m_SpecialInfectedPreWarningAutoAimEnabled;
+    if (!crouchButtonDown)
+    {
+        m_SpecialInfectedPreWarningCrouchHoldActive = false;
+        if (m_SpecialInfectedPreWarningAutoAimEnabled)
+        {
+            m_SpecialInfectedPreWarningAutoAimEnabled = false;
+        }
+    }
+    else
+    {
+        if (!m_SpecialInfectedPreWarningCrouchHoldActive)
+        {
+            m_SpecialInfectedPreWarningCrouchHoldActive = true;
+            m_SpecialInfectedPreWarningCrouchHoldStart = currentTime;
+        }
+
+        if (m_SpecialInfectedPreWarningAutoAimConfigEnabled)
+        {
+            const float holdSeconds = std::chrono::duration<float>(currentTime - m_SpecialInfectedPreWarningCrouchHoldStart).count();
+            if (holdSeconds >= m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration)
+            {
+                m_SpecialInfectedPreWarningAutoAimEnabled = true;
+            }
+        }
+    }
 
     if (primaryAttackDown)
     {
@@ -1781,29 +1798,10 @@ void VR::UpdateTracking()
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
     const bool shouldForceAim = m_SpecialInfectedPreWarningActive;
-    Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
+    const Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
 
     if (shouldForceAim)
     {
-        if (m_SpecialInfectedPreWarningAimSmoothing > 0.0f)
-        {
-            if (!m_SpecialInfectedPreWarningSmoothedTargetValid)
-            {
-                m_SpecialInfectedPreWarningSmoothedTarget = forcedTarget;
-                m_SpecialInfectedPreWarningSmoothedTargetValid = true;
-            }
-
-            const float lerpFactor = std::clamp(m_LastFrameDuration / m_SpecialInfectedPreWarningAimSmoothing, 0.0f, 1.0f);
-            m_SpecialInfectedPreWarningSmoothedTarget.x += (forcedTarget.x - m_SpecialInfectedPreWarningSmoothedTarget.x) * lerpFactor;
-            m_SpecialInfectedPreWarningSmoothedTarget.y += (forcedTarget.y - m_SpecialInfectedPreWarningSmoothedTarget.y) * lerpFactor;
-            m_SpecialInfectedPreWarningSmoothedTarget.z += (forcedTarget.z - m_SpecialInfectedPreWarningSmoothedTarget.z) * lerpFactor;
-            forcedTarget = m_SpecialInfectedPreWarningSmoothedTarget;
-        }
-        else
-        {
-            m_SpecialInfectedPreWarningSmoothedTargetValid = false;
-        }
-
         Vector toTarget = forcedTarget - m_RightControllerPosAbs;
         if (!toTarget.IsZero())
         {
@@ -1816,8 +1814,6 @@ void VR::UpdateTracking()
     }
 
     UpdateAimingLaser(localPlayer);
-    if (!shouldForceAim)
-        m_SpecialInfectedPreWarningSmoothedTargetValid = false;
 
     // controller angles
     QAngle::VectorAngles(m_LeftControllerForward, m_LeftControllerUp, m_LeftControllerAngAbs);
@@ -2423,61 +2419,8 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             adjustedTarget += (m_HmdRight * offset.x) + (m_HmdForward * offset.y) + (m_HmdUp * offset.z);
         }
 
-        C_BasePlayer* localPlayer = nullptr;
-        if (m_Game && m_Game->m_EngineClient)
-        {
-            const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
-            localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
-        }
-
-        if (localPlayer && m_Game->m_EngineTrace)
-        {
-            CGameTrace trace;
-            Ray_t ray;
-            CTraceFilterSkipNPCsAndPlayers tracefilter((IHandleEntity*)localPlayer, 0);
-            ray.Init(m_HmdPosAbs, adjustedTarget);
-            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
-            if (trace.fraction < 0.99f)
-            {
-                m_SpecialInfectedPreWarningInRange = false;
-                return;
-            }
-        }
-
-        m_SpecialInfectedPreWarningTargetHistory.push_back({ now, adjustedTarget });
-        const float historyWindowSeconds = std::max(0.5f, m_SpecialInfectedPreWarningAimDelay + 0.25f);
-        const auto historyCutoff = now - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-            std::chrono::duration<float>(historyWindowSeconds));
-        while (!m_SpecialInfectedPreWarningTargetHistory.empty()
-            && m_SpecialInfectedPreWarningTargetHistory.front().time < historyCutoff)
-        {
-            m_SpecialInfectedPreWarningTargetHistory.pop_front();
-        }
-
-        if (m_SpecialInfectedPreWarningAimDelay <= 0.0f)
-        {
-            m_SpecialInfectedPreWarningTarget = adjustedTarget;
-            m_SpecialInfectedPreWarningActive = true;
-        }
-        else
-        {
-            const auto delayedTime = now - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                std::chrono::duration<float>(m_SpecialInfectedPreWarningAimDelay));
-            bool foundDelayedTarget = false;
-            for (auto it = m_SpecialInfectedPreWarningTargetHistory.rbegin();
-                it != m_SpecialInfectedPreWarningTargetHistory.rend();
-                ++it)
-            {
-                if (it->time <= delayedTime)
-                {
-                    m_SpecialInfectedPreWarningTarget = it->position;
-                    foundDelayedTarget = true;
-                    break;
-                }
-            }
-
-            m_SpecialInfectedPreWarningActive = foundDelayedTarget;
-        }
+        m_SpecialInfectedPreWarningTarget = adjustedTarget;
+        m_SpecialInfectedPreWarningActive = true;
         m_SpecialInfectedPreWarningInRange = true;
         m_LastSpecialInfectedPreWarningSeenTime = now;
         return;
@@ -2510,8 +2453,6 @@ void VR::UpdateSpecialInfectedPreWarningState()
     {
         m_SpecialInfectedPreWarningActive = false;
         m_SpecialInfectedPreWarningInRange = false;
-        m_SpecialInfectedPreWarningTargetHistory.clear();
-        m_SpecialInfectedPreWarningSmoothedTargetValid = false;
         return;
     }
 
@@ -2526,14 +2467,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
     }
 
     if (m_SpecialInfectedPreWarningActive && !m_SpecialInfectedPreWarningInRange)
-    {
         m_SpecialInfectedPreWarningActive = false;
-        m_SpecialInfectedPreWarningTargetHistory.clear();
-        m_SpecialInfectedPreWarningSmoothedTargetValid = false;
-    }
-
-    if (!m_SpecialInfectedPreWarningInRange && !m_SpecialInfectedPreWarningActive)
-        m_SpecialInfectedPreWarningTargetHistory.clear();
 }
 
 void VR::StartSpecialInfectedWarningAction()
@@ -3310,8 +3244,7 @@ void VR::ParseConfigFile()
     m_SpecialInfectedPreWarningAutoAimConfigEnabled = getBool("SpecialInfectedPreWarningAutoAimEnabled", m_SpecialInfectedPreWarningAutoAimConfigEnabled);
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
-    m_SpecialInfectedPreWarningAimDelay = std::max(0.0f, getFloat("SpecialInfectedPreWarningAimDelay", m_SpecialInfectedPreWarningAimDelay));
-    m_SpecialInfectedPreWarningAimSmoothing = std::max(0.0f, getFloat("SpecialInfectedPreWarningAimSmoothing", m_SpecialInfectedPreWarningAimSmoothing));
+    m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration = std::max(0.0f, getFloat("SpecialInfectedPreWarningAutoAimCrouchHoldDuration", m_SpecialInfectedPreWarningAutoAimCrouchHoldDuration));
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
