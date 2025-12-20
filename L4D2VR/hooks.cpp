@@ -686,15 +686,23 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 
 		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
 		bool isAlive = true;
-		if (info.entity_index >= 0)
+		const C_BaseEntity* entity = nullptr;
+		if (m_Game->m_ClientEntityList && info.entity_index > 0)
 		{
-			C_BaseEntity* entity = m_Game->GetClientEntity(info.entity_index);
-			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity));
-			if (className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0))
+			const int maxEntityIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
+			if (info.entity_index <= maxEntityIndex)
+				entity = m_Game->GetClientEntity(info.entity_index);
+		}
+		bool isPlayerClass = false;
+		if (entity)
+		{
+			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
+			isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
+			if (isPlayerClass)
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
-				infectedType = m_VR->GetSpecialInfectedType(entity);
 			}
+			infectedType = m_VR->GetSpecialInfectedType(entity);
 		}
 
 		if (isAlive && infectedType == VR::SpecialInfectedType::None)
@@ -709,7 +717,7 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
 			if (!isRagdoll)
 			{
-				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType);
+				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
 				m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
 				m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
 			}
