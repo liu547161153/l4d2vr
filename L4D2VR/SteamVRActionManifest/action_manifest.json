@@ -94,11 +94,6 @@
 			"type": "boolean"
 		},
 		{
-			"name": "/actions/main/in/SpecialInfectedPreWarningToggle",
-			"type": "boolean",
-			"requirement": "optional"
-		},
-		{
 			"name": "/actions/main/in/MenuSelect",
 			"type": "boolean"
 		},
@@ -195,7 +190,6 @@
 			"/actions/main/in/Crouch" : "Crouch",
 			"/actions/main/in/Flashlight" : "Flashlight",
 			"/actions/main/in/ActivateVR" : "Activate VR",
-			"/actions/main/in/SpecialInfectedPreWarningToggle" : "Toggle Special Infected Auto Aim",
 			"/actions/main/in/MenuSelect" : "Menu Select",
 			"/actions/main/in/MenuBack" : "Menu Back",
 			"/actions/main/in/MenuUp" : "Menu Up",
