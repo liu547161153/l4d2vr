@@ -1799,11 +1799,24 @@ void VR::UpdateTracking()
         if (!toTarget.IsZero())
         {
             VectorNormalize(toTarget);
+            const float lerpFactor = std::clamp(m_SpecialInfectedAutoAimLerp, 0.0f, 1.0f);
+            if (m_SpecialInfectedAutoAimDirection.IsZero())
+                m_SpecialInfectedAutoAimDirection = toTarget;
+            else
+                m_SpecialInfectedAutoAimDirection += (toTarget - m_SpecialInfectedAutoAimDirection) * lerpFactor;
 
-            QAngle forcedAngles;
-            QAngle::VectorAngles(toTarget, m_HmdUp, forcedAngles);
-            QAngle::AngleVectors(forcedAngles, &m_RightControllerForward, &m_RightControllerRight, &m_RightControllerUp);
+            if (!m_SpecialInfectedAutoAimDirection.IsZero())
+            {
+                VectorNormalize(m_SpecialInfectedAutoAimDirection);
+                QAngle forcedAngles;
+                QAngle::VectorAngles(m_SpecialInfectedAutoAimDirection, m_HmdUp, forcedAngles);
+                QAngle::AngleVectors(forcedAngles, &m_RightControllerForward, &m_RightControllerRight, &m_RightControllerUp);
+            }
         }
+    }
+    else
+    {
+        m_SpecialInfectedAutoAimDirection = m_RightControllerForward;
     }
 
     UpdateAimingLaser(localPlayer);
@@ -2427,15 +2440,22 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         if (!HasLineOfSightToSpecialInfected(infectedOrigin))
             return;
 
-        Vector adjustedTarget = infectedOrigin;
-        const size_t typeIndex = static_cast<size_t>(type);
-        if (typeIndex < m_SpecialInfectedPreWarningAimOffsets.size())
+        const float updateInterval = std::max(0.0f, m_SpecialInfectedPreWarningTargetUpdateInterval);
+        const auto elapsedUpdate = std::chrono::duration<float>(now - m_LastSpecialInfectedPreWarningTargetUpdateTime).count();
+        if (updateInterval <= 0.0f || elapsedUpdate >= updateInterval)
         {
-            const Vector& offset = m_SpecialInfectedPreWarningAimOffsets[typeIndex];
-            adjustedTarget += (m_HmdRight * offset.x) + (m_HmdForward * offset.y) + (m_HmdUp * offset.z);
+            Vector adjustedTarget = infectedOrigin;
+            const size_t typeIndex = static_cast<size_t>(type);
+            if (typeIndex < m_SpecialInfectedPreWarningAimOffsets.size())
+            {
+                const Vector& offset = m_SpecialInfectedPreWarningAimOffsets[typeIndex];
+                adjustedTarget += (m_HmdRight * offset.x) + (m_HmdForward * offset.y) + (m_HmdUp * offset.z);
+            }
+
+            m_SpecialInfectedPreWarningTarget = adjustedTarget;
+            m_LastSpecialInfectedPreWarningTargetUpdateTime = now;
         }
 
-        m_SpecialInfectedPreWarningTarget = adjustedTarget;
         m_SpecialInfectedPreWarningActive = true;
         m_SpecialInfectedPreWarningInRange = true;
         m_LastSpecialInfectedPreWarningSeenTime = now;
@@ -3259,6 +3279,8 @@ void VR::ParseConfigFile()
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
+    m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
+    m_SpecialInfectedAutoAimLerp = std::clamp(getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp), 0.0f, 1.0f);
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
     m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));

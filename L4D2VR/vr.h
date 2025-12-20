@@ -371,11 +371,14 @@ public:
 	float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
 	bool m_SpecialInfectedWarningActionEnabled = false;
 	float m_SpecialInfectedPreWarningDistance = 450.0f;
+	float m_SpecialInfectedPreWarningTargetUpdateInterval = 0.2f;
 	bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
 	bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
 	bool m_SpecialInfectedPreWarningActive = false;
 	bool m_SpecialInfectedPreWarningInRange = false;
 	Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
+	Vector m_SpecialInfectedAutoAimDirection = { 0.0f, 0.0f, 0.0f };
+	float m_SpecialInfectedAutoAimLerp = 0.2f;
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
 		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
@@ -387,6 +390,7 @@ public:
 		Vector{ 0.0f, 0.0f, 0.0f }  // Witch
 	};
 	std::chrono::steady_clock::time_point m_LastSpecialInfectedPreWarningSeenTime{};
+	std::chrono::steady_clock::time_point m_LastSpecialInfectedPreWarningTargetUpdateTime{};
 	Vector m_SpecialInfectedWarningTarget = { 0.0f, 0.0f, 0.0f };
 	bool m_SpecialInfectedWarningTargetActive = false;
 	bool m_SuppressPlayerInput = false;
