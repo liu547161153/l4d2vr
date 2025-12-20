@@ -5,6 +5,7 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -351,6 +352,7 @@ public:
 	};
 
 	static constexpr int kZombieClassOffset = 0x1c90;
+	static constexpr int kLifeStateOffset = 0x147;
 
 	bool m_SpecialInfectedArrowEnabled = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
@@ -382,6 +384,7 @@ public:
 	bool m_SpecialInfectedPreWarningActive = false;
 	bool m_SpecialInfectedPreWarningInRange = false;
 	Vector m_SpecialInfectedPreWarningTarget = { 0.0f, 0.0f, 0.0f };
+	float m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
 	Vector m_SpecialInfectedAutoAimDirection = { 0.0f, 0.0f, 0.0f };
 	float m_SpecialInfectedAutoAimLerp = 0.2f;
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
@@ -475,6 +478,7 @@ public:
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
 	SpecialInfectedType GetSpecialInfectedType(const std::string& modelName) const;
 	SpecialInfectedType GetSpecialInfectedTypeFromNetvar(const C_BaseEntity* entity) const;
+	bool IsEntityAlive(const C_BaseEntity* entity) const;
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
 	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);

@@ -2360,6 +2360,17 @@ VR::SpecialInfectedType VR::GetSpecialInfectedTypeFromNetvar(const C_BaseEntity*
     }
 }
 
+bool VR::IsEntityAlive(const C_BaseEntity* entity) const
+{
+    if (!entity)
+        return false;
+
+    const auto base = reinterpret_cast<const std::uint8_t*>(entity);
+    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+
+    return lifeState == 0;
+}
+
 void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type)
 {
     if (!m_SpecialInfectedArrowEnabled || m_SpecialInfectedArrowSize <= 0.0f || type == SpecialInfectedType::None)
@@ -2475,8 +2486,9 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
     if (toInfected.IsZero())
         return;
 
+    const float distanceSq = toInfected.LengthSqr();
     const float maxDistanceSq = m_SpecialInfectedPreWarningDistance * m_SpecialInfectedPreWarningDistance;
-    const bool inRange = toInfected.LengthSqr() <= maxDistanceSq;
+    const bool inRange = distanceSq <= maxDistanceSq;
     const auto now = std::chrono::steady_clock::now();
 
     if (inRange)
@@ -2484,9 +2496,11 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         if (!HasLineOfSightToSpecialInfected(infectedOrigin))
             return;
 
+        const bool isCloser = distanceSq < m_SpecialInfectedPreWarningTargetDistanceSq;
+        const bool isCandidate = isCloser || distanceSq <= (m_SpecialInfectedPreWarningTargetDistanceSq + 0.01f);
         const float updateInterval = std::max(0.0f, m_SpecialInfectedPreWarningTargetUpdateInterval);
         const auto elapsedUpdate = std::chrono::duration<float>(now - m_LastSpecialInfectedPreWarningTargetUpdateTime).count();
-        if (updateInterval <= 0.0f || elapsedUpdate >= updateInterval)
+        if (isCandidate && (isCloser || updateInterval <= 0.0f || elapsedUpdate >= updateInterval))
         {
             Vector adjustedTarget = infectedOrigin;
             const size_t typeIndex = static_cast<size_t>(type);
@@ -2498,6 +2512,8 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
 
             m_SpecialInfectedPreWarningTarget = adjustedTarget;
             m_LastSpecialInfectedPreWarningTargetUpdateTime = now;
+            if (isCloser)
+                m_SpecialInfectedPreWarningTargetDistanceSq = distanceSq;
         }
 
         m_SpecialInfectedPreWarningActive = true;
@@ -2533,6 +2549,8 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningInRange = false;
         return;
     }
+
+    m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
 
     const auto now = std::chrono::steady_clock::now();
     const float seenTimeout = 0.1f;
