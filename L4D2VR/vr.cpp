@@ -1190,6 +1190,7 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningInRange = false;
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
+        m_SpecialInfectedAutoAimCooldownEnd = {};
     }
     else if (autoAimToggleJustPressed)
     {
@@ -1200,6 +1201,7 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningInRange = false;
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
+        m_SpecialInfectedAutoAimCooldownEnd = {};
     }
 
     if (nonVrServerMovementToggleJustPressed)
@@ -2482,6 +2484,10 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
     if (m_SpecialInfectedPreWarningDistance <= 0.0f || !m_SpecialInfectedPreWarningAutoAimEnabled)
         return;
 
+    const auto now = std::chrono::steady_clock::now();
+    if (m_SpecialInfectedAutoAimCooldown > 0.0f && now < m_SpecialInfectedAutoAimCooldownEnd)
+        return;
+
     if (m_SpecialInfectedPreWarningTargetEntityIndex != -1 && entityIndex != m_SpecialInfectedPreWarningTargetEntityIndex)
     {
         if (m_SpecialInfectedPreWarningTargetIsPlayer)
@@ -2496,8 +2502,6 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
     const float distanceSq = toInfected.LengthSqr();
     const float maxDistanceSq = m_SpecialInfectedPreWarningDistance * m_SpecialInfectedPreWarningDistance;
     const bool inRange = distanceSq <= maxDistanceSq;
-    const auto now = std::chrono::steady_clock::now();
-
     if (inRange)
     {
         const float maxAimAngle = std::clamp(m_SpecialInfectedPreWarningAimAngle, 0.0f, 180.0f);
@@ -2574,7 +2578,21 @@ void VR::UpdateSpecialInfectedWarningState()
 
 void VR::UpdateSpecialInfectedPreWarningState()
 {
+    const auto now = std::chrono::steady_clock::now();
+    const bool wasActive = m_SpecialInfectedPreWarningActive;
+
     if (!m_SpecialInfectedPreWarningAutoAimEnabled)
+    {
+        m_SpecialInfectedPreWarningActive = false;
+        m_SpecialInfectedPreWarningInRange = false;
+        m_SpecialInfectedPreWarningTargetEntityIndex = -1;
+        m_SpecialInfectedPreWarningTargetIsPlayer = false;
+        m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
+        m_SpecialInfectedAutoAimCooldownEnd = {};
+        return;
+    }
+
+    if (m_SpecialInfectedAutoAimCooldown > 0.0f && now < m_SpecialInfectedAutoAimCooldownEnd)
     {
         m_SpecialInfectedPreWarningActive = false;
         m_SpecialInfectedPreWarningInRange = false;
@@ -2585,8 +2603,6 @@ void VR::UpdateSpecialInfectedPreWarningState()
     }
 
     m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
-
-    const auto now = std::chrono::steady_clock::now();
     const float seenTimeout = 0.1f;
 
     if (m_SpecialInfectedPreWarningTargetEntityIndex != -1 && m_SpecialInfectedPreWarningTargetIsPlayer)
@@ -2641,6 +2657,15 @@ void VR::UpdateSpecialInfectedPreWarningState()
 
     if (m_SpecialInfectedPreWarningActive && !m_SpecialInfectedPreWarningInRange)
         m_SpecialInfectedPreWarningActive = false;
+
+    if (wasActive && !m_SpecialInfectedPreWarningActive && m_SpecialInfectedAutoAimCooldown > 0.0f)
+    {
+        m_SpecialInfectedAutoAimCooldownEnd = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<float>(m_SpecialInfectedAutoAimCooldown));
+        m_SpecialInfectedPreWarningTargetEntityIndex = -1;
+        m_SpecialInfectedPreWarningTargetIsPlayer = false;
+        m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
+    }
 }
 
 void VR::StartSpecialInfectedWarningAction()
@@ -3421,6 +3446,7 @@ void VR::ParseConfigFile()
     m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
     m_SpecialInfectedPreWarningAimAngle = std::clamp(getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle), 0.0f, 180.0f);
     m_SpecialInfectedAutoAimLerp = std::clamp(getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp), 0.0f, 1.0f);
+    m_SpecialInfectedAutoAimCooldown = std::max(0.0f, getFloat("SpecialInfectedAutoAimCooldown", m_SpecialInfectedAutoAimCooldown));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
     m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));
