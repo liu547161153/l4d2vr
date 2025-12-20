@@ -294,8 +294,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 		}
 
-		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
-		if (treatServerAsNonVR) {
+		// ② ★ 非 VR 服务器：开火时才把“右手手柄朝向”塞给服务器用的视角
+		if (treatServerAsNonVR && (cmd->buttons & ((1 << 0) | (1 << 11)))) {
 			QAngle aim = m_VR->GetRightControllerAbsAngle();
 			// 简单夹角，避免异常值
 			if (aim.x > 89.f)  aim.x = 89.f;
