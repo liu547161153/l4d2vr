@@ -2500,6 +2500,24 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
 
     if (inRange)
     {
+        const float maxAimAngle = std::clamp(m_SpecialInfectedPreWarningAimAngle, 0.0f, 180.0f);
+        if (maxAimAngle > 0.0f)
+        {
+            Vector aimDirection = m_RightControllerForward;
+            if (aimDirection.IsZero())
+                aimDirection = m_LastAimDirection;
+
+            Vector toTarget = infectedOrigin - m_RightControllerPosAbs;
+            if (!aimDirection.IsZero() && !toTarget.IsZero())
+            {
+                VectorNormalize(aimDirection);
+                VectorNormalize(toTarget);
+                const float minDot = std::cos(DEG2RAD(maxAimAngle));
+                if (DotProduct(aimDirection, toTarget) < minDot)
+                    return;
+            }
+        }
+
         if (!HasLineOfSightToSpecialInfected(infectedOrigin))
             return;
 
@@ -3401,6 +3419,7 @@ void VR::ParseConfigFile()
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
+    m_SpecialInfectedPreWarningAimAngle = std::clamp(getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle), 0.0f, 180.0f);
     m_SpecialInfectedAutoAimLerp = std::clamp(getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp), 0.0f, 1.0f);
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
