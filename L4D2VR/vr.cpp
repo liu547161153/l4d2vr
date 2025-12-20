@@ -15,7 +15,6 @@
 #include <cctype>
 #include <array>
 #include <cmath>
-#include <cstring>
 #include <cstdint>
 #include <vector>
 #include <d3d9_vr.h>
@@ -1184,22 +1183,10 @@ void VR::ProcessInput()
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
     {
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
-        m_SpecialInfectedPreWarningTargetEntityIndex = -1;
-        m_SpecialInfectedPreWarningTargetIsPlayer = false;
-        m_SpecialInfectedPreWarningActive = false;
-        m_SpecialInfectedPreWarningInRange = false;
-        m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
-        m_SpecialInfectedAutoAimDirection = {};
     }
     else if (autoAimToggleJustPressed)
     {
         m_SpecialInfectedPreWarningAutoAimEnabled = !m_SpecialInfectedPreWarningAutoAimEnabled;
-        m_SpecialInfectedPreWarningTargetEntityIndex = -1;
-        m_SpecialInfectedPreWarningTargetIsPlayer = false;
-        m_SpecialInfectedPreWarningActive = false;
-        m_SpecialInfectedPreWarningInRange = false;
-        m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
-        m_SpecialInfectedAutoAimDirection = {};
     }
 
     if (nonVrServerMovementToggleJustPressed)
@@ -2477,16 +2464,10 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin) const
     return trace.fraction >= 1.0f;
 }
 
-void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex, bool isPlayerClass)
+void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type)
 {
     if (m_SpecialInfectedPreWarningDistance <= 0.0f || !m_SpecialInfectedPreWarningAutoAimEnabled)
         return;
-
-    if (m_SpecialInfectedPreWarningTargetEntityIndex != -1 && entityIndex != m_SpecialInfectedPreWarningTargetEntityIndex)
-    {
-        if (m_SpecialInfectedPreWarningTargetIsPlayer)
-            return;
-    }
 
     Vector toInfected = infectedOrigin - m_HmdPosAbs;
     toInfected.z = 0.0f;
@@ -2503,10 +2484,8 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         if (!HasLineOfSightToSpecialInfected(infectedOrigin))
             return;
 
-        const bool isLockedTarget = m_SpecialInfectedPreWarningTargetEntityIndex != -1
-            && entityIndex == m_SpecialInfectedPreWarningTargetEntityIndex;
         const bool isCloser = distanceSq < m_SpecialInfectedPreWarningTargetDistanceSq;
-        const bool isCandidate = isLockedTarget || isCloser || distanceSq <= (m_SpecialInfectedPreWarningTargetDistanceSq + 0.01f);
+        const bool isCandidate = isCloser || distanceSq <= (m_SpecialInfectedPreWarningTargetDistanceSq + 0.01f);
         const float updateInterval = std::max(0.0f, m_SpecialInfectedPreWarningTargetUpdateInterval);
         const auto elapsedUpdate = std::chrono::duration<float>(now - m_LastSpecialInfectedPreWarningTargetUpdateTime).count();
         if (isCandidate && (isCloser || updateInterval <= 0.0f || elapsedUpdate >= updateInterval))
@@ -2521,12 +2500,8 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
 
             m_SpecialInfectedPreWarningTarget = adjustedTarget;
             m_LastSpecialInfectedPreWarningTargetUpdateTime = now;
-            m_SpecialInfectedPreWarningTargetDistanceSq = distanceSq;
-            if (!isLockedTarget && entityIndex > 0)
-            {
-                m_SpecialInfectedPreWarningTargetEntityIndex = entityIndex;
-                m_SpecialInfectedPreWarningTargetIsPlayer = isPlayerClass;
-            }
+            if (isCloser)
+                m_SpecialInfectedPreWarningTargetDistanceSq = distanceSq;
         }
 
         m_SpecialInfectedPreWarningActive = true;
@@ -2560,9 +2535,6 @@ void VR::UpdateSpecialInfectedPreWarningState()
     {
         m_SpecialInfectedPreWarningActive = false;
         m_SpecialInfectedPreWarningInRange = false;
-        m_SpecialInfectedPreWarningTargetEntityIndex = -1;
-        m_SpecialInfectedPreWarningTargetIsPlayer = false;
-        m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         return;
     }
 
@@ -2571,23 +2543,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
     const auto now = std::chrono::steady_clock::now();
     const float seenTimeout = 0.1f;
 
-    if (m_SpecialInfectedPreWarningTargetEntityIndex != -1 && m_SpecialInfectedPreWarningTargetIsPlayer)
-    {
-        C_BaseEntity* entity = m_Game ? m_Game->GetClientEntity(m_SpecialInfectedPreWarningTargetEntityIndex) : nullptr;
-        const char* className = entity ? m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity)) : nullptr;
-        const bool isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
-        const bool isAlive = entity && isPlayerClass && IsEntityAlive(entity);
-        const bool isSpecialInfected = entity && (GetSpecialInfectedType(entity) != SpecialInfectedType::None);
-        if (!isAlive || !isSpecialInfected)
-        {
-            m_SpecialInfectedPreWarningTargetEntityIndex = -1;
-            m_SpecialInfectedPreWarningTargetIsPlayer = false;
-            m_SpecialInfectedPreWarningActive = false;
-            m_SpecialInfectedPreWarningInRange = false;
-            return;
-        }
-    }
-    else if (m_SpecialInfectedPreWarningInRange)
+    if (m_SpecialInfectedPreWarningInRange)
     {
         const auto elapsed = std::chrono::duration<float>(now - m_LastSpecialInfectedPreWarningSeenTime).count();
         if (elapsed > seenTimeout)
