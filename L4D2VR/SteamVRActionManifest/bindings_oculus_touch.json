@@ -186,7 +186,7 @@
                "mode" : "button",
                "path" : "/user/hand/left/input/x"
             },
-			{
+            {
                "inputs" : {
                   "click" : {
                      "output" : "/actions/main/in/Pause"
@@ -194,6 +194,15 @@
                },
                "mode" : "button",
                "path" : "/user/hand/left/input/y"
+            },
+            {
+               "inputs" : {
+                  "click" : {
+                     "output" : "/actions/main/in/NonVRServerMovementAngleToggle"
+                  }
+               },
+               "mode" : "button",
+               "path" : "/user/hand/left/input/menu"
             },
             {
                "inputs" : {
@@ -223,4 +232,3 @@
    "options" : {},
    "simulated_actions" : []
 }
-

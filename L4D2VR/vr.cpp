@@ -179,6 +179,7 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/Scoreboard", &m_Scoreboard);
     m_Input->GetActionHandle("/actions/main/in/ShowHUD", &m_ShowHUD);
     m_Input->GetActionHandle("/actions/main/in/Pause", &m_Pause);
+    m_Input->GetActionHandle("/actions/main/in/NonVRServerMovementAngleToggle", &m_NonVRServerMovementAngleToggle);
     m_Input->GetActionHandle("/actions/main/in/CustomAction1", &m_CustomAction1);
     m_Input->GetActionHandle("/actions/main/in/CustomAction2", &m_CustomAction2);
     m_Input->GetActionHandle("/actions/main/in/CustomAction3", &m_CustomAction3);
@@ -1002,6 +1003,11 @@ void VR::ProcessInput()
     bool autoAimToggleJustPressed = false;
     [[maybe_unused]] bool autoAimToggleDataValid = getActionState(&m_ActionSpecialInfectedAutoAimToggle, autoAimToggleActionData, autoAimToggleDown, autoAimToggleJustPressed);
 
+    vr::InputDigitalActionData_t nonVrServerMovementToggleActionData{};
+    [[maybe_unused]] bool nonVrServerMovementToggleDown = false;
+    bool nonVrServerMovementToggleJustPressed = false;
+    [[maybe_unused]] bool nonVrServerMovementToggleDataValid = getActionState(&m_NonVRServerMovementAngleToggle, nonVrServerMovementToggleActionData, nonVrServerMovementToggleDown, nonVrServerMovementToggleJustPressed);
+
     C_BasePlayer* localPlayer = nullptr;
     {
         const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
@@ -1180,6 +1186,12 @@ void VR::ProcessInput()
     else if (autoAimToggleJustPressed)
     {
         m_SpecialInfectedPreWarningAutoAimEnabled = !m_SpecialInfectedPreWarningAutoAimEnabled;
+    }
+
+    if (nonVrServerMovementToggleJustPressed)
+    {
+        m_NonVRServerMovementAngleOverride = !m_NonVRServerMovementAngleOverride;
+        Game::logMsg("[VR] Non-VR server movement aim override %s", m_NonVRServerMovementAngleOverride ? "enabled" : "disabled");
     }
 
     if (primaryAttackDown)

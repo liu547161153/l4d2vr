@@ -141,6 +141,11 @@
                         "type": "boolean"
                 },
                 {
+                        "name": "/actions/main/in/NonVRServerMovementAngleToggle",
+                        "type": "boolean",
+                        "requirement": "optional"
+                },
+                {
                         "name": "/actions/main/in/CustomAction1",
                         "type": "boolean",
                         "requirement": "optional"
@@ -206,6 +211,7 @@
                         "/actions/main/in/Scoreboard" : "Show Scoreboard",
                         "/actions/main/in/ShowHUD" : "Show HUD",
                         "/actions/main/in/Pause" : "Pause",
+                        "/actions/main/in/NonVRServerMovementAngleToggle" : "Non-VR Server Movement Aim Override",
                         "/actions/main/in/CustomAction1" : "Custom Action 1",
                         "/actions/main/in/CustomAction2" : "Custom Action 2",
                         "/actions/main/in/CustomAction3" : "Custom Action 3",
