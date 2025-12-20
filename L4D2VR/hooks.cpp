@@ -686,17 +686,15 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 
 		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
 		bool isAlive = true;
-		const C_BaseEntity* entity = nullptr;
-		if (m_Game->m_ClientEntityList && info.entity_index > 0)
+		if (info.entity_index >= 0)
 		{
-			const int maxEntityIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
-			if (info.entity_index <= maxEntityIndex)
-				entity = m_Game->GetClientEntity(info.entity_index);
-		}
-		if (entity)
-		{
-			isAlive = m_VR->IsEntityAlive(entity);
-			infectedType = m_VR->GetSpecialInfectedType(entity);
+			C_BaseEntity* entity = m_Game->GetClientEntity(info.entity_index);
+			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity));
+			if (className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0))
+			{
+				isAlive = m_VR->IsEntityAlive(entity);
+				infectedType = m_VR->GetSpecialInfectedType(entity);
+			}
 		}
 
 		if (isAlive && infectedType == VR::SpecialInfectedType::None)
