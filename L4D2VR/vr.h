@@ -467,6 +467,7 @@ public:
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type);
 	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
+	bool HasLineOfSightToSpecialInfected(const Vector& infectedOrigin) const;
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
