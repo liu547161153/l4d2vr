@@ -392,13 +392,6 @@ public:
 	float m_SpecialInfectedAutoAimLerp = 0.2f;
 	float m_SpecialInfectedAutoAimCooldown = 0.0f;
 	std::chrono::steady_clock::time_point m_SpecialInfectedAutoAimCooldownEnd{};
-	float m_CommonInfectedAutoAimDistance = 0.0f;
-	bool m_CommonInfectedAutoAimActive = false;
-	bool m_CommonInfectedAutoAimInRange = false;
-	Vector m_CommonInfectedAutoAimTarget = { 0.0f, 0.0f, 0.0f };
-	float m_CommonInfectedAutoAimTargetDistanceSq = std::numeric_limits<float>::max();
-	std::chrono::steady_clock::time_point m_LastCommonInfectedAutoAimSeenTime{};
-	Vector m_CommonInfectedAutoAimOffset = { 0.0f, 0.0f, 0.0f };
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
 		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
@@ -491,16 +484,13 @@ public:
 	SpecialInfectedType GetSpecialInfectedType(const C_BaseEntity* entity) const;
 	SpecialInfectedType GetSpecialInfectedTypeFromModel(const std::string& modelName) const;
 	bool IsEntityAlive(const C_BaseEntity* entity) const;
-	bool IsCommonInfectedClass(const char* className) const;
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex, bool isPlayerClass);
-	void RefreshCommonInfectedAutoAim(const Vector& infectedOrigin, int entityIndex);
 	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
 	bool HasLineOfSightToSpecialInfected(const Vector& infectedOrigin) const;
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
-	void UpdateCommonInfectedAutoAimState();
 	void StartSpecialInfectedWarningAction();
 	void UpdateSpecialInfectedWarningAction();
 	void ResetSpecialInfectedWarningAction();
