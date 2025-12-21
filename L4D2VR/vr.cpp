@@ -1207,7 +1207,6 @@ void VR::ProcessInput()
     if (nonVrServerMovementToggleJustPressed)
     {
         m_NonVRServerMovementAngleOverride = !m_NonVRServerMovementAngleOverride;
-        Game::logMsg("[VR] Non-VR server movement aim override %s", m_NonVRServerMovementAngleOverride ? "enabled" : "disabled");
     }
 
     if (primaryAttackDown)
@@ -2325,7 +2324,7 @@ VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity) c
         return SpecialInfectedType::Jockey;
     case 6:
         return SpecialInfectedType::Charger;
-    case 7:
+    case 258:
         return SpecialInfectedType::Witch;
     case 8:
         return SpecialInfectedType::Tank;
@@ -2339,17 +2338,15 @@ VR::SpecialInfectedType VR::GetSpecialInfectedTypeFromModel(const std::string& m
     std::string lower = modelName;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-    static const std::array<std::pair<const char*, SpecialInfectedType>, 7> specialKeywords =
+    static const std::array<std::pair<const char*, SpecialInfectedType>, 5> specialKeywords =
     {
         // L4D2 defaults
         std::make_pair("tank", SpecialInfectedType::Tank),
         std::make_pair("hulk", SpecialInfectedType::Tank),
         std::make_pair("witch", SpecialInfectedType::Witch),
-        // L4D1 variants share the same colors
-        std::make_pair("tank_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_tank", SpecialInfectedType::Tank),
-        std::make_pair("hulk_l4d1", SpecialInfectedType::Tank),
-        std::make_pair("l4d1_hulk", SpecialInfectedType::Tank)
+        // l4d1 variants share the same colors
+        std::make_pair("hulk_dlc3", SpecialInfectedType::Tank),
+        std::make_pair("hulk_l4d1", SpecialInfectedType::Tank)
     };
 
     auto it = std::find_if(specialKeywords.begin(), specialKeywords.end(), [&](const auto& entry)
@@ -2620,8 +2617,6 @@ void VR::UpdateSpecialInfectedPreWarningState()
         const int maxEntityIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
         if (m_SpecialInfectedPreWarningTargetEntityIndex <= 0 || m_SpecialInfectedPreWarningTargetEntityIndex > maxEntityIndex)
         {
-            Game::logMsg("[VR] Auto-aim lock cleared: invalid entity index %d (max %d).",
-                m_SpecialInfectedPreWarningTargetEntityIndex, maxEntityIndex);
             m_SpecialInfectedPreWarningTargetEntityIndex = -1;
             m_SpecialInfectedPreWarningTargetIsPlayer = false;
             m_SpecialInfectedPreWarningActive = false;
@@ -2636,11 +2631,6 @@ void VR::UpdateSpecialInfectedPreWarningState()
         const bool isSpecialInfected = entity && (GetSpecialInfectedType(entity) != SpecialInfectedType::None);
         if (!isAlive || !isSpecialInfected)
         {
-            Game::logMsg("[VR] Auto-aim lock cleared: entity %d alive=%d infected=%d class=%s.",
-                m_SpecialInfectedPreWarningTargetEntityIndex,
-                isAlive ? 1 : 0,
-                isSpecialInfected ? 1 : 0,
-                className ? className : "null");
             m_SpecialInfectedPreWarningTargetEntityIndex = -1;
             m_SpecialInfectedPreWarningTargetIsPlayer = false;
             m_SpecialInfectedPreWarningActive = false;
@@ -2963,7 +2953,6 @@ void VR::RefreshActiveViewmodelAdjustment(C_BasePlayer* localPlayer)
 
     if (m_LastLoggedViewmodelKey != m_CurrentViewmodelKey)
     {
-        Game::logMsg("[VR] Active viewmodel adjust key: %s", m_CurrentViewmodelKey.c_str());
         m_LastLoggedViewmodelKey = m_CurrentViewmodelKey;
     }
 
