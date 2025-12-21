@@ -697,7 +697,12 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			if (!isRagdoll)
 			{
 				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType);
-				m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+				if (infectedType != VR::SpecialInfectedType::Tank
+					&& infectedType != VR::SpecialInfectedType::Witch
+					&& infectedType != VR::SpecialInfectedType::Charger)
+				{
+					m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+				}
 				m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
 			}
 		}
