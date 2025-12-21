@@ -687,7 +687,6 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
 		bool isAlive = true;
 		const C_BaseEntity* entity = nullptr;
-		bool isCommonInfected = false;
 		if (m_Game->m_ClientEntityList && info.entity_index > 0)
 		{
 			const int maxEntityIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
@@ -699,9 +698,11 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		{
 			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
 			isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
-			isAlive = m_VR->IsEntityAlive(entity);
+			if (isPlayerClass)
+			{
+				isAlive = m_VR->IsEntityAlive(entity);
+			}
 			infectedType = m_VR->GetSpecialInfectedType(entity);
-			isCommonInfected = !isPlayerClass && m_VR->IsCommonInfectedClass(className);
 		}
 
 		if (isAlive && infectedType == VR::SpecialInfectedType::None)
@@ -709,11 +710,6 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			const auto modelType = m_VR->GetSpecialInfectedTypeFromModel(modelName);
 			if (modelType == VR::SpecialInfectedType::Tank || modelType == VR::SpecialInfectedType::Witch)
 				infectedType = modelType;
-		}
-
-		if (!isCommonInfected && !isPlayerClass && infectedType == VR::SpecialInfectedType::None)
-		{
-			isCommonInfected = m_VR->IsCommonInfectedModelName(modelName);
 		}
 
 		if (isAlive && infectedType != VR::SpecialInfectedType::None)
@@ -725,12 +721,6 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 				m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
 				m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
 			}
-		}
-		else if (isAlive && isCommonInfected)
-		{
-			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
-			if (!isRagdoll)
-				m_VR->RefreshCommonInfectedAutoAim(info.origin, info.entity_index);
 		}
 	}
 
