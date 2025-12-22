@@ -1,6 +1,5 @@
 #pragma once
 #include <Windows.h>
-
 #include "openvr.h"
 #include "vector.h"
 #include <array>
@@ -9,7 +8,6 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
-
 #define MAX_STR_LEN 256
 
 class Game;
@@ -369,7 +367,7 @@ public:
 		RgbColor{ 240, 40, 40 },    // Tank
 		RgbColor{ 255, 255, 255 }   // Witch
 	};
-	float m_SpecialInfectedBlindSpotDistance = 300.0f;
+	float m_SpecialInfectedBlindSpotDistance = 105.0f;
 	float m_SpecialInfectedBlindSpotWarningDuration = 0.5f;
 	bool m_SpecialInfectedBlindSpotWarningActive = false;
 	std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
@@ -377,9 +375,9 @@ public:
 	float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
 	float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
 	bool m_SpecialInfectedWarningActionEnabled = false;
-	float m_SpecialInfectedPreWarningDistance = 450.0f;
-	float m_SpecialInfectedPreWarningTargetUpdateInterval = 0.2f;
-	float m_SpecialInfectedPreWarningAimAngle = 30.0f;
+	float m_SpecialInfectedPreWarningDistance = 750.0f;
+	float m_SpecialInfectedPreWarningTargetUpdateInterval = 0.1f;
+	float m_SpecialInfectedPreWarningAimAngle = 5.0f;
 	bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
 	bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
 	bool m_SpecialInfectedPreWarningActive = false;
@@ -389,8 +387,8 @@ public:
 	bool m_SpecialInfectedPreWarningTargetIsPlayer = false;
 	float m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
 	Vector m_SpecialInfectedAutoAimDirection = { 0.0f, 0.0f, 0.0f };
-	float m_SpecialInfectedAutoAimLerp = 0.2f;
-	float m_SpecialInfectedAutoAimCooldown = 0.0f;
+	float m_SpecialInfectedAutoAimLerp = 0.4f;
+	float m_SpecialInfectedAutoAimCooldown = 0.5f;
 	std::chrono::steady_clock::time_point m_SpecialInfectedAutoAimCooldownEnd{};
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
