@@ -40,6 +40,7 @@ ViewmodelAdjustCombo=Reload+SecondaryAttack
 # Any combo can be disabled by setting it to "false".
 ViewmodelAdjustEnabled=true
 SpecialInfectedBlindSpotDistance=300.0
+SpecialInfectedDebug=false
 SpecialInfectedPreWarningAutoAimEnabled=false
 SpecialInfectedPreWarningDistance=450.0
 SpecialInfectedPreWarningAimAngle=30.0
