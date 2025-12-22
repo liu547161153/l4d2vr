@@ -1826,7 +1826,9 @@ void VR::UpdateTracking()
         if (!toTarget.IsZero())
         {
             VectorNormalize(toTarget);
-            const float lerpFactor = std::clamp(m_SpecialInfectedAutoAimLerp, 0.0f, 1.0f);
+            const float lerpFactor = m_SpecialInfectedDebug
+                ? std::max(0.0f, m_SpecialInfectedAutoAimLerp)
+                : std::clamp(m_SpecialInfectedAutoAimLerp, 0.0f, 0.4f);
             if (m_SpecialInfectedAutoAimDirection.IsZero())
                 m_SpecialInfectedAutoAimDirection = toTarget;
             else
@@ -2501,7 +2503,9 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
     const bool inRange = distanceSq <= maxDistanceSq;
     if (inRange)
     {
-        const float maxAimAngle = std::clamp(m_SpecialInfectedPreWarningAimAngle, 0.0f, 180.0f);
+        const float maxAimAngle = m_SpecialInfectedDebug
+            ? std::max(0.0f, m_SpecialInfectedPreWarningAimAngle)
+            : std::clamp(m_SpecialInfectedPreWarningAimAngle, 0.0f, 5.0f);
         if (maxAimAngle > 0.0f)
         {
             Vector aimDirection = m_RightControllerForward;
@@ -3423,6 +3427,7 @@ void VR::ParseConfigFile()
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
+    m_SpecialInfectedDebug = getBool("SpecialInfectedDebug", m_SpecialInfectedDebug);
     m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
     m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
     m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
@@ -3432,8 +3437,14 @@ void VR::ParseConfigFile()
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
-    m_SpecialInfectedPreWarningAimAngle = std::clamp(getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle), 0.0f, 180.0f);
-    m_SpecialInfectedAutoAimLerp = std::clamp(getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp), 0.0f, 1.0f);
+    const float preWarningAimAngle = getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle);
+    m_SpecialInfectedPreWarningAimAngle = m_SpecialInfectedDebug
+        ? std::max(0.0f, preWarningAimAngle)
+        : std::clamp(preWarningAimAngle, 0.0f, 5.0f);
+    const float autoAimLerp = getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp);
+    m_SpecialInfectedAutoAimLerp = m_SpecialInfectedDebug
+        ? std::max(0.0f, autoAimLerp)
+        : std::clamp(autoAimLerp, 0.0f, 0.4f);
     m_SpecialInfectedAutoAimCooldown = std::max(0.0f, getFloat("SpecialInfectedAutoAimCooldown", m_SpecialInfectedAutoAimCooldown));
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));

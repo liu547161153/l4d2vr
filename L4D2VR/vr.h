@@ -353,6 +353,7 @@ public:
 	static constexpr int kLifeStateOffset = 0x147;
 
 	bool m_SpecialInfectedArrowEnabled = false;
+	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
 	float m_SpecialInfectedArrowHeight = 36.0f;
 	float m_SpecialInfectedArrowThickness = 0.0f;
