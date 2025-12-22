@@ -2606,7 +2606,6 @@ void VR::UpdateSpecialInfectedPreWarningState()
     {
         if (!m_Game || !m_Game->m_ClientEntityList)
         {
-            Game::logMsg("[VR] Auto-aim lock cleared: entity list unavailable.");
             m_SpecialInfectedPreWarningTargetEntityIndex = -1;
             m_SpecialInfectedPreWarningTargetIsPlayer = false;
             m_SpecialInfectedPreWarningActive = false;
