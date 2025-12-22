@@ -1370,32 +1370,40 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
-    auto triggerCustomAction = [&](const CustomActionBinding& binding)
+    auto handleCustomAction = [&](vr::VRActionHandle_t& actionHandle, const CustomActionBinding& binding)
         {
+            vr::InputDigitalActionData_t actionData{};
+            if (!GetDigitalActionData(actionHandle, actionData))
+                return;
+
             if (binding.virtualKey.has_value())
             {
-                SendVirtualKey(*binding.virtualKey);
+                if (binding.holdVirtualKey)
+                {
+                    if (!actionData.bChanged)
+                        return;
+
+                    if (actionData.bState)
+                        SendVirtualKeyDown(*binding.virtualKey);
+                    else
+                        SendVirtualKeyUp(*binding.virtualKey);
+                }
+                else if (actionData.bState && actionData.bChanged)
+                {
+                    SendVirtualKey(*binding.virtualKey);
+                }
                 return;
             }
 
-            if (!binding.command.empty())
+            if (actionData.bState && actionData.bChanged && !binding.command.empty())
                 m_Game->ClientCmd_Unrestricted(binding.command.c_str());
         };
 
-    if (PressedDigitalAction(m_CustomAction1, true))
-        triggerCustomAction(m_CustomAction1Binding);
-
-    if (PressedDigitalAction(m_CustomAction2, true))
-        triggerCustomAction(m_CustomAction2Binding);
-
-    if (PressedDigitalAction(m_CustomAction3, true))
-        triggerCustomAction(m_CustomAction3Binding);
-
-    if (PressedDigitalAction(m_CustomAction4, true))
-        triggerCustomAction(m_CustomAction4Binding);
-
-    if (PressedDigitalAction(m_CustomAction5, true))
-        triggerCustomAction(m_CustomAction5Binding);
+    handleCustomAction(m_CustomAction1, m_CustomAction1Binding);
+    handleCustomAction(m_CustomAction2, m_CustomAction2Binding);
+    handleCustomAction(m_CustomAction3, m_CustomAction3Binding);
+    handleCustomAction(m_CustomAction4, m_CustomAction4Binding);
+    handleCustomAction(m_CustomAction5, m_CustomAction5Binding);
 
     auto showHudOverlays = [&](bool attachToControllers)
         {
@@ -1451,16 +1459,27 @@ void VR::ProcessInput()
 
 void VR::SendVirtualKey(WORD virtualKey)
 {
-    INPUT inputs[2] = {};
+    SendVirtualKeyDown(virtualKey);
+    SendVirtualKeyUp(virtualKey);
+}
 
-    inputs[0].type = INPUT_KEYBOARD;
-    inputs[0].ki.wVk = virtualKey;
+void VR::SendVirtualKeyDown(WORD virtualKey)
+{
+    INPUT input = {};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = virtualKey;
 
-    inputs[1].type = INPUT_KEYBOARD;
-    inputs[1].ki.wVk = virtualKey;
-    inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(1, &input, sizeof(INPUT));
+}
 
-    SendInput(2, inputs, sizeof(INPUT));
+void VR::SendVirtualKeyUp(WORD virtualKey)
+{
+    INPUT input = {};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = virtualKey;
+    input.ki.dwFlags = KEYEVENTF_KEYUP;
+
+    SendInput(1, &input, sizeof(INPUT));
 }
 
 void VR::SendFunctionKey(WORD virtualKey)
@@ -3282,9 +3301,28 @@ void VR::ParseConfigFile()
     auto parseCustomActionBinding = [&](const char* key, CustomActionBinding& binding)
         {
             binding.command = getString(key, binding.command);
+            binding.holdVirtualKey = false;
+
+            std::string trimmedCommand = binding.command;
+            trim(trimmedCommand);
+            std::string normalized = trimmedCommand;
+            std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) { return std::tolower(c); });
+
+            const std::string holdPrefix = "hold:";
+            if (normalized.rfind(holdPrefix, 0) == 0)
+            {
+                binding.holdVirtualKey = true;
+                trimmedCommand = trimmedCommand.substr(holdPrefix.size());
+                trim(trimmedCommand);
+                binding.command = trimmedCommand;
+            }
+
             binding.virtualKey = parseVirtualKey(binding.command);
             if (!binding.command.empty() && binding.virtualKey.has_value())
-                Game::logMsg("[VR] %s mapped to virtual key 0x%02X", key, *binding.virtualKey);
+            {
+                Game::logMsg("[VR] %s mapped to virtual key 0x%02X%s", key, *binding.virtualKey,
+                    binding.holdVirtualKey ? " (hold)" : "");
+            }
         };
 
     // 用当前成员的值作为默认值（构造时已初始化）
