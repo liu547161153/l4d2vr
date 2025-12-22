@@ -44,6 +44,7 @@ struct CustomActionBinding
 {
 	std::string command;
 	std::optional<WORD> virtualKey;
+	bool holdVirtualKey = false;
 };
 
 
@@ -436,6 +437,8 @@ public:
 	void ProcessMenuInput();
 	void ProcessInput();
 	void SendVirtualKey(WORD virtualKey);
+	void SendVirtualKeyDown(WORD virtualKey);
+	void SendVirtualKeyUp(WORD virtualKey);
 	void SendFunctionKey(WORD virtualKey);
 	VMatrix VMatrixFromHmdMatrix(const vr::HmdMatrix34_t& hmdMat);
 	vr::HmdMatrix34_t VMatrixToHmdMatrix(const VMatrix& vMat);
