@@ -227,10 +227,10 @@ public:
         }
 };
 
-class CTraceFilterSkipPlayersAndEntity : public CTraceFilter
+class CTraceFilterSkipNPCsAndEntity : public CTraceFilter
 {
 public:
-        CTraceFilterSkipPlayersAndEntity(IHandleEntity *passentity, IHandleEntity *skipentity, int collisionGroup)
+        CTraceFilterSkipNPCsAndEntity(IHandleEntity *passentity, IHandleEntity *skipentity, int collisionGroup)
                 : CTraceFilter(passentity, collisionGroup)
                 , m_pSkipEnt(skipentity)
         {
@@ -245,7 +245,7 @@ public:
                         return false;
 
                 C_BasePlayer *pEntity = (C_BasePlayer *)pServerEntity;
-                if (pEntity && pEntity->IsPlayer())
+                if (pEntity && pEntity->IsNPC())
                         return false;
 
                 return true;

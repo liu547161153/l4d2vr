@@ -2493,7 +2493,7 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
 
     CGameTrace trace;
     Ray_t ray;
-    CTraceFilterSkipPlayersAndEntity tracefilter((IHandleEntity*)localPlayer, targetEntity, 0);
+    CTraceFilterSkipNPCsAndEntity tracefilter((IHandleEntity*)localPlayer, targetEntity, 0);
 
     ray.Init(m_RightControllerPosAbs, infectedOrigin);
     m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
