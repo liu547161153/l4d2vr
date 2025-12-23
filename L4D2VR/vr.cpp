@@ -517,7 +517,7 @@ void VR::RepositionOverlays(bool attachToControllers)
         };
 
     // Reposition HUD overlays
-    Vector hudDistance = hmdForward * m_HudDistance;
+    Vector hudDistance = hmdForward * (m_HudDistance + m_FixedHudDistanceOffset);
     Vector hudNewPos = hudDistance + hmdPosition;
     hudNewPos.y -= 0.25f;
     hudNewPos.y += m_FixedHudYOffset;
@@ -3445,6 +3445,7 @@ void VR::ParseConfigFile()
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
+    m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
     float controllerSmoothingValue = m_ControllerSmoothing;
     if (userConfig.find("ControllerSmoothing") != userConfig.end())
         controllerSmoothingValue = getFloat("ControllerSmoothing", controllerSmoothingValue);
