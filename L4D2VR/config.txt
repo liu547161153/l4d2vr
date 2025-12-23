@@ -8,6 +8,8 @@ HideArms=false
 IPDScale=1.0
 HudAlwaysVisible=true
 HudSize=1.8
+FixedHudYOffset=0.0
+FixedHudDistanceOffset=0.0
 ControllerSmoothing=0
 ForceNonVRServerMovement=false
 # Set to true to emulate non-VR movement on the server. When false, throwable arc distance is driven by your HMD aim.
