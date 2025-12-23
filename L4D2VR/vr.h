@@ -284,6 +284,7 @@ public:
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
 	float m_HudDistance = 1.3;
+	float m_FixedHudYOffset = 0.0f;
 	float m_HudSize = 1.1;
 	float m_ControllerHudSize = 0.5f;
 	float m_ControllerHudYOffset = 0.12f;
@@ -327,7 +328,7 @@ public:
 	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
-	bool m_NonVRServerMovementAngleOverride = false;
+	bool m_NonVRServerMovementAngleOverride = true;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
 	struct RgbColor
 	{
