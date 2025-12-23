@@ -227,6 +227,34 @@ public:
         }
 };
 
+class CTraceFilterSkipNPCsAndEntity : public CTraceFilter
+{
+public:
+        CTraceFilterSkipNPCsAndEntity(IHandleEntity *passentity, IHandleEntity *skipentity, int collisionGroup)
+                : CTraceFilter(passentity, collisionGroup)
+                , m_pSkipEnt(skipentity)
+        {
+        }
+
+        virtual bool ShouldHitEntity(IHandleEntity *pServerEntity, int contentsMask)
+        {
+                if (!pServerEntity)
+                        return true;
+
+                if (m_pPassEnt == pServerEntity || m_pSkipEnt == pServerEntity)
+                        return false;
+
+                C_BasePlayer *pEntity = (C_BasePlayer *)pServerEntity;
+                if (pEntity && pEntity->IsNPC())
+                        return false;
+
+                return true;
+        }
+
+private:
+        IHandleEntity *m_pSkipEnt;
+};
+
 
 
 struct Ray_t

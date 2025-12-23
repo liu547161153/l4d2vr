@@ -2477,7 +2477,7 @@ bool VR::IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const
     return toInfected.LengthSqr() <= maxDistanceSq;
 }
 
-bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin) const
+bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entityIndex) const
 {
     if (!m_Game || !m_Game->m_EngineTrace || !m_Game->m_EngineClient)
         return true;
@@ -2487,9 +2487,13 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin) const
     if (!localPlayer)
         return true;
 
+    IHandleEntity* targetEntity = nullptr;
+    if (entityIndex > 0)
+        targetEntity = (IHandleEntity*)m_Game->GetClientEntity(entityIndex);
+
     CGameTrace trace;
     Ray_t ray;
-    CTraceFilterSkipNPCsAndPlayers tracefilter((IHandleEntity*)localPlayer, 0);
+    CTraceFilterSkipNPCsAndEntity tracefilter((IHandleEntity*)localPlayer, targetEntity, 0);
 
     ray.Init(m_RightControllerPosAbs, infectedOrigin);
     m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
@@ -2542,7 +2546,7 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             }
         }
 
-        if (!HasLineOfSightToSpecialInfected(infectedOrigin))
+        if (!HasLineOfSightToSpecialInfected(infectedOrigin, entityIndex))
             return;
 
         const bool isLockedTarget = m_SpecialInfectedPreWarningTargetEntityIndex != -1
