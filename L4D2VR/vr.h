@@ -88,7 +88,6 @@ public:
 	Vector m_LeftControllerRight;
 	Vector m_LeftControllerUp;
 
-	Vector m_RightControllerForwardUnforced = { 0,0,0 };
 	Vector m_RightControllerForward;
 	Vector m_RightControllerRight;
 	Vector m_RightControllerUp;
@@ -154,7 +153,6 @@ public:
 	Vector m_AimLineStart = { 0,0,0 };
 	Vector m_AimLineEnd = { 0,0,0 };
 	Vector m_LastAimDirection = { 0,0,0 };
-	Vector m_LastUnforcedAimDirection = { 0,0,0 };
 	bool m_HasAimLine = false;
 	float m_AimLineThickness = 2.0f;
 	bool m_AimLineEnabled = true;
