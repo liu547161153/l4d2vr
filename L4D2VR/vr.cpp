@@ -3517,15 +3517,27 @@ void VR::ParseConfigFile()
     const float preWarningAimAngle = getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle);
     m_SpecialInfectedPreWarningAimAngle = m_SpecialInfectedDebug
         ? std::max(0.0f, preWarningAimAngle)
-        : std::clamp(preWarningAimAngle, 0.0f, 5.0f);
-    m_SpecialInfectedPreWarningAimSnapDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningAimSnapDistance", m_SpecialInfectedPreWarningAimSnapDistance));
+        : std::clamp(preWarningAimAngle, 0.0f, 10.0f);
+
+    const float aimSnapDistance = getFloat("SpecialInfectedPreWarningAimSnapDistance", m_SpecialInfectedPreWarningAimSnapDistance);
+    m_SpecialInfectedPreWarningAimSnapDistance = m_SpecialInfectedDebug
+        ? std::max(0.0f, aimSnapDistance)
+        : std::clamp(aimSnapDistance, 0.0f, 20.0f);
+
     const float releaseDistance = getFloat("SpecialInfectedPreWarningAimReleaseDistance", m_SpecialInfectedPreWarningAimReleaseDistance);
-    m_SpecialInfectedPreWarningAimReleaseDistance = std::max(m_SpecialInfectedPreWarningAimSnapDistance, std::max(0.0f, releaseDistance));
+    m_SpecialInfectedPreWarningAimReleaseDistance = m_SpecialInfectedDebug
+        ? std::max(m_SpecialInfectedPreWarningAimSnapDistance, std::max(0.0f, releaseDistance))
+        : std::clamp(std::max(m_SpecialInfectedPreWarningAimSnapDistance, std::max(0.0f, releaseDistance)), 0.0f, 30.0f);
+
     const float autoAimLerp = getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp);
     m_SpecialInfectedAutoAimLerp = m_SpecialInfectedDebug
         ? std::max(0.0f, autoAimLerp)
-        : std::clamp(autoAimLerp, 0.0f, 0.4f);
-    m_SpecialInfectedAutoAimCooldown = std::max(0.0f, getFloat("SpecialInfectedAutoAimCooldown", m_SpecialInfectedAutoAimCooldown));
+        : std::clamp(autoAimLerp, 0.0f, 0.3f);
+
+    const float autoAimCooldown = getFloat("SpecialInfectedAutoAimCooldown", m_SpecialInfectedAutoAimCooldown);
+    m_SpecialInfectedAutoAimCooldown = m_SpecialInfectedDebug
+        ? std::max(0.0f, autoAimCooldown)
+        : std::max(0.5f, autoAimCooldown);
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
     m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));
