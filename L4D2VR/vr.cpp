@@ -1837,6 +1837,10 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
+    m_RightControllerForwardUnforced = m_RightControllerForward;
+    if (!m_RightControllerForwardUnforced.IsZero())
+        m_LastUnforcedAimDirection = m_RightControllerForwardUnforced;
+
     const bool shouldForceAim = m_SpecialInfectedPreWarningActive;
     const Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
 
@@ -2532,9 +2536,9 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             : std::clamp(m_SpecialInfectedPreWarningAimAngle, 0.0f, 5.0f);
         if (maxAimAngle > 0.0f)
         {
-            Vector aimDirection = m_RightControllerForward;
+            Vector aimDirection = m_RightControllerForwardUnforced;
             if (aimDirection.IsZero())
-                aimDirection = m_LastAimDirection;
+                aimDirection = m_LastUnforcedAimDirection;
 
             Vector toTarget = infectedOrigin - m_RightControllerPosAbs;
             if (!aimDirection.IsZero() && !toTarget.IsZero())
