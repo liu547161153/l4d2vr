@@ -1837,6 +1837,10 @@ void VR::UpdateTracking()
     m_RightControllerForward = VectorRotate(m_RightControllerForward, m_RightControllerRight, -45.0);
     m_RightControllerUp = VectorRotate(m_RightControllerUp, m_RightControllerRight, -45.0);
 
+    m_RightControllerForwardUnforced = m_RightControllerForward;
+    if (!m_RightControllerForwardUnforced.IsZero())
+        m_LastUnforcedAimDirection = m_RightControllerForwardUnforced;
+
     const bool shouldForceAim = m_SpecialInfectedPreWarningActive;
     const Vector forcedTarget = m_SpecialInfectedPreWarningTarget;
 
@@ -2511,6 +2515,32 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
     if (m_SpecialInfectedAutoAimCooldown > 0.0f && now < m_SpecialInfectedAutoAimCooldownEnd)
         return;
 
+    Vector aimDirection = m_RightControllerForwardUnforced;
+    if (aimDirection.IsZero())
+        aimDirection = m_LastUnforcedAimDirection;
+
+    Vector toTargetFromController = infectedOrigin - m_RightControllerPosAbs;
+    float aimLineDistance = std::numeric_limits<float>::max();
+    if (!aimDirection.IsZero() && !toTargetFromController.IsZero())
+    {
+        VectorNormalize(aimDirection);
+        Vector projection = aimDirection * DotProduct(toTargetFromController, aimDirection);
+        Vector closestPoint = m_RightControllerPosAbs + projection;
+        aimLineDistance = (infectedOrigin - closestPoint).Length();
+    }
+
+    const bool isLockedTarget = m_SpecialInfectedPreWarningTargetEntityIndex != -1
+        && entityIndex == m_SpecialInfectedPreWarningTargetEntityIndex;
+    if (isLockedTarget && aimLineDistance > m_SpecialInfectedPreWarningAimReleaseDistance)
+    {
+        m_SpecialInfectedPreWarningActive = false;
+        m_SpecialInfectedPreWarningInRange = false;
+        m_SpecialInfectedPreWarningTargetEntityIndex = -1;
+        m_SpecialInfectedPreWarningTargetIsPlayer = false;
+        m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
+        return;
+    }
+
     if (m_SpecialInfectedPreWarningTargetEntityIndex != -1 && entityIndex != m_SpecialInfectedPreWarningTargetEntityIndex)
     {
         if (m_SpecialInfectedPreWarningTargetIsPlayer)
@@ -2532,26 +2562,28 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             : std::clamp(m_SpecialInfectedPreWarningAimAngle, 0.0f, 5.0f);
         if (maxAimAngle > 0.0f)
         {
-            Vector aimDirection = m_RightControllerForward;
-            if (aimDirection.IsZero())
-                aimDirection = m_LastAimDirection;
-
+            const bool aimLineClose = aimLineDistance <= m_SpecialInfectedPreWarningAimSnapDistance;
             Vector toTarget = infectedOrigin - m_RightControllerPosAbs;
-            if (!aimDirection.IsZero() && !toTarget.IsZero())
+            if (!aimLineClose)
             {
-                VectorNormalize(aimDirection);
-                VectorNormalize(toTarget);
-                const float minDot = std::cos(DEG2RAD(maxAimAngle));
-                if (DotProduct(aimDirection, toTarget) < minDot)
+                if (!aimDirection.IsZero() && !toTarget.IsZero())
+                {
+                    VectorNormalize(aimDirection);
+                    VectorNormalize(toTarget);
+                    const float minDot = std::cos(DEG2RAD(maxAimAngle));
+                    if (DotProduct(aimDirection, toTarget) < minDot)
+                        return;
+                }
+                else
+                {
                     return;
+                }
             }
         }
 
         if (!HasLineOfSightToSpecialInfected(infectedOrigin, entityIndex))
             return;
 
-        const bool isLockedTarget = m_SpecialInfectedPreWarningTargetEntityIndex != -1
-            && entityIndex == m_SpecialInfectedPreWarningTargetEntityIndex;
         const bool isCloser = distanceSq < m_SpecialInfectedPreWarningTargetDistanceSq;
         const bool isCandidate = isLockedTarget || isCloser || distanceSq <= (m_SpecialInfectedPreWarningTargetDistanceSq + 0.01f);
         const float updateInterval = std::max(0.0f, m_SpecialInfectedPreWarningTargetUpdateInterval);
@@ -3486,6 +3518,9 @@ void VR::ParseConfigFile()
     m_SpecialInfectedPreWarningAimAngle = m_SpecialInfectedDebug
         ? std::max(0.0f, preWarningAimAngle)
         : std::clamp(preWarningAimAngle, 0.0f, 5.0f);
+    m_SpecialInfectedPreWarningAimSnapDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningAimSnapDistance", m_SpecialInfectedPreWarningAimSnapDistance));
+    const float releaseDistance = getFloat("SpecialInfectedPreWarningAimReleaseDistance", m_SpecialInfectedPreWarningAimReleaseDistance);
+    m_SpecialInfectedPreWarningAimReleaseDistance = std::max(m_SpecialInfectedPreWarningAimSnapDistance, std::max(0.0f, releaseDistance));
     const float autoAimLerp = getFloat("SpecialInfectedAutoAimLerp", m_SpecialInfectedAutoAimLerp);
     m_SpecialInfectedAutoAimLerp = m_SpecialInfectedDebug
         ? std::max(0.0f, autoAimLerp)
