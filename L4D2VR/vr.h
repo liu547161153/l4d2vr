@@ -88,6 +88,7 @@ public:
 	Vector m_LeftControllerRight;
 	Vector m_LeftControllerUp;
 
+	Vector m_RightControllerForwardUnforced = { 0,0,0 };
 	Vector m_RightControllerForward;
 	Vector m_RightControllerRight;
 	Vector m_RightControllerUp;
@@ -153,6 +154,7 @@ public:
 	Vector m_AimLineStart = { 0,0,0 };
 	Vector m_AimLineEnd = { 0,0,0 };
 	Vector m_LastAimDirection = { 0,0,0 };
+	Vector m_LastUnforcedAimDirection = { 0,0,0 };
 	bool m_HasAimLine = false;
 	float m_AimLineThickness = 2.0f;
 	bool m_AimLineEnabled = true;
@@ -382,6 +384,8 @@ public:
 	float m_SpecialInfectedPreWarningDistance = 750.0f;
 	float m_SpecialInfectedPreWarningTargetUpdateInterval = 0.1f;
 	float m_SpecialInfectedPreWarningAimAngle = 5.0f;
+	float m_SpecialInfectedPreWarningAimSnapDistance = 18.0f;
+	float m_SpecialInfectedPreWarningAimReleaseDistance = 28.0f;
 	bool m_SpecialInfectedPreWarningAutoAimConfigEnabled = false;
 	bool m_SpecialInfectedPreWarningAutoAimEnabled = false;
 	bool m_SpecialInfectedPreWarningActive = false;
