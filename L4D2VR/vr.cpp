@@ -1407,9 +1407,13 @@ void VR::ProcessInput()
     handleCustomAction(m_CustomAction4, m_CustomAction4Binding);
     handleCustomAction(m_CustomAction5, m_CustomAction5Binding);
 
-    auto showHudOverlays = [&](bool attachToControllers)
+    auto showTopHud = [&]()
         {
             vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
+        };
+
+    auto showControllerHud = [&](bool attachToControllers)
+        {
             for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
             {
                 if (attachToControllers)
@@ -1424,9 +1428,13 @@ void VR::ProcessInput()
             }
         };
 
-    auto hideHudOverlays = [&]()
+    auto hideTopHud = [&]()
         {
             vr::VROverlay()->HideOverlay(m_HUDTopHandle);
+        };
+
+    auto hideControllerHud = [&]()
+        {
             for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
                 vr::VROverlay()->HideOverlay(overlay);
         };
@@ -1444,8 +1452,10 @@ void VR::ProcessInput()
         m_HudToggleState = !m_HudToggleState;
     }
 
-    bool wantsHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
-    if ((wantsHud && m_RenderedHud) || menuActive)
+    bool wantsTopHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
+    bool wantsControllerHud = m_RenderedHud;
+
+    if ((wantsTopHud && m_RenderedHud) || menuActive)
     {
         RepositionOverlays(!menuActive);
 
@@ -1454,11 +1464,20 @@ void VR::ProcessInput()
         else
             m_Game->ClientCmd_Unrestricted("-showscores");
 
-        showHudOverlays(!menuActive);
+        showTopHud();
     }
     else
     {
-        hideHudOverlays();
+        hideTopHud();
+    }
+
+    if (wantsControllerHud)
+    {
+        showControllerHud(!menuActive);
+    }
+    else
+    {
+        hideControllerHud();
     }
     m_RenderedHud = false;
 
