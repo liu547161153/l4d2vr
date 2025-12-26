@@ -261,7 +261,7 @@ public:
 	vr::VRActionHandle_t m_MenuRight;
 	vr::VRActionHandle_t m_Spray;
 	vr::VRActionHandle_t m_Scoreboard;
-	vr::VRActionHandle_t m_ShowHUD;
+	vr::VRActionHandle_t m_ToggleHUD;
 	vr::VRActionHandle_t m_Pause;
 	vr::VRActionHandle_t m_NonVRServerMovementAngleToggle;
 	vr::VRActionHandle_t m_CustomAction1;
@@ -295,6 +295,8 @@ public:
 	float m_ControllerHudRotation = 0.0f;
 	float m_ControllerHudXOffset = 0.0f;
 	bool m_HudAlwaysVisible = false;
+	bool m_HudToggleState = false;
+	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
 	CustomActionBinding m_CustomAction1Binding{};
