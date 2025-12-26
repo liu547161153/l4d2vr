@@ -132,7 +132,7 @@
                         "type": "boolean"
                 },
                 {
-                        "name": "/actions/main/in/ShowHUD",
+                        "name": "/actions/main/in/ToggleHUD",
                         "type": "boolean",
                         "requirement": "optional"
                 },
@@ -209,7 +209,7 @@
 			"/actions/main/in/MenuRight" : "Menu Right",
                         "/actions/main/in/Spray" : "Spray",
                         "/actions/main/in/Scoreboard" : "Show Scoreboard",
-                        "/actions/main/in/ShowHUD" : "Show HUD",
+                        "/actions/main/in/ToggleHUD" : "Toggle HUD Overlay",
                         "/actions/main/in/Pause" : "Pause",
                         "/actions/main/in/NonVRServerMovementAngleToggle" : "Non-VR Server Movement Aim Override",
                         "/actions/main/in/CustomAction1" : "Custom Action 1",

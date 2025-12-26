@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <string>
 #include <thread>
+#include <chrono>
 #include <algorithm>
 #include <cctype>
 #include <array>
@@ -179,7 +180,7 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/MenuRight", &m_MenuRight);
     m_Input->GetActionHandle("/actions/main/in/Spray", &m_Spray);
     m_Input->GetActionHandle("/actions/main/in/Scoreboard", &m_Scoreboard);
-    m_Input->GetActionHandle("/actions/main/in/ShowHUD", &m_ShowHUD);
+    m_Input->GetActionHandle("/actions/main/in/ToggleHUD", &m_ToggleHUD);
     m_Input->GetActionHandle("/actions/main/in/Pause", &m_Pause);
     m_Input->GetActionHandle("/actions/main/in/NonVRServerMovementAngleToggle", &m_NonVRServerMovementAngleToggle);
     m_Input->GetActionHandle("/actions/main/in/CustomAction1", &m_CustomAction1);
@@ -1432,7 +1433,18 @@ void VR::ProcessInput()
 
     bool isControllerVertical = m_RightControllerAngAbs.x > 60 || m_RightControllerAngAbs.x < -45;
     bool menuActive = m_Game->m_EngineClient->IsPaused();
-    bool wantsHud = PressedDigitalAction(m_ShowHUD) || PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudAlwaysVisible;
+    bool cursorVisible = m_Game->m_VguiSurface && m_Game->m_VguiSurface->IsCursorVisible();
+    if (cursorVisible)
+    {
+        m_HudChatVisibleUntil = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
+    const bool chatRecent = std::chrono::steady_clock::now() < m_HudChatVisibleUntil;
+    if (PressedDigitalAction(m_ToggleHUD, true))
+    {
+        m_HudToggleState = !m_HudToggleState;
+    }
+
+    bool wantsHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
     if ((wantsHud && m_RenderedHud) || menuActive)
     {
         RepositionOverlays(!menuActive);
@@ -3400,7 +3412,7 @@ void VR::ParseConfigFile()
         {"menuright", &m_MenuRight},
         {"spray", &m_Spray},
         {"scoreboard", &m_Scoreboard},
-        {"showhud", &m_ShowHUD},
+        {"togglehud", &m_ToggleHUD},
         {"pause", &m_Pause}
     };
 
@@ -3476,6 +3488,7 @@ void VR::ParseConfigFile()
     m_ControllerHudRotation = getFloat("ControllerHudRotation", m_ControllerHudRotation);
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
+    m_HudToggleState = m_HudAlwaysVisible;
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
     float controllerSmoothingValue = m_ControllerSmoothing;
