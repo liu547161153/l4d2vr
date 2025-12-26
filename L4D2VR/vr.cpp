@@ -1485,7 +1485,8 @@ void VR::ProcessInput()
     {
         m_Game->ClientCmd_Unrestricted("gameui_activate");
         RepositionOverlays(false);
-        showHudOverlays(false);
+        showTopHud();
+        showControllerHud(false);
     }
 }
 
