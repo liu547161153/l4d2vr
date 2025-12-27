@@ -24,6 +24,7 @@ ControllerHudYOffset=0.1
 ControllerHudZOffset=-0.3
 ControllerHudRotation=-60
 ControllerHudXOffset=0.1
+ControllerHudCut=false
 MotionGestureSwingThreshold=1.1
 MotionGestureDownSwingThreshold=1.0
 MotionGestureJumpThreshold=1.0
