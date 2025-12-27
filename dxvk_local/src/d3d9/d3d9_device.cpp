@@ -7509,7 +7509,10 @@ namespace dxvk {
 
     auto matchesImage = [&](const SharedTextureHolder& holder)->bool
     {
-      return holder.m_VulkanData.m_nImage != 0 && image && uint64_t(image->handle()) == holder.m_VulkanData.m_nImage;
+      if (holder.m_VulkanData.m_nImage == 0 || !image)
+        return false;
+
+      return uint64_t(image->handle()) == holder.m_VulkanData.m_nImage;
     };
 
     if (matchesSurface(g_Game->m_VR->m_D9LeftEyeSurface) || matchesImage(g_Game->m_VR->m_VKLeftEye))
