@@ -7492,12 +7492,15 @@ namespace dxvk {
     }
   }
 
-  bool D3D9DeviceEx::IsVrRenderTarget(const D3D9Surface* surface, VrEye& eyeOut) const
+  bool D3D9DeviceEx::IsVrRenderTarget(D3D9Surface* surface, VrEye& eyeOut) const
   {
     eyeOut = VrEye::None;
 
     if (!surface || !g_Game || !g_Game->m_VR)
       return false;
+
+    D3D9CommonTexture* texInfo = surface->GetCommonTexture();
+    auto* image = texInfo ? texInfo->GetImage() : nullptr;
 
     auto matchesSurface = [&](IDirect3DSurface9* vrSurface)->bool
     {
@@ -7506,7 +7509,6 @@ namespace dxvk {
 
     auto matchesImage = [&](const SharedTextureHolder& holder)->bool
     {
-      auto* image = surface->GetCommonTexture()->GetImage();
       return holder.m_VulkanData.m_nImage != 0 && image && uint64_t(image->handle()) == holder.m_VulkanData.m_nImage;
     };
 

@@ -1150,7 +1150,7 @@ namespace dxvk {
       Right,
     };
 
-    bool IsVrRenderTarget(const D3D9Surface* surface, VrEye& eyeOut) const;
+    bool IsVrRenderTarget(D3D9Surface* surface, VrEye& eyeOut) const;
     void TryLatchVrPayload(VrEye eye);
     void UploadVrConstants(VrEye eye);
     void UpdateVrStatsAfterPresent();
