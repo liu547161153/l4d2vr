@@ -7500,7 +7500,7 @@ namespace dxvk {
       return false;
 
     D3D9CommonTexture* texInfo = surface->GetCommonTexture();
-    auto* image = texInfo ? texInfo->GetImage() : nullptr;
+    Rc<DxvkImage> image = texInfo ? texInfo->GetImage() : Rc<DxvkImage>{};
 
     auto matchesSurface = [&](IDirect3DSurface9* vrSurface)->bool
     {
