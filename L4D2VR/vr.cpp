@@ -331,10 +331,10 @@ void VR::SubmitVRTextures()
 
     const vr::VRTextureBounds_t topBounds{ 0.0f, 0.0f, 1.0f, 0.5f };
     const std::array<vr::VRTextureBounds_t, 4> bottomBounds{
-        vr::VRTextureBounds_t{ 0.0f, 0.5f, 0.25f, 1.0f },
-        vr::VRTextureBounds_t{ 0.25f, 0.5f, 0.5f, 1.0f },
-        vr::VRTextureBounds_t{ 0.5f, 0.5f, 0.75f, 1.0f },
-        vr::VRTextureBounds_t{ 0.75f, 0.5f, 1.0f, 1.0f }
+        vr::VRTextureBounds_t{ 0.0f, m_ControllerHudCut ? 0.5f : 0.0f, 0.25f, 1.0f },
+        vr::VRTextureBounds_t{ 0.25f, m_ControllerHudCut ? 0.5f : 0.0f, 0.5f, 1.0f },
+        vr::VRTextureBounds_t{ 0.5f, m_ControllerHudCut ? 0.5f : 0.0f, 0.75f, 1.0f },
+        vr::VRTextureBounds_t{ 0.75f, m_ControllerHudCut ? 0.5f : 0.0f, 1.0f, 1.0f }
     };
 
     auto applyHudTexture = [&](vr::VROverlayHandle_t overlay, const vr::VRTextureBounds_t& bounds)
@@ -3507,6 +3507,7 @@ void VR::ParseConfigFile()
     m_ControllerHudZOffset = getFloat("ControllerHudZOffset", m_ControllerHudZOffset);
     m_ControllerHudRotation = getFloat("ControllerHudRotation", m_ControllerHudRotation);
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
+    m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HudToggleState = m_HudAlwaysVisible;
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
