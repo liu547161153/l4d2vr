@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <vector>
 #include <d3d9_vr.h>
+#include "vr_payload.h"
 
 VR::VR(Game* game)
 {
@@ -239,6 +240,7 @@ void VR::Update()
     }
 
     UpdateTracking();
+    PublishViewPayload();
 
 
     if (m_Game->m_VguiSurface->IsCursorVisible())
@@ -1554,6 +1556,65 @@ vr::HmdMatrix34_t VR::VMatrixToHmdMatrix(const VMatrix& vMat)
     hmdMat.m[2][3] = vMat.m[3][2];
 
     return hmdMat;
+}
+
+namespace
+{
+    VMatrix VMatrixFromHmdMatrix44(const vr::HmdMatrix44_t& hmdMat)
+    {
+        VMatrix vMat(
+            hmdMat.m[0][0], hmdMat.m[0][1], hmdMat.m[0][2], hmdMat.m[0][3],
+            hmdMat.m[1][0], hmdMat.m[1][1], hmdMat.m[1][2], hmdMat.m[1][3],
+            hmdMat.m[2][0], hmdMat.m[2][1], hmdMat.m[2][2], hmdMat.m[2][3],
+            hmdMat.m[3][0], hmdMat.m[3][1], hmdMat.m[3][2], hmdMat.m[3][3]
+        );
+
+        return vMat;
+    }
+}
+
+VMatrix VR::BuildEyeViewMatrix(const Vector& origin, const QAngle& angles) const
+{
+    VMatrix camera;
+    camera.SetupMatrixOrgAngles(origin, angles);
+
+    VMatrix view;
+    camera.InverseTR(view);
+    return view;
+}
+
+VMatrix VR::BuildEyeProjectionMatrix(vr::EVREye eye) const
+{
+    if (!m_System)
+    {
+        VMatrix identity{};
+        identity.Identity();
+        return identity;
+    }
+
+    vr::HmdMatrix44_t projection = m_System->GetProjectionMatrix(eye, m_LastZNear, m_LastZFar);
+    return VMatrixFromHmdMatrix44(projection);
+}
+
+void VR::PublishViewPayload()
+{
+    if (!m_IsInitialized || !m_Game)
+        return;
+
+    VrViewPayload payload{};
+    payload.hmdPositionAbs = m_HmdPosAbs;
+    payload.hmdAnglesAbs = m_HmdAngAbs;
+    payload.leftEyePosition = GetViewOriginLeft();
+    payload.rightEyePosition = GetViewOriginRight();
+
+    QAngle viewAngles(m_HmdAngAbs.x, m_HmdAngAbs.y, m_HmdAngAbs.z);
+    payload.leftViewMatrix = BuildEyeViewMatrix(payload.leftEyePosition, viewAngles);
+    payload.rightViewMatrix = BuildEyeViewMatrix(payload.rightEyePosition, viewAngles);
+    payload.leftProjectionMatrix = BuildEyeProjectionMatrix(vr::Eye_Left);
+    payload.rightProjectionMatrix = BuildEyeProjectionMatrix(vr::Eye_Right);
+    payload.capturedAt = std::chrono::steady_clock::now();
+
+    g_VrViewPayloadQueue.Push(payload);
 }
 
 vr::HmdMatrix34_t VR::GetControllerTipMatrix(vr::ETrackedControllerRole controllerRole)

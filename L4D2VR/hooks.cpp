@@ -208,6 +208,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
+	m_VR->m_LastZNear = setup.zNear;
+	m_VR->m_LastZFar = setup.zFar;
 
 	// Left eye CViewSetup
 	leftEyeView.x = 0;
