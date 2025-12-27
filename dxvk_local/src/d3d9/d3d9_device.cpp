@@ -7,6 +7,7 @@
 #include "d3d9_util.h"
 #include "d3d9_texture.h"
 #include "d3d9_buffer.h"
+#include "d3d9_surface.h"
 #include "d3d9_vertex_declaration.h"
 #include "d3d9_shader.h"
 #include "d3d9_query.h"
@@ -27,10 +28,12 @@
 #include "L4D2VR/game.h"
 #include "L4D2VR/vr.h"
 #include "L4D2VR/sdk/sdk.h"
+#include "L4D2VR/vr_payload.h"
 #include "d3d9_vr.h"
 
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 #ifdef MSC_VER
 #pragma fenv_access (on)
 #endif
@@ -1286,6 +1289,10 @@ namespace dxvk {
 
     if (unlikely(rt != nullptr && !(texInfo->Desc()->Usage & D3DUSAGE_RENDERTARGET)))
       return D3DERR_INVALIDCALL;
+
+    VrEye vrEye = VrEye::None;
+    if (IsVrRenderTarget(rt, vrEye))
+      TryLatchVrPayload(vrEye);
 
     if (RenderTargetIndex == 0) {
       auto rtSize = rt->GetSurfaceExtent();
@@ -3527,6 +3534,8 @@ namespace dxvk {
     {
         g_Game->m_VR->Update();
     }
+
+    UpdateVrStatsAfterPresent();
 	  
 	return result;
   }
@@ -7464,6 +7473,143 @@ namespace dxvk {
     // immediately after a flush, we need to use the sequence number
     // of the previously submitted chunk to prevent deadlocks.
     return m_csChunk->empty() ? m_csSeqNum : m_csSeqNum + 1;
+  }
+
+  namespace
+  {
+    constexpr UINT kVrMatrixRegisterBase = 232;
+    constexpr UINT kVrMetadataRegister = kVrMatrixRegisterBase + 16;
+
+    void CopyMatrixToArray(const VMatrix& matrix, float* dst)
+    {
+      for (int r = 0; r < 4; ++r)
+      {
+        for (int c = 0; c < 4; ++c)
+        {
+          dst[r * 4 + c] = matrix.m[r][c];
+        }
+      }
+    }
+  }
+
+  bool D3D9DeviceEx::IsVrRenderTarget(const D3D9Surface* surface, VrEye& eyeOut) const
+  {
+    eyeOut = VrEye::None;
+
+    if (!surface || !g_Game || !g_Game->m_VR)
+      return false;
+
+    if (surface == static_cast<D3D9Surface*>(g_Game->m_VR->m_D9LeftEyeSurface))
+    {
+      eyeOut = VrEye::Left;
+      return true;
+    }
+
+    if (surface == static_cast<D3D9Surface*>(g_Game->m_VR->m_D9RightEyeSurface))
+    {
+      eyeOut = VrEye::Right;
+      return true;
+    }
+
+    return false;
+  }
+
+  void D3D9DeviceEx::TryLatchVrPayload(VrEye eye)
+  {
+    if (eye == VrEye::None)
+      return;
+
+    if (m_vrEyeMask == 0)
+    {
+      VrViewPayload payload{};
+      uint64_t sequence = 0;
+      if (g_VrViewPayloadQueue.TryReadLatest(payload, sequence))
+      {
+        if (sequence != m_vrLatchedSequence)
+        {
+          m_vrLatchedPayload = payload;
+          m_vrLatchedSequence = sequence;
+        }
+      }
+    }
+
+    if (eye == VrEye::Left)
+      m_vrEyeMask |= 0x1;
+    else if (eye == VrEye::Right)
+      m_vrEyeMask |= 0x2;
+
+    UploadVrConstants(eye);
+  }
+
+  void D3D9DeviceEx::UploadVrConstants(VrEye eye)
+  {
+    if (m_vrLatchedSequence == 0 || eye == VrEye::None)
+      return;
+
+    if (kVrMetadataRegister + 1 > m_vsFloatConstsCount)
+      return;
+
+    std::array<float, 64> matrixData{};
+    CopyMatrixToArray(m_vrLatchedPayload.leftViewMatrix, matrixData.data());
+    CopyMatrixToArray(m_vrLatchedPayload.rightViewMatrix, matrixData.data() + 16);
+    CopyMatrixToArray(m_vrLatchedPayload.leftProjectionMatrix, matrixData.data() + 32);
+    CopyMatrixToArray(m_vrLatchedPayload.rightProjectionMatrix, matrixData.data() + 48);
+
+    SetShaderConstants<
+      DxsoProgramTypes::VertexShader,
+      D3D9ConstantType::Float>(
+        kVrMatrixRegisterBase,
+        matrixData.data(),
+        16);
+
+    std::array<float, 4> metadata{
+      static_cast<float>(m_vrLatchedSequence & 0xffffffffu),
+      static_cast<float>((m_vrLatchedSequence >> 32) & 0xffffffffu),
+      eye == VrEye::Left ? 0.0f : 1.0f,
+      static_cast<float>(m_vrEyeMask)
+    };
+
+    SetShaderConstants<
+      DxsoProgramTypes::VertexShader,
+      D3D9ConstantType::Float>(
+        kVrMetadataRegister,
+        metadata.data(),
+        1);
+  }
+
+  void D3D9DeviceEx::UpdateVrStatsAfterPresent()
+  {
+    if (!g_Game || !g_Game->m_VR)
+    {
+      m_vrEyeMask = 0;
+      return;
+    }
+
+    const uint64_t latestSequence = g_VrViewPayloadQueue.LatestSequence();
+    uint64_t missed = 0;
+
+    if (latestSequence > m_vrLastPresentedSequence + 1)
+      missed = latestSequence - (m_vrLastPresentedSequence + 1);
+
+    if (m_vrLatchedSequence > 0 && latestSequence > m_vrLatchedSequence)
+      missed = std::max(missed, latestSequence - m_vrLatchedSequence);
+
+    m_vrDroppedFrames += missed;
+
+    m_vrLastPresentedSequence = latestSequence;
+
+    auto now = std::chrono::steady_clock::now();
+    if (now - m_vrLastStatsLog > std::chrono::seconds(5))
+    {
+      Logger::info(str::format(
+        "VR payload seq=", latestSequence,
+        " latched=", m_vrLatchedSequence,
+        " eyes=", m_vrEyeMask,
+        " dropped=", m_vrDroppedFrames));
+      m_vrLastStatsLog = now;
+    }
+
+    m_vrEyeMask = 0;
   }
 
 }

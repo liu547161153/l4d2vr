@@ -13,6 +13,7 @@
 #include "d3d9_state.h"
 
 #include "d3d9_options.h"
+#include "L4D2VR/vr_payload.h"
 
 #include "../dxso/dxso_module.h"
 #include "../dxso/dxso_util.h"
@@ -28,6 +29,7 @@
 #include <vector>
 #include <type_traits>
 #include <unordered_map>
+#include <chrono>
 
 namespace dxvk {
 
@@ -1141,6 +1143,18 @@ namespace dxvk {
 
     uint64_t GetCurrentSequenceNumber();
 
+    enum class VrEye
+    {
+      None,
+      Left,
+      Right,
+    };
+
+    bool IsVrRenderTarget(const D3D9Surface* surface, VrEye& eyeOut) const;
+    void TryLatchVrPayload(VrEye eye);
+    void UploadVrConstants(VrEye eye);
+    void UpdateVrStatsAfterPresent();
+
     Com<D3D9InterfaceEx>            m_parent;
     D3DDEVTYPE                      m_deviceType;
     HWND                            m_window;
@@ -1270,6 +1284,13 @@ namespace dxvk {
 
     std::atomic<int64_t>            m_availableMemory = { 0 };
     std::atomic<int32_t>            m_samplerCount    = { 0 };
+
+    VrViewPayload                   m_vrLatchedPayload{};
+    uint64_t                        m_vrLatchedSequence = 0;
+    uint64_t                        m_vrLastPresentedSequence = 0;
+    uint64_t                        m_vrDroppedFrames = 0;
+    uint32_t                        m_vrEyeMask = 0;
+    std::chrono::steady_clock::time_point m_vrLastStatsLog{};
 
     Direct3DState9                  m_state;
 

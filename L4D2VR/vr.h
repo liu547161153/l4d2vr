@@ -177,6 +177,8 @@ public:
 	float m_ThrowArcLandingOffset = -90.0f;
 	// Tracks the duration of the previous frame so the aim line can persist when the framerate dips.
 	float m_LastFrameDuration = 1.0f / 90.0f;
+	float m_LastZNear = 6.0f;
+	float m_LastZFar = 10000.0f;
 
 	float m_Ipd;
 	float m_EyeZ;
@@ -464,6 +466,9 @@ public:
 	Vector GetViewAngle();
 	Vector GetViewOriginLeft();
 	Vector GetViewOriginRight();
+	void PublishViewPayload();
+	VMatrix BuildEyeViewMatrix(const Vector& origin, const QAngle& angles) const;
+	VMatrix BuildEyeProjectionMatrix(vr::EVREye eye) const;
 	Vector GetThirdPersonViewOrigin() const { return m_ThirdPersonViewOrigin; }
 	QAngle GetThirdPersonViewAngles() const { return m_ThirdPersonViewAngles; }
 	bool IsThirdPersonCameraActive() const { return m_IsThirdPersonCamera; }
