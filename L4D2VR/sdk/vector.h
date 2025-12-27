@@ -1,6 +1,7 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
 #pragma once
 #include <cmath>
+#include <cstring>
 
 #define  FORCEINLINE			__forceinline
 
@@ -668,61 +669,6 @@ public:
 	vec_t		m[4][4];
 };
 
-// Inline implementations for commonly used VMatrix helpers
-inline VMatrix& VMatrix::operator=(const VMatrix& mOther)
-{
-	if (this == &mOther)
-		return *this;
-
-	memcpy(m, mOther.m, sizeof(m));
-	return *this;
-}
-
-inline void VMatrix::Identity()
-{
-	m[0][0] = 1.0f; m[0][1] = 0.0f; m[0][2] = 0.0f; m[0][3] = 0.0f;
-	m[1][0] = 0.0f; m[1][1] = 1.0f; m[1][2] = 0.0f; m[1][3] = 0.0f;
-	m[2][0] = 0.0f; m[2][1] = 0.0f; m[2][2] = 1.0f; m[2][3] = 0.0f;
-	m[3][0] = 0.0f; m[3][1] = 0.0f; m[3][2] = 0.0f; m[3][3] = 1.0f;
-}
-
-inline void VMatrix::SetupMatrixOrgAngles(const Vector& origin, const QAngle& vAngles)
-{
-	Vector forward, right, up;
-	QAngle::AngleVectors(vAngles, &forward, &right, &up);
-
-	m[0][0] = forward.x; m[0][1] = right.x; m[0][2] = up.x;   m[0][3] = origin.x;
-	m[1][0] = forward.y; m[1][1] = right.y; m[1][2] = up.y;   m[1][3] = origin.y;
-	m[2][0] = forward.z; m[2][1] = right.z; m[2][2] = up.z;   m[2][3] = origin.z;
-	m[3][0] = 0.0f;      m[3][1] = 0.0f;    m[3][2] = 0.0f;    m[3][3] = 1.0f;
-}
-
-inline void VMatrix::InverseTR(VMatrix& mRet) const
-{
-	// Assumes rotation + translation only
-	mRet.m[0][0] = m[0][0]; mRet.m[0][1] = m[1][0]; mRet.m[0][2] = m[2][0];
-	mRet.m[1][0] = m[0][1]; mRet.m[1][1] = m[1][1]; mRet.m[1][2] = m[2][1];
-	mRet.m[2][0] = m[0][2]; mRet.m[2][1] = m[1][2]; mRet.m[2][2] = m[2][2];
-	mRet.m[3][0] = 0.0f;    mRet.m[3][1] = 0.0f;    mRet.m[3][2] = 0.0f;
-	mRet.m[3][3] = 1.0f;
-
-	// Translation
-	float tx = -m[0][3];
-	float ty = -m[1][3];
-	float tz = -m[2][3];
-
-	mRet.m[0][3] = tx * mRet.m[0][0] + ty * mRet.m[0][1] + tz * mRet.m[0][2];
-	mRet.m[1][3] = tx * mRet.m[1][0] + ty * mRet.m[1][1] + tz * mRet.m[1][2];
-	mRet.m[2][3] = tx * mRet.m[2][0] + ty * mRet.m[2][1] + tz * mRet.m[2][2];
-}
-
-inline VMatrix VMatrix::InverseTR() const
-{
-	VMatrix result;
-	InverseTR(result);
-	return result;
-}
-
 inline Vector Vector::operator*(float fl) const
 {
 	Vector res;
@@ -1142,4 +1088,59 @@ inline void QAngle::VectorAngles(const Vector &forward, const Vector &pseudoup, 
 		// Assume no roll in this case as one degree of freedom has been lost (i.e. yaw == roll)
 		angles[2] = 0;
 	}
+}
+
+// Inline implementations for commonly used VMatrix helpers
+inline VMatrix& VMatrix::operator=(const VMatrix& mOther)
+{
+	if (this == &mOther)
+		return *this;
+
+	memcpy(m, mOther.m, sizeof(m));
+	return *this;
+}
+
+inline void VMatrix::Identity()
+{
+	m[0][0] = 1.0f; m[0][1] = 0.0f; m[0][2] = 0.0f; m[0][3] = 0.0f;
+	m[1][0] = 0.0f; m[1][1] = 1.0f; m[1][2] = 0.0f; m[1][3] = 0.0f;
+	m[2][0] = 0.0f; m[2][1] = 0.0f; m[2][2] = 1.0f; m[2][3] = 0.0f;
+	m[3][0] = 0.0f; m[3][1] = 0.0f; m[3][2] = 0.0f; m[3][3] = 1.0f;
+}
+
+inline void VMatrix::SetupMatrixOrgAngles(const Vector& origin, const QAngle& vAngles)
+{
+	Vector forward, right, up;
+	QAngle::AngleVectors(vAngles, &forward, &right, &up);
+
+	m[0][0] = forward.x; m[0][1] = right.x; m[0][2] = up.x;   m[0][3] = origin.x;
+	m[1][0] = forward.y; m[1][1] = right.y; m[1][2] = up.y;   m[1][3] = origin.y;
+	m[2][0] = forward.z; m[2][1] = right.z; m[2][2] = up.z;   m[2][3] = origin.z;
+	m[3][0] = 0.0f;      m[3][1] = 0.0f;    m[3][2] = 0.0f;    m[3][3] = 1.0f;
+}
+
+inline void VMatrix::InverseTR(VMatrix& mRet) const
+{
+	// Assumes rotation + translation only
+	mRet.m[0][0] = m[0][0]; mRet.m[0][1] = m[1][0]; mRet.m[0][2] = m[2][0];
+	mRet.m[1][0] = m[0][1]; mRet.m[1][1] = m[1][1]; mRet.m[1][2] = m[2][1];
+	mRet.m[2][0] = m[0][2]; mRet.m[2][1] = m[1][2]; mRet.m[2][2] = m[2][2];
+	mRet.m[3][0] = 0.0f;    mRet.m[3][1] = 0.0f;    mRet.m[3][2] = 0.0f;
+	mRet.m[3][3] = 1.0f;
+
+	// Translation
+	float tx = -m[0][3];
+	float ty = -m[1][3];
+	float tz = -m[2][3];
+
+	mRet.m[0][3] = tx * mRet.m[0][0] + ty * mRet.m[0][1] + tz * mRet.m[0][2];
+	mRet.m[1][3] = tx * mRet.m[1][0] + ty * mRet.m[1][1] + tz * mRet.m[1][2];
+	mRet.m[2][3] = tx * mRet.m[2][0] + ty * mRet.m[2][1] + tz * mRet.m[2][2];
+}
+
+inline VMatrix VMatrix::InverseTR() const
+{
+	VMatrix result;
+	InverseTR(result);
+	return result;
 }
