@@ -7499,13 +7499,24 @@ namespace dxvk {
     if (!surface || !g_Game || !g_Game->m_VR)
       return false;
 
-    if (surface == static_cast<D3D9Surface*>(g_Game->m_VR->m_D9LeftEyeSurface))
+    auto matchesSurface = [&](IDirect3DSurface9* vrSurface)->bool
+    {
+      return vrSurface && surface == static_cast<D3D9Surface*>(vrSurface);
+    };
+
+    auto matchesImage = [&](const SharedTextureHolder& holder)->bool
+    {
+      auto* image = surface->GetCommonTexture()->GetImage();
+      return holder.m_VulkanData.m_nImage != 0 && image && uint64_t(image->handle()) == holder.m_VulkanData.m_nImage;
+    };
+
+    if (matchesSurface(g_Game->m_VR->m_D9LeftEyeSurface) || matchesImage(g_Game->m_VR->m_VKLeftEye))
     {
       eyeOut = VrEye::Left;
       return true;
     }
 
-    if (surface == static_cast<D3D9Surface*>(g_Game->m_VR->m_D9RightEyeSurface))
+    if (matchesSurface(g_Game->m_VR->m_D9RightEyeSurface) || matchesImage(g_Game->m_VR->m_VKRightEye))
     {
       eyeOut = VrEye::Right;
       return true;
