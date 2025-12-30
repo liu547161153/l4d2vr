@@ -1372,6 +1372,8 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
+    RenderDebugHands(primaryAttackDown, secondaryAttackActive, reloadButtonDown, crouchButtonDown, flashlightButtonDown);
+
     auto handleCustomAction = [&](vr::VRActionHandle_t& actionHandle, const CustomActionBinding& binding)
         {
             vr::InputDigitalActionData_t actionData{};
@@ -2292,6 +2294,178 @@ void VR::DrawThrowArcFromCache(float duration)
     for (int i = 0; i < THROW_ARC_SEGMENTS; ++i)
     {
         DrawLineWithThickness(m_LastThrowArcPoints[i], m_LastThrowArcPoints[i + 1], duration);
+    }
+}
+
+VR::DebugHandGesture VR::NextGesture(DebugHandGesture current)
+{
+    switch (current)
+    {
+    case DebugHandGesture::Open: return DebugHandGesture::Fist;
+    case DebugHandGesture::Fist: return DebugHandGesture::Point;
+    case DebugHandGesture::Point: return DebugHandGesture::Ok;
+    case DebugHandGesture::Ok: default: return DebugHandGesture::Open;
+    }
+}
+
+VR::DebugHandGesture VR::ResolveGestureForHand(bool primaryDown, bool secondaryDown, bool utilityDown, bool altUtilityDown) const
+{
+    if (primaryDown)
+        return DebugHandGesture::Fist;
+    if (secondaryDown)
+        return DebugHandGesture::Point;
+    if (utilityDown || altUtilityDown)
+        return DebugHandGesture::Ok;
+    return DebugHandGesture::Open;
+}
+
+void VR::RenderDebugHands(bool primaryAttackDown, bool secondaryAttackDown, bool reloadDown, bool crouchDown, bool flashlightDown)
+{
+    if (!m_DebugHandsEnabled || !m_Game->m_DebugOverlay)
+        return;
+
+    const bool rightCycle = PressedDigitalAction(m_CustomAction3, true);
+    const bool leftCycle = PressedDigitalAction(m_CustomAction4, true);
+    if (rightCycle)
+        m_RightHandDebugState.gesture = NextGesture(m_RightHandDebugState.gesture);
+    if (leftCycle)
+        m_LeftHandDebugState.gesture = NextGesture(m_LeftHandDebugState.gesture);
+
+    if (!rightCycle)
+        m_RightHandDebugState.gesture = ResolveGestureForHand(primaryAttackDown, secondaryAttackDown, reloadDown, flashlightDown);
+    if (!leftCycle)
+        m_LeftHandDebugState.gesture = ResolveGestureForHand(crouchDown, reloadDown, flashlightDown, secondaryAttackDown);
+
+    DrawDebugHand(m_LeftControllerPosAbs, m_LeftControllerForward, m_LeftControllerRight, m_LeftControllerUp, m_LeftHandDebugState.gesture, true);
+    DrawDebugHand(m_RightControllerPosAbs, m_RightControllerForward, m_RightControllerRight, m_RightControllerUp, m_RightHandDebugState.gesture, false);
+}
+
+void VR::DrawDebugHand(const Vector& origin, const Vector& forward, const Vector& right, const Vector& up, DebugHandGesture gesture, bool isLeftHand) const
+{
+    if (!m_Game->m_DebugOverlay || forward.IsZero() || right.IsZero() || up.IsZero())
+        return;
+
+    // Dimensions are specified in meters to approximate an adult hand; m_VRScale converts to world units.
+    const float worldScale = std::max(0.01f, m_DebugHandScale) * m_VRScale;
+    const float segmentDuration = std::max(0.01f, m_LastFrameDuration * 2.0f);
+
+    auto localToWorld = [&](const Vector& local) -> Vector
+        {
+            return origin
+                + (forward * local.x * worldScale)
+                + (right * local.y * worldScale)
+                + (up * local.z * worldScale);
+        };
+
+    // Base offsets from wrist (meters)
+    std::array<Vector, 5> fingerBases{
+        Vector{ 0.02f, -0.035f, -0.01f }, // thumb
+        Vector{ 0.05f, -0.02f, 0.0f },    // index
+        Vector{ 0.055f, 0.0f, 0.0f },     // middle
+        Vector{ 0.05f, 0.02f, 0.0f },     // ring
+        Vector{ 0.045f, 0.04f, -0.005f }  // pinky
+    };
+
+    if (isLeftHand)
+    {
+        for (Vector& base : fingerBases)
+            base.y *= -1.0f;
+    }
+
+    auto curlAmount = [&](int fingerIndex) -> float
+        {
+            switch (gesture)
+            {
+            case DebugHandGesture::Fist:
+                return 1.0f;
+            case DebugHandGesture::Point:
+                return fingerIndex == 1 ? 0.1f : 0.85f;
+            case DebugHandGesture::Ok:
+                if (fingerIndex <= 1)
+                    return 0.35f;
+                return 0.8f;
+            case DebugHandGesture::Open:
+            default:
+                return 0.0f;
+            }
+        };
+
+    auto fingerDirection = [&](int fingerIndex) -> Vector
+        {
+            if (fingerIndex == 0)
+            {
+                return Vector{ 1.0f, isLeftHand ? -0.9f : 0.9f, 0.15f };
+            }
+            return Vector{ 1.0f, 0.0f, 0.08f };
+        };
+
+    std::array<Vector, 5> midPoints{};
+    std::array<Vector, 5> tips{};
+    // Approximate adult finger segment lengths (meters)
+    const float baseLength = 0.09f;
+    const float tipLength = 0.07f;
+
+    for (int i = 0; i < 5; ++i)
+    {
+        Vector dir = fingerDirection(i);
+        if (dir.IsZero())
+            dir = Vector{ 1.0f, 0.0f, 0.0f };
+        VectorNormalize(dir);
+
+        const float curl = std::clamp(curlAmount(i), 0.0f, 1.0f);
+        const float baseLenScaled = baseLength * (1.0f - 0.55f * curl);
+        const float tipLenScaled = tipLength * (1.0f - 0.65f * curl);
+
+        Vector lift{ 0.0f, 0.0f, 0.35f * (1.0f - curl) };
+        Vector bend{ 0.0f, 0.0f, -0.5f * curl };
+
+        midPoints[i] = fingerBases[i] + (dir * baseLenScaled) + lift;
+        tips[i] = midPoints[i] + (dir * tipLenScaled) + bend;
+    }
+
+    if (gesture == DebugHandGesture::Ok)
+    {
+        Vector thumbDir = tips[1] - fingerBases[0];
+        if (!thumbDir.IsZero())
+        {
+            VectorNormalize(thumbDir);
+            const float thumbBaseLen = baseLength * 0.65f;
+            const float thumbTipLen = tipLength * 0.6f;
+            midPoints[0] = fingerBases[0] + thumbDir * thumbBaseLen;
+            tips[0] = fingerBases[0] + thumbDir * (thumbBaseLen + thumbTipLen);
+        }
+    }
+
+    auto drawSegment = [&](const Vector& a, const Vector& b)
+        {
+            m_Game->m_DebugOverlay->AddLineOverlay(localToWorld(a), localToWorld(b), m_DebugHandColorR, m_DebugHandColorG, m_DebugHandColorB, true, segmentDuration);
+        };
+
+    for (int i = 0; i < 5; ++i)
+    {
+        drawSegment(fingerBases[i], midPoints[i]);
+        drawSegment(midPoints[i], tips[i]);
+    }
+
+    const float palmHalfWidth = 0.045f;
+    const float palmHeight = 0.045f;
+    std::array<Vector, 4> palm{
+        Vector{ 0.015f, -palmHalfWidth, -0.01f },
+        Vector{ 0.015f, palmHalfWidth, -0.01f },
+        Vector{ 0.08f, palmHalfWidth, palmHeight * 0.2f },
+        Vector{ 0.08f, -palmHalfWidth, palmHeight * 0.2f }
+    };
+
+    if (isLeftHand)
+    {
+        for (Vector& corner : palm)
+            corner.y *= -1.0f;
+    }
+
+    for (size_t i = 0; i < palm.size(); ++i)
+    {
+        const size_t next = (i + 1) % palm.size();
+        drawSegment(palm[i], palm[next]);
     }
 }
 
@@ -3535,6 +3709,12 @@ void VR::ParseConfigFile()
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+    m_DebugHandsEnabled = getBool("DebugHandsEnabled", m_DebugHandsEnabled);
+    m_DebugHandScale = std::max(0.01f, getFloat("DebugHandScale", m_DebugHandScale));
+    auto debugHandColor = getColor("DebugHandColor", m_DebugHandColorR, m_DebugHandColorG, m_DebugHandColorB, 255);
+    m_DebugHandColorR = debugHandColor[0];
+    m_DebugHandColorG = debugHandColor[1];
+    m_DebugHandColorB = debugHandColor[2];
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);

@@ -97,6 +97,28 @@ public:
 	Vector m_ViewmodelRight;
 	Vector m_ViewmodelUp;
 
+	enum class DebugHandGesture
+	{
+		Open,
+		Fist,
+		Point,
+		Ok
+	};
+
+	struct DebugHandState
+	{
+		DebugHandGesture gesture = DebugHandGesture::Open;
+	};
+
+	bool m_DebugHandsEnabled = false;
+	// Multiplier on real-world meter-based debug hand dimensions (1.0 ~ adult hand size)
+	float m_DebugHandScale = 1.0f;
+	int m_DebugHandColorR = 0;
+	int m_DebugHandColorG = 200;
+	int m_DebugHandColorB = 255;
+	DebugHandState m_LeftHandDebugState{};
+	DebugHandState m_RightHandDebugState{};
+
 	Vector m_HmdPosAbs = { 0,0,0 };
 	Vector m_HmdPosAbsPrev = { 0,0,0 };
 	QAngle m_HmdAngAbs;
@@ -492,6 +514,10 @@ public:
 	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
+	void RenderDebugHands(bool primaryAttackDown, bool secondaryAttackDown, bool reloadDown, bool crouchDown, bool flashlightDown);
+	void DrawDebugHand(const Vector& origin, const Vector& forward, const Vector& right, const Vector& up, DebugHandGesture gesture, bool isLeftHand) const;
+	DebugHandGesture ResolveGestureForHand(bool primaryDown, bool secondaryDown, bool utilityDown, bool altUtilityDown) const;
+	static DebugHandGesture NextGesture(DebugHandGesture current);
 	SpecialInfectedType GetSpecialInfectedType(const C_BaseEntity* entity) const;
 	SpecialInfectedType GetSpecialInfectedTypeFromModel(const std::string& modelName) const;
 	bool IsEntityAlive(const C_BaseEntity* entity) const;
