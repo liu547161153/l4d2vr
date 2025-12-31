@@ -21,6 +21,34 @@
 #include <vector>
 #include <d3d9_vr.h>
 
+namespace
+{
+    // Returns true if the call should be skipped because we ran it too recently.
+    inline bool ShouldThrottle(std::chrono::steady_clock::time_point& last, float maxHz)
+    {
+        if (maxHz <= 0.0f)
+            return false;
+
+        const float minInterval = 1.0f / std::max(1.0f, maxHz);
+        const auto now = std::chrono::steady_clock::now();
+        if (last.time_since_epoch().count() != 0)
+        {
+            const float elapsed = std::chrono::duration<float>(now - last).count();
+            if (elapsed < minInterval)
+                return true;
+        }
+        last = now;
+        return false;
+    }
+
+    inline float MinIntervalSeconds(float maxHz)
+    {
+        if (maxHz <= 0.0f)
+            return 0.0f;
+        return 1.0f / std::max(1.0f, maxHz);
+    }
+}
+
 VR::VR(Game* game)
 {
     m_Game = game;
@@ -2219,14 +2247,17 @@ float VR::CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMa
 
 void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
-    if (!m_Game->m_DebugOverlay)
-        return;
-
     if (!m_AimLineEnabled)
         return;
 
+    // Throttle expensive overlay geometry. Duration persistence keeps it visible.
+    if (ShouldThrottle(m_LastAimLineDrawTime, m_AimLineMaxHz))
+        return;
+
     // Keep the overlay alive for at least two frames so it doesn't disappear when the framerate drops.
-    const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+    const float duration = std::max(std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier), MinIntervalSeconds(m_AimLineMaxHz));
+    if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
+        return;
 
     DrawLineWithThickness(start, end, duration);
 }
@@ -2287,6 +2318,10 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector&
 void VR::DrawThrowArcFromCache(float duration)
 {
     if (!m_Game->m_DebugOverlay || !m_HasThrowArc)
+        return;
+
+    // Throttle throw arc drawing; it's a lot of overlay primitives.
+    if (ShouldThrottle(m_LastThrowArcDrawTime, m_ThrowArcMaxHz))
         return;
 
     for (int i = 0; i < THROW_ARC_SEGMENTS; ++i)
@@ -2538,6 +2573,25 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
     if (!localPlayer)
         return true;
 
+    // Cache expensive TraceRay calls per-entity to avoid spikes when DrawModelExecute fires many times.
+    if (entityIndex > 0 && m_SpecialInfectedTraceMaxHz > 0.0f)
+    {
+        auto& last = m_LastSpecialInfectedTraceTime[entityIndex];
+        const auto now = std::chrono::steady_clock::now();
+        if (last.time_since_epoch().count() != 0)
+        {
+            const float minInterval = 1.0f / std::max(1.0f, m_SpecialInfectedTraceMaxHz);
+            const float elapsed = std::chrono::duration<float>(now - last).count();
+            if (elapsed < minInterval)
+            {
+                auto it = m_LastSpecialInfectedTraceResult.find(entityIndex);
+                if (it != m_LastSpecialInfectedTraceResult.end())
+                    return it->second;
+            }
+        }
+        last = now;
+    }
+
     IHandleEntity* targetEntity = nullptr;
     if (entityIndex > 0)
         targetEntity = (IHandleEntity*)m_Game->GetClientEntity(entityIndex);
@@ -2549,7 +2603,12 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
     ray.Init(m_RightControllerPosAbs, infectedOrigin);
     m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
 
-    return trace.fraction >= 1.0f;
+    const bool hasLos = trace.fraction >= 1.0f;
+
+    if (entityIndex > 0)
+        m_LastSpecialInfectedTraceResult[entityIndex] = hasLos;
+
+    return hasLos;
 }
 
 void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex, bool isPlayerClass)
@@ -3547,6 +3606,9 @@ void VR::ParseConfigFile()
     m_AimLineColorA = aimColor[3];
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
+    m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
+    m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
+    m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
@@ -3561,6 +3623,8 @@ void VR::ParseConfigFile()
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
+    m_SpecialInfectedOverlayMaxHz = std::max(0.0f, getFloat("SpecialInfectedOverlayMaxHz", m_SpecialInfectedOverlayMaxHz));
+    m_SpecialInfectedTraceMaxHz = std::max(0.0f, getFloat("SpecialInfectedTraceMaxHz", m_SpecialInfectedTraceMaxHz));
     const float preWarningAimAngle = getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle);
     m_SpecialInfectedPreWarningAimAngle = m_SpecialInfectedDebug
         ? std::max(0.0f, preWarningAimAngle)

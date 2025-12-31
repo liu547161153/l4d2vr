@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <algorithm>
+#include <chrono>
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -721,14 +723,35 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
 			if (!isRagdoll)
 			{
-				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
-				if (infectedType != VR::SpecialInfectedType::Tank
-					&& infectedType != VR::SpecialInfectedType::Witch
-					&& infectedType != VR::SpecialInfectedType::Charger)
+				// dDrawModelExecute can be called many times per frame. Throttle SI overlay work per-entity
+				// to avoid CPU spikes from overlay primitives + tracing.
+				bool doSIOverlay = true;
+				if (info.entity_index > 0 && m_VR->m_SpecialInfectedOverlayMaxHz > 0.0f)
 				{
-					m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+					auto& last = m_VR->m_LastSpecialInfectedOverlayTime[info.entity_index];
+					const auto now = std::chrono::steady_clock::now();
+					if (last.time_since_epoch().count() != 0)
+					{
+						const float minInterval = 1.0f / std::max(1.0f, m_VR->m_SpecialInfectedOverlayMaxHz);
+						const float elapsed = std::chrono::duration<float>(now - last).count();
+						if (elapsed < minInterval)
+							doSIOverlay = false;
+					}
+					if (doSIOverlay)
+						last = now;
 				}
-				m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
+
+				if (doSIOverlay)
+				{
+					m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
+					if (infectedType != VR::SpecialInfectedType::Tank
+						&& infectedType != VR::SpecialInfectedType::Witch
+						&& infectedType != VR::SpecialInfectedType::Charger)
+					{
+						m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+					}
+					m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
+				}
 			}
 		}
 	}

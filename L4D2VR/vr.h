@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #define MAX_STR_LEN 256
 
 class Game;
@@ -177,6 +178,20 @@ public:
 	float m_ThrowArcLandingOffset = -90.0f;
 	// Tracks the duration of the previous frame so the aim line can persist when the framerate dips.
 	float m_LastFrameDuration = 1.0f / 90.0f;
+
+	// --- Spike control / throttling ---
+	// Heavy work can happen many times per frame (notably from dDrawModelExecute).
+	// These knobs cap how often we do expensive debug-overlay primitives and trace tests.
+	float m_AimLineMaxHz = 60.0f;              // caps DrawLineWithThickness calls
+	float m_ThrowArcMaxHz = 30.0f;             // caps throw arc overlay calls
+	float m_SpecialInfectedOverlayMaxHz = 20.0f; // caps arrow drawing + prewarning refresh per entity
+	float m_SpecialInfectedTraceMaxHz = 15.0f;   // caps TraceRay per entity
+
+	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
+	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
+	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
+	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
+	mutable std::unordered_map<int, bool> m_LastSpecialInfectedTraceResult{};
 
 	float m_Ipd;
 	float m_EyeZ;
