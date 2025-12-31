@@ -37,27 +37,55 @@ static inline bool VecNonZero(const Vector& v)
 	return (v.x * v.x + v.y * v.y + v.z * v.z) > 0.01f;
 }
 
+static inline bool VecFinite(const Vector& v)
+{
+	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
 static void ApplyBhopTakeover(VR* vr, Game* game, CUserCmd* cmd)
 {
 	if (!vr || !game || !cmd) return;
 	if (!vr->m_BhopTakeoverEnabled) return;
 
+	const float maxMove = std::clamp(vr->m_BhopMaxMove, 0.0f, 450.0f);
+
+	auto fallbackTakeover = [&]()
+	{
+		cmd->buttons |= IN_JUMP;
+		cmd->forwardmove = maxMove;
+		cmd->sidemove = 0.f;
+		cmd->buttons |= IN_FORWARD;
+	};
+
 	const int lp = game->m_EngineClient->GetLocalPlayer();
+	if (lp <= 0)
+	{
+		fallbackTakeover();
+		return;
+	}
+
 	C_BaseEntity* ent = game->GetClientEntity(lp);
-	if (!ent) return;
+	if (!ent)
+	{
+		fallbackTakeover();
+		return;
+	}
 
 	// Netvar offsets (from your offsets dump)
 	const uint8_t* base = reinterpret_cast<const uint8_t*>(ent);
-	const int flags = *reinterpret_cast<const int*>(base + 0xF0);               // m_fFlags
-	const uint8_t waterLevel = *reinterpret_cast<const uint8_t*>(base + 0x146); // m_nWaterLevel
+	const int flags = *reinterpret_cast<const int*>(base + 0xF0);                // m_fFlags
+	const uint8_t waterLevel = *reinterpret_cast<const uint8_t*>(base + 0x146);  // m_nWaterLevel
 	const Vector ladderNormal = *reinterpret_cast<const Vector*>(base + 0x13C8); // m_vecLadderNormal
 
 	// Safety guards: don’t takeover on ladder / in deep water
-	if (waterLevel >= 2) return;
-	if (VecNonZero(ladderNormal)) return;
+	const bool waterValid = waterLevel <= 3;
+	if (waterValid && waterLevel >= 2) return;
 
-	const bool onGround = (flags & FL_ONGROUND) != 0;
-	const float maxMove = std::clamp(vr->m_BhopMaxMove, 0.0f, 450.0f);
+	const bool ladderValid = VecFinite(ladderNormal) && (std::fabs(ladderNormal.x) + std::fabs(ladderNormal.y) + std::fabs(ladderNormal.z) < 10.f);
+	if (ladderValid && VecNonZero(ladderNormal)) return;
+
+	const bool flagsValid = flags >= 0 && flags < (1 << 16);
+	const bool onGround = flagsValid ? ((flags & FL_ONGROUND) != 0) : true;
 
 	// Hard takeover: wipe user movement buttons
 	cmd->buttons &= ~(IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT);
