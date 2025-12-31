@@ -696,45 +696,36 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 				entity = m_Game->GetClientEntity(info.entity_index);
 		}
 		bool isPlayerClass = false;
+		const char* className = nullptr;
 		if (entity)
 		{
-			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
+			className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
 			isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
 			if (isPlayerClass)
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
 			}
+		}
 
-			const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
-			if (isInfectedModel)
+		const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
+		if (isInfectedModel)
+		{
+			// ---- Netvar safety gate (do NOT over-filter) ----
+			bool allowNetvar = entity && className;
+
+			// Explicitly exclude classes that must NOT have zombieClass
+			if (allowNetvar && (strstr(className, "Ragdoll") != nullptr
+				|| strstr(className, "Corpse") != nullptr
+				|| strstr(className, "Gib") != nullptr))
 			{
-				// ---- Netvar safety gate (do NOT over-filter) ----
-				bool allowNetvar = true;
-
-				if (!entity)
-					allowNetvar = false;
-
-				if (allowNetvar && entity->IsDormant())
-					allowNetvar = false;
-
-				auto cc = allowNetvar ? entity->GetClientClass() : nullptr;
-				const char* cls = (cc && cc->pNetworkName) ? cc->pNetworkName : nullptr;
-
-				// Explicitly exclude classes that must NOT have zombieClass
-				if (!cls ||
-					strstr(cls, "Ragdoll") != nullptr ||
-					strstr(cls, "Corpse")  != nullptr ||
-					strstr(cls, "Gib")      != nullptr)
-				{
-					allowNetvar = false;
-				}
-
-				if (allowNetvar)
-				{
-					infectedType = m_VR->GetSpecialInfectedType(entity);
-				}
+				allowNetvar = false;
 			}
+
+			if (allowNetvar)
+			{
+				infectedType = m_VR->GetSpecialInfectedType(entity);
 			}
+		}
 
 		if (isAlive && infectedType == VR::SpecialInfectedType::None)
 		{
