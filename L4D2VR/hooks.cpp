@@ -703,7 +703,7 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 				isAlive = m_VR->IsEntityAlive(entity);
 			}
 			const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
-			if (isInfectedModel)
+			if (isInfectedModel && isPlayerClass)
 			{
 				infectedType = m_VR->GetSpecialInfectedType(entity);
 			}

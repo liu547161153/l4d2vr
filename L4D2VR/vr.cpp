@@ -2365,8 +2365,22 @@ VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity) c
     if (!entity)
         return SpecialInfectedType::None;
 
-    const auto base = reinterpret_cast<const std::uint8_t*>(entity);
-    const int zombieClass = *reinterpret_cast<const int*>(base + kZombieClassOffset);
+    auto SafeReadInt = [](const void* base, int offset, int& out) -> bool
+    {
+        __try
+        {
+            out = *reinterpret_cast<const int*>(reinterpret_cast<const std::uint8_t*>(base) + offset);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    };
+
+    int zombieClass = 0;
+    if (!SafeReadInt(entity, kZombieClassOffset, zombieClass))
+        return SpecialInfectedType::None;
 
     switch (zombieClass)
     {
