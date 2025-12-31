@@ -739,9 +739,12 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
 			if (!isRagdoll)
 			{
-				// dDrawModelExecute can be called many times per frame. Throttle SI overlay work per-entity
-				// to avoid CPU spikes from overlay primitives + tracing.
-				bool doSIOverlay = true;
+				// 1) 高优先级：自瞄/目标刷新不要被 Overlay 节流影响（否则锁定会飘）
+				// RefreshSpecialInfectedPreWarning 内部会用到 Trace 缓存（TraceMaxHz），所以这里高频调用不会把 CPU 打爆。
+				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
+
+				// 2) 低优先级：视觉 Overlay（箭头/盲区提示）继续按实体节流，避免 dDrawModelExecute 多次调用导致尖峰
+				bool doOverlay = true;
 				if (info.entity_index > 0 && m_VR->m_SpecialInfectedOverlayMaxHz > 0.0f)
 				{
 					auto& last = m_VR->m_LastSpecialInfectedOverlayTime[info.entity_index];
@@ -751,15 +754,14 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 						const float minInterval = 1.0f / std::max(1.0f, m_VR->m_SpecialInfectedOverlayMaxHz);
 						const float elapsed = std::chrono::duration<float>(now - last).count();
 						if (elapsed < minInterval)
-							doSIOverlay = false;
+							doOverlay = false;
 					}
-					if (doSIOverlay)
+					if (doOverlay)
 						last = now;
 				}
 
-				if (doSIOverlay)
+				if (doOverlay)
 				{
-					m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
 					if (infectedType != VR::SpecialInfectedType::Tank
 						&& infectedType != VR::SpecialInfectedType::Witch
 						&& infectedType != VR::SpecialInfectedType::Charger)
