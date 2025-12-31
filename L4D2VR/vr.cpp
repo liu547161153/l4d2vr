@@ -1546,7 +1546,6 @@ void VR::ProcessInput()
 			m_ManualReloadSuppressAttack = true;
 			primaryAttackDown = false;
 			primaryAttackJustPressed = false;
-			secondaryAttackActive = false;
 			reloadButtonDown = false;
 			reloadJustPressed = false;
 		}
