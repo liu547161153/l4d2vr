@@ -815,12 +815,13 @@ void VR::ProcessInput()
     {
         m_PrevFrameTime = currentTime;
     }
-    duration elapsed = currentTime - m_PrevFrameTime;
-    float deltaTime = elapsed.count();
-    m_PrevFrameTime = currentTime;
-    m_LastFrameDuration = std::clamp(deltaTime * 0.001f, 0.0f, 0.25f);
+	duration elapsed = currentTime - m_PrevFrameTime;
+	float deltaTime = elapsed.count();
+	m_PrevFrameTime = currentTime;
+	m_LastFrameDuration = std::clamp(deltaTime * 0.001f, 0.0f, 0.25f);
+	const float deltaSeconds = std::max(0.0001f, deltaTime * 0.001f);
 
-    UpdateSpecialInfectedWarningAction();
+	UpdateSpecialInfectedWarningAction();
 
     if (m_SuppressPlayerInput)
     {
@@ -1065,15 +1066,17 @@ void VR::ProcessInput()
                 + (m_HmdUp * (offsets.z * m_VRScale));
         };
 
-    const Vector chestAnchor = buildAnchor(m_InventoryChestOffset);
-    const Vector backAnchor = buildAnchor(m_InventoryBackOffset);
-    const Vector leftWaistAnchor = buildAnchor(m_InventoryLeftWaistOffset);
-    const Vector rightWaistAnchor = buildAnchor(m_InventoryRightWaistOffset);
+	const Vector chestAnchor = buildAnchor(m_InventoryChestOffset);
+	const Vector backAnchor = buildAnchor(m_InventoryBackOffset);
+	const Vector leftWaistAnchor = buildAnchor(m_InventoryLeftWaistOffset);
+	const Vector rightWaistAnchor = buildAnchor(m_InventoryRightWaistOffset);
 
-    auto isControllerNear = [&](const Vector& controllerPos, const Vector& anchor, float range)
-        {
-            return VectorLength(controllerPos - anchor) <= range;
-        };
+	// --- Manual Reload (B方案) 会复用 leftWaistAnchor 当作“弹匣袋”锚点 ---
+
+	auto isControllerNear = [&](const Vector& controllerPos, const Vector& anchor, float range)
+		{
+			return VectorLength(controllerPos - anchor) <= range;
+		};
 
     if (m_DrawInventoryAnchors && m_Game->m_DebugOverlay)
     {
@@ -1305,21 +1308,266 @@ void VR::ProcessInput()
         m_VoiceRecordActive = false;
     }
 
-    reloadButtonDown = (reloadButtonDown || gestureReloadActive) && !suppressReload;
-    secondaryAttackActive = secondaryAttackActive || gestureSecondaryAttackActive;
+	reloadButtonDown = (reloadButtonDown || gestureReloadActive) && !suppressReload;
+	secondaryAttackActive = secondaryAttackActive || gestureSecondaryAttackActive;
 
-    if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
-    {
-        m_Game->ClientCmd_Unrestricted("+reload");
+	// =========================
+	// Manual Reload (B方案演出层)
+	// =========================
+	// 触发：默认使用 CustomAction5（仅当 CustomAction5Command 没绑定任何命令/虚拟按键时才接管）
+	bool manualReloadToggleJustPressed = false;
+	if (m_ManualReloadEnabled)
+	{
+		const bool custom5Free =
+			(m_CustomAction5Binding.command.empty() && !m_CustomAction5Binding.virtualKey.has_value());
+
+		if (custom5Free)
+		{
+			vr::InputDigitalActionData_t action5{};
+			if (GetDigitalActionData(m_CustomAction5, action5))
+			{
+				manualReloadToggleJustPressed = (action5.bState && action5.bChanged);
+			}
+		}
+	}
+
+	auto setManualReloadState = [&](ManualReloadState st)
+		{
+			m_ManualReloadState = st;
+			m_ManualReloadStateStart = currentTime;
+		};
+
+	auto elapsedState = [&]() -> float
+		{
+			using Sec = std::chrono::duration<float>;
+			return std::chrono::duration_cast<Sec>(currentTime - m_ManualReloadStateStart).count();
+		};
+
+	auto cancelManualReloadNow = [&]()
+		{
+			// release any held inputs
+			m_Game->ClientCmd_Unrestricted("-reload");
+			m_HideViewmodel = false;
+			m_ManualReloadSuppressAttack = false;
+			m_ManualReloadSuppressItemSwitch = false;
+			m_ManualReloadMagazineGrabbed = false;
+			m_ManualReloadMagazineInserted = false;
+			m_ManualReloadRacked = false;
+			m_ManualReloadHasPrevLeftPos = false;
+			setManualReloadState(ManualReloadState::Idle);
+		};
+
+	auto startManualReload = [&]()
+		{
+			m_HideViewmodel = true;
+			m_ManualReloadSuppressAttack = true;
+			m_ManualReloadSuppressItemSwitch = true;
+			m_ManualReloadMagazineGrabbed = false;
+			m_ManualReloadMagazineInserted = false;
+			m_ManualReloadRacked = false;
+			m_ManualReloadMagazinePosAbs = leftWaistAnchor;
+			m_ManualReloadHasPrevLeftPos = false;
+			setManualReloadState(ManualReloadState::PrimeGameReload);
+		};
+
+	if (m_ManualReloadEnabled && manualReloadToggleJustPressed)
+	{
+		if (m_ManualReloadState == ManualReloadState::Idle)
+			startManualReload();
+		else
+			setManualReloadState(ManualReloadState::Exit);
+	}
+
+	if (!m_ManualReloadEnabled && m_ManualReloadState != ManualReloadState::Idle)
+	{
+		cancelManualReloadNow();
+	}
+
+	// Run the state machine (if active)
+	if (m_ManualReloadState != ManualReloadState::Idle)
+	{
+		// If we leave the game or input suppressed, bail safely
+		if (!m_Game->m_EngineClient->IsInGame() || m_SuppressPlayerInput)
+		{
+			cancelManualReloadNow();
+		}
+		else
+		{
+			// Compute gun anchors (based on right-hand orientation, since gun is attached to right controller)
+			m_ManualReloadMagwellPosAbs =
+				m_RightControllerPosAbs +
+				(m_RightControllerForwardUnforced * (m_ManualReloadMagwellOffset.x * m_VRScale)) +
+				(m_RightControllerRight           * (m_ManualReloadMagwellOffset.y * m_VRScale)) +
+				(m_RightControllerUp              * (m_ManualReloadMagwellOffset.z * m_VRScale));
+
+			m_ManualReloadRackPosAbs =
+				m_RightControllerPosAbs +
+				(m_RightControllerForwardUnforced * (m_ManualReloadRackOffset.x * m_VRScale)) +
+				(m_RightControllerRight           * (m_ManualReloadRackOffset.y * m_VRScale)) +
+				(m_RightControllerUp              * (m_ManualReloadRackOffset.z * m_VRScale));
+
+			const float grabRangeAbs = m_ManualReloadGrabRange * m_VRScale;
+			const float insertRangeAbs = m_ManualReloadInsertRange * m_VRScale;
+
+			// Debug: mark anchors + magazine
+			if (m_ManualReloadDebugDraw && m_Game->m_DebugOverlay)
+			{
+				auto cross = [&](const Vector& p, int r, int g, int b)
+					{
+						m_Game->m_DebugOverlay->AddLineOverlay(p + Vector(2, 0, 0), p + Vector(-2, 0, 0), r, g, b, true, m_LastFrameDuration);
+						m_Game->m_DebugOverlay->AddLineOverlay(p + Vector(0, 2, 0), p + Vector(0, -2, 0), r, g, b, true, m_LastFrameDuration);
+					};
+				cross(leftWaistAnchor, 255, 0, 255);            // pouch
+				cross(m_ManualReloadMagwellPosAbs, 0, 255, 255); // magwell
+				cross(m_ManualReloadRackPosAbs, 255, 255, 0);    // rack
+				cross(m_ManualReloadMagazinePosAbs, 255, 255, 255);
+			}
+
+			switch (m_ManualReloadState)
+			{
+			case ManualReloadState::PrimeGameReload:
+			{
+				// Hold +reload for a short period to let the game "finish" reloading internally.
+				m_Game->ClientCmd_Unrestricted("+reload");
+
+				if (elapsedState() >= m_ManualReloadPrimeTimeout)
+				{
+					m_Game->ClientCmd_Unrestricted("-reload");
+					setManualReloadState(ManualReloadState::PlayVRReload);
+				}
+				break;
+			}
+			case ManualReloadState::PlayVRReload:
+			{
+				// 使用“左手 reload 键”当作抓取/松开键（你现在 reload 通常绑左手）
+				// 注意：这里不会真的触发游戏 reload，因为手动模式下我们会在下面把 reloadButtonDown 清掉
+				static bool s_prevGripDown = false;
+				const bool gripDown = reloadButtonDown;
+				const bool gripPressed = (gripDown && !s_prevGripDown);
+				const bool gripReleased = (!gripDown && s_prevGripDown);
+				s_prevGripDown = gripDown;
+
+				// Step A: grab magazine from pouch (left waist)
+				if (!m_ManualReloadMagazineGrabbed && !m_ManualReloadMagazineInserted)
+				{
+					const float d = VectorLength(m_LeftControllerPosAbs - leftWaistAnchor);
+					if (d <= grabRangeAbs && gripPressed)
+					{
+						m_ManualReloadMagazineGrabbed = true;
+					}
+				}
+
+				// magazine follows left hand when grabbed
+				if (m_ManualReloadMagazineGrabbed && !m_ManualReloadMagazineInserted)
+				{
+					m_ManualReloadMagazinePosAbs = m_LeftControllerPosAbs;
+				}
+				else if (!m_ManualReloadMagazineInserted)
+				{
+					m_ManualReloadMagazinePosAbs = leftWaistAnchor;
+				}
+
+				// Step B: insert (release near magwell)
+				if (m_ManualReloadMagazineGrabbed && !m_ManualReloadMagazineInserted)
+				{
+					const float d = VectorLength(m_LeftControllerPosAbs - m_ManualReloadMagwellPosAbs);
+					if (d <= insertRangeAbs && gripReleased)
+					{
+						m_ManualReloadMagazineInserted = true;
+						m_ManualReloadMagazineGrabbed = false;
+						m_ManualReloadMagazinePosAbs = m_ManualReloadMagwellPosAbs;
+						m_ManualReloadHasPrevLeftPos = false; // reset velocity estimation for rack step
+					}
+				}
+
+				// Step C: rack/charge handle — LEFT HAND pulls backward near rack anchor
+				if (m_ManualReloadMagazineInserted && !m_ManualReloadRacked)
+				{
+					const float d = VectorLength(m_LeftControllerPosAbs - m_ManualReloadRackPosAbs);
+					if (d <= insertRangeAbs)
+					{
+						if (!m_ManualReloadHasPrevLeftPos)
+						{
+							m_ManualReloadPrevLeftPosAbs = m_LeftControllerPosAbs;
+							m_ManualReloadHasPrevLeftPos = true;
+						}
+						else
+						{
+							const Vector delta = m_LeftControllerPosAbs - m_ManualReloadPrevLeftPosAbs;
+							m_ManualReloadPrevLeftPosAbs = m_LeftControllerPosAbs;
+
+							// Estimate left-hand velocity in "abs units" per second, then compare against threshold.
+							const Vector vel = delta * (1.0f / deltaSeconds);
+
+							// Pull backward along gun forward (gun forward comes from right controller orientation)
+							const float pullSpeed = vel.Dot(-m_RightControllerForwardUnforced);
+							if (pullSpeed >= m_ManualReloadRackPullSpeed)
+							{
+								m_ManualReloadRacked = true;
+							}
+						}
+					}
+					else
+					{
+						// leaving rack zone resets estimation to avoid false positives when re-entering
+						m_ManualReloadHasPrevLeftPos = false;
+					}
+				}
+
+				// Finish condition
+				if (m_ManualReloadMagazineInserted && m_ManualReloadRacked)
+				{
+					setManualReloadState(ManualReloadState::Exit);
+				}
+
+				break;
+			}
+			case ManualReloadState::Exit:
+			{
+				m_Game->ClientCmd_Unrestricted("-reload");
+				m_HideViewmodel = false;
+				m_ManualReloadSuppressAttack = false;
+				m_ManualReloadSuppressItemSwitch = false;
+				m_ManualReloadMagazineGrabbed = false;
+				m_ManualReloadMagazineInserted = false;
+				m_ManualReloadRacked = false;
+				m_ManualReloadHasPrevLeftPos = false;
+				setManualReloadState(ManualReloadState::Idle);
+				break;
+			}
+			default:
+				break;
+			}
+
+			// Hard suppress during manual reload performance:
+			// - No firing
+			// - No normal reload
+			// - (optional) item switching can be handled elsewhere; here we at least block attack/reload.
+			m_ManualReloadSuppressAttack = true;
+			primaryAttackDown = false;
+			primaryAttackJustPressed = false;
+			secondaryAttackActive = false;
+			reloadButtonDown = false;
+			reloadJustPressed = false;
+		}
+	}
+
+	if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
+	{
+		m_Game->ClientCmd_Unrestricted("+reload");
     }
     else
-    {
-        m_Game->ClientCmd_Unrestricted("-reload");
-    }
+	{
+		m_Game->ClientCmd_Unrestricted("-reload");
+	}
 
-    if (secondaryAttackActive && !adjustViewmodelActive)
-    {
-        m_Game->ClientCmd_Unrestricted("+attack2");
+	// suppress primary attack if manual reload is active
+	if (m_ManualReloadSuppressAttack)
+		primaryAttackDown = false;
+
+	if (secondaryAttackActive && !adjustViewmodelActive)
+	{
+		m_Game->ClientCmd_Unrestricted("+attack2");
     }
     else
     {
@@ -3409,11 +3657,20 @@ void VR::ParseConfigFile()
         };
 
     // 用当前成员的值作为默认值（构造时已初始化）
-    m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
-    m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
-    m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
-    m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
-    m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
+	m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
+	m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
+	m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
+	// Manual Reload (B方案)
+	m_ManualReloadEnabled = getBool("ManualReloadEnabled", m_ManualReloadEnabled);
+	m_ManualReloadDebugDraw = getBool("ManualReloadDebugDraw", m_ManualReloadDebugDraw);
+	m_ManualReloadPrimeTimeout = std::max(0.05f, getFloat("ManualReloadPrimeTimeout", m_ManualReloadPrimeTimeout));
+	m_ManualReloadGrabRange = std::max(0.01f, getFloat("ManualReloadGrabRange", m_ManualReloadGrabRange));
+	m_ManualReloadInsertRange = std::max(0.01f, getFloat("ManualReloadInsertRange", m_ManualReloadInsertRange));
+	m_ManualReloadRackPullSpeed = std::max(0.01f, getFloat("ManualReloadRackPullSpeed", m_ManualReloadRackPullSpeed));
+	m_ManualReloadMagwellOffset = getVector3("ManualReloadMagwellOffset", m_ManualReloadMagwellOffset);
+	m_ManualReloadRackOffset = getVector3("ManualReloadRackOffset", m_ManualReloadRackOffset);
+	m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
+	m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
     m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
     m_InventoryLeftWaistOffset = getVector3("InventoryLeftWaistOffset", m_InventoryLeftWaistOffset);
     m_InventoryRightWaistOffset = getVector3("InventoryRightWaistOffset", m_InventoryRightWaistOffset);

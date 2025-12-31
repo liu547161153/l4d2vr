@@ -4,6 +4,7 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <string>
@@ -223,6 +224,50 @@ public:
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
 	bool m_PrimaryAttackDown = false;
+
+	// =========================
+	// Manual Reload (B方案演出层)
+	// =========================
+	// 通过隐藏 viewmodel + 禁火 + 预装弹(+reload) + 自定义交互演出，实现“看起来像真VR手动换弹”
+	bool m_HideViewmodel = false;
+
+	enum class ManualReloadState
+	{
+		Idle = 0,
+		PrimeGameReload,   // 按住 +reload 预装弹（用时间兜底）
+		PlayVRReload,      // 左手抓匣/插匣/拉机柄演出
+		Exit
+	};
+
+	bool  m_ManualReloadEnabled = false;
+	bool  m_ManualReloadDebugDraw = false;
+	bool  m_ManualReloadSuppressAttack = false;
+	bool  m_ManualReloadSuppressItemSwitch = false;
+
+	ManualReloadState m_ManualReloadState = ManualReloadState::Idle;
+	std::chrono::steady_clock::time_point m_ManualReloadStateStart{};
+
+	// 参数（单位：米，内部会乘 VRScale 转成游戏单位）
+	float m_ManualReloadPrimeTimeout = 1.25f;     // 预装弹持续时间（秒）
+	float m_ManualReloadGrabRange = 0.11f;        // 左腰抓取范围（米）
+	float m_ManualReloadInsertRange = 0.10f;      // 插匣/拉机柄判定范围（米）
+	float m_ManualReloadRackPullSpeed = 0.85f;    // 左手向后拉的速度阈值（m/s，基于位置差分估计）
+
+	// 枪身锚点（相对右手：forward, right, up；单位：米）
+	Vector m_ManualReloadMagwellOffset = { 0.18f, -0.05f, -0.08f };
+	Vector m_ManualReloadRackOffset    = { 0.10f,  0.00f,  0.03f };
+
+	// 运行态：弹匣/步骤
+	bool   m_ManualReloadMagazineGrabbed = false;
+	bool   m_ManualReloadMagazineInserted = false;
+	bool   m_ManualReloadRacked = false;
+	Vector m_ManualReloadMagazinePosAbs = { 0,0,0 };
+	Vector m_ManualReloadMagwellPosAbs  = { 0,0,0 };
+	Vector m_ManualReloadRackPosAbs     = { 0,0,0 };
+
+	// 用位置差分估计左手速度（用于“拉机柄”判定）
+	Vector m_ManualReloadPrevLeftPosAbs = { 0,0,0 };
+	bool   m_ManualReloadHasPrevLeftPos = false;
 
 	struct ActionCombo
 	{

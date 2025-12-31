@@ -684,6 +684,17 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
 
+		// Hide viewmodel while manual reload performance is active
+		if (m_VR && m_VR->m_HideViewmodel)
+		{
+			const bool isViewmodel =
+				(modelName.find("models/weapons/v_models/") != std::string::npos) ||
+				(modelName.find("models/weapons/v_") != std::string::npos);
+
+			if (isViewmodel)
+				return;
+		}
+
 		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
 		bool isAlive = true;
 		const C_BaseEntity* entity = nullptr;
