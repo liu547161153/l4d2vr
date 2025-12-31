@@ -704,12 +704,37 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
 			}
+
 			const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
-			if (isInfectedModel && isPlayerClass)
+			if (isInfectedModel)
 			{
-				infectedType = m_VR->GetSpecialInfectedType(entity);
+				// ---- Netvar safety gate (do NOT over-filter) ----
+				bool allowNetvar = true;
+
+				if (!entity)
+					allowNetvar = false;
+
+				if (allowNetvar && entity->IsDormant())
+					allowNetvar = false;
+
+				auto cc = allowNetvar ? entity->GetClientClass() : nullptr;
+				const char* cls = (cc && cc->pNetworkName) ? cc->pNetworkName : nullptr;
+
+				// Explicitly exclude classes that must NOT have zombieClass
+				if (!cls ||
+					strstr(cls, "Ragdoll") != nullptr ||
+					strstr(cls, "Corpse")  != nullptr ||
+					strstr(cls, "Gib")      != nullptr)
+				{
+					allowNetvar = false;
+				}
+
+				if (allowNetvar)
+				{
+					infectedType = m_VR->GetSpecialInfectedType(entity);
+				}
 			}
-		}
+			}
 
 		if (isAlive && infectedType == VR::SpecialInfectedType::None)
 		{
