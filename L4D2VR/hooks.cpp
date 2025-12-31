@@ -9,6 +9,95 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <algorithm>
+#include <cmath>
+
+// --- Bhop takeover (Level 3) helpers ---
+static inline float NormalizeYaw(float y)
+{
+	while (y > 180.f)  y -= 360.f;
+	while (y < -180.f) y += 360.f;
+	return y;
+}
+
+static float g_BhopLastYaw = 0.f;
+static bool  g_BhopYawInit = false;
+
+// Source-ish movement button bits (matches your existing comments usage)
+static constexpr int IN_JUMP      = (1 << 1);
+static constexpr int IN_FORWARD   = (1 << 3);
+static constexpr int IN_BACK      = (1 << 4);
+static constexpr int IN_MOVELEFT  = (1 << 9);
+static constexpr int IN_MOVERIGHT = (1 << 10);
+
+static constexpr int FL_ONGROUND  = 1; // standard Source flag
+
+static inline bool VecNonZero(const Vector& v)
+{
+	return (v.x * v.x + v.y * v.y + v.z * v.z) > 0.01f;
+}
+
+static void ApplyBhopTakeover(VR* vr, Game* game, CUserCmd* cmd)
+{
+	if (!vr || !game || !cmd) return;
+	if (!vr->m_BhopTakeoverEnabled) return;
+
+	const int lp = game->m_EngineClient->GetLocalPlayer();
+	C_BaseEntity* ent = game->GetClientEntity(lp);
+	if (!ent) return;
+
+	// Netvar offsets (from your offsets dump)
+	const uint8_t* base = reinterpret_cast<const uint8_t*>(ent);
+	const int flags = *reinterpret_cast<const int*>(base + 0xF0);               // m_fFlags
+	const uint8_t waterLevel = *reinterpret_cast<const uint8_t*>(base + 0x146); // m_nWaterLevel
+	const Vector ladderNormal = *reinterpret_cast<const Vector*>(base + 0x13C8); // m_vecLadderNormal
+
+	// Safety guards: don’t takeover on ladder / in deep water
+	if (waterLevel >= 2) return;
+	if (VecNonZero(ladderNormal)) return;
+
+	const bool onGround = (flags & FL_ONGROUND) != 0;
+	const float maxMove = std::clamp(vr->m_BhopMaxMove, 0.0f, 450.0f);
+
+	// Hard takeover: wipe user movement buttons
+	cmd->buttons &= ~(IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT);
+
+	// Jump gating: only jump on ground, never in air
+	if (onGround) cmd->buttons |= IN_JUMP;
+	else          cmd->buttons &= ~IN_JUMP;
+
+	// Level 3 movement: we fully control forward/sidemove
+	if (onGround)
+	{
+		// Keep it simple and stable: always push forward on ground.
+		cmd->forwardmove = maxMove;
+		cmd->sidemove = 0.f;
+		cmd->buttons |= IN_FORWARD;
+		g_BhopYawInit = false; // reset air-strafe state each landing
+		return;
+	}
+
+	// Air-strafe: choose sidemove direction based on view yaw delta
+	if (!g_BhopYawInit)
+	{
+		g_BhopLastYaw = cmd->viewangles.y;
+		g_BhopYawInit = true;
+	}
+
+	float dy = NormalizeYaw(cmd->viewangles.y - g_BhopLastYaw);
+	g_BhopLastYaw = cmd->viewangles.y;
+
+	float side = 0.f;
+	if (std::fabs(dy) > 0.5f)
+		side = (dy > 0.f) ? +maxMove : -maxMove;
+	else
+		side = (cmd->command_number & 1) ? +maxMove : -maxMove;
+
+	cmd->forwardmove = 0.f;
+	cmd->sidemove = side;
+	if (side > 0.f) cmd->buttons |= IN_MOVERIGHT;
+	else            cmd->buttons |= IN_MOVELEFT;
+}
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -264,6 +353,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	if (m_VR->m_IsVREnabled) {
+		// Level 3 bhop takeover (movement + jump)
+		ApplyBhopTakeover(m_VR, m_Game, cmd);
+
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
 		float ax = 0.f, ay = 0.f;
 		if (m_VR->GetWalkAxis(ax, ay)) {

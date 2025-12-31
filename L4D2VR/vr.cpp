@@ -1402,15 +1402,34 @@ void VR::ProcessInput()
         };
 
     handleCustomAction(m_CustomAction1, m_CustomAction1Binding);
-    handleCustomAction(m_CustomAction2, m_CustomAction2Binding);
-    handleCustomAction(m_CustomAction3, m_CustomAction3Binding);
-    handleCustomAction(m_CustomAction4, m_CustomAction4Binding);
-    handleCustomAction(m_CustomAction5, m_CustomAction5Binding);
+	handleCustomAction(m_CustomAction2, m_CustomAction2Binding);
+	handleCustomAction(m_CustomAction3, m_CustomAction3Binding);
+	handleCustomAction(m_CustomAction4, m_CustomAction4Binding);
+	handleCustomAction(m_CustomAction5, m_CustomAction5Binding);
 
-    auto showTopHud = [&]()
-        {
-            vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
-        };
+	// --- Experimental bhop takeover toggle (offline testing) ---
+	// Use one of the existing CustomAction(1..5) digital inputs as a simple on/off switch.
+	if (m_BhopToggleCustomAction >= 1 && m_BhopToggleCustomAction <= 5)
+	{
+		vr::VRActionHandle_t toggleHandle =
+			(m_BhopToggleCustomAction == 1) ? m_CustomAction1 :
+			(m_BhopToggleCustomAction == 2) ? m_CustomAction2 :
+			(m_BhopToggleCustomAction == 3) ? m_CustomAction3 :
+			(m_BhopToggleCustomAction == 4) ? m_CustomAction4 :
+											  m_CustomAction5;
+
+		vr::InputDigitalActionData_t t{};
+		if (GetDigitalActionData(toggleHandle, t) && t.bState && t.bChanged)
+		{
+			m_BhopTakeoverEnabled = !m_BhopTakeoverEnabled;
+			Game::logMsg("[VR] Bhop takeover %s", m_BhopTakeoverEnabled ? "ENABLED" : "DISABLED");
+		}
+	}
+
+	auto showTopHud = [&]()
+		{
+			vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
+		};
 
     auto showControllerHud = [&](bool attachToControllers)
         {
@@ -3505,16 +3524,23 @@ void VR::ParseConfigFile()
     m_QuickTurnCombo = parseActionCombo("QuickTurnCombo", m_QuickTurnCombo);
     m_ViewmodelAdjustCombo = parseActionCombo("ViewmodelAdjustCombo", m_ViewmodelAdjustCombo);
     parseCustomActionBinding("CustomAction1Command", m_CustomAction1Binding);
-    parseCustomActionBinding("CustomAction2Command", m_CustomAction2Binding);
-    parseCustomActionBinding("CustomAction3Command", m_CustomAction3Binding);
-    parseCustomActionBinding("CustomAction4Command", m_CustomAction4Binding);
-    parseCustomActionBinding("CustomAction5Command", m_CustomAction5Binding);
+	parseCustomActionBinding("CustomAction2Command", m_CustomAction2Binding);
+	parseCustomActionBinding("CustomAction3Command", m_CustomAction3Binding);
+	parseCustomActionBinding("CustomAction4Command", m_CustomAction4Binding);
+	parseCustomActionBinding("CustomAction5Command", m_CustomAction5Binding);
 
-    m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
-    m_VRScale = getFloat("VRScale", m_VRScale);
-    m_IpdScale = getFloat("IPDScale", m_IpdScale);
-    m_HideArms = getBool("HideArms", m_HideArms);
-    m_HudDistance = getFloat("HudDistance", m_HudDistance);
+	// Experimental bhop takeover (offline testing)
+	m_BhopToggleCustomAction = (int)getFloat("BhopToggleCustomAction", (float)m_BhopToggleCustomAction);
+	if (m_BhopToggleCustomAction < 0) m_BhopToggleCustomAction = 0;
+	if (m_BhopToggleCustomAction > 5) m_BhopToggleCustomAction = 5;
+	m_BhopMaxMove = getFloat("BhopMaxMove", m_BhopMaxMove);
+	m_BhopMaxMove = std::clamp(m_BhopMaxMove, 0.0f, 450.0f);
+
+	m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
+	m_VRScale = getFloat("VRScale", m_VRScale);
+	m_IpdScale = getFloat("IPDScale", m_IpdScale);
+	m_HideArms = getBool("HideArms", m_HideArms);
+	m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_ControllerHudSize = getFloat("ControllerHudSize", m_ControllerHudSize);
     m_ControllerHudYOffset = getFloat("ControllerHudYOffset", m_ControllerHudYOffset);

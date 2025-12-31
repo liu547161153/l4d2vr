@@ -335,6 +335,15 @@ public:
 	bool m_ForceNonVRServerMovement = false;
 	bool m_NonVRServerMovementAngleOverride = true;
 	bool m_RequireSecondaryAttackForItemSwitch = true;
+
+	// === Experimental movement takeover (offline testing) ===
+	// Toggle this via a SteamVR binding mapped to one of the existing CustomAction(1..5) inputs.
+	// - Set BhopToggleCustomAction in config.txt to 1..5 to choose which CustomAction toggles.
+	// - While enabled, CreateMove will aggressively take over movement/jump to keep bhop acceleration stable.
+	int   m_BhopToggleCustomAction = 0; // 0=disabled, 1..5 = CustomActionN toggles
+	bool  m_BhopTakeoverEnabled = false;
+	float m_BhopMaxMove = 450.0f; // typical Source max is 450
+
 	struct RgbColor
 	{
 		int r;
