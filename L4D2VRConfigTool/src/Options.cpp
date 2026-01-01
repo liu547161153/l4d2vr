@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cfloat>
+#include <algorithm>
 
 // Search box text (typed in main.cpp)
 char g_OptionSearch[128] = "";
@@ -67,6 +68,11 @@ static std::string GetStr(const std::string& key)
     return (it != g_Values.end()) ? it->second : std::string();
 }
 
+static std::string GetDefaultStr(const Option& opt)
+{
+    return (opt.defaultValue && *opt.defaultValue) ? std::string(opt.defaultValue) : std::string();
+}
+
 static bool ParseBool(const std::string& s, bool defVal)
 {
     if (s.empty()) return defVal;
@@ -95,6 +101,31 @@ static bool TryParseInt(const std::string& s, int& out)
     return true;
 }
 
+static float GetDefaultFloat(const Option& opt)
+{
+    float def = 0.f;
+    if (TryParseFloat(GetDefaultStr(opt), def))
+        return def;
+    if (opt.min != 0.f || opt.max != 0.f)
+        return (opt.min + opt.max) * 0.5f;
+    return 0.f;
+}
+
+static int GetDefaultInt(const Option& opt)
+{
+    int def = 0;
+    if (TryParseInt(GetDefaultStr(opt), def))
+        return def;
+    if (opt.min != 0.f || opt.max != 0.f)
+        return static_cast<int>((opt.min + opt.max) * 0.5f);
+    return 0;
+}
+
+static bool GetDefaultBool(const Option& opt)
+{
+    return ParseBool(GetDefaultStr(opt), false);
+}
+
 static float GetFloat(const std::string& key, float defVal)
 {
     float v = defVal;
@@ -111,20 +142,16 @@ static int GetInt(const std::string& key, int defVal)
     return defVal;
 }
 
-static ImVec4 GetColor(const std::string& key, const ImVec4& defVal)
+static ImVec4 ParseColorString(const std::string& s, const ImVec4& defVal)
 {
-    // Supported formats:
-    // 1) "r,g,b,a" (0~1 or 0~255)
-    // 2) "r g b a"
-    std::string s = GetStr(key);
     if (s.empty()) return defVal;
-
     float v[4] = { defVal.x, defVal.y, defVal.z, defVal.w };
 
     // Normalize all separators to spaces
-    for (auto& ch : s) if (ch == ',' || ch == '\t') ch = ' ';
+    std::string copy = s;
+    for (auto& ch : copy) if (ch == ',' || ch == '\t') ch = ' ';
 
-    int got = std::sscanf(s.c_str(), "%f %f %f %f", &v[0], &v[1], &v[2], &v[3]);
+    int got = std::sscanf(copy.c_str(), "%f %f %f %f", &v[0], &v[1], &v[2], &v[3]);
     if (got < 3) return defVal;
     if (got == 3) v[3] = defVal.w;
 
@@ -143,10 +170,60 @@ static ImVec4 GetColor(const std::string& key, const ImVec4& defVal)
     return ImVec4(v[0], v[1], v[2], v[3]);
 }
 
+static ImVec4 GetColor(const Option& opt, const ImVec4& fallback)
+{
+    ImVec4 def = ParseColorString(GetDefaultStr(opt), fallback);
+    return ParseColorString(GetStr(opt.key), def);
+}
+
 static void SetColor(const std::string& key, const ImVec4& c)
 {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f,%.3f", c.x, c.y, c.z, c.w);
+    g_Values[key] = buf;
+}
+
+struct Vec3
+{
+    float x;
+    float y;
+    float z;
+};
+
+static bool TryParseVec3(const std::string& s, Vec3& out)
+{
+    if (s.empty()) return false;
+    Vec3 copy = out;
+    std::string normalized = s;
+    for (auto& ch : normalized) if (ch == ',' || ch == '\t') ch = ' ';
+
+    float v[3] = { copy.x, copy.y, copy.z };
+    int got = std::sscanf(normalized.c_str(), "%f %f %f", &v[0], &v[1], &v[2]);
+    if (got < 3) return false;
+    out.x = v[0];
+    out.y = v[1];
+    out.z = v[2];
+    return true;
+}
+
+static Vec3 GetVec3Default(const Option& opt, const Vec3& fallback)
+{
+    Vec3 def = fallback;
+    TryParseVec3(GetDefaultStr(opt), def);
+    return def;
+}
+
+static Vec3 GetVec3(const Option& opt, const Vec3& defVal)
+{
+    Vec3 v = defVal;
+    TryParseVec3(GetStr(opt.key), v);
+    return v;
+}
+
+static void SetVec3(const std::string& key, const Vec3& v)
+{
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f", v.x, v.y, v.z);
     g_Values[key] = buf;
 }
 
@@ -175,50 +252,371 @@ static void DrawHelp(const Option& opt)
 
 Option g_Options[] =
 {
-    // Multiplayer / Server
+    // View / Scale
+    {
+        "VRScale",
+        OptionType::Float,
+        { u8"View / Scale", u8"视角 / 尺度" },
+        { u8"World Scale", u8"世界缩放" },
+        { u8"Adjusts overall world scale (distance and size perception).",
+          u8"调整整体世界尺度（距离与大小感知）。" },
+        { u8"Keep close to real-world meter scale. 43~55 covers most play spaces.",
+          u8"尽量保持与真实世界接近。43~55 一般最合适。" },
+        30.0f, 70.0f,
+        "43.2"
+    },
+    {
+        "IPDScale",
+        OptionType::Float,
+        { u8"View / Scale", u8"视角 / 尺度" },
+        { u8"IPD Scale", u8"瞳距缩放" },
+        { u8"Multiplies headset IPD to fine-tune stereo separation.",
+          u8"按比例调整头显瞳距以微调立体分离度。" },
+        { u8"Use for small comfort tweaks only.",
+          u8"仅用于小幅舒适度微调。" },
+        0.8f, 1.2f,
+        "1.0"
+    },
+    {
+        "HeadSmoothing",
+        OptionType::Float,
+        { u8"View / Scale", u8"视角 / 尺度" },
+        { u8"Head Tracking Smoothing", u8"头部追踪平滑" },
+        { u8"Applies smoothing to head tracking to reduce jitter at the cost of a little latency.",
+          u8"为头部追踪添加平滑以减少抖动，但会增加少量延迟。" },
+        { u8"0 keeps latency lowest; 0.05~0.15 helps shaky tracking.",
+          u8"0 延迟最低，0.05~0.15 可缓解抖动。" },
+        0.0f, 0.3f,
+        "0.0"
+    },
+
+    // Input / Turning
+    {
+        "LeftHanded",
+        OptionType::Bool,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Left-Handed Mode", u8"左手持武" },
+        { u8"Swaps dominant hand interactions for left-handed players.",
+          u8"为左手玩家切换主要交互手。" },
+        { u8"Toggle if you primarily aim with the left controller.",
+          u8"如果主要用左手瞄准，请开启。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "TurnSpeed",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Smooth Turn Speed", u8"平滑转向速度" },
+        { u8"Controls smooth turning speed.",
+          u8"控制平滑转向的转速。" },
+        { u8"0.2~0.6 is comfortable for most people.",
+          u8"多数人适合 0.2~0.6。" },
+        0.1f, 1.0f,
+        "0.3"
+    },
+    {
+        "SnapTurning",
+        OptionType::Bool,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Use Snap Turning", u8"启用分段转向" },
+        { u8"Turns in fixed increments instead of smooth rotation.",
+          u8"使用固定角度分段转向，替代连续旋转。" },
+        { u8"Preferable for motion-sickness-prone players.",
+          u8"容易晕动症的玩家建议开启。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "SnapTurnAngle",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Snap Turn Angle", u8"分段转向角度" },
+        { u8"Degrees turned per snap when snap turning is enabled.",
+          u8"分段转向时每次旋转的角度。" },
+        { u8"30°~60° is common. Higher = fewer snaps, lower = finer control.",
+          u8"30°~60° 比较常见。角度越大，次数越少；越小越精细。" },
+        15.0f, 120.0f,
+        "45.0"
+    },
+    {
+        "ControllerSmoothing",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Controller Input Smoothing", u8"手柄输入平滑" },
+        { u8"Smooths controller input to reduce jitter.",
+          u8"平滑处理手柄输入以减少抖动。" },
+        { u8"Keep under 0.5 to avoid noticeable latency.",
+          u8"建议低于 0.5 以避免明显延迟。" },
+        0.0f, 0.8f,
+        "0.0"
+    },
     {
         "ForceNonVRServerMovement",
         OptionType::Bool,
-        { u8"Multiplayer / Server Compatibility", u8"多人 / 服务器兼容" },
+        { u8"Multiplayer / Server", u8"多人 / 服务器" },
         { u8"Non-VR Server Compatibility Mode", u8"非VR服务器兼容模式" },
-        { u8"When playing on a non-VR server, convert VR movement and interaction into forms that are more acceptable to standard servers.",
-          u8"在非VR服务器上游玩时，将VR移动和交互转换为更适合传统服务器的形式。" },
-        { u8"Recommended for multiplayer. Usually unnecessary for single-player or VR-enabled servers.",
-          u8"多人游戏推荐启用。单人或支持VR的服务器通常不需要。" },
+        { u8"Converts VR movement/interaction to be more acceptable to standard servers.",
+          u8"将VR移动与交互转换为更符合传统服务器的形式。" },
+        { u8"Recommended for public multiplayer servers.",
+          u8"公共多人服务器建议开启。" },
+        0.0f, 0.0f,
+        "false"
     },
 
-    // Aim Line
+    // HUD (Main)
+    {
+        "HudDistance",
+        OptionType::Float,
+        { u8"HUD (Main)", u8"HUD（主界面）" },
+        { u8"HUD Distance", u8"HUD 距离" },
+        { u8"Distance from the head to the main HUD plane.",
+          u8"头部到主HUD平面的距离。" },
+        { u8"Closer feels larger; farther reduces eye strain.",
+          u8"越近越大，越远越护眼。" },
+        0.5f, 3.0f,
+        "1.3"
+    },
+    {
+        "HudSize",
+        OptionType::Float,
+        { u8"HUD (Main)", u8"HUD（主界面）" },
+        { u8"HUD Size", u8"HUD 尺寸" },
+        { u8"Overall scale of the main HUD.",
+          u8"主HUD整体缩放。" },
+        { u8"1.2~2.0 fits most users.",
+          u8"1.2~2.0 适合大多数人。" },
+        0.8f, 3.0f,
+        "1.8"
+    },
+    {
+        "HudAlwaysVisible",
+        OptionType::Bool,
+        { u8"HUD (Main)", u8"HUD（主界面）" },
+        { u8"HUD Always Visible", u8"HUD 总是可见" },
+        { u8"Keep HUD visible even when not toggled by gameplay.",
+          u8"即使未被游戏逻辑显示也始终显示HUD。" },
+        { u8"Disable if you prefer a minimal view.",
+          u8"若想极简视野可关闭。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "FixedHudYOffset",
+        OptionType::Float,
+        { u8"HUD (Main)", u8"HUD（主界面）" },
+        { u8"HUD Vertical Offset", u8"HUD 垂直偏移" },
+        { u8"Moves the HUD up or down relative to the head.",
+          u8"相对头部上下移动HUD。" },
+        { u8"Fine-tune to keep HUD out of the weapon view.",
+          u8"微调避免挡住武器视线。" },
+        -0.5f, 0.5f,
+        "0.25"
+    },
+    {
+        "FixedHudDistanceOffset",
+        OptionType::Float,
+        { u8"HUD (Main)", u8"HUD（主界面）" },
+        { u8"HUD Distance Offset", u8"HUD 距离偏移" },
+        { u8"Adjusts HUD distance without changing size.",
+          u8"调整HUD距离但不改变大小。" },
+        { u8"Use small steps to avoid eyestrain.",
+          u8"小幅调整以避免眼疲劳。" },
+        -1.0f, 1.0f,
+        "0.25"
+    },
+
+    // HUD (Controller)
+    {
+        "ControllerHudCut",
+        OptionType::Bool,
+        { u8"HUD (Controller)", u8"HUD（手柄）" },
+        { u8"Hide Controller HUD Near Camera", u8"近距离裁剪手柄HUD" },
+        { u8"Cuts the controller HUD when it would overlap the camera.",
+          u8"当手柄HUD靠近相机时自动隐藏。" },
+        { u8"Prevents UI from clipping into the face.",
+          u8"避免UI穿入视野。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "ControllerHudSize",
+        OptionType::Float,
+        { u8"HUD (Controller)", u8"HUD（手柄）" },
+        { u8"Controller HUD Size", u8"手柄HUD大小" },
+        { u8"Size of the HUD attached to the controller.",
+          u8"附着在手柄上的HUD尺寸。" },
+        { u8"0.08~0.2 keeps it readable without blocking view.",
+          u8"0.08~0.2 既可读又不挡视线。" },
+        0.05f, 0.5f,
+        "0.1"
+    },
+    {
+        "ControllerHudXOffset",
+        OptionType::Float,
+        { u8"HUD (Controller)", u8"HUD（手柄）" },
+        { u8"Controller HUD X Offset", u8"手柄HUD X偏移" },
+        { u8"Left/right offset of controller HUD (meters).",
+          u8"手柄HUD左右偏移（米）。" },
+        { u8"", u8"" },
+        -0.5f, 0.5f,
+        "0.1"
+    },
+    {
+        "ControllerHudYOffset",
+        OptionType::Float,
+        { u8"HUD (Controller)", u8"HUD（手柄）" },
+        { u8"Controller HUD Y Offset", u8"手柄HUD Y偏移" },
+        { u8"Up/down offset of controller HUD (meters).",
+          u8"手柄HUD上下偏移（米）。" },
+        { u8"", u8"" },
+        -0.5f, 0.5f,
+        "0.1"
+    },
+    {
+        "ControllerHudZOffset",
+        OptionType::Float,
+        { u8"HUD (Controller)", u8"HUD（手柄）" },
+        { u8"Controller HUD Z Offset", u8"手柄HUD Z偏移" },
+        { u8"Forward/back offset of controller HUD (meters).",
+          u8"手柄HUD前后偏移（米）。" },
+        { u8"", u8"" },
+        -1.0f, 0.5f,
+        "-0.3"
+    },
+    {
+        "ControllerHudRotation",
+        OptionType::Float,
+        { u8"HUD (Controller)", u8"HUD（手柄）" },
+        { u8"Controller HUD Rotation", u8"手柄HUD 旋转角" },
+        { u8"Rotates the controller HUD around the grip.",
+          u8"围绕握把旋转手柄HUD。" },
+        { u8"Negative tilts inward for right-hand HUD.",
+          u8"负值向内倾斜（右手HUD）。" },
+        -180.0f, 180.0f,
+        "-60"
+    },
+
+    // Hands / Debug
+    {
+        "HideArms",
+        OptionType::Bool,
+        { u8"Hands / Debug", u8"手部 / 调试" },
+        { u8"Hide Arms", u8"隐藏手臂" },
+        { u8"Hides in-game arm models while keeping hands/controllers.",
+          u8"隐藏游戏中的手臂模型，仅保留手/手柄。" },
+        { u8"Useful when arm animations conflict with your pose.",
+          u8"当手臂动画与姿态不一致时可开启。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "DebugHandsEnabled",
+        OptionType::Bool,
+        { u8"Hands / Debug", u8"手部 / 调试" },
+        { u8"Show Debug Hands", u8"显示调试手模型" },
+        { u8"Renders simplified debug hands for troubleshooting alignment.",
+          u8"渲染简化的调试手，用于校准和排查。" },
+        { u8"Disable for full immersion.",
+          u8"追求沉浸感可关闭。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "DebugHandColor",
+        OptionType::Color,
+        { u8"Hands / Debug", u8"手部 / 调试" },
+        { u8"Debug Hand Color", u8"调试手颜色" },
+        { u8"RGBA color for debug hand rendering (supports 0~1 or 0~255).",
+          u8"调试手渲染的RGBA颜色（支持 0~1 或 0~255）。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "0,200,255,255"
+    },
+
+    // Interaction / Combos
+    {
+        "RequireSecondaryAttackForItemSwitch",
+        OptionType::Bool,
+        { u8"Interaction / Combos", u8"交互 / 组合键" },
+        { u8"Require Alt-Fire for Item Switch", u8"切换物品需副攻键" },
+        { u8"Prevents accidental item switches unless secondary attack is held.",
+          u8"需要按住副攻击键才切换物品，避免误触。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "VoiceRecordCombo",
+        OptionType::String,
+        { u8"Interaction / Combos", u8"交互 / 组合键" },
+        { u8"Voice Chat Combo", u8"语音聊天组合键" },
+        { u8"VR action combination that triggers voice chat (format: Action+Action).",
+          u8"触发语音聊天的VR动作组合（格式：动作+动作）。" },
+        { u8"Set to \"false\" to disable.",
+          u8"设为 \"false\" 可禁用。" },
+        0.0f, 0.0f,
+        "Crouch+Reload"
+    },
+    {
+        "QuickTurnCombo",
+        OptionType::String,
+        { u8"Interaction / Combos", u8"交互 / 组合键" },
+        { u8"Quick Turn Combo", u8"快速转身组合键" },
+        { u8"Action combo that triggers a quick 180° turn.",
+          u8"触发快速180°转身的动作组合。" },
+        { u8"Use VR action names joined with +.",
+          u8"使用VR动作名并用 + 连接。" },
+        0.0f, 0.0f,
+        "SecondaryAttack+Crouch"
+    },
+    {
+        "ViewmodelAdjustEnabled",
+        OptionType::Bool,
+        { u8"Interaction / Combos", u8"交互 / 组合键" },
+        { u8"Enable Viewmodel Adjustment", u8"启用视模调整" },
+        { u8"Allows saving manual weapon/viewmodel offsets in VR.",
+          u8"允许在VR中保存武器/视模的手动偏移。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "ViewmodelAdjustCombo",
+        OptionType::String,
+        { u8"Interaction / Combos", u8"交互 / 组合键" },
+        { u8"Viewmodel Adjust Combo", u8"视模调整组合键" },
+        { u8"Action combo to toggle viewmodel adjustment mode.",
+          u8"用于切换视模调整模式的组合动作。" },
+        { u8"Set to \"false\" to disable if you never edit offsets.",
+          u8"若不需要可设为 \"false\" 禁用。" },
+        0.0f, 0.0f,
+        "Reload+SecondaryAttack"
+    },
+
+    // Aim Assist
     {
         "AimLineEnabled",
         OptionType::Bool,
         { u8"Aim Assist", u8"辅助瞄准" },
         { u8"Enable Aim Line", u8"启用瞄准线" },
-        { u8"Whether to render the VR aiming line.",
-          u8"是否渲染VR瞄准线。" },
-        { u8"Disabling slightly reduces rendering and logic overhead.",
-          u8"关闭可略微减少渲染和逻辑开销。" }
+        { u8"Renders the VR aiming line.",
+          u8"渲染VR瞄准线。" },
+        { u8"Disable to reduce visual clutter and cost.",
+          u8"关闭可减少视觉杂乱和开销。" },
+        0.0f, 0.0f,
+        "true"
     },
     {
-        "AimLineFrameDurationMultiplier",
-        OptionType::Float,
+        "MeleeAimLineEnabled",
+        OptionType::Bool,
         { u8"Aim Assist", u8"辅助瞄准" },
-        { u8"Aim Line Persistence", u8"瞄准线保留时间" },
-        { u8"Controls how long the aim line lingers (trail effect). Higher values keep historical frames longer.",
-          u8"控制瞄准线停留时间（拖尾效果）。值越高，历史帧保留越久。" },
-        { u8"Recommended 1.0 ~ 1.5. Too high may look cluttered.",
-          u8"推荐 1.0 ~ 1.5，过高可能显得杂乱。" },
-        0.1f, 5.0f
-    },
-    {
-        "AimLineMaxHz",
-        OptionType::Int,
-        { u8"Aim Assist", u8"辅助瞄准" },
-        { u8"Aim Line Update Rate Limit", u8"瞄准线刷新率上限" },
-        { u8"Limits the maximum aim-line updates per second to control trace and CPU usage.",
-          u8"限制瞄准线每秒更新次数，以控制追踪和CPU开销。" },
-        { u8"Recommended 60~120. Lower to 45/30 on weaker machines.",
-          u8"推荐 60~120。性能不足时可降到 45/30。" },
-        10.f, 240.f
+        { u8"Enable Melee Aim Line", u8"启用近战瞄准线" },
+        { u8"Shows the aim line when wielding melee weapons.",
+          u8"在使用近战武器时仍显示瞄准线。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "true"
     },
     {
         "AimLineThickness",
@@ -227,179 +625,661 @@ Option g_Options[] =
         { u8"Aim Line Thickness", u8"瞄准线粗细" },
         { u8"Affects visual thickness only; does not affect hit detection.",
           u8"仅影响视觉粗细，不影响判定。" },
-        { u8"Recommended 1.0 ~ 2.0",
-          u8"推荐 1.0 ~ 2.0" },
-        0.1f, 5.0f
+        { u8"0.15~0.5 is usually readable.",
+          u8"0.15~0.5 通常足够清晰。" },
+        0.05f, 1.0f,
+        "0.3"
+    },
+    {
+        "AimLineFrameDurationMultiplier",
+        OptionType::Float,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Aim Line Persistence", u8"瞄准线保留时间" },
+        { u8"Controls how long the aim line trail lingers.",
+          u8"控制瞄准线拖尾停留时间。" },
+        { u8"1.0~2.0 keeps a short trail; higher values look smeared.",
+          u8"1.0~2.0 拖尾较短，过高会显得糊。" },
+        0.2f, 3.0f,
+        "1.5"
     },
     {
         "AimLineColor",
         OptionType::Color,
         { u8"Aim Assist", u8"辅助瞄准" },
         { u8"Aim Line Color", u8"瞄准线颜色" },
-        { u8"Sets the aim line color (RGBA). Supports values in 0~1 or 0~255.",
-          u8"设置瞄准线颜色（RGBA）。支持 0~1 或 0~255。" },
-        { u8"Example: 1,1,1,1 or 255,255,255,255",
-          u8"示例：1,1,1,1 或 255,255,255,255" }
+        { u8"RGBA color for the aim line (supports 0~1 or 0~255).",
+          u8"瞄准线的RGBA颜色（支持 0~1 或 0~255）。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "255,0,0,180"
+    },
+    {
+        "AimLineMaxHz",
+        OptionType::Int,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Aim Line Update Rate Limit", u8"瞄准线刷新率上限" },
+        { u8"Limits aim-line updates per second to control CPU cost.",
+          u8"限制瞄准线每秒更新次数以控制CPU开销。" },
+        { u8"Match your headset FPS or halve it for performance.",
+          u8"可与头显帧率一致，或减半以省资源。" },
+        30.f, 180.f,
+        "90"
     },
 
-    // Head / View
+    // Motion Gestures
     {
-        "HeadSmoothing",
+        "MotionGestureSwingThreshold",
         OptionType::Float,
-        { u8"View / Head", u8"视角 / 头部" },
-        { u8"Head Tracking Smoothing", u8"头部追踪平滑" },
-        { u8"Applies smoothing to head tracking to reduce jitter at the cost of slight latency.",
-          u8"为头部追踪添加平滑以减少抖动，但会略微增加延迟。" },
-        { u8"Motion-sickness-prone players may increase this slightly.",
-          u8"易晕玩家可适当提高该值。" },
-        0.0f, 1.0f
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Swing Gesture Threshold", u8"挥动判定阈值" },
+        { u8"Velocity needed to detect a swing gesture.",
+          u8"判定挥动手势所需的速度阈值。" },
+        { u8"Increase to reduce false swings.",
+          u8"提高可减少误判。" },
+        0.5f, 4.0f,
+        "2.1"
     },
     {
-        "VRScale",
+        "MotionGestureDownSwingThreshold",
         OptionType::Float,
-        { u8"View / Head", u8"视角 / 头部" },
-        { u8"VR World Scale", u8"VR 世界缩放" },
-        { u8"Adjusts overall world scale (distance and sense of size).",
-          u8"调整整体世界尺度（距离感与尺寸感）。" },
-        { u8"Default is 1.0. Large changes may affect distance perception.",
-          u8"默认 1.0，过大调整会影响距离感知。" },
-        0.5f, 2.0f
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Down Swing Threshold", u8"下劈判定阈值" },
+        { u8"Velocity threshold for downward swing recognition.",
+          u8"判定下劈动作的速度阈值。" },
+        { u8"", u8"" },
+        0.5f, 4.0f,
+        "2.0"
+    },
+    {
+        "MotionGestureJumpThreshold",
+        OptionType::Float,
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Jump Gesture Threshold", u8"跳跃手势阈值" },
+        { u8"Vertical velocity required to trigger jump gesture.",
+          u8"触发跳跃手势所需的垂直速度。" },
+        { u8"", u8"" },
+        0.5f, 4.0f,
+        "2.0"
+    },
+    {
+        "MotionGestureCooldown",
+        OptionType::Float,
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Gesture Cooldown", u8"手势冷却" },
+        { u8"Minimum seconds between repeated gesture activations.",
+          u8"重复手势触发之间的最小间隔（秒）。" },
+        { u8"", u8"" },
+        0.0f, 2.0f,
+        "0.8"
+    },
+    {
+        "MotionGestureHoldDuration",
+        OptionType::Float,
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Gesture Hold Duration", u8"手势按住时长" },
+        { u8"Seconds a gesture must be held to count as intentional.",
+          u8"手势需保持的秒数，超过才判定为有效。" },
+        { u8"", u8"" },
+        0.0f, 1.0f,
+        "0.2"
     },
 
-    // Turning / Input
+    // Inventory Anchors
     {
-        "TurnSpeed",
+        "InventoryGestureRange",
         OptionType::Float,
-        { u8"Turning / Input", u8"转向 / 输入" },
-        { u8"Turn Speed", u8"平滑转向速度" },
-        { u8"Controls smooth turning speed.",
-          u8"控制平滑转向速度。" },
-        { u8"Too fast may cause motion sickness; too slow makes turning awkward.",
-          u8"过快可能引起眩晕，过慢会影响操作。" },
-        0.1f, 10.0f
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Inventory Gesture Range", u8"物品手势触发距离" },
+        { u8"How far the hand can move from the body to trigger inventory gestures (meters).",
+          u8"手部离身体多远触发物品手势（米）。" },
+        { u8"0.15~0.35 works for most arm lengths.",
+          u8"0.15~0.35 适合大多数身材。" },
+        0.1f, 0.5f,
+        "0.23"
     },
     {
-        "ControllerSmoothing",
-        OptionType::Float,
-        { u8"Turning / Input", u8"转向 / 输入" },
-        { u8"Controller Input Smoothing", u8"手柄输入平滑" },
-        { u8"Smooths controller input to reduce hand jitter.",
-          u8"平滑手柄输入以减少抖动。" },
-        { u8"Excessive values may introduce input latency.",
-          u8"过高会增加输入延迟。" },
-        0.0f, 1.0f
+        "InventoryChestOffset",
+        OptionType::Vec3,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Chest Anchor Offset (x,y,z)", u8"胸前锚点偏移 (x,y,z)" },
+        { u8"Offset from headset to chest anchor in meters.",
+          u8"从头部到胸前锚点的米制偏移。" },
+        { u8"Adjust per body size. Positive X = forward.",
+          u8"根据体型调整。X 正为前方。" },
+        -0.6f, 0.6f,
+        "0.20,0.0,-0.20"
+    },
+    {
+        "InventoryBackOffset",
+        OptionType::Vec3,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Back Anchor Offset (x,y,z)", u8"背部锚点偏移 (x,y,z)" },
+        { u8"Offset from headset to back anchor in meters.",
+          u8"从头部到背部锚点的米制偏移。" },
+        { u8"", u8"" },
+        -0.6f, 0.6f,
+        "-0.25,0.0,-0.10"
+    },
+    {
+        "InventoryLeftWaistOffset",
+        OptionType::Vec3,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Left Waist Anchor Offset (x,y,z)", u8"左腰锚点偏移 (x,y,z)" },
+        { u8"Offset from headset to left waist anchor in meters.",
+          u8"从头部到左腰锚点的米制偏移。" },
+        { u8"", u8"" },
+        -0.6f, 0.6f,
+        "0.05,-0.25,-0.50"
+    },
+    {
+        "InventoryRightWaistOffset",
+        OptionType::Vec3,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Right Waist Anchor Offset (x,y,z)", u8"右腰锚点偏移 (x,y,z)" },
+        { u8"Offset from headset to right waist anchor in meters.",
+          u8"从头部到右腰锚点的米制偏移。" },
+        { u8"", u8"" },
+        -0.6f, 0.6f,
+        "0.05,0.25,-0.50"
+    },
+    {
+        "ShowInventoryAnchors",
+        OptionType::Bool,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Show Inventory Anchor Gizmos", u8"显示锚点辅助图" },
+        { u8"Draws visual anchors for debugging inventory positions.",
+          u8"绘制锚点辅助图以调试物品位置。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "InventoryAnchorColor",
+        OptionType::Color,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Inventory Anchor Color", u8"锚点颜色" },
+        { u8"RGBA color for anchor gizmos (supports 0~1 or 0~255).",
+          u8"锚点辅助图的RGBA颜色（支持 0~1 或 0~255）。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "0,255,255,150"
     },
 
-    // HUD
+    // Custom Actions
     {
-        "ControllerHudSize",
-        OptionType::Float,
-        { u8"HUD / Controller HUD", u8"HUD / 手柄HUD" },
-        { u8"Controller HUD Size", u8"手柄HUD大小" },
-        { u8"Adjusts the size of the HUD attached to the controller.",
-          u8"调整附着在手柄上的HUD尺寸。" },
-        { u8"", u8"" },
-        0.1f, 3.0f
+        "CustomAction1Command",
+        OptionType::String,
+        { u8"Custom Actions", u8"自定义动作" },
+        { u8"Custom Action 1 Command", u8"自定义动作1指令" },
+        { u8"Console command or \"key:X\"/\"hold:key:X\" binding.",
+          u8"可填控制台指令，或 \"key:X\"/\"hold:key:X\" 键盘映射。" },
+        { u8"Mapped to VR custom action slot 1.",
+          u8"对应VR自定义动作槽1。" },
+        0.0f, 0.0f,
+        "+l4n_lookat"
     },
     {
-        "ControllerHudXOffset",
-        OptionType::Float,
-        { u8"HUD / Controller HUD", u8"HUD / 手柄HUD" },
-        { u8"Controller HUD X Offset", u8"手柄HUD X偏移" },
-        { u8"Fine-tunes the left/right position of the controller HUD.",
-          u8"微调手柄HUD的左右位置。" },
+        "CustomAction2Command",
+        OptionType::String,
+        { u8"Custom Actions", u8"自定义动作" },
+        { u8"Custom Action 2 Command", u8"自定义动作2指令" },
         { u8"", u8"" },
-        -50.f, 50.f
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "thirdpersonshoulder"
     },
     {
-        "ControllerHudYOffset",
-        OptionType::Float,
-        { u8"HUD / Controller HUD", u8"HUD / 手柄HUD" },
-        { u8"Controller HUD Y Offset", u8"手柄HUD Y偏移" },
-        { u8"Fine-tunes the up/down position of the controller HUD.",
-          u8"微调手柄HUD的上下位置。" },
+        "CustomAction3Command",
+        OptionType::String,
+        { u8"Custom Actions", u8"自定义动作" },
+        { u8"Custom Action 3 Command", u8"自定义动作3指令" },
         { u8"", u8"" },
-        -50.f, 50.f
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "say /drop"
     },
     {
-        "ControllerHudZOffset",
-        OptionType::Float,
-        { u8"HUD / Controller HUD", u8"HUD / 手柄HUD" },
-        { u8"Controller HUD Z Offset", u8"手柄HUD Z偏移" },
-        { u8"Fine-tunes the forward/backward distance of the controller HUD.",
-          u8"微调手柄HUD的前后距离。" },
+        "CustomAction4Command",
+        OptionType::String,
+        { u8"Custom Actions", u8"自定义动作" },
+        { u8"Custom Action 4 Command", u8"自定义动作4指令" },
         { u8"", u8"" },
-        -50.f, 50.f
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "+alt2"
+    },
+    {
+        "CustomAction5Command",
+        OptionType::String,
+        { u8"Custom Actions", u8"自定义动作" },
+        { u8"Custom Action 5 Command", u8"自定义动作5指令" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        ""
+    },
+
+    // Special Infected Indicators
+    {
+        "SpecialInfectedArrowEnabled",
+        OptionType::Bool,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Enable Overhead Arrow", u8"启用头顶箭头" },
+        { u8"Shows an arrow above special infected.",
+          u8"在特感头顶显示箭头。" },
+        { u8"Useful when visibility is low.",
+          u8"能见度低时有帮助。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "SpecialInfectedArrowSize",
+        OptionType::Float,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Arrow Size", u8"箭头大小" },
+        { u8"Base size of the overhead arrow.",
+          u8"头顶箭头的基础尺寸。" },
+        { u8"", u8"" },
+        5.0f, 60.0f,
+        "20.0"
+    },
+    {
+        "SpecialInfectedArrowHeight",
+        OptionType::Float,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Arrow Height", u8"箭头高度" },
+        { u8"Height above the infected head (world units).",
+          u8"箭头离特感头部的高度（游戏单位）。" },
+        { u8"", u8"" },
+        10.0f, 200.0f,
+        "90.0"
+    },
+    {
+        "SpecialInfectedArrowThickness",
+        OptionType::Float,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Arrow Line Thickness", u8"箭头线条粗细" },
+        { u8"Visual thickness of the arrow outline.",
+          u8"箭头轮廓的视觉粗细。" },
+        { u8"", u8"" },
+        0.0f, 2.0f,
+        "0.4"
+    },
+    {
+        "SpecialInfectedArrowColor",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Arrow Color (Global)", u8"箭头颜色（全局）" },
+        { u8"Default arrow color applied to all when per-type colors are unset.",
+          u8"未单独设置时应用于所有特感的默认颜色。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "255,64,0,255"
+    },
+    {
+        "SpecialInfectedArrowColorBoomer",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Boomer Arrow Color", u8"胖子箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "255,222,173,255"
+    },
+    {
+        "SpecialInfectedArrowColorSmoker",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Smoker Arrow Color", u8"舌头箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "205,85,85,255"
+    },
+    {
+        "SpecialInfectedArrowColorHunter",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Hunter Arrow Color", u8"猎人箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "208,32,144,255"
+    },
+    {
+        "SpecialInfectedArrowColorSpitter",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Spitter Arrow Color", u8"喷子箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "127,255,0,255"
+    },
+    {
+        "SpecialInfectedArrowColorJockey",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Jockey Arrow Color", u8"猴子箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "255,140,20,255"
+    },
+    {
+        "SpecialInfectedArrowColorCharger",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Charger Arrow Color", u8"牛子箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "0,200,200,255"
+    },
+    {
+        "SpecialInfectedArrowColorTank",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Tank Arrow Color", u8"坦克箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "255,0,0,255"
+    },
+    {
+        "SpecialInfectedArrowColorWitch",
+        OptionType::Color,
+        { u8"Special Infected Indicators", u8"特感提示箭头" },
+        { u8"Witch Arrow Color", u8"女巫箭头颜色" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "255,0,0,255"
     },
 
     // Special Infected Assist
     {
-        "SpecialInfectedPreWarningAutoAimEnabled",
+        "SpecialInfectedAutoEvade",
         OptionType::Bool,
         { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Enable Special Infected Warning / Assist", u8"启用特感预警 / 辅助" },
-        { u8"Enables special infected pre-warning and related assist logic.",
-          u8"启用特感预警及相关辅助逻辑。" },
-        { u8"Note: This is an assist feature. Use responsibly.",
-          u8"注意：此为辅助功能，请合理使用。" }
+        { u8"Auto Evade / Warn", u8"自动规避 / 预警" },
+        { u8"Automatically issues evasion inputs when a special infected attacks.",
+          u8"特感攻击时自动执行规避输入。" },
+        { u8"Assist feature—use responsibly.",
+          u8"属于辅助功能，请合理使用。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "SpecialInfectedBlindSpotDistance",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Blind Spot Warning Distance", u8"盲区预警距离" },
+        { u8"Distance for behind-the-back warning checks (units).",
+          u8"背后预警检查的距离（游戏单位）。" },
+        { u8"", u8"" },
+        30.0f, 200.0f,
+        "120.0"
     },
     {
         "SpecialInfectedPreWarningDistance",
         OptionType::Float,
         { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Special Infected Warning Distance", u8"特感预警距离" },
-        { u8"Triggers a warning when special infected enter this distance.",
-          u8"当特感进入该距离时触发预警。" },
-        { u8"Recommended 400 ~ 600",
-          u8"推荐 400 ~ 600" },
-        0.f, 3000.f
+        { u8"Pre-Warning Distance", u8"特感预警距离" },
+        { u8"Triggers warning/auto-aim logic when within this range (units).",
+          u8"特感进入此距离时触发预警/辅助（游戏单位）。" },
+        { u8"Extend for more reaction time; shorten to reduce assists.",
+          u8"想要更长反应时间可调大，想少辅助可调小。" },
+        300.0f, 1200.0f,
+        "850.0"
+    },
+    {
+        "SpecialInfectedPreWarningAutoAimEnabled",
+        OptionType::Bool,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Enable Pre-Warning Auto Aim", u8"启用预警自动瞄准" },
+        { u8"Allows the pre-warning system to gently steer aim toward threats.",
+          u8"允许预警系统轻微引导瞄准至威胁目标。" },
+        { u8"Disable for pure warnings only.",
+          u8"若只想要预警，可关闭。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "SpecialInfectedAutoAimLerp",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Auto Aim Lerp", u8"自动瞄准插值" },
+        { u8"How quickly auto aim blends toward the target (0 = off).",
+          u8"自动瞄准向目标插值的速度（0 表示关闭）。" },
+        { u8"Kept within the in-game clamp of 0~0.3.",
+          u8"与游戏内限制一致（0~0.3）。" },
+        0.0f, 0.3f,
+        "0.3"
+    },
+    {
+        "SpecialInfectedAutoAimCooldown",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Auto Aim Cooldown", u8"自动瞄准冷却" },
+        { u8"Minimum seconds between auto-aim assists.",
+          u8"两次自动瞄准辅助之间的最小秒数。" },
+        { u8"Game enforces at least 0.5s.",
+          u8"游戏最少强制 0.5 秒。" },
+        0.5f, 2.0f,
+        "0.5"
+    },
+    {
+        "SpecialInfectedPreWarningAimAngle",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Aim Assist Angle", u8"瞄准辅助角度" },
+        { u8"Maximum angular offset allowed for auto-aim to engage.",
+          u8"自动瞄准可介入的最大角度偏移。" },
+        { u8"Clamped by game to 0~10 degrees.",
+          u8"游戏会限制在 0~10 度。" },
+        0.0f, 10.0f,
+        "5.0"
+    },
+    {
+        "SpecialInfectedPreWarningAimSnapDistance",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Aim Snap Distance", u8"瞄准锁定距离" },
+        { u8"Distance at which aim lock starts (units).",
+          u8"开始瞄准锁定的距离（游戏单位）。" },
+        { u8"Kept within game clamp 0~20.",
+          u8"遵循游戏 0~20 的限制。" },
+        0.0f, 20.0f,
+        "18.0"
+    },
+    {
+        "SpecialInfectedPreWarningAimReleaseDistance",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Aim Release Distance", u8"瞄准释放距离" },
+        { u8"Distance where auto aim stops (>= snap distance).",
+          u8"自动瞄准停止的距离（需 ≥ 锁定距离）。" },
+        { u8"Game clamps to 0~30.",
+          u8"游戏限制 0~30。" },
+        0.0f, 30.0f,
+        "28.0"
+    },
+    {
+        "SpecialInfectedPreWarningTargetUpdateInterval",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Target Update Interval", u8"目标更新间隔" },
+        { u8"Seconds between pre-warning target refreshes.",
+          u8"预警目标刷新间隔（秒）。" },
+        { u8"", u8"" },
+        0.05f, 0.5f,
+        "0.1"
+    },
+    {
+        "SpecialInfectedWarningSecondaryHoldDuration",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Secondary Hold Duration", u8"副攻击按住时间" },
+        { u8"Seconds to hold secondary attack during auto-evade.",
+          u8"自动规避时按住副攻击的秒数。" },
+        { u8"", u8"" },
+        0.0f, 0.5f,
+        "0.05"
+    },
+    {
+        "SpecialInfectedWarningPostAttackDelay",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Post-Attack Delay", u8"攻击后延迟" },
+        { u8"Delay after a special infected attack before controls resume (seconds).",
+          u8"特感攻击后恢复控制前的延迟（秒）。" },
+        { u8"", u8"" },
+        0.0f, 0.5f,
+        "0.1"
+    },
+    {
+        "SpecialInfectedWarningJumpHoldDuration",
+        OptionType::Float,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Jump Hold Duration", u8"跳跃按住时间" },
+        { u8"Seconds jump is held during auto-evade.",
+          u8"自动规避时按住跳跃的秒数。" },
+        { u8"", u8"" },
+        0.0f, 1.0f,
+        "0.5"
+    },
+    {
+        "SpecialInfectedDebug",
+        OptionType::Bool,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Debug Mode", u8"调试模式" },
+        { u8"Disables safety clamps for tuning/diagnostics.",
+          u8"关闭安全限制，便于调试和极端设置。" },
+        { u8"Use only when testing.",
+          u8"仅用于测试。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetBoomer",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Boomer Aim Offset (x,y,z)", u8"胖子瞄准偏移 (x,y,z)" },
+        { u8"Offset applied when auto-aiming at a Boomer (units).",
+          u8"自动瞄准胖子时的偏移量（游戏单位）。" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "5,0,40"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetSmoker",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Smoker Aim Offset (x,y,z)", u8"舌头瞄准偏移 (x,y,z)" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "3,0,42"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetHunter",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Hunter Aim Offset (x,y,z)", u8"猎人瞄准偏移 (x,y,z)" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "5,0,20"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetSpitter",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Spitter Aim Offset (x,y,z)", u8"喷子瞄准偏移 (x,y,z)" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "3,0,42"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetJockey",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Jockey Aim Offset (x,y,z)", u8"猴子瞄准偏移 (x,y,z)" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "10,0,20"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetCharger",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Charger Aim Offset (x,y,z)", u8"牛子瞄准偏移 (x,y,z)" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "3,0,48"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetTank",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Tank Aim Offset (x,y,z)", u8"坦克瞄准偏移 (x,y,z)" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "5,0,45"
+    },
+    {
+        "SpecialInfectedPreWarningAimOffsetWitch",
+        OptionType::Vec3,
+        { u8"Special Infected Assist", u8"特感辅助" },
+        { u8"Witch Aim Offset (x,y,z)", u8"女巫瞄准偏移 (x,y,z)" },
+        { u8"", u8"" },
+        { u8"", u8"" },
+        -60.0f, 60.0f,
+        "5,0,25"
+    },
+
+    // Performance Limits
+    {
+        "ThrowArcMaxHz",
+        OptionType::Int,
+        { u8"Performance / Rates", u8"性能 / 频率" },
+        { u8"Throw Trajectory Update Rate", u8"投掷轨迹刷新率" },
+        { u8"Limits how frequently the throw trajectory is updated.",
+          u8"限制投掷轨迹的更新频率。" },
+        { u8"Match headset FPS for smooth arcs; reduce for performance.",
+          u8"与头显帧率一致更平滑，性能不足可降低。" },
+        30.f, 120.f,
+        "60"
+    },
+    {
+        "SpecialInfectedOverlayMaxHz",
+        OptionType::Int,
+        { u8"Performance / Rates", u8"性能 / 频率" },
+        { u8"Special Infected Overlay Rate", u8"特感叠加刷新率" },
+        { u8"Refresh rate cap for special infected overlays.",
+          u8"特感叠加效果的刷新率上限。" },
+        { u8"Lower on slower GPUs.",
+          u8"GPU 较弱时可调低。" },
+        10.f, 120.f,
+        "30"
     },
     {
         "SpecialInfectedTraceMaxHz",
         OptionType::Int,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Special Infected Detection Rate Limit", u8"特感检测频率上限" },
-        { u8"Limits how often special infected detection traces/logic run per second to reduce CPU cost.",
-          u8"限制特感检测/逻辑每秒运行次数以降低CPU开销。" },
-        { u8"Recommended 60~120. Lower if performance issues occur.",
-          u8"推荐 60~120。如有性能问题可再降低。" },
-        10.f, 240.f
-    },
-
-    // Throw Arc
-    {
-        "ThrowArcMaxHz",
-        OptionType::Int,
-        { u8"Throw Prediction", u8"投掷预测" },
-        { u8"Throw Trajectory Update Rate", u8"投掷轨迹刷新率" },
-        { u8"Limits how frequently the throw trajectory is updated.",
-          u8"限制投掷轨迹更新频率。" },
-        { u8"Lowering this can reduce performance cost.",
-          u8"降低该值可减少性能开销。" },
-        10.f, 240.f
-    },
-    {
-        "ThrowArcLandingOffset",
-        OptionType::Float,
-        { u8"Throw Prediction", u8"投掷预测" },
-        { u8"Throw Landing Offset", u8"投掷落点补偿" },
-        { u8"Applies positional compensation to the predicted landing point to account for network or engine error.",
-          u8"为预测落点添加位置补偿，以应对网络或引擎误差。" },
-        { u8"", u8"" },
-        -50.f, 50.f
-    },
-
-    // Viewmodel
-    {
-        "ViewmodelAdjustEnabled",
-        OptionType::Bool,
-        { u8"View Model", u8"武器视模" },
-        { u8"Enable View Model Adjustment", u8"启用视模调整" },
-        { u8"Allows manual adjustment and saving of weapon/view models.",
-          u8"允许手动调整并保存武器/视模位置。" },
-        { u8"Typically used to fine-tune weapon grip positioning.",
-          u8"通常用于微调武器握持位置。" }
-    },
+        { u8"Performance / Rates", u8"性能 / 频率" },
+        { u8"Special Infected Trace Rate", u8"特感检测刷新率" },
+        { u8"Limits detection traces per second to reduce CPU cost.",
+          u8"限制特感检测追踪的每秒次数以降低CPU开销。" },
+        { u8"60~120 is usually plenty.",
+          u8"60~120 通常足够。" },
+        30.f, 180.f,
+        "90"
+    }
 };
 
 const int g_OptionCount = (int)(sizeof(g_Options) / sizeof(g_Options[0]));
@@ -436,7 +1316,7 @@ void DrawOptionsUI()
         {
         case OptionType::Bool:
         {
-            bool v = ParseBool(GetStr(key), false);
+            bool v = ParseBool(GetStr(key), GetDefaultBool(opt));
             if (ImGui::Checkbox(L(opt.title), &v))
                 g_Values[key] = v ? "true" : "false";
             DrawHelp(opt);
@@ -444,8 +1324,8 @@ void DrawOptionsUI()
         }
         case OptionType::Float:
         {
-            float defV = (opt.min != 0.f || opt.max != 0.f) ? (opt.min + opt.max) * 0.5f : 0.f;
-            float v = GetFloat(key, defV);
+            float v = GetFloat(key, GetDefaultFloat(opt));
+            v = std::clamp(v, opt.min, opt.max);
             if (ImGui::SliderFloat(L(opt.title), &v, opt.min, opt.max, "%.3f"))
                 g_Values[key] = std::to_string(v);
             DrawHelp(opt);
@@ -453,8 +1333,8 @@ void DrawOptionsUI()
         }
         case OptionType::Int:
         {
-            int defV = 0;
-            int v = GetInt(key, defV);
+            int v = GetInt(key, GetDefaultInt(opt));
+            v = std::clamp(v, (int)opt.min, (int)opt.max);
             if (ImGui::SliderInt(L(opt.title), &v, (int)opt.min, (int)opt.max))
                 g_Values[key] = std::to_string(v);
             DrawHelp(opt);
@@ -462,9 +1342,36 @@ void DrawOptionsUI()
         }
         case OptionType::Color:
         {
-            ImVec4 c = GetColor(key, ImVec4(1, 1, 1, 1));
+            ImVec4 c = GetColor(opt, ImVec4(1, 1, 1, 1));
             if (ImGui::ColorEdit4(L(opt.title), (float*)&c))
                 SetColor(key, c);
+            DrawHelp(opt);
+            break;
+        }
+        case OptionType::String:
+        {
+            std::string value = GetStr(key);
+            if (value.empty())
+                value = GetDefaultStr(opt);
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "%s", value.c_str());
+            if (ImGui::InputText(L(opt.title), buf, IM_ARRAYSIZE(buf)))
+                g_Values[key] = buf;
+            DrawHelp(opt);
+            break;
+        }
+        case OptionType::Vec3:
+        {
+            Vec3 v = GetVec3(opt, GetVec3Default(opt, { 0.f, 0.f, 0.f }));
+            v.x = std::clamp(v.x, opt.min, opt.max);
+            v.y = std::clamp(v.y, opt.min, opt.max);
+            v.z = std::clamp(v.z, opt.min, opt.max);
+            float arr[3] = { v.x, v.y, v.z };
+            if (ImGui::SliderFloat3(L(opt.title), arr, opt.min, opt.max, "%.3f"))
+            {
+                Vec3 newVal{ arr[0], arr[1], arr[2] };
+                SetVec3(key, newVal);
+            }
             DrawHelp(opt);
             break;
         }
