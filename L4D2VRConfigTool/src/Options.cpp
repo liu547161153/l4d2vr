@@ -4,6 +4,7 @@
 #include <string>
 #include <cctype>
 #include <cstdlib>
+#include <cfloat>
 
 // Search box text (typed in main.cpp)
 char g_OptionSearch[128] = "";
@@ -154,12 +155,16 @@ static void DrawHelp(const Option& opt)
     // Show detailed help when hovering the control (does not consume layout space)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
     {
+        // Keep tooltip width stable between different options to avoid size flicker.
+        ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 0.0f), ImVec2(480.0f, FLT_MAX));
         ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 38.0f);
         ImGui::TextDisabled("Key: %s", opt.key);
         const char* desc = L(opt.desc);
         const char* tip = L(opt.tip);
         if (desc && *desc) { ImGui::Separator(); ImGui::TextWrapped("%s", desc); }
         if (tip && *tip) { ImGui::Separator(); ImGui::TextWrapped("%s", tip); }
+        ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
 }
