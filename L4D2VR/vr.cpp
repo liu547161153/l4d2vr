@@ -1594,14 +1594,10 @@ void VR::ProcessInput()
             const float overlayDistance = VectorLength(overlayPos - hmdPos);
             const float controllerDistance = VectorLength(controllerPos - hmdPos);
 
-            const float overlayReach = std::max(m_ControllerHudSize * 0.6f, 0.15f);
-            const float offsetReach = std::sqrt(
-                (controllerHudXOffset * controllerHudXOffset) +
-                ((m_ControllerHudYOffset - hudHalfStackOffset) * (m_ControllerHudYOffset - hudHalfStackOffset)) +
-                (m_ControllerHudZOffset * m_ControllerHudZOffset));
-            const float controllerHudCutoffDistance = overlayReach + offsetReach + 0.15f;
+            constexpr float overlayCutoff = 0.35f;
+            constexpr float controllerCutoff = 0.25f;
 
-            return overlayDistance < controllerHudCutoffDistance || controllerDistance < controllerHudCutoffDistance;
+            return overlayDistance < overlayCutoff || controllerDistance < controllerCutoff;
         };
 
     auto showControllerHud = [&](bool attachToControllers)
