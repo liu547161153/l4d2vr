@@ -21,6 +21,34 @@
 #include <vector>
 #include <d3d9_vr.h>
 
+namespace
+{
+    // Returns true if the call should be skipped because we ran it too recently.
+    inline bool ShouldThrottle(std::chrono::steady_clock::time_point& last, float maxHz)
+    {
+        if (maxHz <= 0.0f)
+            return false;
+
+        const float minInterval = 1.0f / std::max(1.0f, maxHz);
+        const auto now = std::chrono::steady_clock::now();
+        if (last.time_since_epoch().count() != 0)
+        {
+            const float elapsed = std::chrono::duration<float>(now - last).count();
+            if (elapsed < minInterval)
+                return true;
+        }
+        last = now;
+        return false;
+    }
+
+    inline float MinIntervalSeconds(float maxHz)
+    {
+        if (maxHz <= 0.0f)
+            return 0.0f;
+        return 1.0f / std::max(1.0f, maxHz);
+    }
+}
+
 VR::VR(Game* game)
 {
     m_Game = game;
@@ -1054,15 +1082,51 @@ void VR::ProcessInput()
             }
         };
 
-    const float gestureRange = m_InventoryGestureRange * m_VRScale;
-    const float chestGestureRange = gestureRange * 0.5f;
+  float gestureRange = m_InventoryGestureRange * m_VRScale;
+    const float chestGestureRange = gestureRange;
+
+    // Inventory anchors should be BODY-relative, not fully HMD-relative.
+    // We build a yaw-only body basis (forward/right) from the HMD yaw, and use world up.
+    // This keeps anchors stable when you look up/down or roll your head.
+    const Vector worldUp(0.f, 0.f, 1.f);
+
+    Vector invForward = m_HmdForward;
+    invForward.z = 0.f;
+    float invFwdLen = sqrtf(invForward.x * invForward.x + invForward.y * invForward.y + invForward.z * invForward.z);
+    if (invFwdLen < 0.001f)
+    {
+        // Fallback if forward is degenerate for any reason
+        invForward = Vector(1.f, 0.f, 0.f);
+        invFwdLen = 1.f;
+    }
+    invForward *= (1.f / invFwdLen);
+
+    // Right = forward x up
+    Vector invRight(
+        invForward.y * worldUp.z - invForward.z * worldUp.y,
+        invForward.z * worldUp.x - invForward.x * worldUp.z,
+        invForward.x * worldUp.y - invForward.y * worldUp.x
+    );
+    float invRightLen = sqrtf(invRight.x * invRight.x + invRight.y * invRight.y + invRight.z * invRight.z);
+    if (invRightLen < 0.001f)
+    {
+        invRight = Vector(0.f, 1.f, 0.f);
+        invRightLen = 1.f;
+    }
+    invRight *= (1.f / invRightLen);
+
+    // Anchor origin: estimate a more stable "body / pelvis" point (relative to the HMD position, but in body space).
+    const Vector bodyOrigin = m_HmdPosAbs
+        + (invForward * (m_InventoryBodyOriginOffset.x * m_VRScale))
+        + (invRight * (m_InventoryBodyOriginOffset.y * m_VRScale))
+        + (worldUp * (m_InventoryBodyOriginOffset.z * m_VRScale));
 
     auto buildAnchor = [&](const Vector& offsets)
         {
-            return m_HmdPosAbs
-                + (m_HmdForward * (offsets.x * m_VRScale))
-                + (m_HmdRight * (offsets.y * m_VRScale))
-                + (m_HmdUp * (offsets.z * m_VRScale));
+            return bodyOrigin
+                + (invForward * (offsets.x * m_VRScale))
+                + (invRight * (offsets.y * m_VRScale))
+                + (worldUp * (offsets.z * m_VRScale));
         };
 
     const Vector chestAnchor = buildAnchor(m_InventoryChestOffset);
@@ -1077,7 +1141,21 @@ void VR::ProcessInput()
 
     if (m_DrawInventoryAnchors && m_Game->m_DebugOverlay)
     {
-        auto drawCircle = [&](const Vector& center, const Vector& axisA, const Vector& axisB, float range)
+        // Highlight anchors when either hand is inside the region.
+        const bool chestActive =
+            isControllerNear(m_LeftControllerPosAbs, chestAnchor, chestGestureRange) ||
+            isControllerNear(m_RightControllerPosAbs, chestAnchor, chestGestureRange);
+        const bool backActive =
+            isControllerNear(m_LeftControllerPosAbs, backAnchor, gestureRange) ||
+            isControllerNear(m_RightControllerPosAbs, backAnchor, gestureRange);
+        const bool leftWaistActive =
+            isControllerNear(m_LeftControllerPosAbs, leftWaistAnchor, gestureRange) ||
+            isControllerNear(m_RightControllerPosAbs, leftWaistAnchor, gestureRange);
+        const bool rightWaistActive =
+            isControllerNear(m_LeftControllerPosAbs, rightWaistAnchor, gestureRange) ||
+            isControllerNear(m_RightControllerPosAbs, rightWaistAnchor, gestureRange);
+
+        auto drawCircle = [&](const Vector& center, const Vector& axisA, const Vector& axisB, float range, int r, int g, int b)
             {
                 const int segments = 24;
                 const float twoPi = 6.28318530718f;
@@ -1087,23 +1165,75 @@ void VR::ProcessInput()
                     const float t1 = (twoPi * (i + 1)) / segments;
                     const Vector dir0 = (axisA * std::cos(t0)) + (axisB * std::sin(t0));
                     const Vector dir1 = (axisA * std::cos(t1)) + (axisB * std::sin(t1));
-                    const Vector start = center + (dir0 * range);
-                    const Vector end = center + (dir1 * range);
-                    m_Game->m_DebugOverlay->AddLineOverlay(start, end, m_InventoryAnchorColorR, m_InventoryAnchorColorG, m_InventoryAnchorColorB, true, m_LastFrameDuration * 2.0f);
+                    const Vector p0 = center + (dir0 * range);
+                    const Vector p1 = center + (dir1 * range);
+                    m_Game->m_DebugOverlay->AddLineOverlay(p0, p1, r, g, b, true, m_LastFrameDuration * 2.0f);
                 }
             };
 
-        auto drawAnchor = [&](const Vector& anchor, float range)
+        auto drawAnchor = [&](const Vector& anchor, float range, bool active)
             {
-                drawCircle(anchor, m_HmdRight, m_HmdForward, range);
-                drawCircle(anchor, m_HmdUp, m_HmdRight, range);
-                drawCircle(anchor, m_HmdForward, m_HmdUp, range);
+                int r = m_InventoryAnchorColorR;
+                int g = m_InventoryAnchorColorG;
+                int b = m_InventoryAnchorColorB;
+                int a = m_InventoryAnchorColorA;
+                if (active)
+                {
+                    r = 255; g = 255; b = 0;
+                    a = 220;
+                }
+
+                // Center marker box (more visible than lines in bright scenes).
+                const float box = std::max(1.0f, range * 0.15f);
+                Vector mins(-box, -box, -box);
+                Vector maxs(box, box, box);
+                QAngle ang(0.f, 0.f, 0.f);
+                m_Game->m_DebugOverlay->AddBoxOverlay(anchor, mins, maxs, ang, r, g, b, a, m_LastFrameDuration * 2.0f);
+
+                // Three circles to approximate a sphere (body-space axes).
+                drawCircle(anchor, invRight, invForward, range, r, g, b);
+                drawCircle(anchor, worldUp, invRight, range, r, g, b);
+                drawCircle(anchor, invForward, worldUp, range, r, g, b);
             };
 
-        drawAnchor(chestAnchor, chestGestureRange);
-        drawAnchor(backAnchor, gestureRange);
-        drawAnchor(leftWaistAnchor, gestureRange);
-        drawAnchor(rightWaistAnchor, gestureRange);
+        drawAnchor(chestAnchor, chestGestureRange, chestActive);
+        drawAnchor(backAnchor, gestureRange, backActive);
+        drawAnchor(leftWaistAnchor, gestureRange, leftWaistActive);
+        drawAnchor(rightWaistAnchor, gestureRange, rightWaistActive);
+
+        // --- Front markers (HUD-like, still world overlays) ---
+        // Real anchors can be behind you or at the waist and thus out of view.
+        // Draw 4 small markers in front of the player, each connected to the real anchor.
+        const float hudDist = m_InventoryHudMarkerDistance * m_VRScale;
+        const float hudUp = m_InventoryHudMarkerUpOffset * m_VRScale;
+        const float hudSep = m_InventoryHudMarkerSeparation * m_VRScale;
+
+        const Vector hudBase = m_HmdPosAbs + (invForward * hudDist) + (worldUp * hudUp);
+        const float hudBox = std::max(1.0f, hudSep * 0.18f);
+        Vector hudMins(-hudBox, -hudBox, -hudBox);
+        Vector hudMaxs(hudBox, hudBox, hudBox);
+        QAngle hudAng(0.f, 0.f, 0.f);
+
+        auto drawHudMarker = [&](const Vector& markerPos, const Vector& anchorPos, bool active)
+            {
+                int r = m_InventoryAnchorColorR;
+                int g = m_InventoryAnchorColorG;
+                int b = m_InventoryAnchorColorB;
+                int a = 220;
+                if (active)
+                {
+                    r = 255; g = 255; b = 0;
+                }
+
+                m_Game->m_DebugOverlay->AddBoxOverlay(markerPos, hudMins, hudMaxs, hudAng, r, g, b, a, m_LastFrameDuration * 2.0f);
+                m_Game->m_DebugOverlay->AddLineOverlay(markerPos, anchorPos, r, g, b, true, m_LastFrameDuration * 2.0f);
+            };
+
+        // Layout: [LeftWaist][Back][Chest][RightWaist]
+        drawHudMarker(hudBase + (invRight * (-1.5f * hudSep)), leftWaistAnchor, leftWaistActive);
+        drawHudMarker(hudBase + (invRight * (-0.5f * hudSep)), backAnchor, backActive);
+        drawHudMarker(hudBase + (invRight * (0.5f * hudSep)), chestAnchor, chestActive);
+        drawHudMarker(hudBase + (invRight * (1.5f * hudSep)), rightWaistAnchor, rightWaistActive);
     }
 
     bool inventoryGripActiveLeft = false;
@@ -2219,14 +2349,17 @@ float VR::CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMa
 
 void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
-    if (!m_Game->m_DebugOverlay)
-        return;
-
     if (!m_AimLineEnabled)
         return;
 
+    // Throttle expensive overlay geometry. Duration persistence keeps it visible.
+    if (ShouldThrottle(m_LastAimLineDrawTime, m_AimLineMaxHz))
+        return;
+
     // Keep the overlay alive for at least two frames so it doesn't disappear when the framerate drops.
-    const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+    const float duration = std::max(std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier), MinIntervalSeconds(m_AimLineMaxHz));
+    if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
+        return;
 
     DrawLineWithThickness(start, end, duration);
 }
@@ -2287,6 +2420,10 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector&
 void VR::DrawThrowArcFromCache(float duration)
 {
     if (!m_Game->m_DebugOverlay || !m_HasThrowArc)
+        return;
+
+    // Throttle throw arc drawing; it's a lot of overlay primitives.
+    if (ShouldThrottle(m_LastThrowArcDrawTime, m_ThrowArcMaxHz))
         return;
 
     for (int i = 0; i < THROW_ARC_SEGMENTS; ++i)
@@ -2364,23 +2501,8 @@ VR::SpecialInfectedType VR::GetSpecialInfectedType(const C_BaseEntity* entity) c
 {
     if (!entity)
         return SpecialInfectedType::None;
-
-    auto SafeReadInt = [](const void* base, int offset, int& out) -> bool
-    {
-        __try
-        {
-            out = *reinterpret_cast<const int*>(reinterpret_cast<const std::uint8_t*>(base) + offset);
-            return true;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    };
-
-    int zombieClass = 0;
-    if (!SafeReadInt(entity, kZombieClassOffset, zombieClass))
-        return SpecialInfectedType::None;
+    const auto base = reinterpret_cast<const std::uint8_t*>(entity);
+    const int zombieClass = *reinterpret_cast<const int*>(base + kZombieClassOffset);
 
     switch (zombieClass)
     {
@@ -2538,6 +2660,25 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
     if (!localPlayer)
         return true;
 
+    // Cache expensive TraceRay calls per-entity to avoid spikes when DrawModelExecute fires many times.
+    if (entityIndex > 0 && m_SpecialInfectedTraceMaxHz > 0.0f)
+    {
+        auto& last = m_LastSpecialInfectedTraceTime[entityIndex];
+        const auto now = std::chrono::steady_clock::now();
+        if (last.time_since_epoch().count() != 0)
+        {
+            const float minInterval = 1.0f / std::max(1.0f, m_SpecialInfectedTraceMaxHz);
+            const float elapsed = std::chrono::duration<float>(now - last).count();
+            if (elapsed < minInterval)
+            {
+                auto it = m_LastSpecialInfectedTraceResult.find(entityIndex);
+                if (it != m_LastSpecialInfectedTraceResult.end())
+                    return it->second;
+            }
+        }
+        last = now;
+    }
+
     IHandleEntity* targetEntity = nullptr;
     if (entityIndex > 0)
         targetEntity = (IHandleEntity*)m_Game->GetClientEntity(entityIndex);
@@ -2549,7 +2690,12 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
     ray.Init(m_RightControllerPosAbs, infectedOrigin);
     m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
 
-    return trace.fraction >= 1.0f;
+    const bool hasLos = trace.fraction >= 1.0f;
+
+    if (entityIndex > 0)
+        m_LastSpecialInfectedTraceResult[entityIndex] = hasLos;
+
+    return hasLos;
 }
 
 void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex, bool isPlayerClass)
@@ -3417,6 +3563,10 @@ void VR::ParseConfigFile()
     m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
     m_InventoryLeftWaistOffset = getVector3("InventoryLeftWaistOffset", m_InventoryLeftWaistOffset);
     m_InventoryRightWaistOffset = getVector3("InventoryRightWaistOffset", m_InventoryRightWaistOffset);
+    m_InventoryBodyOriginOffset = getVector3("InventoryBodyOriginOffset", m_InventoryBodyOriginOffset);
+    m_InventoryHudMarkerDistance = getFloat("InventoryHudMarkerDistance", m_InventoryHudMarkerDistance);
+    m_InventoryHudMarkerUpOffset = getFloat("InventoryHudMarkerUpOffset", m_InventoryHudMarkerUpOffset);
+    m_InventoryHudMarkerSeparation = getFloat("InventoryHudMarkerSeparation", m_InventoryHudMarkerSeparation);
     m_DrawInventoryAnchors = getBool("ShowInventoryAnchors", m_DrawInventoryAnchors);
     const auto inventoryColor = getColor("InventoryAnchorColor", m_InventoryAnchorColorR, m_InventoryAnchorColorG, m_InventoryAnchorColorB, m_InventoryAnchorColorA);
     m_InventoryAnchorColorR = inventoryColor[0];
@@ -3547,6 +3697,9 @@ void VR::ParseConfigFile()
     m_AimLineColorA = aimColor[3];
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
+    m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
+    m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
+    m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
@@ -3561,6 +3714,8 @@ void VR::ParseConfigFile()
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
     m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
+    m_SpecialInfectedOverlayMaxHz = std::max(0.0f, getFloat("SpecialInfectedOverlayMaxHz", m_SpecialInfectedOverlayMaxHz));
+    m_SpecialInfectedTraceMaxHz = std::max(0.0f, getFloat("SpecialInfectedTraceMaxHz", m_SpecialInfectedTraceMaxHz));
     const float preWarningAimAngle = getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle);
     m_SpecialInfectedPreWarningAimAngle = m_SpecialInfectedDebug
         ? std::max(0.0f, preWarningAimAngle)
