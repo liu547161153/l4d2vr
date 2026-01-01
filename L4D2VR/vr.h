@@ -309,7 +309,6 @@ public:
 	float m_ControllerHudZOffset = 0.0f;
 	float m_ControllerHudRotation = 0.0f;
 	float m_ControllerHudXOffset = 0.0f;
-	bool m_ControllerHudCut = true;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
