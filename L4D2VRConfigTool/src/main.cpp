@@ -1,4 +1,4 @@
-﻿// main.cpp
+// main.cpp
 // L4D2VR Config Tool
 // Reads/writes <exe>/vr/config.txt directly
 

@@ -1,4 +1,4 @@
-﻿#include "Options.h"
+#include "Options.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
