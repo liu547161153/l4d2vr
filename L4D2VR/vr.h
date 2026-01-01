@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #define MAX_STR_LEN 256
 
 class Game;
@@ -178,6 +179,20 @@ public:
 	// Tracks the duration of the previous frame so the aim line can persist when the framerate dips.
 	float m_LastFrameDuration = 1.0f / 90.0f;
 
+	// --- Spike control / throttling ---
+	// Heavy work can happen many times per frame (notably from dDrawModelExecute).
+	// These knobs cap how often we do expensive debug-overlay primitives and trace tests.
+	float m_AimLineMaxHz = 60.0f;              // caps DrawLineWithThickness calls
+	float m_ThrowArcMaxHz = 30.0f;             // caps throw arc overlay calls
+	float m_SpecialInfectedOverlayMaxHz = 20.0f; // caps arrow drawing + prewarning refresh per entity
+	float m_SpecialInfectedTraceMaxHz = 15.0f;   // caps TraceRay per entity
+
+	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
+	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
+	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
+	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
+	mutable std::unordered_map<int, bool> m_LastSpecialInfectedTraceResult{};
+
 	float m_Ipd;
 	float m_EyeZ;
 
@@ -326,6 +341,16 @@ public:
 	Vector m_InventoryBackOffset = { -0.25f, 0.0f, -0.10f };
 	Vector m_InventoryLeftWaistOffset = { 0.05f, -0.25f, -0.45f };
 	Vector m_InventoryRightWaistOffset = { 0.05f, 0.25f, -0.45f };
+
+	// Inventory anchor basis: apply offsets in a BODY space (yaw-only), not head pitch/roll.
+	// This makes anchors stable when you look up/down.
+	Vector m_InventoryBodyOriginOffset = { 0.0f, 0.0f, 0.0f }; // meters (forward,right,up) in body space
+
+	// Optional front-of-view debug helper markers (purely visual) so anchors behind/at waist are still discoverable.
+	float m_InventoryHudMarkerDistance = 0.45f;   // meters forward from head
+	float m_InventoryHudMarkerUpOffset = -0.10f;  // meters up (+) / down (-)
+	float m_InventoryHudMarkerSeparation = 0.14f; // meters between markers horizontally
+
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;
 	int m_InventoryAnchorColorG = 255;
