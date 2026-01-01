@@ -1654,9 +1654,11 @@ void VR::ProcessInput()
     bool wantsTopHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
     bool wantsControllerHud = m_RenderedHud;
 
+    const bool attachControllerHud = m_ControllerHudCut && !menuActive;
+
     if ((wantsTopHud && m_RenderedHud) || menuActive)
     {
-        RepositionOverlays(!menuActive);
+        RepositionOverlays(attachControllerHud);
 
         if (PressedDigitalAction(m_Scoreboard))
             m_Game->ClientCmd_Unrestricted("+showscores");
@@ -1672,7 +1674,7 @@ void VR::ProcessInput()
 
     if (wantsControllerHud)
     {
-        showControllerHud(!menuActive);
+        showControllerHud(attachControllerHud);
     }
     else
     {
