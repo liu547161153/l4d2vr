@@ -1542,16 +1542,76 @@ void VR::ProcessInput()
             vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
         };
 
+    auto controllerHudTooClose = [&](size_t overlayIndex, vr::TrackedDeviceIndex_t controllerIndex)
+        {
+            if (!m_ControllerHudCut || controllerIndex == vr::k_unTrackedDeviceIndexInvalid || (overlayIndex != 0 && overlayIndex != 3))
+                return false;
+
+            const vr::TrackedDevicePose_t& controllerPose = m_Poses[controllerIndex];
+            const vr::TrackedDevicePose_t& hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
+
+            if (!controllerPose.bPoseIsValid || !hmdPose.bPoseIsValid)
+                return false;
+
+            vr::HmdMatrix34_t controllerMat = controllerPose.mDeviceToAbsoluteTracking;
+            vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
+
+            int windowWidth, windowHeight;
+            m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+            const float hudAspect = static_cast<float>(windowHeight) / static_cast<float>(windowWidth);
+            const float hudHalfStackOffset = (m_HudSize * hudAspect) * 0.25f;
+
+            const float controllerHudRotationRad = m_ControllerHudRotation * (3.14159265358979323846f / 180.0f);
+            const float cosRotation = cosf(controllerHudRotationRad);
+            const float sinRotation = sinf(controllerHudRotationRad);
+            const float controllerHudXOffset = (overlayIndex == 0) ? -m_ControllerHudXOffset : m_ControllerHudXOffset;
+
+            vr::HmdMatrix34_t relativeTransform =
+            {
+                1.0f, 0.0f, 0.0f, controllerHudXOffset,
+                0.0f, cosRotation, -sinRotation, m_ControllerHudYOffset - hudHalfStackOffset,
+                0.0f, sinRotation,  cosRotation, m_ControllerHudZOffset
+            };
+
+            auto multiplyTransform = [](const vr::HmdMatrix34_t& parent, const vr::HmdMatrix34_t& child)
+                {
+                    vr::HmdMatrix34_t result = {};
+                    for (int row = 0; row < 3; ++row)
+                    {
+                        result.m[row][0] = parent.m[row][0] * child.m[0][0] + parent.m[row][1] * child.m[1][0] + parent.m[row][2] * child.m[2][0];
+                        result.m[row][1] = parent.m[row][0] * child.m[0][1] + parent.m[row][1] * child.m[1][1] + parent.m[row][2] * child.m[2][1];
+                        result.m[row][2] = parent.m[row][0] * child.m[0][2] + parent.m[row][1] * child.m[1][2] + parent.m[row][2] * child.m[2][2];
+                        result.m[row][3] = parent.m[row][0] * child.m[0][3] + parent.m[row][1] * child.m[1][3] + parent.m[row][2] * child.m[2][3] + parent.m[row][3];
+                    }
+                    return result;
+                };
+
+            vr::HmdMatrix34_t worldTransform = multiplyTransform(controllerMat, relativeTransform);
+            Vector overlayPos = { worldTransform.m[0][3], worldTransform.m[1][3], worldTransform.m[2][3] };
+            Vector hmdPos = { hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3] };
+
+            const float distance = VectorLength(overlayPos - hmdPos);
+            constexpr float controllerHudCutoffDistance = 0.25f;
+            return distance < controllerHudCutoffDistance;
+        };
+
     auto showControllerHud = [&](bool attachToControllers)
         {
             for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
             {
-                if (attachToControllers)
+                if (attachToControllers && (i == 0 || i == 3))
                 {
-                    if (i == 0 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) == vr::k_unTrackedDeviceIndexInvalid)
+                    vr::ETrackedControllerRole controllerRole = (i == 0) ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
+                    vr::TrackedDeviceIndex_t controllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(controllerRole);
+
+                    if (controllerIndex == vr::k_unTrackedDeviceIndexInvalid)
                         continue;
-                    if (i == 3 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
+
+                    if (controllerHudTooClose(i, controllerIndex))
+                    {
+                        vr::VROverlay()->HideOverlay(m_HUDBottomHandles[i]);
                         continue;
+                    }
                 }
 
                 vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
@@ -3671,6 +3731,7 @@ void VR::ParseConfigFile()
     m_ControllerHudZOffset = getFloat("ControllerHudZOffset", m_ControllerHudZOffset);
     m_ControllerHudRotation = getFloat("ControllerHudRotation", m_ControllerHudRotation);
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
+    m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HudToggleState = m_HudAlwaysVisible;
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
