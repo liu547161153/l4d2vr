@@ -12,7 +12,9 @@ enum class OptionType
     Bool,
     Float,
     Int,
-    Color
+    Color,
+    String,
+    Vec3
 };
 
 struct L10nText
@@ -33,6 +35,7 @@ struct Option
 
     float min = 0.f;
     float max = 0.f;
+    const char* defaultValue = "";
 };
 
 // Option table
