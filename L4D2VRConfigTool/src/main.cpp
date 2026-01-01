@@ -218,8 +218,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     const TCHAR* windowTitle = g_UseChinese ? _T("L4D2VR 配置工具") : _T("L4D2VR Config Tool");
 
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int windowW = static_cast<int>(screenW * 0.75f);
+    int windowH = static_cast<int>(screenH * 0.75f);
+
+    // Center the window while sizing it to 75% of the current resolution.
+    int posX = (screenW - windowW) / 2;
+    int posY = (screenH - windowH) / 2;
+
     HWND hwnd = CreateWindow(wc.lpszClassName, windowTitle,
-        WS_OVERLAPPEDWINDOW, 100, 100, 700, 500,
+        WS_OVERLAPPEDWINDOW, posX, posY, windowW, windowH,
         nullptr, nullptr, wc.hInstance, nullptr);
 
     if (!CreateDeviceD3D(hwnd))
