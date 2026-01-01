@@ -1,4 +1,4 @@
-﻿// main.cpp
+// main.cpp
 // L4D2VR Config Tool
 // Reads/writes <exe>/vr/config.txt directly
 
@@ -21,6 +21,7 @@
 
 
 std::unordered_map<std::string, std::string> g_Values;
+bool g_UseChinese = false;
 // ============================================================
 // Win32 + DX11 boilerplate (ImGui official example, simplified)
 // ============================================================
@@ -120,6 +121,19 @@ std::string GetConfigPath()
     return GetExeDir() + "\\vr\\config.txt";
 }
 
+static bool IsChineseUILanguage()
+{
+    auto is_zh = [](LANGID lang) {
+        return PRIMARYLANGID(lang) == LANG_CHINESE;
+    };
+
+    LANGID userLang = GetUserDefaultUILanguage();
+    if (is_zh(userLang)) return true;
+    LANGID sysLang = GetSystemDefaultUILanguage();
+    if (is_zh(sysLang)) return true;
+    return false;
+}
+
 void LoadConfig(const std::string& path)
 {
     g_Lines.clear();
@@ -194,13 +208,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     std::string configPath = GetConfigPath();
     LoadConfig(configPath);
 
+    // Decide UI language before creating any windows/UI
+    g_UseChinese = IsChineseUILanguage();
+
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L,
         GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr,
         _T("L4D2VRConfigTool"), nullptr };
     RegisterClassEx(&wc);
 
-    HWND hwnd = CreateWindow(wc.lpszClassName, _T("L4D2VR Config Tool"),
-        WS_OVERLAPPEDWINDOW, 100, 100, 700, 500,
+    const TCHAR* windowTitle = g_UseChinese ? _T("L4D2VR 配置工具") : _T("L4D2VR Config Tool");
+
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int windowW = static_cast<int>(screenW * 0.75f);
+    int windowH = static_cast<int>(screenH * 0.75f);
+
+    // Center the window while sizing it to 75% of the current resolution.
+    int posX = (screenW - windowW) / 2;
+    int posY = (screenH - windowH) / 2;
+
+    HWND hwnd = CreateWindow(wc.lpszClassName, windowTitle,
+        WS_OVERLAPPEDWINDOW, posX, posY, windowW, windowH,
         nullptr, nullptr, wc.hInstance, nullptr);
 
     if (!CreateDeviceD3D(hwnd))
@@ -238,20 +266,43 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return io.Fonts->AddFontFromFileTTF(path.c_str(), 18.0f, nullptr, io.Fonts->GetGlyphRangesChineseFull());
     };
 
-    // Prefer Microsoft YaHei
-    font = TryFont(L"msyh.ttc");
-    if (!font) font = TryFont(L"msyhbd.ttc");
+    // Prefer Microsoft YaHei when showing Chinese. Always ensure we have Chinese glyphs even in English UI.
+    if (g_UseChinese)
+    {
+        font = TryFont(L"msyh.ttc");
+        if (!font) font = TryFont(L"msyhbd.ttc");
+        if (!font) font = TryFont(L"simhei.ttf");
+        if (!font) font = TryFont(L"simsun.ttc");
+        if (!font) font = io.Fonts->AddFontDefault();
+    }
+    else
+    {
+        font = io.Fonts->AddFontDefault(); // English UI
 
-    // Fallbacks
-    if (!font) font = TryFont(L"simhei.ttf");
-    if (!font) font = TryFont(L"simsun.ttc");
+        // Merge a Chinese font so Chinese option text/tooltips render correctly
+        ImFontConfig cfg;
+        cfg.MergeMode = true;
+        cfg.PixelSnapH = true;
+        cfg.GlyphMinAdvanceX = 12.0f;
+        auto merge = [&](const wchar_t* name) {
+            std::wstring wpath = fontsDir + name;
+            if (GetFileAttributesW(wpath.c_str()) == INVALID_FILE_ATTRIBUTES)
+                return false;
+            std::string path = WideToUtf8(wpath);
+            return io.Fonts->AddFontFromFileTTF(path.c_str(), 16.0f, &cfg, io.Fonts->GetGlyphRangesChineseFull()) != nullptr;
+        };
+        if (!merge(L"msyh.ttc"))
+            if (!merge(L"msyhbd.ttc"))
+                if (!merge(L"simhei.ttf"))
+                    merge(L"simsun.ttc");
 
-    // Last resort
-    if (!font) font = io.Fonts->AddFontDefault();
+        // Ensure we still have a font
+        if (!font) font = io.Fonts->AddFontDefault();
+    }
 
     io.FontDefault = font;
 
-ImGui::StyleColorsDark();
+    ImGui::StyleColorsDark();
 
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
@@ -273,6 +324,8 @@ ImGui::StyleColorsDark();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
+        auto L = [](const char* en, const char* zh) { return (g_UseChinese && zh && *zh) ? zh : en; };
+
         ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(vp->WorkPos, ImGuiCond_Always);
         ImGui::SetNextWindowSize(vp->WorkSize, ImGuiCond_Always);
@@ -284,27 +337,27 @@ ImGui::StyleColorsDark();
             ImGuiWindowFlags_NoBringToFrontOnFocus |
             ImGuiWindowFlags_NoTitleBar;
 
-        
-ImGui::Begin("L4D2VR Config Tool", nullptr, winFlags);
+        const char* uiTitle = L("L4D2VR Config Tool", u8"L4D2VR 配置工具");
+        ImGui::Begin(uiTitle, nullptr, winFlags);
 
-    // Header
-    ImGui::Text("Config: %s", configPath.c_str());
-    ImGui::SameLine();
-    if (ImGui::Button("Save"))
-        SaveConfig(configPath);
+        // Header
+        ImGui::Text("%s %s", L("Config:", u8"配置:"), configPath.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button(L("Save", u8"保存")))
+            SaveConfig(configPath);
 
-    // Search
-    ImGui::SetNextItemWidth(420.0f);
-    ImGui::InputTextWithHint("##OptionSearch", u8"Search", g_OptionSearch, sizeof(g_OptionSearch));
+        // Search
+        ImGui::SetNextItemWidth(420.0f);
+        ImGui::InputTextWithHint("##OptionSearch", L("Search", u8"搜索"), g_OptionSearch, sizeof(g_OptionSearch));
 
-    ImGui::Separator();
+        ImGui::Separator();
 
-    // Scrollable options area
-    ImGui::BeginChild("##OptionsScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-    DrawOptionsUI();
-    ImGui::EndChild();
+        // Scrollable options area
+        ImGui::BeginChild("##OptionsScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        DrawOptionsUI();
+        ImGui::EndChild();
 
-    ImGui::End();
+        ImGui::End();
 
         ImGui::Render();
         const float clear[4] = { 0.1f,0.1f,0.1f,1.0f };
