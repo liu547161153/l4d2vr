@@ -254,16 +254,16 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
 		Vector camCenter = setup.origin + (fwd * (-eyeZ));
-		leftOrigin  = camCenter + (right * (-(ipd * 0.5f)));
-		rightOrigin = camCenter + (right * ( +(ipd * 0.5f)));
-		viewAngles  = setup.angles;
+		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
+		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+		viewAngles = setup.angles;
 	}
 	else
 	{
 		// Normal VR first-person
-		leftOrigin  = m_VR->GetViewOriginLeft();
+		leftOrigin = m_VR->GetViewOriginLeft();
 		rightOrigin = m_VR->GetViewOriginRight();
-		viewAngles  = m_VR->GetViewAngle();
+		viewAngles = m_VR->GetViewAngle();
 	}
 
 	leftEyeView.origin = leftOrigin;
@@ -750,24 +750,9 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			}
 		}
 
-		const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
-		if (isInfectedModel)
+		if (entity && info.entity_index > 0 && m_Game->IsValidPlayerIndex(info.entity_index))
 		{
-			// ---- Netvar safety gate (do NOT over-filter) ----
-			bool allowNetvar = entity && className;
-
-			// Explicitly exclude classes that must NOT have zombieClass
-			if (allowNetvar && (strstr(className, "Ragdoll") != nullptr
-				|| strstr(className, "Corpse") != nullptr
-				|| strstr(className, "Gib") != nullptr))
-			{
-				allowNetvar = false;
-			}
-
-			if (allowNetvar)
-			{
-				infectedType = m_VR->GetSpecialInfectedType(entity);
-			}
+			infectedType = m_VR->GetSpecialInfectedType(entity);
 		}
 
 		if (isAlive && infectedType == VR::SpecialInfectedType::None)
