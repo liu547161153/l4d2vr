@@ -288,7 +288,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 
 	leftEyeView.origin = leftOrigin;
-	leftEyeView.angles = viewAngles;
+	leftEyeView.angles.x = viewAngles.x;
+	leftEyeView.angles.y = viewAngles.y;
+	leftEyeView.angles.z = viewAngles.z;
 
 	Vector hmdAngle = m_VR->GetViewAngle();
 	QAngle inGameAngle(hmdAngle.x, hmdAngle.y, hmdAngle.z);
@@ -309,7 +311,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rightEyeView.zNear = 6;
 	rightEyeView.zNearViewmodel = 6;
 	rightEyeView.origin = rightOrigin;
-	rightEyeView.angles = viewAngles;
+	rightEyeView.angles.x = viewAngles.x;
+	rightEyeView.angles.y = viewAngles.y;
+	rightEyeView.angles.z = viewAngles.z;
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudViewSetup, nClearFlags, whatToDraw);
