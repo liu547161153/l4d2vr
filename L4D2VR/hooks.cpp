@@ -208,6 +208,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
 
+	// ------------------------------
+	// Third-person camera fix:
+	// If engine is in third-person, setup.origin is a shoulder camera,
+	// but our VR hook normally overwrites it with HMD first-person.
+	// That makes the local player model show up "in your face" and looks like ghosting/double image.
+	// ------------------------------
+	int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+	C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+
+	Vector eyeOrigin = setup.origin;
+	if (localPlayer)
+		eyeOrigin = localPlayer->EyePosition();
+
+	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
+	const float camDist = (setup.origin - eyeOrigin).Length();
+	const bool engineThirdPerson = (localPlayer && camDist > 5.0f);
+
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -220,11 +237,37 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.m_flAspectRatio = m_VR->m_Aspect;
 	leftEyeView.zNear = 6;
 	leftEyeView.zNearViewmodel = 6;
-	leftEyeView.origin = m_VR->GetViewOriginLeft();
-	leftEyeView.angles = m_VR->GetViewAngle();
-
-	m_VR->m_SetupOrigin = setup.origin;
+	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
+	m_VR->m_SetupOrigin = eyeOrigin;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+
+	Vector leftOrigin, rightOrigin, viewAngles;
+	if (engineThirdPerson)
+	{
+		// Render from the engine-provided third-person camera (setup.origin/angles)
+		QAngle camAng(setup.angles.x, setup.angles.y, setup.angles.z);
+		Vector fwd, right, up;
+		QAngle::AngleVectors(camAng, &fwd, &right, &up);
+
+		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
+		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
+
+		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
+		Vector camCenter = setup.origin + (fwd * (-eyeZ));
+		leftOrigin  = camCenter + (right * (-(ipd * 0.5f)));
+		rightOrigin = camCenter + (right * ( +(ipd * 0.5f)));
+		viewAngles  = setup.angles;
+	}
+	else
+	{
+		// Normal VR first-person
+		leftOrigin  = m_VR->GetViewOriginLeft();
+		rightOrigin = m_VR->GetViewOriginRight();
+		viewAngles  = m_VR->GetViewAngle();
+	}
+
+	leftEyeView.origin = leftOrigin;
+	leftEyeView.angles = viewAngles;
 
 	Vector hmdAngle = m_VR->GetViewAngle();
 	QAngle inGameAngle(hmdAngle.x, hmdAngle.y, hmdAngle.z);
@@ -249,8 +292,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rightEyeView.m_flAspectRatio = m_VR->m_Aspect;
 	rightEyeView.zNear = 6;
 	rightEyeView.zNearViewmodel = 6;
-	rightEyeView.origin = m_VR->GetViewOriginRight();
-	rightEyeView.angles = m_VR->GetViewAngle();
+	rightEyeView.origin = rightOrigin;
+	rightEyeView.angles = viewAngles;
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudViewSetup, nClearFlags, whatToDraw);
