@@ -2389,7 +2389,18 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     VectorNormalize(direction);
 
-    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
+    Vector originBase = m_RightControllerPosAbs;
+
+    // In third-person, the engine camera is offset from the player's eye. Translate the
+    // controller-origin into the third-person camera space so the aim line appears near
+    // your current view instead of stuck on the character.
+    if (m_IsThirdPersonCamera)
+    {
+        Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+        originBase += camDelta;
+    }
+
+    Vector origin = originBase + direction * 2.0f;
 
     if (isThrowable)
     {
