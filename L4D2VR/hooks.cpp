@@ -422,7 +422,31 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
 		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-		vecNewAngles = m_VR->GetRightControllerAbsAngle();
+
+		// Third-person convergence: aim bullets to the converge point so "bullet line" intersects
+		// the rendered aim line at the actual hit point.
+		if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+		{
+			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
+			if (!to.IsZero())
+			{
+				VectorNormalize(to);
+				QAngle ang;
+				QAngle::VectorAngles(to, ang);
+				ang.z = 0.f;
+				if (ang.x > 89.f) ang.x = 89.f;
+				if (ang.x < -89.f) ang.x = -89.f;
+				vecNewAngles = ang;
+			}
+			else
+			{
+				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+			}
+		}
+		else
+		{
+			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		}
 	}
 	// Clients
 	else if (m_Game->IsValidPlayerIndex(playerId) && m_Game->m_PlayersVRInfo[playerId].isUsingVR)
@@ -443,7 +467,29 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
 		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-		vecNewAngles = m_VR->GetRightControllerAbsAngle();
+
+		if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+		{
+			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
+			if (!to.IsZero())
+			{
+				VectorNormalize(to);
+				QAngle ang;
+				QAngle::VectorAngles(to, ang);
+				ang.z = 0.f;
+				if (ang.x > 89.f) ang.x = 89.f;
+				if (ang.x < -89.f) ang.x = -89.f;
+				vecNewAngles = ang;
+			}
+			else
+			{
+				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+			}
+		}
+		else
+		{
+			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		}
 	}
 
 	return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
