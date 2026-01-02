@@ -277,7 +277,7 @@ void VR::Update()
 
 bool VR::GetWalkAxis(float& x, float& y) {
     vr::InputAnalogActionData_t d;
-    if (GetAnalogActionData(m_ActionWalk, d)) {  // m_ActionWalk 已在现有代码中使用
+    if (GetAnalogActionData(m_ActionWalk, d)) {  // m_ActionWalk        д     ʹ  
         x = d.x; y = d.y;
         return true;
     }
@@ -371,7 +371,7 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKHUD.m_VRTexture);
         };
 
-    // 若这帧没有新内容，就走菜单/Overlay 路径
+    //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
     {
         if (!m_BlankTexture)
@@ -1082,8 +1082,8 @@ void VR::ProcessInput()
             }
         };
 
-  float gestureRange = m_InventoryGestureRange * m_VRScale;
-    const float chestGestureRange = gestureRange;
+    const float gestureRange = m_InventoryGestureRange * m_VRScale;
+    const float chestGestureRange = gestureRange * 0.5f;
 
     // Inventory anchors should be BODY-relative, not fully HMD-relative.
     // We build a yaw-only body basis (forward/right) from the HMD yaw, and use world up.
@@ -1526,7 +1526,21 @@ void VR::ProcessInput()
                 }
                 return;
             }
+            if (binding.usePressReleaseCommands)
+            {
+                if (!actionData.bChanged)
+                    return;
 
+                if (actionData.bState)
+                {
+                    m_Game->ClientCmd_Unrestricted(binding.command.c_str());
+                }
+                else if (!binding.releaseCommand.empty())
+                {
+                    m_Game->ClientCmd_Unrestricted(binding.releaseCommand.c_str());
+                }
+                return;
+            }
             if (actionData.bState && actionData.bChanged && !binding.command.empty())
                 m_Game->ClientCmd_Unrestricted(binding.command.c_str());
         };
@@ -1542,16 +1556,80 @@ void VR::ProcessInput()
             vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
         };
 
+    auto controllerHudTooClose = [&](size_t overlayIndex, vr::TrackedDeviceIndex_t controllerIndex)
+        {
+            if (!m_ControllerHudCut || controllerIndex == vr::k_unTrackedDeviceIndexInvalid || (overlayIndex != 0 && overlayIndex != 3))
+                return false;
+
+            const vr::TrackedDevicePose_t& controllerPose = m_Poses[controllerIndex];
+            const vr::TrackedDevicePose_t& hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
+
+            if (!controllerPose.bPoseIsValid || !hmdPose.bPoseIsValid)
+                return false;
+
+            vr::HmdMatrix34_t controllerMat = controllerPose.mDeviceToAbsoluteTracking;
+            vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
+
+            int windowWidth, windowHeight;
+            m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+            const float hudAspect = static_cast<float>(windowHeight) / static_cast<float>(windowWidth);
+            const float hudHalfStackOffset = (m_HudSize * hudAspect) * 0.25f;
+
+            const float controllerHudRotationRad = m_ControllerHudRotation * (3.14159265358979323846f / 180.0f);
+            const float cosRotation = cosf(controllerHudRotationRad);
+            const float sinRotation = sinf(controllerHudRotationRad);
+            const float controllerHudXOffset = (overlayIndex == 0) ? -m_ControllerHudXOffset : m_ControllerHudXOffset;
+
+            vr::HmdMatrix34_t relativeTransform =
+            {
+                1.0f, 0.0f, 0.0f, controllerHudXOffset,
+                0.0f, cosRotation, -sinRotation, m_ControllerHudYOffset - hudHalfStackOffset,
+                0.0f, sinRotation,  cosRotation, m_ControllerHudZOffset
+            };
+
+            auto multiplyTransform = [](const vr::HmdMatrix34_t& parent, const vr::HmdMatrix34_t& child)
+                {
+                    vr::HmdMatrix34_t result = {};
+                    for (int row = 0; row < 3; ++row)
+                    {
+                        result.m[row][0] = parent.m[row][0] * child.m[0][0] + parent.m[row][1] * child.m[1][0] + parent.m[row][2] * child.m[2][0];
+                        result.m[row][1] = parent.m[row][0] * child.m[0][1] + parent.m[row][1] * child.m[1][1] + parent.m[row][2] * child.m[2][1];
+                        result.m[row][2] = parent.m[row][0] * child.m[0][2] + parent.m[row][1] * child.m[1][2] + parent.m[row][2] * child.m[2][2];
+                        result.m[row][3] = parent.m[row][0] * child.m[0][3] + parent.m[row][1] * child.m[1][3] + parent.m[row][2] * child.m[2][3] + parent.m[row][3];
+                    }
+                    return result;
+                };
+
+            vr::HmdMatrix34_t worldTransform = multiplyTransform(controllerMat, relativeTransform);
+            Vector overlayPos = { worldTransform.m[0][3], worldTransform.m[1][3], worldTransform.m[2][3] };
+            Vector hmdPos = { hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3] };
+            Vector controllerPos = { controllerMat.m[0][3], controllerMat.m[1][3], controllerMat.m[2][3] };
+
+            const float overlayDistance = VectorLength(overlayPos - hmdPos);
+            const float controllerDistance = VectorLength(controllerPos - hmdPos);
+
+            constexpr float overlayCutoff = 0.35f;
+            constexpr float controllerCutoff = 0.25f;
+
+            return overlayDistance < overlayCutoff || controllerDistance < controllerCutoff;
+        };
+
     auto showControllerHud = [&](bool attachToControllers)
         {
             for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
             {
-                if (attachToControllers)
+                if (attachToControllers && (i == 0 || i == 3))
                 {
-                    if (i == 0 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) == vr::k_unTrackedDeviceIndexInvalid)
+                    vr::ETrackedControllerRole controllerRole = (i == 0) ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
+                    vr::TrackedDeviceIndex_t controllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(controllerRole);
+
+                    if (controllerIndex == vr::k_unTrackedDeviceIndexInvalid)
                         continue;
-                    if (i == 3 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
+                    if (controllerHudTooClose(i, controllerIndex))
+                    {
+                        vr::VROverlay()->HideOverlay(m_HUDBottomHandles[i]);
                         continue;
+                    }
                 }
 
                 vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
@@ -1584,10 +1662,10 @@ void VR::ProcessInput()
 
     bool wantsTopHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
     bool wantsControllerHud = m_RenderedHud;
-
+    const bool attachControllerHud = m_ControllerHudCut && !menuActive;
     if ((wantsTopHud && m_RenderedHud) || menuActive)
     {
-        RepositionOverlays(!menuActive);
+        RepositionOverlays(attachControllerHud);
 
         if (PressedDigitalAction(m_Scoreboard))
             m_Game->ClientCmd_Unrestricted("+showscores");
@@ -1603,7 +1681,7 @@ void VR::ProcessInput()
 
     if (wantsControllerHud)
     {
-        showControllerHud(!menuActive);
+        showControllerHud(attachControllerHud);
     }
     else
     {
@@ -2776,6 +2854,24 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         if (!HasLineOfSightToSpecialInfected(infectedOrigin, entityIndex))
             return;
 
+        const bool isPounceType = type == SpecialInfectedType::Hunter || type == SpecialInfectedType::Jockey;
+        if (m_SpecialInfectedWarningActionEnabled && isPounceType && m_SpecialInfectedPreWarningEvadeDistance > 0.0f)
+        {
+            const float evadeDistanceSq = m_SpecialInfectedPreWarningEvadeDistance * m_SpecialInfectedPreWarningEvadeDistance;
+            if (distanceSq <= evadeDistanceSq)
+            {
+                m_SpecialInfectedWarningTarget = infectedOrigin;
+                m_SpecialInfectedWarningTargetActive = true;
+                m_LastSpecialInfectedWarningTime = now;
+                m_SpecialInfectedBlindSpotWarningActive = true;
+
+                if (!m_SpecialInfectedPreWarningEvadeTriggered)
+                {
+                    StartSpecialInfectedWarningAction();
+                    m_SpecialInfectedPreWarningEvadeTriggered = true;
+                }
+            }
+        }
         const bool isCloser = distanceSq < m_SpecialInfectedPreWarningTargetDistanceSq;
         const bool isCandidate = isLockedTarget || isCloser || distanceSq <= (m_SpecialInfectedPreWarningTargetDistanceSq + 0.01f);
         const float updateInterval = std::max(0.0f, m_SpecialInfectedPreWarningTargetUpdateInterval);
@@ -2838,6 +2934,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningTargetIsPlayer = false;
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimCooldownEnd = {};
+        m_SpecialInfectedPreWarningEvadeTriggered = false;
         return;
     }
 
@@ -2848,6 +2945,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningTargetEntityIndex = -1;
         m_SpecialInfectedPreWarningTargetIsPlayer = false;
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
+        m_SpecialInfectedPreWarningEvadeTriggered = false;
         return;
     }
 
@@ -2898,6 +2996,9 @@ void VR::UpdateSpecialInfectedPreWarningState()
 
     if (m_SpecialInfectedPreWarningActive && !m_SpecialInfectedPreWarningInRange)
         m_SpecialInfectedPreWarningActive = false;
+
+    if (!m_SpecialInfectedPreWarningActive)
+        m_SpecialInfectedPreWarningEvadeTriggered = false;
 
     if (wasActive && !m_SpecialInfectedPreWarningActive && m_SpecialInfectedAutoAimCooldown > 0.0f)
     {
@@ -3328,11 +3429,11 @@ void VR::ParseConfigFile()
 {
     std::ifstream configStream("VR\\config.txt");
     if (!configStream) {
-        // 找不到就保持构造时的默认值
+        //  Ҳ    ͱ  ֹ   ʱ  Ĭ  ֵ
         return;
     }
 
-    // 简单的 trim
+    //  򵥵  trim
     auto ltrim = [](std::string& s) {
         s.erase(s.begin(), std::find_if(s.begin(), s.end(),
             [](unsigned char ch) { return !std::isspace(ch); }));
@@ -3347,7 +3448,7 @@ void VR::ParseConfigFile()
     std::string line;
     while (std::getline(configStream, line))
     {
-        // 去掉注释
+        // ȥ  ע  
         size_t cut = std::string::npos;
         size_t p1 = line.find("//");
         size_t p2 = line.find('#');
@@ -3360,7 +3461,7 @@ void VR::ParseConfigFile()
         trim(line);
         if (line.empty()) continue;
 
-        // 解析 key=value
+        //      key=value
         size_t eq = line.find('=');
         if (eq == std::string::npos) continue;
 
@@ -3371,12 +3472,12 @@ void VR::ParseConfigFile()
             userConfig[key] = value;
     }
 
-    // 小工具：带默认值的安全读取
+    // С   ߣ   Ĭ  ֵ İ ȫ  ȡ
     auto getBool = [&](const char* k, bool defVal)->bool {
         auto it = userConfig.find(k);
         if (it == userConfig.end()) return defVal;
         std::string v = it->second;
-        // 转小写
+        // תСд
         std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return std::tolower(c); });
         if (v == "1" || v == "true" || v == "on" || v == "yes") return true;
         if (v == "0" || v == "false" || v == "off" || v == "no")  return false;
@@ -3531,6 +3632,8 @@ void VR::ParseConfigFile()
         {
             binding.command = getString(key, binding.command);
             binding.holdVirtualKey = false;
+            binding.releaseCommand.clear();
+            binding.usePressReleaseCommands = false;
 
             std::string trimmedCommand = binding.command;
             trim(trimmedCommand);
@@ -3545,6 +3648,34 @@ void VR::ParseConfigFile()
                 trim(trimmedCommand);
                 binding.command = trimmedCommand;
             }
+            // Custom alias helper: CustomActionXCommand=alias:aliasName:+speed|wait 30|-speed
+            // The section after the alias name uses '|' as a stand-in for ';' to avoid config comment stripping.
+            const std::string aliasPrefix = "alias:";
+            if (normalized.rfind(aliasPrefix, 0) == 0)
+            {
+                std::string aliasDefinition = trimmedCommand.substr(aliasPrefix.size());
+                trim(aliasDefinition);
+
+                size_t separator = aliasDefinition.find(':');
+                if (separator != std::string::npos)
+                {
+                    std::string aliasName = aliasDefinition.substr(0, separator);
+                    std::string aliasBody = aliasDefinition.substr(separator + 1);
+                    trim(aliasName);
+                    trim(aliasBody);
+
+                    if (!aliasName.empty() && !aliasBody.empty())
+                    {
+                        std::replace(aliasBody.begin(), aliasBody.end(), '|', ';');
+                        std::string aliasCommand = "alias " + aliasName + " \"" + aliasBody + "\"";
+                        m_Game->ClientCmd_Unrestricted(aliasCommand.c_str());
+                        Game::logMsg("[VR] %s defined alias '%s' = %s", key, aliasName.c_str(), aliasBody.c_str());
+
+                        binding.command = aliasName;
+                        normalized = aliasName;
+                    }
+                }
+            }
 
             binding.virtualKey = parseVirtualKey(binding.command);
             if (!binding.command.empty() && binding.virtualKey.has_value())
@@ -3552,9 +3683,16 @@ void VR::ParseConfigFile()
                 Game::logMsg("[VR] %s mapped to virtual key 0x%02X%s", key, *binding.virtualKey,
                     binding.holdVirtualKey ? " (hold)" : "");
             }
+            else if (!trimmedCommand.empty() && trimmedCommand[0] == '+' && trimmedCommand.size() > 1)
+            {
+                binding.usePressReleaseCommands = true;
+                binding.releaseCommand = "-" + trimmedCommand.substr(1);
+                binding.command = trimmedCommand;
+                Game::logMsg("[VR] %s mapped to command press/release: %s / %s", key, binding.command.c_str(), binding.releaseCommand.c_str());
+            }
         };
 
-    // 用当前成员的值作为默认值（构造时已初始化）
+    //  õ ǰ  Ա  ֵ  ΪĬ  ֵ      ʱ ѳ ʼ    
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
@@ -3671,6 +3809,7 @@ void VR::ParseConfigFile()
     m_ControllerHudZOffset = getFloat("ControllerHudZOffset", m_ControllerHudZOffset);
     m_ControllerHudRotation = getFloat("ControllerHudRotation", m_ControllerHudRotation);
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
+    m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HudToggleState = m_HudAlwaysVisible;
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
@@ -3710,6 +3849,7 @@ void VR::ParseConfigFile()
     m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
     m_SpecialInfectedBlindSpotDistance = std::max(0.0f, getFloat("SpecialInfectedBlindSpotDistance", m_SpecialInfectedBlindSpotDistance));
     m_SpecialInfectedPreWarningAutoAimConfigEnabled = getBool("SpecialInfectedPreWarningAutoAimEnabled", m_SpecialInfectedPreWarningAutoAimConfigEnabled);
+    m_SpecialInfectedPreWarningEvadeDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningEvadeDistance", m_SpecialInfectedPreWarningEvadeDistance));
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
