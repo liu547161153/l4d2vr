@@ -2360,9 +2360,12 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
 
     bool isThrowable = IsThrowableWeapon(activeWeapon);
-    // First-person: aim line follows the right controller.
-    // Third-person: aim line follows the camera/HMD (more intuitive and doesn't drift when you look around).
-    Vector direction = m_IsThirdPersonCamera ? m_HmdForward : m_RightControllerForward;
+
+    // Aim line stays controller-bound in both first- and third-person. In third-person, prefer the
+    // unforced forward so auto-aim tweaks don't move the rendered line unexpectedly.
+    Vector direction = m_RightControllerForward;
+    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+        direction = m_RightControllerForwardUnforced;
     if (direction.IsZero())
     {
         if (m_LastAimDirection.IsZero())
@@ -2392,11 +2395,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     VectorNormalize(direction);
 
-    Vector origin;
-    if (m_IsThirdPersonCamera)
-        origin = m_ThirdPersonViewOrigin + direction * 2.0f;  // camera-space aim ray
-    else
-        origin = m_RightControllerPosAbs + direction * 2.0f;  // controller-space aim ray
+    // Always controller-space origin (no camera delta / no third-person rebase here).
+    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
 
     if (isThrowable)
     {
@@ -2413,7 +2413,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
 
-    // Third-person convergence point P: where the *rendered* aim ray hits.
+    // Third-person convergence point P: where the *rendered* (controller-bound) aim ray hits.
     // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
     if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
     {
