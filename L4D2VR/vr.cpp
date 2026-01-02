@@ -1859,6 +1859,59 @@ QAngle VR::GetRecommendedViewmodelAbsAngle()
     return result;
 }
 
+vr::HmdMatrix34_t VR::BuildThirdPersonSubmitPose() const
+{
+    vr::HmdMatrix34_t pose{};
+    if (!m_ThirdPersonPoseInitialized)
+    {
+        pose.m[0][0] = 1.0f;
+        pose.m[1][1] = 1.0f;
+        pose.m[2][2] = 1.0f;
+        return pose;
+    }
+
+    pose.m[0][0] = 1.0f;
+    pose.m[0][1] = 0.0f;
+    pose.m[0][2] = 0.0f;
+    pose.m[1][0] = 0.0f;
+    pose.m[1][1] = 1.0f;
+    pose.m[1][2] = 0.0f;
+    pose.m[2][0] = 0.0f;
+    pose.m[2][1] = 0.0f;
+    pose.m[2][2] = 1.0f;
+
+    pose.m[0][3] = m_ThirdPersonViewOrigin.x;
+    pose.m[1][3] = m_ThirdPersonViewOrigin.y;
+    pose.m[2][3] = m_ThirdPersonViewOrigin.z;
+    return pose;
+}
+
+bool VR::UpdateThirdPersonViewState(const Vector& cameraOrigin, const QAngle& cameraAngles)
+{
+    const bool thirdPersonNow = !cameraOrigin.IsZero();
+    if (thirdPersonNow)
+    {
+        m_IsThirdPersonCamera = true;
+        m_ThirdPersonHoldFrames = 2;
+        m_ThirdPersonViewOrigin = cameraOrigin;
+        m_ThirdPersonViewAngles = cameraAngles;
+        m_ThirdPersonPoseInitialized = true;
+        return true;
+    }
+
+    if (m_ThirdPersonHoldFrames > 0)
+    {
+        --m_ThirdPersonHoldFrames;
+        return true;
+    }
+
+    m_IsThirdPersonCamera = false;
+    m_ThirdPersonPoseInitialized = false;
+    m_ThirdPersonViewOrigin = { 0.0f, 0.0f, 0.0f };
+    m_ThirdPersonViewAngles = { 0.0f, 0.0f, 0.0f };
+    return false;
+}
+
 void VR::HandleMissingRenderContext(const char* location)
 {
     const char* ctx = location ? location : "unknown";

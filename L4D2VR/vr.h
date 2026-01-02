@@ -493,7 +493,7 @@ public:
 	QAngle GetRecommendedViewmodelAbsAngle();
 	void UpdateTracking();
 	void UpdateMotionGestures(C_BasePlayer* localPlayer);
-	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
+	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const QAngle& cameraAngles);
 	Vector GetViewAngle();
 	Vector GetViewOriginLeft();
 	Vector GetViewOriginRight();

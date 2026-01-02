@@ -225,6 +225,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	const bool engineThirdPerson = (localPlayer && camDist > 5.0f);
 
+	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
+	m_VR->m_SetupOrigin = eyeOrigin;
+	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+
+	// When forcing non-VR server movement, a third-person camera can coexist with the VR render path and
+	// produce a double image. In that mode, fall back to the engine's single third-person render.
+	const bool skipVrStereoForThirdPerson = (engineThirdPerson && m_VR->m_ForceNonVRServerMovement);
+	m_VR->UpdateThirdPersonViewState(
+		engineThirdPerson ? setup.origin : Vector{ 0.0f, 0.0f, 0.0f },
+		engineThirdPerson ? QAngle(setup.angles.x, setup.angles.y, setup.angles.z) : QAngle{});
+	if (skipVrStereoForThirdPerson)
+	{
+		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
+	}
+
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -237,9 +252,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.m_flAspectRatio = m_VR->m_Aspect;
 	leftEyeView.zNear = 6;
 	leftEyeView.zNearViewmodel = 6;
-	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
-	m_VR->m_SetupOrigin = eyeOrigin;
-	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
@@ -582,8 +594,8 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	if (!m_VR->m_IsVREnabled)
 		return hkWriteUsercmd.fOriginal(buf, to, from);
 
-	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）且（未强制走非 VR 标准）时才编码
-	const bool canEncode = (m_VR->m_EncodeVRUsercmd && !m_VR->m_ForceNonVRServerMovement);
+	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）且（未强制走非 VR 标准，或服务器可解 VR 数据）时才编码
+	const bool canEncode = m_VR->m_EncodeVRUsercmd && (!m_VR->m_ForceNonVRServerMovement || Hooks::s_ServerUnderstandsVR);
 
 	if (!canEncode)
 	{
