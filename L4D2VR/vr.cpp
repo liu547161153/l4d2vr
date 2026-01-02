@@ -1,3 +1,4 @@
+
 #include "vr.h"
 #include <Windows.h>
 #include "sdk.h"
@@ -1083,7 +1084,7 @@ void VR::ProcessInput()
         };
 
     const float gestureRange = m_InventoryGestureRange * m_VRScale;
-    const float chestGestureRange = gestureRange * 0.5f;
+    const float chestGestureRange = gestureRange;
 
     // Inventory anchors should be BODY-relative, not fully HMD-relative.
     // We build a yaw-only body basis (forward/right) from the HMD yaw, and use world up.
@@ -2394,7 +2395,15 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     VectorNormalize(direction);
 
-    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
+    // Aim line origin is controller-based. In third-person the rendered camera is offset behind the player,
+    // so we translate the controller position into the rendered-camera frame.
+    // We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
+    Vector originBase = m_RightControllerPosAbs;
+    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+        originBase += camDelta;
+
+    Vector origin = originBase + direction * 2.0f;
 
     if (isThrowable)
     {
