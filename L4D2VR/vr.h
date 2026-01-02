@@ -190,6 +190,7 @@ public:
 	float m_SpecialInfectedTraceMaxHz = 15.0f;   // caps TraceRay per entity
 
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
+	std::chrono::steady_clock::time_point m_LastAimLineTraceTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};

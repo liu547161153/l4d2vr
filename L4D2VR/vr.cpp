@@ -2402,23 +2402,39 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     Vector origin = originBase + direction * 2.0f;
 
-    if (isThrowable)
-    {
-        Vector pitchSource = direction;
-        if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
-            pitchSource = m_HmdForward;
+	if (isThrowable)
+	{
+		Vector pitchSource = direction;
+		if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
+			pitchSource = m_HmdForward;
 
         DrawThrowArc(origin, direction, pitchSource);
         return;
     }
 
-    const float maxDistance = 8192.0f;
-    Vector target = origin + direction * maxDistance;
+	const float maxDistance = 8192.0f;
+	Vector target = origin + direction * maxDistance;
 
-    m_AimLineStart = origin;
-    m_AimLineEnd = target;
-    m_HasAimLine = true;
-    m_HasThrowArc = false;
+	// Trace against bullet mask so aim line end matches what a shot would hit.
+	if (m_Game && m_Game->m_EngineTrace && localPlayer)
+	{
+		// Throttle TraceRay independently from overlay drawing.
+		if (!ShouldThrottle(m_LastAimLineTraceTime, m_AimLineMaxHz))
+		{
+			CGameTrace trace;
+			Ray_t ray;
+			CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+			ray.Init(origin, target);
+			m_Game->m_EngineTrace->TraceRay(ray, MASK_SHOT, &tracefilter, &trace);
+			if (trace.fraction > 0.0f && trace.fraction < 1.0f)
+				target = trace.endpos;
+		}
+	}
+
+	m_AimLineStart = origin;
+	m_AimLineEnd = target;
+	m_HasAimLine = true;
+	m_HasThrowArc = false;
 
     DrawAimLine(origin, target);
 }

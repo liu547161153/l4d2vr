@@ -374,6 +374,28 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
 		if (treatServerAsNonVR) {
 			QAngle aim = m_VR->GetRightControllerAbsAngle();
+
+			// Third-person parallax fix (non-VR servers):
+			// Converge viewangles so the shot ray from the player's shoot origin hits the aim-line target.
+			if (m_VR->m_IsThirdPersonCamera && m_VR->m_HasAimLine && !m_VR->m_LastAimWasThrowable)
+			{
+				int idx = m_Game->m_EngineClient->GetLocalPlayer();
+				C_BasePlayer* lp = (C_BasePlayer*)m_Game->GetClientEntity(idx);
+				if (lp)
+				{
+					Vector shootOrigin = lp->EyePosition();
+					Vector target = m_VR->m_AimLineEnd;
+					Vector toTarget = target - shootOrigin;
+					if (!toTarget.IsZero())
+					{
+						VectorNormalize(toTarget);
+						QAngle corrected;
+						QAngle::VectorAngles(toTarget, corrected);
+						corrected.z = 0.f;
+						aim = corrected;
+					}
+				}
+			}
 			// 简单夹角，避免异常值
 			if (aim.x > 89.f)  aim.x = 89.f;
 			if (aim.x < -89.f) aim.x = -89.f;
