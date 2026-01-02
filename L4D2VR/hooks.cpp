@@ -241,6 +241,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
+	// Capture once per frame: avoid left/right using slightly different values.
+
 	// Left eye CViewSetup
 	leftEyeView.x = 0;
 	leftEyeView.width = m_VR->m_RenderWidth;
@@ -287,17 +289,17 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
-	// --- Fix ghosting in third-person when ForceNonVRServerMovement=true ---
-	// Some render paths use hudViewSetup / engine viewangles. If those stay on controller-driven
-	// angles while we render the world with HMD angles, you get a "double image" where one layer
-	// follows the controller. So: align HUD view to the same origin/angles as the eye view,
-	// and only SetViewAngles temporarily during rendering.
-	QAngle prevAngles;
-	m_Game->m_EngineClient->GetViewAngles(prevAngles);
+	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
+	// Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,
+	// then restore, so the engine's view history/interp isn't corrupted.
+	QAngle prevEngineAngles;
+	m_Game->m_EngineClient->GetViewAngles(prevEngineAngles);
 
 	QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
 	m_Game->m_EngineClient->SetViewAngles(renderAngles);
 
+	// Align HUD view to the same origin/angles; otherwise you can get a second layer that
+	// appears to "follow the controller / stick" (classic double-image artifact).
 	CViewSetup hudLeft = hudViewSetup;
 	hudLeft.origin = leftEyeView.origin;
 	hudLeft.angles = viewAngles;
@@ -325,8 +327,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
-	// Restore engine angles (important for ForceNonVRServerMovement=true correctness)
-	m_Game->m_EngineClient->SetViewAngles(prevAngles);
+	// Restore engine angles immediately after our stereo render.
+	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 
 	m_VR->m_RenderedNewFrame = true;
 }
