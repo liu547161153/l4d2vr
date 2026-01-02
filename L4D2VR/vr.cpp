@@ -1892,6 +1892,34 @@ void VR::UpdateTracking()
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
     RefreshActiveViewmodelAdjustment(localPlayer);
 
+    // --- Fix: third-person camera (thirdperson/thirdpersonshoulder) shifts CViewSetup::origin behind the player.
+    // Our tracking-space -> world transform uses m_SetupOrigin as the player/eye anchor; if it becomes the camera
+    // position, controllers (and the aim line) look glued to the animated player model instead of the real controllers.
+    //
+    // Keep Z (eye height / crouch) from the view setup, but force X/Y to follow the player entity.
+    {
+        Vector absOrigin = localPlayer->GetAbsOrigin();
+
+        Vector desiredSetupOrigin = m_SetupOrigin;
+        if (desiredSetupOrigin.IsZero())
+        {
+            // Fallback if hooks haven't populated m_SetupOrigin yet.
+            desiredSetupOrigin = absOrigin + Vector(0, 0, 64);
+        }
+        else
+        {
+            desiredSetupOrigin.x = absOrigin.x;
+            desiredSetupOrigin.y = absOrigin.y;
+        }
+
+        Vector planarDelta = desiredSetupOrigin - m_SetupOrigin;
+        planarDelta.z = 0.0f;
+        if (VectorLength(planarDelta) > 1.0f)
+        {
+            m_SetupOrigin = desiredSetupOrigin;
+        }
+    }
+
     // HMD tracking
     QAngle hmdAngLocal = m_HmdPose.TrackedDeviceAng;
     Vector hmdPosLocal = m_HmdPose.TrackedDevicePos;
