@@ -1892,31 +1892,40 @@ void VR::UpdateTracking()
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
     RefreshActiveViewmodelAdjustment(localPlayer);
 
-    // --- Fix: third-person camera (thirdperson/thirdpersonshoulder) shifts CViewSetup::origin behind the player.
-    // Our tracking-space -> world transform uses m_SetupOrigin as the player/eye anchor; if it becomes the camera
-    // position, controllers (and the aim line) look glued to the animated player model instead of the real controllers.
-    //
-    // Keep Z (eye height / crouch) from the view setup, but force X/Y to follow the player entity.
+    // --- Fix: third-person camera shifts CViewSetup::origin behind the player.
+    // In this codebase, controller world positions are anchored off m_CameraAnchor (NOT directly off m_SetupOrigin),
+    // and m_CameraAnchor is advanced by (m_SetupOrigin - m_SetupOriginPrev). If third-person origin pollutes
+    // m_SetupOrigin even briefly, m_CameraAnchor "learns" the offset and controllers/aimline look glued to the
+    // animated player model. So we must rebase BOTH m_SetupOrigin and m_CameraAnchor.
     {
         Vector absOrigin = localPlayer->GetAbsOrigin();
 
-        Vector desiredSetupOrigin = m_SetupOrigin;
-        if (desiredSetupOrigin.IsZero())
-        {
-            // Fallback if hooks haven't populated m_SetupOrigin yet.
-            desiredSetupOrigin = absOrigin + Vector(0, 0, 64);
-        }
-        else
-        {
-            desiredSetupOrigin.x = absOrigin.x;
-            desiredSetupOrigin.y = absOrigin.y;
-        }
+        // Desired anchor: follow player XY. Keep current Z from the view setup (eye height/crouch),
+        // because Z is used by height logic later.
+        Vector desired = m_SetupOrigin;
+        if (desired.IsZero())
+            desired = absOrigin + Vector(0, 0, 64);
+        desired.x = absOrigin.x;
+        desired.y = absOrigin.y;
 
-        Vector planarDelta = desiredSetupOrigin - m_SetupOrigin;
-        planarDelta.z = 0.0f;
-        if (VectorLength(planarDelta) > 1.0f)
+        Vector delta = desired - m_SetupOrigin;
+        delta.z = 0.0f; // only rebase planar drift from third-person camera
+
+        // If we haven't initialized anchors yet, initialize cleanly (don't "add huge delta" to zero state).
+        if (m_SetupOrigin.IsZero() || m_SetupOriginPrev.IsZero() || m_CameraAnchor.IsZero())
         {
-            m_SetupOrigin = desiredSetupOrigin;
+            m_SetupOrigin = desired;
+            m_SetupOriginPrev = desired;
+            if (m_CameraAnchor.IsZero())
+                m_CameraAnchor = desired;
+        }
+        else if (VectorLength(delta) > 1.0f)
+        {
+            // Rebase camera anchor and previous setup origin so we DON'T get a one-frame spike
+            // in (m_SetupOrigin - m_SetupOriginPrev), and controllers immediately stop sticking to the model.
+            m_CameraAnchor += delta;
+            m_SetupOriginPrev += delta;
+            m_SetupOrigin = desired;
         }
     }
 
