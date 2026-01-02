@@ -156,6 +156,11 @@ public:
 
 	Vector m_AimLineStart = { 0,0,0 };
 	Vector m_AimLineEnd = { 0,0,0 };
+
+	// Third-person convergence: "rendered aim line" hit point that bullets should converge to.
+	Vector m_AimConvergePoint = { 0,0,0 };
+	bool m_HasAimConvergePoint = false;
+
 	Vector m_LastAimDirection = { 0,0,0 };
 	Vector m_LastUnforcedAimDirection = { 0,0,0 };
 	bool m_HasAimLine = false;
