@@ -269,7 +269,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
-	Vector hmdAngle = m_VR->GetViewAngle();
+	Vector hmdAngleVec = m_VR->GetViewAngle();
+	QAngle hmdAngle(hmdAngleVec.x, hmdAngleVec.y, hmdAngleVec.z);
 
 	// ----------------------------------------
 	// Third-person VR rule:
