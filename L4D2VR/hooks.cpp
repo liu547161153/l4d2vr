@@ -245,7 +245,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	Vector viewAngles = m_VR->GetViewAngle();
 	// In non-VR server compatibility mode, rely on the engine-provided third-person camera
 	// orientation so both eyes share the same view pivot as the shoulder camera.
-	if (engineThirdPerson && m_VR->m_ForceNonVRServerMovement)
+	const bool monoThirdPerson = (engineThirdPerson && m_VR->m_ForceNonVRServerMovement);
+	if (monoThirdPerson)
 	{
 		viewAngles = Vector(setup.angles.x, setup.angles.y, setup.angles.z);
 	}
@@ -260,7 +261,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		Vector fwd, right, up;
 		QAngle::AngleVectors(camAng, &fwd, &right, &up);
 
-		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
+		const float ipd = monoThirdPerson ? 0.0f : (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
 		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
 
 		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
