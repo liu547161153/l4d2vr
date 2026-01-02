@@ -238,19 +238,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
-	const bool engineThirdPerson = (localPlayer && camDist > 5.0f);
+	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
+	// Always capture the view the engine is rendering this frame.
+	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
+	m_VR->m_ThirdPersonViewOrigin = setup.origin;
+	m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+
+	// Detect third-person by comparing rendered camera origin to the real eye origin.
+	// Use a small threshold + hysteresis to avoid flicker.
+	if (engineThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = 2;
+	else if (m_VR->m_ThirdPersonHoldFrames > 0)
+		m_VR->m_ThirdPersonHoldFrames--;
+
+	const bool engineThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
-	if (engineThirdPerson)
-	{
-		m_VR->m_ThirdPersonViewOrigin = setup.origin;
-		m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
-	}
-	else
-	{
-		m_VR->m_ThirdPersonViewOrigin = eyeOrigin;
-		m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
-	}
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
