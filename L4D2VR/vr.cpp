@@ -3076,46 +3076,52 @@ bool VR::UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& ca
     return true;
 }
 
-Vector VR::GetViewOriginLeft()
+Vector VR::GetViewOriginLeft(const QAngle& renderAngles)
 {
-    Vector viewOriginLeft;
+	Vector viewOriginLeft;
 
-    if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
-    {
-        Vector forward, right, up;
-        QAngle::AngleVectors(m_ThirdPersonViewAngles, &forward, &right, &up);
+	if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
+	{
+		Vector forward, right, up;
+		QAngle::AngleVectors(renderAngles, &forward, &right, &up);
 
-        viewOriginLeft = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
-        viewOriginLeft = viewOriginLeft + (right * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
-    }
-    else
-    {
-        viewOriginLeft = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
-        viewOriginLeft = viewOriginLeft + (m_HmdRight * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
-    }
+		viewOriginLeft = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
+		viewOriginLeft = viewOriginLeft + (right * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
+	}
+	else
+	{
+		Vector forward, right, up;
+		QAngle::AngleVectors(renderAngles, &forward, &right, &up);
 
-    return viewOriginLeft;
+		viewOriginLeft = m_HmdPosAbs + (forward * (-(m_EyeZ * m_VRScale)));
+		viewOriginLeft = viewOriginLeft + (right * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
+	}
+
+	return viewOriginLeft;
 }
 
-Vector VR::GetViewOriginRight()
+Vector VR::GetViewOriginRight(const QAngle& renderAngles)
 {
-    Vector viewOriginRight;
+	Vector viewOriginRight;
 
-    if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
-    {
-        Vector forward, right, up;
-        QAngle::AngleVectors(m_ThirdPersonViewAngles, &forward, &right, &up);
+	if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
+	{
+		Vector forward, right, up;
+		QAngle::AngleVectors(renderAngles, &forward, &right, &up);
 
-        viewOriginRight = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
-        viewOriginRight = viewOriginRight + (right * (m_Ipd * m_IpdScale * m_VRScale) / 2);
-    }
-    else
-    {
-        viewOriginRight = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
-        viewOriginRight = viewOriginRight + (m_HmdRight * (m_Ipd * m_IpdScale * m_VRScale) / 2);
-    }
+		viewOriginRight = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
+		viewOriginRight = viewOriginRight + (right * (m_Ipd * m_IpdScale * m_VRScale) / 2);
+	}
+	else
+	{
+		Vector forward, right, up;
+		QAngle::AngleVectors(renderAngles, &forward, &right, &up);
 
-    return viewOriginRight;
+		viewOriginRight = m_HmdPosAbs + (forward * (-(m_EyeZ * m_VRScale)));
+		viewOriginRight = viewOriginRight + (right * (m_Ipd * m_IpdScale * m_VRScale) / 2);
+	}
+
+	return viewOriginRight;
 }
 
 

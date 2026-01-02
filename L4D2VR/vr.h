@@ -486,8 +486,8 @@ public:
 	void UpdateMotionGestures(C_BasePlayer* localPlayer);
 	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
 	Vector GetViewAngle();
-	Vector GetViewOriginLeft();
-	Vector GetViewOriginRight();
+	Vector GetViewOriginLeft(const QAngle& renderAngles);
+	Vector GetViewOriginRight(const QAngle& renderAngles);
 	Vector GetThirdPersonViewOrigin() const { return m_ThirdPersonViewOrigin; }
 	QAngle GetThirdPersonViewAngles() const { return m_ThirdPersonViewAngles; }
 	bool IsThirdPersonCameraActive() const { return m_IsThirdPersonCamera; }

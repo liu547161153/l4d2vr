@@ -254,7 +254,7 @@ ITexture* __fastcall Hooks::dGetRenderTarget(void* ecx, void* edx)
 		leftEyeView.m_flAspectRatio = m_VR->m_Aspect;
 		leftEyeView.zNear = 6;
 		leftEyeView.zNearViewmodel = 6;
-		leftEyeView.origin = m_VR->GetViewOriginLeft();
+		leftEyeView.origin = m_VR->GetViewOriginLeft(renderAngles);
 		leftEyeView.angles = renderAnglesVec;
 
 		m_VR->m_SetupOrigin = setup.origin;
@@ -279,7 +279,7 @@ ITexture* __fastcall Hooks::dGetRenderTarget(void* ecx, void* edx)
 		rightEyeView.m_flAspectRatio = m_VR->m_Aspect;
 		rightEyeView.zNear = 6;
 		rightEyeView.zNearViewmodel = 6;
-		rightEyeView.origin = m_VR->GetViewOriginRight();
+		rightEyeView.origin = m_VR->GetViewOriginRight(renderAngles);
 		rightEyeView.angles = renderAnglesVec;
 
 		rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
