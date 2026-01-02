@@ -1892,43 +1892,6 @@ void VR::UpdateTracking()
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
     RefreshActiveViewmodelAdjustment(localPlayer);
 
-    // --- Fix: third-person camera shifts CViewSetup::origin behind the player.
-    // In this codebase, controller world positions are anchored off m_CameraAnchor (NOT directly off m_SetupOrigin),
-    // and m_CameraAnchor is advanced by (m_SetupOrigin - m_SetupOriginPrev). If third-person origin pollutes
-    // m_SetupOrigin even briefly, m_CameraAnchor "learns" the offset and controllers/aimline look glued to the
-    // animated player model. So we must rebase BOTH m_SetupOrigin and m_CameraAnchor.
-    {
-        Vector absOrigin = localPlayer->GetAbsOrigin();
-
-        // Desired anchor: follow player XY. Keep current Z from the view setup (eye height/crouch),
-        // because Z is used by height logic later.
-        Vector desired = m_SetupOrigin;
-        if (desired.IsZero())
-            desired = absOrigin + Vector(0, 0, 64);
-        desired.x = absOrigin.x;
-        desired.y = absOrigin.y;
-
-        Vector delta = desired - m_SetupOrigin;
-        delta.z = 0.0f; // only rebase planar drift from third-person camera
-
-        // If we haven't initialized anchors yet, initialize cleanly (don't "add huge delta" to zero state).
-        if (m_SetupOrigin.IsZero() || m_SetupOriginPrev.IsZero() || m_CameraAnchor.IsZero())
-        {
-            m_SetupOrigin = desired;
-            m_SetupOriginPrev = desired;
-            if (m_CameraAnchor.IsZero())
-                m_CameraAnchor = desired;
-        }
-        else if (VectorLength(delta) > 1.0f)
-        {
-            // Rebase camera anchor and previous setup origin so we DON'T get a one-frame spike
-            // in (m_SetupOrigin - m_SetupOriginPrev), and controllers immediately stop sticking to the model.
-            m_CameraAnchor += delta;
-            m_SetupOriginPrev += delta;
-            m_SetupOrigin = desired;
-        }
-    }
-
     // HMD tracking
     QAngle hmdAngLocal = m_HmdPose.TrackedDeviceAng;
     Vector hmdPosLocal = m_HmdPose.TrackedDevicePos;
@@ -1947,48 +1910,12 @@ void VR::UpdateTracking()
             return angle - 360.0f * std::floor((angle + 180.0f) / 360.0f);
         };
 
-    const float headSmoothingStrength = std::clamp(m_HeadSmoothing, 0.0f, 0.99f);
-    if (!m_HeadSmoothingInitialized)
-    {
-        m_HmdPosSmoothed = hmdPosCorrected;
-        m_HmdAngSmoothed = hmdAngLocal;
-        m_HeadSmoothingInitialized = true;
-    }
+    Vector hmdPosSmoothed = hmdPosCorrected;
+    QAngle hmdAngSmoothed = hmdAngLocal;
 
-    if (headSmoothingStrength > 0.0f)
-    {
-        const float lerpFactor = 1.0f - headSmoothingStrength;
-        auto smoothVector = [&](const Vector& target, Vector& current)
-            {
-                current.x += (target.x - current.x) * lerpFactor;
-                current.y += (target.y - current.y) * lerpFactor;
-                current.z += (target.z - current.z) * lerpFactor;
-            };
-
-        auto smoothAngleComponent = [&](float target, float& current)
-            {
-                float diff = target - current;
-                diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-                current += diff * lerpFactor;
-            };
-
-        smoothVector(hmdPosCorrected, m_HmdPosSmoothed);
-        smoothAngleComponent(hmdAngLocal.x, m_HmdAngSmoothed.x);
-        smoothAngleComponent(hmdAngLocal.y, m_HmdAngSmoothed.y);
-        smoothAngleComponent(hmdAngLocal.z, m_HmdAngSmoothed.z);
-    }
-    else
-    {
-        m_HmdPosSmoothed = hmdPosCorrected;
-        m_HmdAngSmoothed = hmdAngLocal;
-    }
-
-    m_HmdAngSmoothed.x = wrapAngle(m_HmdAngSmoothed.x);
-    m_HmdAngSmoothed.y = wrapAngle(m_HmdAngSmoothed.y);
-    m_HmdAngSmoothed.z = wrapAngle(m_HmdAngSmoothed.z);
-
-    Vector hmdPosSmoothed = m_HmdPosSmoothed;
-    QAngle hmdAngSmoothed = m_HmdAngSmoothed;
+    hmdAngSmoothed.x = wrapAngle(hmdAngSmoothed.x);
+    hmdAngSmoothed.y = wrapAngle(hmdAngSmoothed.y);
+    hmdAngSmoothed.z = wrapAngle(hmdAngSmoothed.z);
 
     m_HmdPosCorrectedPrev = hmdPosCorrected;
     m_HmdPosLocalPrev = hmdPosLocal;
@@ -3888,20 +3815,11 @@ void VR::ParseConfigFile()
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
     float controllerSmoothingValue = m_ControllerSmoothing;
-    const bool hasControllerSmoothing = userConfig.find("ControllerSmoothing") != userConfig.end();
-    const bool hasHeadSmoothing = userConfig.find("HeadSmoothing") != userConfig.end();
-    if (hasControllerSmoothing)
+    if (userConfig.find("ControllerSmoothing") != userConfig.end())
         controllerSmoothingValue = getFloat("ControllerSmoothing", controllerSmoothingValue);
-    else if (hasHeadSmoothing) // Backward compatibility: old configs used HeadSmoothing
+    else if (userConfig.find("HeadSmoothing") != userConfig.end())
         controllerSmoothingValue = getFloat("HeadSmoothing", controllerSmoothingValue);
     m_ControllerSmoothing = std::clamp(controllerSmoothingValue, 0.0f, 0.99f);
-
-    float headSmoothingValue = m_HeadSmoothing;
-    if (hasHeadSmoothing)
-        headSmoothingValue = getFloat("HeadSmoothing", headSmoothingValue);
-    else
-        headSmoothingValue = controllerSmoothingValue; // Match controller smoothing by default
-    m_HeadSmoothing = std::clamp(headSmoothingValue, 0.0f, 0.99f);
     m_MotionGestureSwingThreshold = std::max(0.0f, getFloat("MotionGestureSwingThreshold", m_MotionGestureSwingThreshold));
     m_MotionGestureDownSwingThreshold = std::max(0.0f, getFloat("MotionGestureDownSwingThreshold", m_MotionGestureDownSwingThreshold));
     m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));
