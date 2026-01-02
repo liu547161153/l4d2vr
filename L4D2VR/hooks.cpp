@@ -229,16 +229,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_SetupOrigin = eyeOrigin;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
-	// When forcing non-VR server movement, a third-person camera can coexist with the VR render path and
-	// produce a double image. In that mode, fall back to the engine's single third-person render.
-	const bool skipVrStereoForThirdPerson = (engineThirdPerson && m_VR->m_ForceNonVRServerMovement);
+	// When forcing non-VR server movement, run a monoscopic third-person render to avoid the double image
+	// while still providing a frame to the headset.
+	const bool monoThirdPerson = (engineThirdPerson && m_VR->m_ForceNonVRServerMovement);
 	m_VR->UpdateThirdPersonViewState(
 		engineThirdPerson ? setup.origin : Vector{ 0.0f, 0.0f, 0.0f },
 		engineThirdPerson ? QAngle(setup.angles.x, setup.angles.y, setup.angles.z) : QAngle{});
-	if (skipVrStereoForThirdPerson)
-	{
-		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
-	}
 
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
@@ -270,9 +266,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
 
 		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
-		Vector camCenter = setup.origin + (fwd * (-eyeZ));
-		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
-		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+		if (monoThirdPerson)
+		{
+			leftOrigin = setup.origin + (fwd * (-eyeZ));
+			rightOrigin = leftOrigin;
+			viewAngles = camAng;
+		}
+		else
+		{
+			Vector camCenter = setup.origin + (fwd * (-eyeZ));
+			leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
+			rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+		}
 	}
 	else
 	{
