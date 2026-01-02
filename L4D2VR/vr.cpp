@@ -3083,7 +3083,7 @@ Vector VR::GetViewOriginLeft(const QAngle& renderAngles)
 	if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
 	{
 		Vector forward, right, up;
-		QAngle::AngleVectors(m_ThirdPersonViewAngles, &forward, &right, &up);
+		QAngle::AngleVectors(renderAngles, &forward, &right, &up);
 
 		viewOriginLeft = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
 		viewOriginLeft = viewOriginLeft + (right * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
@@ -3107,7 +3107,7 @@ Vector VR::GetViewOriginRight(const QAngle& renderAngles)
 	if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
 	{
 		Vector forward, right, up;
-		QAngle::AngleVectors(m_ThirdPersonViewAngles, &forward, &right, &up);
+		QAngle::AngleVectors(renderAngles, &forward, &right, &up);
 
 		viewOriginRight = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
 		viewOriginRight = viewOriginRight + (right * (m_Ipd * m_IpdScale * m_VRScale) / 2);
