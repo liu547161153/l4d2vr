@@ -750,7 +750,12 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			}
 		}
 
-		if (entity && info.entity_index > 0 && m_Game->IsValidPlayerIndex(info.entity_index))
+		// if (entity && info.entity_index > 0 && m_Game->IsValidPlayerIndex(info.entity_index))
+		// {
+		// 	infectedType = m_VR->GetSpecialInfectedType(entity);
+		// }
+		const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
+		if (isInfectedModel)
 		{
 			infectedType = m_VR->GetSpecialInfectedType(entity);
 		}
