@@ -317,6 +317,10 @@ public:
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
+	float m_HeadSmoothing = 0.0f;
+	bool m_HeadSmoothingInitialized = false;
+	Vector m_HmdPosSmoothed = { 0,0,0 };
+	QAngle m_HmdAngSmoothed = { 0,0,0 };
 	CustomActionBinding m_CustomAction1Binding{};
 	CustomActionBinding m_CustomAction2Binding{};
 	CustomActionBinding m_CustomAction3Binding{};
