@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <algorithm>
+#include <chrono>
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -694,16 +696,32 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 				entity = m_Game->GetClientEntity(info.entity_index);
 		}
 		bool isPlayerClass = false;
+		const char* className = nullptr;
 		if (entity)
 		{
-			const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
+			className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
 			isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
 			if (isPlayerClass)
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
 			}
-			const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
-			if (isInfectedModel && isPlayerClass)
+		}
+
+		const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
+		if (isInfectedModel)
+		{
+			// ---- Netvar safety gate (do NOT over-filter) ----
+			bool allowNetvar = entity && className;
+
+			// Explicitly exclude classes that must NOT have zombieClass
+			if (allowNetvar && (strstr(className, "Ragdoll") != nullptr
+				|| strstr(className, "Corpse") != nullptr
+				|| strstr(className, "Gib") != nullptr))
+			{
+				allowNetvar = false;
+			}
+
+			if (allowNetvar)
 			{
 				infectedType = m_VR->GetSpecialInfectedType(entity);
 			}
@@ -721,14 +739,37 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
 			if (!isRagdoll)
 			{
+				// 1) 高优先级：自瞄/目标刷新不要被 Overlay 节流影响（否则锁定会飘）
+				// RefreshSpecialInfectedPreWarning 内部会用到 Trace 缓存（TraceMaxHz），所以这里高频调用不会把 CPU 打爆。
 				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
-				if (infectedType != VR::SpecialInfectedType::Tank
-					&& infectedType != VR::SpecialInfectedType::Witch
-					&& infectedType != VR::SpecialInfectedType::Charger)
+
+				// 2) 低优先级：视觉 Overlay（箭头/盲区提示）继续按实体节流，避免 dDrawModelExecute 多次调用导致尖峰
+				bool doOverlay = true;
+				if (info.entity_index > 0 && m_VR->m_SpecialInfectedOverlayMaxHz > 0.0f)
 				{
-					m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+					auto& last = m_VR->m_LastSpecialInfectedOverlayTime[info.entity_index];
+					const auto now = std::chrono::steady_clock::now();
+					if (last.time_since_epoch().count() != 0)
+					{
+						const float minInterval = 1.0f / std::max(1.0f, m_VR->m_SpecialInfectedOverlayMaxHz);
+						const float elapsed = std::chrono::duration<float>(now - last).count();
+						if (elapsed < minInterval)
+							doOverlay = false;
+					}
+					if (doOverlay)
+						last = now;
 				}
-				m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
+
+				if (doOverlay)
+				{
+					if (infectedType != VR::SpecialInfectedType::Tank
+						&& infectedType != VR::SpecialInfectedType::Witch
+						&& infectedType != VR::SpecialInfectedType::Charger)
+					{
+						m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+					}
+					m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
+				}
 			}
 		}
 	}
