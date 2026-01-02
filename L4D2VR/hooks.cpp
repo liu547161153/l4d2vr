@@ -224,7 +224,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	const bool engineThirdPerson = (localPlayer && camDist > 5.0f);
-
+	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
+	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
+	if (engineThirdPerson)
+	{
+		m_VR->m_ThirdPersonViewOrigin = setup.origin;
+		m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+	}
+	else
+	{
+		m_VR->m_ThirdPersonViewOrigin = eyeOrigin;
+		m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+	}
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -243,12 +254,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
-	// In non-VR server compatibility mode, rely on the engine-provided third-person camera
-	// orientation so both eyes share the same view pivot as the shoulder camera.
-	if (engineThirdPerson && m_VR->m_ForceNonVRServerMovement)
-	{
-		viewAngles = Vector(setup.angles.x, setup.angles.y, setup.angles.z);
-	}
+
 	if (engineThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
@@ -278,13 +284,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
-	Vector hmdAngle = m_VR->GetViewAngle();
-	QAngle inGameAngle(hmdAngle.x, hmdAngle.y, hmdAngle.z);
+	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
+	// Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,
+	// then restore, so the engine's view history/interp isn't corrupted.
+	QAngle prevEngineAngles;
+	m_Game->m_EngineClient->GetViewAngles(prevEngineAngles);
 
-	m_Game->m_EngineClient->SetViewAngles(inGameAngle);
+	QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
+	m_Game->m_EngineClient->SetViewAngles(renderAngles);
 
+	// Align HUD view to the same origin/angles; otherwise you can get a second layer that
+	// appears to "follow the controller / stick" (classic double-image artifact).
+	CViewSetup hudLeft = hudViewSetup;
+	hudLeft.origin = leftEyeView.origin;
+	hudLeft.angles = viewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
-	hkRenderView.fOriginal(ecx, leftEyeView, hudViewSetup, nClearFlags, whatToDraw);
+	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -298,10 +313,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rightEyeView.zNearViewmodel = 6;
 	rightEyeView.origin = rightOrigin;
 	rightEyeView.angles = viewAngles;
+	CViewSetup hudRight = hudViewSetup;
+	hudRight.origin = rightEyeView.origin;
+	hudRight.angles = viewAngles;
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
-	hkRenderView.fOriginal(ecx, rightEyeView, hudViewSetup, nClearFlags, whatToDraw);
+	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
+	// Restore engine angles immediately after our stereo render.
+	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame = true;
 }
 
@@ -356,6 +376,18 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			cmd->viewangles.x = aim.x;   // pitch
 			cmd->viewangles.y = aim.y;   // yaw
 			cmd->viewangles.z = 0.f;     // roll 一般不用
+		}
+		else {
+			// VR-aware servers: ensure cmd->viewangles matches HMD.
+			// Otherwise forward/sidemove get interpreted in the wrong basis (push forward -> strafe).
+			Vector hmdAng = m_VR->GetViewAngle();
+			QAngle view(hmdAng.x, hmdAng.y, hmdAng.z);
+			if (view.x > 89.f)  view.x = 89.f;
+			if (view.x < -89.f) view.x = -89.f;
+			while (view.y > 180.f)  view.y -= 360.f;
+			while (view.y < -180.f) view.y += 360.f;
+			view.z = 0.f;
+			cmd->viewangles = view;
 		}
 	}
 
