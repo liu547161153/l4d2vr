@@ -278,10 +278,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
 		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
 
-		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
+		// Treat setup.origin as camera "head center". For third-person we deliberately collapse IPD
+		// to reduce ghosting/double images of the player model.
 		Vector camCenter = setup.origin + (fwd * (-eyeZ));
-		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
-		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+		leftOrigin = camCenter;
+		rightOrigin = camCenter;
+		viewAngles = Vector(camAng.x, camAng.y, camAng.z);
 	}
 	else
 	{
