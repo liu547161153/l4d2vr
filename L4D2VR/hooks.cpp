@@ -243,7 +243,7 @@ ITexture* __fastcall Hooks::dGetRenderTarget(void* ecx, void* edx)
 		QAngle renderAngles(renderAnglesVec.x, renderAnglesVec.y, renderAnglesVec.z);
 		QAngle serverAngles(renderAnglesVec.x, renderAnglesVec.y, renderAnglesVec.z);
 		if (thirdPersonActive || m_VR->m_ThirdPersonHoldFrames > 0)
-			serverAngles = setup.angles;
+			serverAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 		// Left eye CViewSetup
 		leftEyeView.x = 0;
