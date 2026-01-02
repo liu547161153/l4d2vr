@@ -287,13 +287,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
-	// Keep engine "current view" aligned to the angles we are rendering with.
-	// If these disagree, some render paths can look wrong and movement basis can drift.
-	QAngle inGameAngle(viewAngles.x, viewAngles.y, viewAngles.z);
-	m_Game->m_EngineClient->SetViewAngles(inGameAngle);
+	// --- Fix ghosting in third-person when ForceNonVRServerMovement=true ---
+	// Some render paths use hudViewSetup / engine viewangles. If those stay on controller-driven
+	// angles while we render the world with HMD angles, you get a "double image" where one layer
+	// follows the controller. So: align HUD view to the same origin/angles as the eye view,
+	// and only SetViewAngles temporarily during rendering.
+	QAngle prevAngles;
+	m_Game->m_EngineClient->GetViewAngles(prevAngles);
+
+	QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
+	m_Game->m_EngineClient->SetViewAngles(renderAngles);
+
+	CViewSetup hudLeft = hudViewSetup;
+	hudLeft.origin = leftEyeView.origin;
+	hudLeft.angles = viewAngles;
 
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
-	hkRenderView.fOriginal(ecx, leftEyeView, hudViewSetup, nClearFlags, whatToDraw);
+	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -308,13 +318,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rightEyeView.origin = rightOrigin;
 	rightEyeView.angles = viewAngles;
 
-	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
-	hkRenderView.fOriginal(ecx, rightEyeView, hudViewSetup, nClearFlags, whatToDraw);
+	CViewSetup hudRight = hudViewSetup;
+	hudRight.origin = rightEyeView.origin;
+	hudRight.angles = viewAngles;
 
-	// End the frame with HMD angles active so CreateMove/movement basis stays consistent.
-	Vector hmdAngleEnd = m_VR->GetViewAngle();
-	QAngle hmdGameAngle(hmdAngleEnd.x, hmdAngleEnd.y, hmdAngleEnd.z);
-	m_Game->m_EngineClient->SetViewAngles(hmdGameAngle);
+	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
+	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
+
+	// Restore engine angles (important for ForceNonVRServerMovement=true correctness)
+	m_Game->m_EngineClient->SetViewAngles(prevAngles);
 
 	m_VR->m_RenderedNewFrame = true;
 }
