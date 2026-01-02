@@ -242,37 +242,52 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
-	Vector viewAngles = m_VR->GetViewAngle();
-	// In non-VR server compatibility mode, rely on the engine-provided third-person camera
-	// orientation so both eyes share the same view pivot as the shoulder camera.
-	const bool monoThirdPerson = (engineThirdPerson && m_VR->m_ForceNonVRServerMovement);
-	if (monoThirdPerson)
-	{
-		viewAngles = Vector(setup.angles.x, setup.angles.y, setup.angles.z);
-	}
-	if (engineThirdPerson)
-	{
-		// Render from the engine-provided third-person camera (setup.origin),
-		// but aim the camera with the HMD so head look still works in third-person.
-		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
-		if (m_VR->m_HmdForward.IsZero())
-			camAng = QAngle(setup.angles.x, setup.angles.y, setup.angles.z);
+		Vector viewAngles = m_VR->GetViewAngle();
+		// In non-VR server compatibility mode, rely on the engine-provided third-person camera
+		// orientation so both eyes share the same view pivot as the shoulder camera.
+		const bool monoThirdPerson = (engineThirdPerson && m_VR->m_ForceNonVRServerMovement);
+		if (monoThirdPerson)
+		{
+			viewAngles = Vector(setup.angles.x, setup.angles.y, setup.angles.z);
+		}
+		if (engineThirdPerson)
+		{
+			// Render from the engine-provided third-person camera (setup.origin),
+			// but aim the camera with the HMD so head look still works in third-person.
+			QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
+			if (monoThirdPerson)
+			{
+				// Keep the camera fixed to the engine shoulder view in compatibility mode to
+				// avoid two slightly different view pivots causing ghosting.
+				camAng = QAngle(setup.angles.x, setup.angles.y, setup.angles.z);
+			}
+			else if (m_VR->m_HmdForward.IsZero())
+			{
+				camAng = QAngle(setup.angles.x, setup.angles.y, setup.angles.z);
+			}
 
-		Vector fwd, right, up;
-		QAngle::AngleVectors(camAng, &fwd, &right, &up);
+			Vector fwd, right, up;
+			QAngle::AngleVectors(camAng, &fwd, &right, &up);
 
-		const float ipd = monoThirdPerson ? 0.0f : (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
-		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
+			const float ipd = monoThirdPerson ? 0.0f : (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
+			const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
 
-		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
-		Vector camCenter = setup.origin + (fwd * (-eyeZ));
-		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
-		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
-	}
-	else
-	{
-		// Normal VR first-person
-		leftOrigin = m_VR->GetViewOriginLeft();
+			// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
+			Vector camCenter = setup.origin + (fwd * (-eyeZ));
+			leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
+			rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+
+			if (monoThirdPerson)
+			{
+				// Force both eyes to the exact same transform so the entire scene is monoscopic.
+				rightOrigin = leftOrigin;
+				rightEyeView.angles = QAngle(camAng.x, camAng.y, camAng.z);
+			}
+		}
+		else
+		{
+			// Normal VR first-person
+			leftOrigin = m_VR->GetViewOriginLeft();
 		rightOrigin = m_VR->GetViewOriginRight();
 	}
 
