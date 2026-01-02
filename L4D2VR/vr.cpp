@@ -2353,13 +2353,18 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     {
         m_LastAimDirection = Vector{ 0.0f, 0.0f, 0.0f };
         m_HasAimLine = false;
+        m_HasAimConvergePoint = false;
         m_HasThrowArc = false;
         m_LastAimWasThrowable = false;
         return;
     }
 
     bool isThrowable = IsThrowableWeapon(activeWeapon);
+    // First-person: aim line follows the right controller.
+    // Third-person: aim line follows the camera/HMD (more intuitive and doesn't drift when you look around).
     Vector direction = m_RightControllerForward;
+    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+        direction = m_RightControllerForwardUnforced;
     if (direction.IsZero())
     {
         if (m_LastAimDirection.IsZero())
@@ -2389,21 +2394,12 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     VectorNormalize(direction);
 
-    Vector originBase = m_RightControllerPosAbs;
-
-    // In third-person, the engine camera is offset from the player's eye. Translate the
-    // controller-origin into the third-person camera space so the aim line appears near
-    // your current view instead of stuck on the character.
-    if (m_IsThirdPersonCamera)
-    {
-        Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-        originBase += camDelta;
-    }
-
-    Vector origin = originBase + direction * 2.0f;
+    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
 
     if (isThrowable)
     {
+        m_HasAimConvergePoint = false;
+
         Vector pitchSource = direction;
         if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
             pitchSource = m_HmdForward;
@@ -2414,6 +2410,26 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
+
+    // Third-person convergence point P: where the *rendered* aim ray hits.
+    // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
+    if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+    {
+        CGameTrace trace;
+        Ray_t ray;
+        CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+
+        ray.Init(origin, target);
+        m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+
+        m_AimConvergePoint = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : target;
+        m_HasAimConvergePoint = true;
+        target = m_AimConvergePoint; // draw to P
+    }
+    else
+    {
+        m_HasAimConvergePoint = false;
+    }
 
     m_AimLineStart = origin;
     m_AimLineEnd = target;
