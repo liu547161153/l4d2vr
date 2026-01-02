@@ -1527,6 +1527,22 @@ void VR::ProcessInput()
                 return;
             }
 
+            if (binding.usePressReleaseCommands)
+            {
+                if (!actionData.bChanged)
+                    return;
+
+                if (actionData.bState)
+                {
+                    m_Game->ClientCmd_Unrestricted(binding.command.c_str());
+                }
+                else if (!binding.releaseCommand.empty())
+                {
+                    m_Game->ClientCmd_Unrestricted(binding.releaseCommand.c_str());
+                }
+                return;
+            }
+
             if (actionData.bState && actionData.bChanged && !binding.command.empty())
                 m_Game->ClientCmd_Unrestricted(binding.command.c_str());
         };
@@ -3531,6 +3547,8 @@ void VR::ParseConfigFile()
         {
             binding.command = getString(key, binding.command);
             binding.holdVirtualKey = false;
+            binding.releaseCommand.clear();
+            binding.usePressReleaseCommands = false;
 
             std::string trimmedCommand = binding.command;
             trim(trimmedCommand);
@@ -3546,11 +3564,47 @@ void VR::ParseConfigFile()
                 binding.command = trimmedCommand;
             }
 
+            // Custom alias helper: CustomActionXCommand=alias:aliasName:+speed|wait 30|-speed
+            // The section after the alias name uses '|' as a stand-in for ';' to avoid config comment stripping.
+            const std::string aliasPrefix = "alias:";
+            if (normalized.rfind(aliasPrefix, 0) == 0)
+            {
+                std::string aliasDefinition = trimmedCommand.substr(aliasPrefix.size());
+                trim(aliasDefinition);
+
+                size_t separator = aliasDefinition.find(':');
+                if (separator != std::string::npos)
+                {
+                    std::string aliasName = aliasDefinition.substr(0, separator);
+                    std::string aliasBody = aliasDefinition.substr(separator + 1);
+                    trim(aliasName);
+                    trim(aliasBody);
+
+                    if (!aliasName.empty() && !aliasBody.empty())
+                    {
+                        std::replace(aliasBody.begin(), aliasBody.end(), '|', ';');
+                        std::string aliasCommand = "alias " + aliasName + " \"" + aliasBody + "\"";
+                        m_Game->ClientCmd_Unrestricted(aliasCommand.c_str());
+                        Game::logMsg("[VR] %s defined alias '%s' = %s", key, aliasName.c_str(), aliasBody.c_str());
+
+                        binding.command = aliasName;
+                        normalized = aliasName;
+                    }
+                }
+            }
+
             binding.virtualKey = parseVirtualKey(binding.command);
             if (!binding.command.empty() && binding.virtualKey.has_value())
             {
                 Game::logMsg("[VR] %s mapped to virtual key 0x%02X%s", key, *binding.virtualKey,
                     binding.holdVirtualKey ? " (hold)" : "");
+            }
+            else if (!trimmedCommand.empty() && trimmedCommand[0] == '+' && trimmedCommand.size() > 1)
+            {
+                binding.usePressReleaseCommands = true;
+                binding.releaseCommand = "-" + trimmedCommand.substr(1);
+                binding.command = trimmedCommand;
+                Game::logMsg("[VR] %s mapped to command press/release: %s / %s", key, binding.command.c_str(), binding.releaseCommand.c_str());
             }
         };
 

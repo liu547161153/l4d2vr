@@ -44,8 +44,10 @@ struct SharedTextureHolder
 struct CustomActionBinding
 {
 	std::string command;
+	std::string releaseCommand;
 	std::optional<WORD> virtualKey;
 	bool holdVirtualKey = false;
+	bool usePressReleaseCommands = false;
 };
 
 

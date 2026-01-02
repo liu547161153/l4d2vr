@@ -55,6 +55,9 @@ CustomAction2Command=thirdpersonshoulder
 CustomAction3Command=say /drop
 CustomAction4Command=+alt2
 CustomAction5Command=
+// 示例：自定义动作5定义别名并触发一次慢走点按（等待大约0.5秒=30帧后松开）
+// Source 里的“走路”命令是 +speed / -speed（不是 +walk）
+// CustomAction5Command=alias:vr_walktap:+speed|wait 30|-speed
 
 SpecialInfectedArrowEnabled=false
 SpecialInfectedArrowSize=20.0

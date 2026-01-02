@@ -25,6 +25,23 @@
 4. Load into a campaign.
 5. To recenter the camera height, press down on the left stick. To see the HUD, aim the controller up or down.
 
+### Custom action aliases
+You can define a Source `alias` directly from `VR/config.txt` for the five custom actions. Use the format:
+
+```
+CustomActionXCommand=alias:aliasName:command|command|command
+```
+
+`|` is converted to `;` to avoid the config parser treating semicolons as comments. Example: tap-walk for roughly 0.5s (30 `wait` frames). Note: the Source engine “walk” key is `+speed` / `-speed` (not `+walk`):
+
+```
+CustomAction5Command=alias:vr_walktap:+speed|wait 30|-speed
+```
+
+Bind Custom Action 5 in SteamVR, and triggering it will run the alias.
+
+Tip: If you set a custom action command that starts with `+` (e.g., `+speed`, `+walk`, `+use`), the mod will now automatically send the matching `-` command when you release the action, so hold-style commands work as expected.
+
 
 ## How to play multiplayer
 * The host must have the mod installed and the server must be set to local. Other players can play in VR too (if they also installed the mod).
