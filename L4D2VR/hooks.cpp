@@ -270,7 +270,25 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.angles = viewAngles;
 
 	Vector hmdAngle = m_VR->GetViewAngle();
-	QAngle inGameAngle(hmdAngle.x, hmdAngle.y, hmdAngle.z);
+
+	// ----------------------------------------
+	// Third-person VR rule:
+	// Do NOT feed HMD yaw back into engine view angles,
+	// or the third-person camera will fight VR tracking
+	// and cause severe jitter / nausea.
+	// ----------------------------------------
+	QAngle inGameAngle;
+	if (engineThirdPerson)
+	{
+		inGameAngle = setup.angles;
+		inGameAngle.x += hmdAngle.x;   // pitch only
+		// inGameAngle.y += hmdAngle.y; // ❌ lock yaw in third-person
+		inGameAngle.z = 0.f;
+	}
+	else
+	{
+		inGameAngle.Init(hmdAngle.x, hmdAngle.y, hmdAngle.z);
+	}
 
 
 	const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
