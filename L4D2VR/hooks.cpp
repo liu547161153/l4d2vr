@@ -224,6 +224,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	const bool engineThirdPerson = (localPlayer && camDist > 5.0f);
+	const bool updatedThirdPersonState = m_VR->UpdateThirdPersonViewState(
+		engineThirdPerson ? setup.origin : Vector{},
+		engineThirdPerson ? setup.angles : QAngle{});
+
+	Vector trackingOrigin = eyeOrigin;
+	if (engineThirdPerson && updatedThirdPersonState)
+		trackingOrigin = setup.origin;
 
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
@@ -237,8 +244,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.m_flAspectRatio = m_VR->m_Aspect;
 	leftEyeView.zNear = 6;
 	leftEyeView.zNearViewmodel = 6;
-	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
-	m_VR->m_SetupOrigin = eyeOrigin;
+	// Track against the active camera (third-person shoulder cam vs. first-person eye)
+	m_VR->m_SetupOrigin = trackingOrigin;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;

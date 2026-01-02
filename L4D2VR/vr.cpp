@@ -1880,6 +1880,54 @@ void VR::FinishFrame()
     m_CompositorNeedsHandoff = false;
 }
 
+bool VR::UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles)
+{
+    const bool isThirdPerson = !cameraOrigin.IsZero();
+
+    if (!isThirdPerson)
+    {
+        if (m_ThirdPersonHoldFrames > 0)
+        {
+            --m_ThirdPersonHoldFrames;
+            return m_IsThirdPersonCamera;
+        }
+
+        m_IsThirdPersonCamera = false;
+        m_ThirdPersonPoseInitialized = false;
+        return false;
+    }
+
+    m_ThirdPersonHoldFrames = 2;
+
+    const float smoothingStrength = std::clamp(m_ThirdPersonCameraSmoothing, 0.0f, 0.99f);
+    const float lerpFactor = 1.0f - smoothingStrength;
+
+    if (!m_ThirdPersonPoseInitialized)
+    {
+        m_ThirdPersonViewOrigin = cameraOrigin;
+        m_ThirdPersonViewAngles = cameraAngles;
+        m_ThirdPersonPoseInitialized = true;
+    }
+    else
+    {
+        m_ThirdPersonViewOrigin += (cameraOrigin - m_ThirdPersonViewOrigin) * lerpFactor;
+
+        auto smoothAngle = [&](float target, float& current)
+            {
+                float diff = target - current;
+                diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+                current += diff * lerpFactor;
+            };
+
+        smoothAngle(cameraAngles.x, m_ThirdPersonViewAngles.x);
+        smoothAngle(cameraAngles.y, m_ThirdPersonViewAngles.y);
+        smoothAngle(cameraAngles.z, m_ThirdPersonViewAngles.z);
+    }
+
+    m_IsThirdPersonCamera = true;
+    return true;
+}
+
 void VR::UpdateTracking()
 {
     GetPoses();
@@ -1896,20 +1944,32 @@ void VR::UpdateTracking()
     // In this codebase, controller world positions are anchored off m_CameraAnchor (NOT directly off m_SetupOrigin),
     // and m_CameraAnchor is advanced by (m_SetupOrigin - m_SetupOriginPrev). If third-person origin pollutes
     // m_SetupOrigin even briefly, m_CameraAnchor "learns" the offset and controllers/aimline look glued to the
-    // animated player model. So we must rebase BOTH m_SetupOrigin and m_CameraAnchor.
+    // animated player model. When third-person is active, follow the camera instead; otherwise, rebase BOTH
+    // m_SetupOrigin and m_CameraAnchor back to the player's body.
     {
         Vector absOrigin = localPlayer->GetAbsOrigin();
 
-        // Desired anchor: follow player XY. Keep current Z from the view setup (eye height/crouch),
-        // because Z is used by height logic later.
-        Vector desired = m_SetupOrigin;
+        const bool thirdPersonCamera = m_IsThirdPersonCamera;
+        Vector anchorSeed = m_SetupOrigin;
+
+        if (thirdPersonCamera && !m_ThirdPersonViewOrigin.IsZero())
+            anchorSeed = m_ThirdPersonViewOrigin;
+
+        // Desired anchor: follow the active camera origin. Fall back to player eye height if we lack data.
+        Vector desired = anchorSeed;
         if (desired.IsZero())
             desired = absOrigin + Vector(0, 0, 64);
-        desired.x = absOrigin.x;
-        desired.y = absOrigin.y;
+
+        // In first-person, lock XY to the player to avoid drift when the game momentarily nudges the view.
+        if (!thirdPersonCamera)
+        {
+            desired.x = absOrigin.x;
+            desired.y = absOrigin.y;
+        }
 
         Vector delta = desired - m_SetupOrigin;
-        delta.z = 0.0f; // only rebase planar drift from third-person camera
+        if (!thirdPersonCamera)
+            delta.z = 0.0f; // only rebase planar drift from third-person camera
 
         // If we haven't initialized anchors yet, initialize cleanly (don't "add huge delta" to zero state).
         if (m_SetupOrigin.IsZero() || m_SetupOriginPrev.IsZero() || m_CameraAnchor.IsZero())
@@ -1919,12 +1979,16 @@ void VR::UpdateTracking()
             if (m_CameraAnchor.IsZero())
                 m_CameraAnchor = desired;
         }
-        else if (VectorLength(delta) > 1.0f)
+        else if (!thirdPersonCamera && VectorLength(delta) > 1.0f)
         {
             // Rebase camera anchor and previous setup origin so we DON'T get a one-frame spike
             // in (m_SetupOrigin - m_SetupOriginPrev), and controllers immediately stop sticking to the model.
             m_CameraAnchor += delta;
             m_SetupOriginPrev += delta;
+            m_SetupOrigin = desired;
+        }
+        else
+        {
             m_SetupOrigin = desired;
         }
     }
