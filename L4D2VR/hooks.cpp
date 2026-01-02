@@ -250,7 +250,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.zNearViewmodel = 6;
 
 	Vector leftOrigin, rightOrigin;
-	Vector viewAngles = m_VR->GetViewAngle();
+	Vector hmdAnglesVec = m_VR->GetViewAngle();
+	QAngle viewAngles(hmdAnglesVec.x, hmdAnglesVec.y, hmdAnglesVec.z);
 	if (engineThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
