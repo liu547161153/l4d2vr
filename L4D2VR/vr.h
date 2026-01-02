@@ -44,8 +44,10 @@ struct SharedTextureHolder
 struct CustomActionBinding
 {
 	std::string command;
+	std::string releaseCommand;
 	std::optional<WORD> virtualKey;
 	bool holdVirtualKey = false;
+	bool usePressReleaseCommands = false;
 };
 
 
@@ -309,6 +311,7 @@ public:
 	float m_ControllerHudZOffset = 0.0f;
 	float m_ControllerHudRotation = 0.0f;
 	float m_ControllerHudXOffset = 0.0f;
+	bool m_ControllerHudCut = true;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
@@ -404,6 +407,8 @@ public:
 	float m_SpecialInfectedBlindSpotWarningDuration = 0.5f;
 	bool m_SpecialInfectedBlindSpotWarningActive = false;
 	std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
+	float m_SpecialInfectedPreWarningEvadeDistance = 260.0f;
+	bool m_SpecialInfectedPreWarningEvadeTriggered = false;
 	float m_SpecialInfectedWarningSecondaryHoldDuration = 0.15f;
 	float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
 	float m_SpecialInfectedWarningJumpHoldDuration = 0.2f;
