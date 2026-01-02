@@ -421,30 +421,34 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// Server host
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-
-		// Third-person convergence: aim bullets to the converge point so "bullet line" intersects
-		// the rendered aim line at the actual hit point.
+		// Third-person: keep bullet origin at weapon/muzzle (vecOrigin),
+		// but aim it so it converges to the controller aim ray hit point.
 		if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 		{
+			vecNewOrigin = vecOrigin;
 			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
 			if (!to.IsZero())
 			{
 				VectorNormalize(to);
 				QAngle ang;
 				QAngle::VectorAngles(to, ang);
-				ang.z = 0.f;
-				if (ang.x > 89.f) ang.x = 89.f;
-				if (ang.x < -89.f) ang.x = -89.f;
+
+				// VectorAngles gives pitch in [0,360). Convert to [-180,180] before clamping.
+				if (ang.x > 180.0f) ang.x -= 360.0f;
+				while (ang.y > 180.0f) ang.y -= 360.0f;
+				while (ang.y < -180.0f) ang.y += 360.0f;
+
+				if (ang.x > 89.0f) ang.x = 89.0f;
+				if (ang.x < -89.0f) ang.x = -89.0f;
+				ang.z = 0.0f;
+
 				vecNewAngles = ang;
-			}
-			else
-			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
 			}
 		}
 		else
 		{
+			// First-person (or no converge point): fire from controller as before
+			vecNewOrigin = m_VR->GetRightControllerAbsPos();
 			vecNewAngles = m_VR->GetRightControllerAbsAngle();
 		}
 	}
@@ -466,28 +470,30 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// 只有当本局服务器端确实运行了 VR 钩子时，才用控制器射线做本地预测
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-
 		if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 		{
+			vecNewOrigin = vecOrigin;
 			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
 			if (!to.IsZero())
 			{
 				VectorNormalize(to);
 				QAngle ang;
 				QAngle::VectorAngles(to, ang);
-				ang.z = 0.f;
-				if (ang.x > 89.f) ang.x = 89.f;
-				if (ang.x < -89.f) ang.x = -89.f;
+
+				if (ang.x > 180.0f) ang.x -= 360.0f;
+				while (ang.y > 180.0f) ang.y -= 360.0f;
+				while (ang.y < -180.0f) ang.y += 360.0f;
+
+				if (ang.x > 89.0f) ang.x = 89.0f;
+				if (ang.x < -89.0f) ang.x = -89.0f;
+				ang.z = 0.0f;
+
 				vecNewAngles = ang;
-			}
-			else
-			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
 			}
 		}
 		else
 		{
+			vecNewOrigin = m_VR->GetRightControllerAbsPos();
 			vecNewAngles = m_VR->GetRightControllerAbsAngle();
 		}
 	}

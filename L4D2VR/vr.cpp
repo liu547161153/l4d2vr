@@ -2390,16 +2390,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     VectorNormalize(direction);
 
-    // Aim line origin used for rendering. In third-person you may be shifting things toward the camera;
-    // keep that consistent here so convergence matches what you actually draw.
-    Vector originBase = m_RightControllerPosAbs;
-    if (m_IsThirdPersonCamera)
-    {
-        // Move controller-origin into the third-person camera space (same idea as your earlier fix)
-        Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-        originBase += camDelta;
-    }
-    Vector origin = originBase + direction * 2.0f;
+    Vector origin = m_RightControllerPosAbs + direction * 2.0f; // 仍然贴手柄（不要第三人称平移）
 
     if (isThrowable)
     {
@@ -2412,45 +2403,31 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
 
     const float maxDistance = 8192.0f;
-    Vector targetMax = origin + direction * maxDistance;
+    Vector target = origin + direction * maxDistance;
 
-    // Default: no convergence
-    Vector finalHit = targetMax;
+    // Third-person convergence point = hit point on controller ray
     m_HasAimConvergePoint = false;
-
-    // Third-person convergence:
-    // 1) Trace from the rendered aim-line (origin -> targetMax) to get desired point P
-    // 2) Trace from bullet origin (controller) to P to get the true bullet hit point
+    Vector hitPoint = target;
     if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
     {
         CTraceFilterSkipSelf filter((IHandleEntity*)localPlayer, 0);
         Ray_t ray;
         CGameTrace tr;
-
-        ray.Init(origin, targetMax);
+        ray.Init(origin, target);
         m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &filter, &tr);
+        if (tr.fraction > 0.0f && tr.fraction < 1.0f)
+            hitPoint = tr.endpos;
 
-        Vector desiredPoint = (tr.fraction < 1.0f && tr.fraction > 0.0f) ? tr.endpos : targetMax;
-
-        // Now get the actual bullet hit if we shoot from controller toward desiredPoint
-        Vector bulletOrigin = m_RightControllerPosAbs; // matches your FireTerrorBullets origin override
-        Ray_t ray2;
-        CGameTrace tr2;
-        ray2.Init(bulletOrigin, desiredPoint);
-        m_Game->m_EngineTrace->TraceRay(ray2, STANDARD_TRACE_MASK, &filter, &tr2);
-
-        finalHit = (tr2.fraction < 1.0f && tr2.fraction > 0.0f) ? tr2.endpos : desiredPoint;
-
-        m_AimConvergePoint = finalHit;
+        m_AimConvergePoint = hitPoint;
         m_HasAimConvergePoint = true;
     }
 
     m_AimLineStart = origin;
-    m_AimLineEnd = finalHit;
+    m_AimLineEnd = hitPoint;
     m_HasAimLine = true;
     m_HasThrowArc = false;
 
-    DrawAimLine(origin, finalHit);
+    DrawAimLine(origin, hitPoint);
 }
 
 bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
