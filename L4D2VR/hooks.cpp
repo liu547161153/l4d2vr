@@ -280,10 +280,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	QAngle inGameAngle;
 	if (engineThirdPerson)
 	{
-		inGameAngle = setup.angles;
-		inGameAngle.x += hmdAngle.x;   // pitch only
-		// inGameAngle.y += hmdAngle.y; // ❌ lock yaw in third-person
-		inGameAngle.z = 0.f;
+		inGameAngle.Init(
+			setup.angles.x + hmdAngle.x, // pitch only
+			setup.angles.y,              // lock yaw in third-person
+			0.f);
 	}
 	else
 	{
