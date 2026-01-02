@@ -243,6 +243,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
+	// In non-VR server compatibility mode, rely on the engine-provided third-person camera
+	// orientation so both eyes share the same view pivot as the shoulder camera.
+	if (engineThirdPerson && m_VR->m_ForceNonVRServerMovement)
+	{
+		viewAngles = Vector(setup.angles.x, setup.angles.y, setup.angles.z);
+	}
 	if (engineThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
@@ -405,8 +411,7 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
 		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-		if (!m_VR->m_ForceNonVRServerMovement || m_VR->m_NonVRServerMovementAngleOverride)
-			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		vecNewAngles = m_VR->GetRightControllerAbsAngle();
 	}
 
 	return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
