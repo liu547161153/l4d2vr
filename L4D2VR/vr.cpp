@@ -1947,12 +1947,48 @@ void VR::UpdateTracking()
             return angle - 360.0f * std::floor((angle + 180.0f) / 360.0f);
         };
 
-    Vector hmdPosSmoothed = hmdPosCorrected;
-    QAngle hmdAngSmoothed = hmdAngLocal;
+    const float headSmoothingStrength = std::clamp(m_HeadSmoothing, 0.0f, 0.99f);
+    if (!m_HeadSmoothingInitialized)
+    {
+        m_HmdPosSmoothed = hmdPosCorrected;
+        m_HmdAngSmoothed = hmdAngLocal;
+        m_HeadSmoothingInitialized = true;
+    }
 
-    hmdAngSmoothed.x = wrapAngle(hmdAngSmoothed.x);
-    hmdAngSmoothed.y = wrapAngle(hmdAngSmoothed.y);
-    hmdAngSmoothed.z = wrapAngle(hmdAngSmoothed.z);
+    if (headSmoothingStrength > 0.0f)
+    {
+        const float lerpFactor = 1.0f - headSmoothingStrength;
+        auto smoothVector = [&](const Vector& target, Vector& current)
+            {
+                current.x += (target.x - current.x) * lerpFactor;
+                current.y += (target.y - current.y) * lerpFactor;
+                current.z += (target.z - current.z) * lerpFactor;
+            };
+
+        auto smoothAngleComponent = [&](float target, float& current)
+            {
+                float diff = target - current;
+                diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+                current += diff * lerpFactor;
+            };
+
+        smoothVector(hmdPosCorrected, m_HmdPosSmoothed);
+        smoothAngleComponent(hmdAngLocal.x, m_HmdAngSmoothed.x);
+        smoothAngleComponent(hmdAngLocal.y, m_HmdAngSmoothed.y);
+        smoothAngleComponent(hmdAngLocal.z, m_HmdAngSmoothed.z);
+    }
+    else
+    {
+        m_HmdPosSmoothed = hmdPosCorrected;
+        m_HmdAngSmoothed = hmdAngLocal;
+    }
+
+    m_HmdAngSmoothed.x = wrapAngle(m_HmdAngSmoothed.x);
+    m_HmdAngSmoothed.y = wrapAngle(m_HmdAngSmoothed.y);
+    m_HmdAngSmoothed.z = wrapAngle(m_HmdAngSmoothed.z);
+
+    Vector hmdPosSmoothed = m_HmdPosSmoothed;
+    QAngle hmdAngSmoothed = m_HmdAngSmoothed;
 
     m_HmdPosCorrectedPrev = hmdPosCorrected;
     m_HmdPosLocalPrev = hmdPosLocal;
@@ -3852,11 +3888,20 @@ void VR::ParseConfigFile()
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
     float controllerSmoothingValue = m_ControllerSmoothing;
-    if (userConfig.find("ControllerSmoothing") != userConfig.end())
+    const bool hasControllerSmoothing = userConfig.find("ControllerSmoothing") != userConfig.end();
+    const bool hasHeadSmoothing = userConfig.find("HeadSmoothing") != userConfig.end();
+    if (hasControllerSmoothing)
         controllerSmoothingValue = getFloat("ControllerSmoothing", controllerSmoothingValue);
-    else if (userConfig.find("HeadSmoothing") != userConfig.end())
+    else if (hasHeadSmoothing) // Backward compatibility: old configs used HeadSmoothing
         controllerSmoothingValue = getFloat("HeadSmoothing", controllerSmoothingValue);
     m_ControllerSmoothing = std::clamp(controllerSmoothingValue, 0.0f, 0.99f);
+
+    float headSmoothingValue = m_HeadSmoothing;
+    if (hasHeadSmoothing)
+        headSmoothingValue = getFloat("HeadSmoothing", headSmoothingValue);
+    else
+        headSmoothingValue = controllerSmoothingValue; // Match controller smoothing by default
+    m_HeadSmoothing = std::clamp(headSmoothingValue, 0.0f, 0.99f);
     m_MotionGestureSwingThreshold = std::max(0.0f, getFloat("MotionGestureSwingThreshold", m_MotionGestureSwingThreshold));
     m_MotionGestureDownSwingThreshold = std::max(0.0f, getFloat("MotionGestureDownSwingThreshold", m_MotionGestureDownSwingThreshold));
     m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));
