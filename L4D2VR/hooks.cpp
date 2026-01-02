@@ -241,16 +241,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_SetupOrigin = eyeOrigin;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
-	Vector leftOrigin, rightOrigin;
-	Vector viewAngles = m_VR->GetViewAngle();
+	Vector leftOrigin, rightOrigin, viewAngles;
 	if (engineThirdPerson)
 	{
-		// Render from the engine-provided third-person camera (setup.origin),
-		// but aim the camera with the HMD so head look still works in third-person.
-		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
-		if (m_VR->m_HmdForward.IsZero())
-			camAng = QAngle(setup.angles.x, setup.angles.y, setup.angles.z);
-
+		// Render from the engine-provided third-person camera (setup.origin/angles)
+		QAngle camAng(setup.angles.x, setup.angles.y, setup.angles.z);
 		Vector fwd, right, up;
 		QAngle::AngleVectors(camAng, &fwd, &right, &up);
 
@@ -261,12 +256,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		Vector camCenter = setup.origin + (fwd * (-eyeZ));
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+		viewAngles = setup.angles;
 	}
 	else
 	{
 		// Normal VR first-person
 		leftOrigin = m_VR->GetViewOriginLeft();
 		rightOrigin = m_VR->GetViewOriginRight();
+		viewAngles = m_VR->GetViewAngle();
 	}
 
 	leftEyeView.origin = leftOrigin;
@@ -275,7 +272,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	Vector hmdAngle = m_VR->GetViewAngle();
 	QAngle inGameAngle(hmdAngle.x, hmdAngle.y, hmdAngle.z);
 
-	m_Game->m_EngineClient->SetViewAngles(inGameAngle);
+
+	const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
+	if (!treatServerAsNonVR)
+	{
+		m_Game->m_EngineClient->SetViewAngles(inGameAngle);
+	}
 
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudViewSetup, nClearFlags, whatToDraw);
@@ -404,9 +406,16 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// 只有当本局服务器端确实运行了 VR 钩子时，才用控制器射线做本地预测
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-		if (!m_VR->m_ForceNonVRServerMovement || m_VR->m_NonVRServerMovementAngleOverride)
+		if (!m_VR->m_ForceNonVRServerMovement)
+		{
+			vecNewOrigin = m_VR->GetRightControllerAbsPos();
 			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		}
+		else if (m_VR->m_NonVRServerMovementAngleOverride)
+		{
+			// 非 VR 服务器：服务器仍以常规射线起点为准，但视角需要跟随控制器
+			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+		}
 	}
 
 	return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
@@ -741,10 +750,6 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			}
 		}
 
-		// if (entity && info.entity_index > 0 && m_Game->IsValidPlayerIndex(info.entity_index))
-		// {
-		// 	infectedType = m_VR->GetSpecialInfectedType(entity);
-		// }
 		const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
 		if (isInfectedModel)
 		{
