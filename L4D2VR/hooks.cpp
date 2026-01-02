@@ -255,13 +255,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
+	// Always render using the HMD view angles so head-look works in both first-person
+	// and third-person. ForceNonVRServerMovement should only affect usercmds, not rendering.
 	Vector viewAngles = m_VR->GetViewAngle();
-	// In non-VR server compatibility mode, rely on the engine-provided third-person camera
-	// orientation so both eyes share the same view pivot as the shoulder camera.
-	if (engineThirdPerson && m_VR->m_ForceNonVRServerMovement)
-	{
-		viewAngles = Vector(setup.angles.x, setup.angles.y, setup.angles.z);
-	}
 	if (engineThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
@@ -291,13 +287,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
-	// Keep engine global view angles consistent with the CViewSetup angles we render with.
-	// Mixing HMD angles here with third-person setup angles in RenderView causes ghosting.
-	QAngle prevAngles;
-	m_Game->m_EngineClient->GetViewAngles(prevAngles);
-
-	QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
-	m_Game->m_EngineClient->SetViewAngles(renderAngles);
+	// Keep engine "current view" aligned to the angles we are rendering with.
+	// If these disagree, some render paths can look wrong and movement basis can drift.
+	QAngle inGameAngle(viewAngles.x, viewAngles.y, viewAngles.z);
+	m_Game->m_EngineClient->SetViewAngles(inGameAngle);
 
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudViewSetup, nClearFlags, whatToDraw);
@@ -318,8 +311,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudViewSetup, nClearFlags, whatToDraw);
 
-	// Restore engine angles so we don't leak render-time state into gameplay/UI.
-	m_Game->m_EngineClient->SetViewAngles(prevAngles);
+	// End the frame with HMD angles active so CreateMove/movement basis stays consistent.
+	Vector hmdAngleEnd = m_VR->GetViewAngle();
+	QAngle hmdGameAngle(hmdAngleEnd.x, hmdAngleEnd.y, hmdAngleEnd.z);
+	m_Game->m_EngineClient->SetViewAngles(hmdGameAngle);
 
 	m_VR->m_RenderedNewFrame = true;
 }
@@ -375,6 +370,18 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			cmd->viewangles.x = aim.x;   // pitch
 			cmd->viewangles.y = aim.y;   // yaw
 			cmd->viewangles.z = 0.f;     // roll 一般不用
+		}
+		else {
+			// VR-aware servers: ensure cmd->viewangles matches HMD.
+			// Otherwise forward/sidemove get interpreted in the wrong basis (push forward -> strafe).
+			Vector hmdAng = m_VR->GetViewAngle();
+			QAngle view(hmdAng.x, hmdAng.y, hmdAng.z);
+			if (view.x > 89.f)  view.x = 89.f;
+			if (view.x < -89.f) view.x = -89.f;
+			while (view.y > 180.f)  view.y -= 360.f;
+			while (view.y < -180.f) view.y += 360.f;
+			view.z = 0.f;
+			cmd->viewangles = view;
 		}
 	}
 
