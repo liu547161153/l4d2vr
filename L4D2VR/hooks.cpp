@@ -225,6 +225,19 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	const bool engineThirdPerson = (localPlayer && camDist > 5.0f);
 
+	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
+	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
+	if (engineThirdPerson)
+	{
+		m_VR->m_ThirdPersonViewOrigin = setup.origin;
+		m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+	}
+	else
+	{
+		m_VR->m_ThirdPersonViewOrigin = eyeOrigin;
+		m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+	}
+
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -278,10 +291,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
-	Vector hmdAngle = m_VR->GetViewAngle();
-	QAngle inGameAngle(hmdAngle.x, hmdAngle.y, hmdAngle.z);
+	// Keep engine global view angles consistent with the CViewSetup angles we render with.
+	// Mixing HMD angles here with third-person setup angles in RenderView causes ghosting.
+	QAngle prevAngles;
+	m_Game->m_EngineClient->GetViewAngles(prevAngles);
 
-	m_Game->m_EngineClient->SetViewAngles(inGameAngle);
+	QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
+	m_Game->m_EngineClient->SetViewAngles(renderAngles);
 
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudViewSetup, nClearFlags, whatToDraw);
@@ -301,6 +317,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudViewSetup, nClearFlags, whatToDraw);
+
+	// Restore engine angles so we don't leak render-time state into gameplay/UI.
+	m_Game->m_EngineClient->SetViewAngles(prevAngles);
 
 	m_VR->m_RenderedNewFrame = true;
 }
