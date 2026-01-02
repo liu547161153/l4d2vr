@@ -3015,12 +3015,84 @@ Vector VR::GetViewAngle()
     return Vector(m_HmdAngAbs.x, m_HmdAngAbs.y, m_HmdAngAbs.z);
 }
 
+bool VR::UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles)
+{
+    m_IsThirdPersonCamera = true;
+
+    Vector desiredOrigin = cameraOrigin;
+    QAngle desiredAngles = { cameraAngles.x, cameraAngles.y, cameraAngles.z };
+
+    // Prevent the third-person camera from clipping through geometry
+    int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+    C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+    if (localPlayer && m_Game->m_EngineTrace)
+    {
+        CGameTrace trace;
+        Ray_t ray;
+        CTraceFilterSkipNPCsAndPlayers traceFilter((IHandleEntity*)localPlayer, 0);
+
+        Vector eyePos = localPlayer->EyePosition();
+        ray.Init(eyePos, desiredOrigin);
+
+        m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &traceFilter, &trace);
+        if (trace.fraction < 1.0f && trace.fraction > 0.0f)
+            desiredOrigin = trace.endpos;
+    }
+
+    // Initialize smoothing state
+    if (!m_ThirdPersonPoseInitialized)
+    {
+        m_ThirdPersonViewOrigin = desiredOrigin;
+        m_ThirdPersonViewAngles = desiredAngles;
+        m_ThirdPersonPoseInitialized = true;
+        m_ThirdPersonHoldFrames = 2;
+        return true;
+    }
+
+    const float smoothing = std::clamp(m_ThirdPersonCameraSmoothing, 0.0f, 0.99f);
+    const float lerpFactor = 1.0f - smoothing;
+
+    auto smoothVector = [&](const Vector& target, Vector& current)
+        {
+            current.x += (target.x - current.x) * lerpFactor;
+            current.y += (target.y - current.y) * lerpFactor;
+            current.z += (target.z - current.z) * lerpFactor;
+        };
+
+    auto smoothAngleComponent = [&](float target, float& current)
+        {
+            float diff = target - current;
+            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+            current += diff * lerpFactor;
+        };
+
+    smoothVector(desiredOrigin, m_ThirdPersonViewOrigin);
+    smoothAngleComponent(desiredAngles.x, m_ThirdPersonViewAngles.x);
+    smoothAngleComponent(desiredAngles.y, m_ThirdPersonViewAngles.y);
+    smoothAngleComponent(desiredAngles.z, m_ThirdPersonViewAngles.z);
+
+    m_ThirdPersonHoldFrames = 2;
+
+    return true;
+}
+
 Vector VR::GetViewOriginLeft()
 {
     Vector viewOriginLeft;
 
-    viewOriginLeft = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
-    viewOriginLeft = viewOriginLeft + (m_HmdRight * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
+    if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
+    {
+        Vector forward, right, up;
+        QAngle::AngleVectors(m_ThirdPersonViewAngles, &forward, &right, &up);
+
+        viewOriginLeft = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
+        viewOriginLeft = viewOriginLeft + (right * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
+    }
+    else
+    {
+        viewOriginLeft = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
+        viewOriginLeft = viewOriginLeft + (m_HmdRight * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
+    }
 
     return viewOriginLeft;
 }
@@ -3029,8 +3101,19 @@ Vector VR::GetViewOriginRight()
 {
     Vector viewOriginRight;
 
-    viewOriginRight = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
-    viewOriginRight = viewOriginRight + (m_HmdRight * (m_Ipd * m_IpdScale * m_VRScale) / 2);
+    if (m_IsThirdPersonCamera || m_ThirdPersonHoldFrames > 0)
+    {
+        Vector forward, right, up;
+        QAngle::AngleVectors(m_ThirdPersonViewAngles, &forward, &right, &up);
+
+        viewOriginRight = m_ThirdPersonViewOrigin + (forward * (-(m_EyeZ * m_VRScale)));
+        viewOriginRight = viewOriginRight + (right * (m_Ipd * m_IpdScale * m_VRScale) / 2);
+    }
+    else
+    {
+        viewOriginRight = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
+        viewOriginRight = viewOriginRight + (m_HmdRight * (m_Ipd * m_IpdScale * m_VRScale) / 2);
+    }
 
     return viewOriginRight;
 }
