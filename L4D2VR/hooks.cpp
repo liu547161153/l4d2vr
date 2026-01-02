@@ -281,7 +281,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			{
 				// Force both eyes to the exact same transform so the entire scene is monoscopic.
 				rightOrigin = leftOrigin;
-				rightEyeView.angles = QAngle(camAng.x, camAng.y, camAng.z);
 			}
 		}
 		else
