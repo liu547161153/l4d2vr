@@ -157,7 +157,10 @@ public:
 	Vector m_AimLineStart = { 0,0,0 };
 	Vector m_AimLineEnd = { 0,0,0 };
 
-	// Third-person convergence: "rendered aim line" hit point that bullets should converge to.
+	// Third-person convergence: point hit by the *rendered* aim ray (camera/reticle ray).
+	// Bullets may be steered to aim at this point so the rendered line and bullet direction
+	// intersect at P. If something blocks the bullet path, it will hit earlier — we do NOT
+	// move P to the blocking surface.
 	Vector m_AimConvergePoint = { 0,0,0 };
 	bool m_HasAimConvergePoint = false;
 
