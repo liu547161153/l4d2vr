@@ -2391,10 +2391,18 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     {
         m_LastAimDirection = direction;
         m_LastAimWasThrowable = isThrowable;
-    }
-    VectorNormalize(direction);
+	}
+	VectorNormalize(direction);
 
-    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
+	// Aim line origin is controller-based. In third-person the rendered camera is offset behind the player,
+	// so we translate the controller position into the rendered-camera frame.
+	// We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
+	Vector originBase = m_RightControllerPosAbs;
+	Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+	if (camDelta.LengthSqr() > 1.0f)
+		originBase += camDelta;
+
+	Vector origin = originBase + direction * 2.0f;
 
     if (isThrowable)
     {
