@@ -341,6 +341,52 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
+	// ----------------------------
+	// Scope RTT pass: render from scope camera into vrScope RTT
+	// ----------------------------
+	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture)
+	{
+		CViewSetup scopeView = setup;
+		scopeView.x = 0;
+		scopeView.y = 0;
+		scopeView.width = m_VR->m_ScopeRTTSize;
+		scopeView.height = m_VR->m_ScopeRTTSize;
+		scopeView.m_bOrtho = false;
+		scopeView.fov = m_VR->m_ScopeFov;
+		scopeView.m_flAspectRatio = 1.0f;
+		scopeView.zNear = m_VR->m_ScopeZNear;
+		scopeView.zNearViewmodel = 99999.0f; // hard-clip viewmodel so scope image is "world only"
+
+		scopeView.origin = m_VR->GetScopeCameraAbsPos();
+		scopeView.angles = m_VR->GetScopeCameraAbsAngle();
+
+		CViewSetup hudScope = hudViewSetup;
+		hudScope.origin = scopeView.origin;
+		hudScope.angles = scopeView.angles;
+
+		// prevent HUD capture hooks during this pass
+		m_VR->m_SuppressHudCapture = true;
+
+		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+		if (renderContext)
+		{
+			renderContext->PushRenderTargetAndViewport(m_VR->m_ScopeTexture);
+			renderContext->ClearColor3ub(0, 0, 0);
+			renderContext->ClearBuffers(true, true, true);
+
+			QAngle oldEngineAngles;
+			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+			m_Game->m_EngineClient->SetViewAngles(scopeView.angles);
+
+			hkRenderView.fOriginal(ecx, setup, hudScope, nClearFlags, whatToDraw);
+
+			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+			renderContext->PopRenderTargetAndViewport();
+		}
+
+		m_VR->m_SuppressHudCapture = false;
+	}
+
 	// Restore engine angles immediately after our stereo render.
 	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame = true;
@@ -683,30 +729,41 @@ int Hooks::dClientFireTerrorBullets(
 	// 只改本地玩家的“本地预测/表现”
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
+		// If looking through scope: bullets originate from scope camera and go through its center
+		const bool scopeActive = m_VR->IsScopeActive();
+
 		if (!m_VR->m_ForceNonVRServerMovement)
 		{
 			// VR-aware server：起点/方向都跟控制器（你现在第三人称汇聚点逻辑保留）
-			vecNewOrigin = m_VR->GetRightControllerAbsPos();
-
-			if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+			if (scopeActive)
 			{
-				Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
-				if (!to.IsZero())
+				vecNewOrigin = m_VR->GetScopeCameraAbsPos();
+				vecNewAngles = m_VR->GetScopeCameraAbsAngle();
+			}
+			else
+			{
+				vecNewOrigin = m_VR->GetRightControllerAbsPos();
+
+				if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 				{
-					VectorNormalize(to);
-					QAngle ang;
-					QAngle::VectorAngles(to, ang);
-					NormalizeAndClampViewAngles(ang);
-					vecNewAngles = ang;
+					Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
+					if (!to.IsZero())
+					{
+						VectorNormalize(to);
+						QAngle ang;
+						QAngle::VectorAngles(to, ang);
+						NormalizeAndClampViewAngles(ang);
+						vecNewAngles = ang;
+					}
+					else
+					{
+						vecNewAngles = m_VR->GetRightControllerAbsAngle();
+					}
 				}
 				else
 				{
 					vecNewAngles = m_VR->GetRightControllerAbsAngle();
 				}
-			}
-			else
-			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
 			}
 		}
 		else
@@ -725,7 +782,7 @@ int Hooks::dClientFireTerrorBullets(
 				}
 				else
 				{
-				if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+				if (!scopeActive && m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 				{
 					Vector to = m_VR->m_AimConvergePoint - vecNewOrigin; // 注意：这里是 vecOrigin
 					if (!to.IsZero())
@@ -1167,6 +1224,10 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 	if (!m_VR->m_CreatedVRTextures)
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
+	// Extra offscreen passes (scope RTT) must not hijack HUD capture
+	if (m_VR->m_SuppressHudCapture)
+		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+
 	if (m_PushHUDStep == 2)
 		++m_PushHUDStep;
 	else
@@ -1230,6 +1291,10 @@ void Hooks::dPopRenderTargetAndViewport(void* ecx, void* edx)
 void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 {
 	if (!m_VR->m_CreatedVRTextures)
+		return hkVgui_Paint.fOriginal(ecx, mode);
+
+	// When scope RTT is rendering, don't redirect HUD/VGUI
+	if (m_VR->m_SuppressHudCapture)
 		return hkVgui_Paint.fOriginal(ecx, mode);
 
 	if (m_PushedHud)
