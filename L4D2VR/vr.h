@@ -159,7 +159,7 @@ public:
 
 	// Third-person convergence: point hit by the *rendered* aim ray (camera/reticle ray).
 	// Bullets may be steered to aim at this point so the rendered line and bullet direction
-	// intersect at P. If something blocks the bullet path, it will hit earlier — we do NOT
+	// intersect at P. If something blocks the bullet path, it will hit earlier  we do NOT
 	// move P to the blocking surface.
 	Vector m_AimConvergePoint = { 0,0,0 };
 	bool m_HasAimConvergePoint = false;
@@ -374,7 +374,35 @@ public:
 
 	bool m_ForceNonVRServerMovement = false;
 	bool m_NonVRServerMovementAngleOverride = true;
+
+// Non-VR server movement: client-side melee gesture -> IN_ATTACK tuning (ForceNonVRServerMovement=true only)
+// These are intentionally separate from generic MotionGesture* knobs.
+float m_NonVRMeleeSwingThreshold = 1.1f;     // controller linear speed threshold (m/s-ish in tracking space)
+float m_NonVRMeleeSwingCooldown = 0.30f;     // seconds between synthetic swings
+float m_NonVRMeleeHoldTime = 0.06f;          // seconds to hold IN_ATTACK after trigger (reduces "dropped swings")
+float m_NonVRMeleeAimLockTime = 0.12f;       // seconds to lock viewangles after trigger (stabilizes swing direction)
+float m_NonVRMeleeHysteresis = 0.60f;        // re-arm threshold = threshold * hysteresis
+float m_NonVRMeleeAngVelThreshold = 0.0f;    // deg/s, 0 = disabled (optional wrist-flick trigger)
+float m_NonVRMeleeSwingDirBlend = 0.0f;      // 0..1 blend locked aim toward velocity direction
 	bool m_RequireSecondaryAttackForItemSwitch = true;
+
+	// ----------------------------
+	// Non-VR server aim consistency (ForceNonVRServerMovement)
+	//
+	// When playing on a server that does NOT run the VR plugin, the server will
+	// calculate bullet traces from the player's eye position using cmd->viewangles.
+	// To keep the rendered aim line and actual hit point consistent (both in 1P/3P),
+	// we solve an "aim hit point" H each frame:
+	//   P = point hit by controller ray (or max distance)
+	//   H = point hit by eye ray towards P  (what the server will actually hit)
+	//   m_NonVRAimAngles = angles from eye -> H (what we send in cmd->viewangles)
+	std::chrono::steady_clock::time_point m_LastNonVRAimSolveTime{};
+	float m_NonVRAimSolveMaxHz = 90.0f; // throttle traces; 0 disables throttling
+	Vector m_NonVRAimDesiredPoint = { 0.0f, 0.0f, 0.0f }; // P
+	Vector m_NonVRAimHitPoint = { 0.0f, 0.0f, 0.0f };     // H
+	QAngle m_NonVRAimAngles = { 0.0f, 0.0f, 0.0f };
+	bool m_HasNonVRAimSolution = false;
+
 	struct RgbColor
 	{
 		int r;
@@ -524,6 +552,7 @@ public:
 	std::string GetMeleeWeaponName(C_WeaponCSBase* weapon) const;
 	void WaitForConfigUpdate();
 	bool GetWalkAxis(float& x, float& y);
+	void UpdateNonVRAimSolution(C_BasePlayer* localPlayer);
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
