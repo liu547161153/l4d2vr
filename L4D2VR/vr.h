@@ -64,6 +64,8 @@ public:
 	vr::VROverlayHandle_t m_MainMenuHandle;
 	vr::VROverlayHandle_t m_HUDTopHandle;
 	std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
+	// Gun-mounted scope overlay (render-to-texture lens)
+	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
@@ -214,23 +216,27 @@ public:
 		Texture_LeftEye,
 		Texture_RightEye,
 		Texture_HUD,
+		Texture_Scope,
 		Texture_Blank
 	};
 
 	ITexture* m_LeftEyeTexture;
 	ITexture* m_RightEyeTexture;
 	ITexture* m_HUDTexture;
+	ITexture* m_ScopeTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
 	IDirect3DSurface9* m_D9LeftEyeSurface;
 	IDirect3DSurface9* m_D9RightEyeSurface;
 	IDirect3DSurface9* m_D9HUDSurface;
+	IDirect3DSurface9* m_D9ScopeSurface;
 	IDirect3DSurface9* m_D9BlankSurface;
 
 	SharedTextureHolder m_VKLeftEye;
 	SharedTextureHolder m_VKRightEye;
 	SharedTextureHolder m_VKBackBuffer;
 	SharedTextureHolder m_VKHUD;
+	SharedTextureHolder m_VKScope;
 	SharedTextureHolder m_VKBlankTexture;
 
 	bool m_IsVREnabled = false;
@@ -238,6 +244,8 @@ public:
 	bool m_RenderedNewFrame = false;
 	bool m_RenderedHud = false;
 	bool m_CreatedVRTextures = false;
+	// Used by extra offscreen passes (scope RTT): prevents HUD hooks from hijacking RT stack
+	bool m_SuppressHudCapture = false;
 	bool m_CompositorExplicitTiming = false;
 	bool m_CompositorNeedsHandoff = false;
 	TextureID m_CreatingTextureID = Texture_None;
@@ -498,6 +506,42 @@ float m_NonVRMeleeSwingDirBlend = 0.0f;      // 0..1 blend locked aim toward vel
 	int m_AimLineWarningColorR = 255;
 	int m_AimLineWarningColorG = 255;
 	int m_AimLineWarningColorB = 0;
+
+	// ----------------------------
+	// Gun-mounted scope (RTT overlay)
+	// ----------------------------
+	bool  m_ScopeEnabled = false;
+	int   m_ScopeRTTSize = 1024;               // square RTT size in pixels
+	float m_ScopeFov = 20.0f;                  // smaller = more zoom
+	float m_ScopeZNear = 2.0f;                 // game units
+
+	// Scope camera pose relative to gun hand (game units, in controller basis fwd/right/up)
+	Vector m_ScopeCameraOffset = { 10.0f, 0.0f, 2.0f };
+	QAngle m_ScopeCameraAngleOffset = { 0.0f, 0.0f, 0.0f };
+
+	// Overlay placement relative to tracked device (meters, in controller local space)
+	float  m_ScopeOverlayWidthMeters = 0.06f;
+	float  m_ScopeOverlayXOffset = 0.00f;
+	float  m_ScopeOverlayYOffset = 0.00f;
+	float  m_ScopeOverlayZOffset = 0.10f;
+	QAngle m_ScopeOverlayAngleOffset = { 0.0f, 0.0f, 0.0f };
+
+	// Look-through activation (HMD -> scope camera)
+	bool  m_ScopeRequireLookThrough = true;
+	float m_ScopeLookThroughDistanceMeters = 0.12f;
+	float m_ScopeLookThroughAngleDeg = 12.0f;
+	bool  m_ScopeOverlayAlwaysVisible = true;
+	float m_ScopeOverlayIdleAlpha = 0.35f;
+
+	// Runtime state
+	Vector m_ScopeCameraPosAbs = { 0.0f, 0.0f, 0.0f };
+	QAngle m_ScopeCameraAngAbs = { 0.0f, 0.0f, 0.0f };
+	bool   m_ScopeActive = false;
+
+	Vector GetScopeCameraAbsPos() const { return m_ScopeCameraPosAbs; }
+	QAngle GetScopeCameraAbsAngle() const { return m_ScopeCameraAngAbs; }
+	bool   IsScopeActive() const { return m_ScopeEnabled && m_ScopeActive; }
+	bool   ShouldRenderScope() const { return m_ScopeEnabled && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
 
 	VR() {};
 	VR(Game* game);

@@ -517,6 +517,12 @@ namespace dxvk {
               texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9HUDSurface);
               g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9HUDSurface, &texDesc);
           }
+          else if (texID == VR::Texture_Scope)
+          {
+              textureTarget = &g_Game->m_VR->m_VKScope;
+              texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9ScopeSurface);
+              g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9ScopeSurface, &texDesc);
+          }
           else if (texID == VR::Texture_Blank)
           {
               textureTarget = &g_Game->m_VR->m_VKBlankTexture;
