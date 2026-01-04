@@ -138,6 +138,8 @@ VR::VR(Game* game)
     m_Overlay = vr::VROverlay();
     m_Overlay->CreateOverlay("MenuOverlayKey", "MenuOverlay", &m_MainMenuHandle);
     m_Overlay->CreateOverlay("HUDOverlayTopKey", "HUDOverlayTop", &m_HUDTopHandle);
+    // Controller-attached scope overlay: shows a zoomed view from the main eye texture.
+    m_Overlay->CreateOverlay("ScopeOverlayKey", "ScopeOverlay", &m_ScopeHandle);
 
     const char* bottomOverlayKeys[4] = { "HUDOverlayBottom1", "HUDOverlayBottom2", "HUDOverlayBottom3", "HUDOverlayBottom4" };
     for (int i = 0; i < 4; ++i)
@@ -151,6 +153,8 @@ VR::VR(Game* game)
     {
         m_Overlay->SetOverlayInputMethod(overlay, vr::VROverlayInputMethod_Mouse);
     }
+    if (m_ScopeHandle)
+        m_Overlay->SetOverlayInputMethod(m_ScopeHandle, vr::VROverlayInputMethod_None);
 
     m_Overlay->SetOverlayFlag(m_MainMenuHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
     m_Overlay->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
@@ -387,6 +391,96 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKHUD.m_VRTexture);
         };
 
+    auto applyScopeTexture = [&]()
+        {
+            if (!m_ScopeHandle || !m_ScopeEnabled)
+                return;
+
+            const float zoom = std::max(1.0f, m_ScopeZoom);
+            const vr::VRTextureBounds_t& base = m_TextureBounds[1]; // use right eye
+
+            const float uExtent = (base.uMax - base.uMin);
+            const float vExtent = (base.vMax - base.vMin);
+
+            // Target crop center in UVs.
+            float targetU = 0.5f * (base.uMin + base.uMax);
+            float targetV = 0.5f * (base.vMin + base.vMax);
+
+            // Optionally center the crop based on the controller forward direction projected into the HMD view.
+            // This makes the scope image feel less like it's glued to your head rotation.
+            if (m_ScopeUseControllerCrop)
+            {
+                // Reconstruct tan half-FOV in each axis from cached values.
+                const float tanHalfX = tanf((m_Fov * 0.5f) * (3.14159265358979323846f / 180.0f));
+                const float tanHalfY = (m_Aspect > 0.0001f) ? (tanHalfX / m_Aspect) : tanHalfX;
+
+                Vector dir = m_RightControllerForwardRaw;
+                const float dirLen = dir.Length();
+                if (dirLen > 0.0001f && tanHalfX > 0.0001f && tanHalfY > 0.0001f)
+                {
+                    dir /= dirLen;
+
+                    const float f = dir.Dot(m_HmdForward);
+                    if (f > 0.01f)
+                    {
+                        const float x = dir.Dot(m_HmdRight) / f;
+                        const float y = dir.Dot(m_HmdUp) / f;
+
+                        float u = 0.5f + 0.5f * (x / tanHalfX);
+                        float v = 0.5f - 0.5f * (y / tanHalfY);
+
+                        // Clamp within the eye's valid bounds.
+                        u = std::clamp(u, base.uMin, base.uMax);
+                        v = std::clamp(v, base.vMin, base.vMax);
+
+                        targetU = u;
+                        targetV = v;
+                    }
+                }
+            }
+
+            // Manual fine-tune offset (fraction of the base eye bounds).
+            targetU += m_ScopeUVOffset.x * uExtent;
+            targetV += m_ScopeUVOffset.y * vExtent;
+
+            // Smooth crop center to reduce jitter.
+            const float lerp = std::clamp(m_ScopeUVCropLerp, 0.0f, 1.0f);
+            if (!m_ScopeUVCropCenterInitialized)
+            {
+                m_ScopeUVCropCenter.x = targetU;
+                m_ScopeUVCropCenter.y = targetV;
+                m_ScopeUVCropCenterInitialized = true;
+            }
+            else
+            {
+                m_ScopeUVCropCenter.x += (targetU - m_ScopeUVCropCenter.x) * lerp;
+                m_ScopeUVCropCenter.y += (targetV - m_ScopeUVCropCenter.y) * lerp;
+            }
+
+            float uCenter = m_ScopeUVCropCenter.x;
+            float vCenter = m_ScopeUVCropCenter.y;
+
+            const float uHalf = 0.5f * uExtent / zoom;
+            const float vHalf = 0.5f * vExtent / zoom;
+
+            auto clampCenter = [](float c, float half, float mn, float mx)
+                {
+                    return std::clamp(c, mn + half, mx - half);
+                };
+
+            uCenter = clampCenter(uCenter, uHalf, base.uMin, base.uMax);
+            vCenter = clampCenter(vCenter, vHalf, base.vMin, base.vMax);
+
+            vr::VRTextureBounds_t scopedBounds{};
+            scopedBounds.uMin = uCenter - uHalf;
+            scopedBounds.uMax = uCenter + uHalf;
+            scopedBounds.vMin = vCenter - vHalf;
+            scopedBounds.vMax = vCenter + vHalf;
+
+            vr::VROverlay()->SetOverlayTextureBounds(m_ScopeHandle, &scopedBounds);
+            vr::VROverlay()->SetOverlayTexture(m_ScopeHandle, &m_VKRightEye.m_VRTexture);
+        };
+
     //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
     {
@@ -399,6 +493,8 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
         vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
         hideHudOverlays();
+        if (m_ScopeHandle)
+            vr::VROverlay()->HideOverlay(m_ScopeHandle);
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
@@ -433,6 +529,20 @@ void VR::SubmitVRTextures()
                 continue;
 
             vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
+        }
+    }
+
+    // Scope overlay: in-world attachment, independent of the cursor.
+    if (m_ScopeHandle)
+    {
+        if (m_ScopeEnabled && m_Game->m_EngineClient->IsInGame())
+        {
+            applyScopeTexture();
+            vr::VROverlay()->ShowOverlay(m_ScopeHandle);
+        }
+        else
+        {
+            vr::VROverlay()->HideOverlay(m_ScopeHandle);
         }
     }
     submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
@@ -2159,6 +2269,11 @@ void VR::UpdateTracking()
     QAngle::AngleVectors(leftControllerAngSmoothed, &m_LeftControllerForward, &m_LeftControllerRight, &m_LeftControllerUp);
     QAngle::AngleVectors(rightControllerAngSmoothed, &m_RightControllerForward, &m_RightControllerRight, &m_RightControllerUp);
 
+    // Keep a copy of the physical controller basis (before the -45deg pitch bias used for aiming).
+    m_RightControllerForwardRaw = m_RightControllerForward;
+    m_RightControllerRightRaw = m_RightControllerRight;
+    m_RightControllerUpRaw = m_RightControllerUp;
+
     // Adjust controller angle 45 degrees downward
     m_LeftControllerForward = VectorRotate(m_LeftControllerForward, m_LeftControllerRight, -45.0);
     m_LeftControllerUp = VectorRotate(m_LeftControllerUp, m_LeftControllerRight, -45.0);
@@ -2205,6 +2320,8 @@ void VR::UpdateTracking()
     // solve an eye-based aim hit point so rendered aim line and real hit point stay consistent.
     UpdateNonVRAimSolution(localPlayer);
     UpdateAimingLaser(localPlayer);
+    UpdateScope(localPlayer);
+    UpdateScopeOverlayPose();
 
     // controller angles
     QAngle::VectorAngles(m_LeftControllerForward, m_LeftControllerUp, m_LeftControllerAngAbs);
@@ -2449,6 +2566,125 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
 
     m_NonVRAimAngles = ang;
     m_HasNonVRAimSolution = true;
+}
+
+void VR::UpdateScope(C_BasePlayer* localPlayer)
+{
+    (void)localPlayer;
+    m_ScopeActive = false;
+
+    if (!m_ScopeEnabled)
+        return;
+
+    if (m_HmdForward.IsZero() || m_RightControllerForwardRaw.IsZero())
+        return;
+
+    Vector hmdForward = m_HmdForward;
+    VectorNormalize(hmdForward);
+
+    Vector scopeForward = m_RightControllerForwardRaw;
+    VectorNormalize(scopeForward);
+
+    // Scope center in Source units (uses the pre-bias controller basis, so alignment is physical).
+    const Vector scopeCenter =
+        m_RightControllerPosAbs +
+        (m_RightControllerForwardRaw * (m_ScopeOffset.x * m_VRScale)) +
+        (m_RightControllerRightRaw * (m_ScopeOffset.y * m_VRScale)) +
+        (m_RightControllerUpRaw * (m_ScopeOffset.z * m_VRScale));
+
+    const float maxAngleRad = m_ScopeLookThroughMaxAngle * (3.14159265f / 180.0f);
+    const float cosMax = cosf(maxAngleRad);
+    const float cosAlign = DotProduct(hmdForward, scopeForward);
+    if (cosAlign < cosMax)
+        return;
+
+    const float denom = DotProduct(hmdForward, scopeForward);
+    if (fabsf(denom) < 0.001f)
+        return;
+
+    const Vector toPlane = scopeCenter - m_HmdPosAbs;
+    const float numer = DotProduct(toPlane, scopeForward);
+    // We only consider it "looking through" when the HMD is on the back side of the lens plane.
+    if (numer <= 0.0f)
+        return;
+
+    const float t = numer / denom;
+    const float maxDist = std::max(0.0f, m_ScopeLookThroughMaxDistance) * m_VRScale;
+    if (t < 0.0f || t > maxDist)
+        return;
+
+    const Vector hit = m_HmdPosAbs + (hmdForward * t);
+    const float radius = std::max(0.0f, m_ScopeLookThroughRadius) * m_VRScale;
+    if ((hit - scopeCenter).LengthSqr() > radius * radius)
+        return;
+
+    // Active: aim at a far point along HMD forward. Hooks will steer bullet angles to this.
+    m_ScopeActive = true;
+    m_ScopeAimPoint = m_HmdPosAbs + (hmdForward * m_ScopeAimDistance);
+}
+
+void VR::UpdateScopeOverlayPose()
+{
+    if (!m_Overlay || !m_ScopeHandle || !m_ScopeEnabled || !m_System || !m_Compositor)
+        return;
+
+    const vr::ETrackingUniverseOrigin trackingOrigin = m_Compositor->GetTrackingSpace();
+
+    const vr::TrackedDevicePose_t& hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
+    if (!hmdPose.bPoseIsValid)
+        return;
+    const vr::HmdMatrix34_t& hmdMat = hmdPose.mDeviceToAbsoluteTracking;
+    Vector hmdPos(hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3]);
+
+    const vr::ETrackedControllerRole weaponRole =
+        m_LeftHanded ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
+    const vr::TrackedDeviceIndex_t controllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(weaponRole);
+    if (controllerIndex == vr::k_unTrackedDeviceIndexInvalid)
+        return;
+
+    const vr::TrackedDevicePose_t& cpose = m_Poses[controllerIndex];
+    if (!cpose.bPoseIsValid)
+        return;
+
+    const vr::HmdMatrix34_t& m = cpose.mDeviceToAbsoluteTracking;
+    Vector cpos(m.m[0][3], m.m[1][3], m.m[2][3]);
+    Vector right(m.m[0][0], m.m[1][0], m.m[2][0]);
+    Vector up(m.m[0][1], m.m[1][1], m.m[2][1]);
+    Vector fwd(-m.m[0][2], -m.m[1][2], -m.m[2][2]); // OpenVR convention: -Z is forward
+
+    // Offset is (forward, right, up) in meters.
+    Vector scopePos = cpos + (fwd * m_ScopeOffset.x) + (right * m_ScopeOffset.y) + (up * m_ScopeOffset.z);
+
+    // Make the overlay face the HMD.
+    Vector normal = hmdPos - scopePos;
+    if (normal.LengthSqr() < 1e-6f)
+        normal = -fwd;
+    else
+        VectorNormalize(normal);
+
+    Vector upRef = up;
+    if (upRef.LengthSqr() < 1e-6f)
+        upRef = Vector(0, 1, 0);
+
+    Vector xAxis;
+    CrossProduct(upRef, normal, xAxis);
+    if (xAxis.LengthSqr() < 1e-6f)
+        xAxis = right;
+    VectorNormalize(xAxis);
+
+    Vector yAxis;
+    CrossProduct(normal, xAxis, yAxis);
+    if (yAxis.LengthSqr() >= 1e-6f)
+        VectorNormalize(yAxis);
+
+    vr::HmdMatrix34_t t{};
+    t.m[0][0] = xAxis.x;  t.m[1][0] = xAxis.y;  t.m[2][0] = xAxis.z;
+    t.m[0][1] = yAxis.x;  t.m[1][1] = yAxis.y;  t.m[2][1] = yAxis.z;
+    t.m[0][2] = normal.x; t.m[1][2] = normal.y; t.m[2][2] = normal.z;
+    t.m[0][3] = scopePos.x; t.m[1][3] = scopePos.y; t.m[2][3] = scopePos.z;
+
+    m_Overlay->SetOverlayTransformAbsolute(m_ScopeHandle, trackingOrigin, &t);
+    m_Overlay->SetOverlayWidthInMeters(m_ScopeHandle, std::max(0.01f, m_ScopeOverlaySize));
 }
 
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
@@ -4079,6 +4315,19 @@ void VR::ParseConfigFile()
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
+    // Controller-attached scope overlay + aim override.
+    m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
+    m_ScopeZoom = std::max(1.0f, getFloat("ScopeZoom", m_ScopeZoom));
+    m_ScopeOverlaySize = std::max(0.01f, getFloat("ScopeOverlaySize", m_ScopeOverlaySize));
+    m_ScopeOffset = getVector3("ScopeOffset", m_ScopeOffset);
+    m_ScopeLookThroughRadius = std::max(0.0f, getFloat("ScopeLookThroughRadius", m_ScopeLookThroughRadius));
+    m_ScopeLookThroughMaxDistance = std::max(0.0f, getFloat("ScopeLookThroughMaxDistance", m_ScopeLookThroughMaxDistance));
+    m_ScopeLookThroughMaxAngle = std::max(0.0f, getFloat("ScopeLookThroughMaxAngle", m_ScopeLookThroughMaxAngle));
+    m_ScopeAimDistance = std::max(0.0f, getFloat("ScopeAimDistance", m_ScopeAimDistance));
+    // Scope texture crop tuning (still sourced from eye texture).
+    m_ScopeUseControllerCrop = getBool("ScopeUseControllerCrop", m_ScopeUseControllerCrop);
+    m_ScopeUVOffset = getVector3("ScopeUVOffset", m_ScopeUVOffset);
+    m_ScopeUVCropLerp = std::clamp(getFloat("ScopeUVCropLerp", m_ScopeUVCropLerp), 0.0f, 1.0f);
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
