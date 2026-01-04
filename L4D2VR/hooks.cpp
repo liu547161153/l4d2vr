@@ -11,6 +11,7 @@
 #include <cstring>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
@@ -268,6 +269,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.zNearViewmodel = 6;
 	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
 	m_VR->m_SetupOrigin = eyeOrigin;
+	if (!engineThirdPerson)
+		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
@@ -345,6 +348,16 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd)
 {
+// Non-VR server melee feel state (ForceNonVRServerMovement=true only)
+static int s_nonvrMeleeHoldTicks = 0;
+static bool s_nonvrMeleeArmed = true;
+static QAngle s_nonvrMeleeLockedAngles = { 0,0,0 };
+static std::chrono::steady_clock::time_point s_nonvrMeleeLockUntil{};
+static std::chrono::steady_clock::time_point s_nonvrMeleeCooldownUntil{};
+static bool s_nonvrMeleeHasPrev = false;
+static Vector s_nonvrMeleePrevCtrlPos = { 0,0,0 };
+static Vector s_nonvrMeleePrevHmdPos  = { 0,0,0 };
+
 	if (!cmd->command_number)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
@@ -352,6 +365,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 	if (m_VR->m_IsVREnabled) {
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
+		const QAngle originalViewAngles = cmd->viewangles;
+		bool hadWalkAxis = false;
+		float walkNx = 0.f, walkNy = 0.f;
+		float walkMaxSpeed = 0.f;
 		float ax = 0.f, ay = 0.f;
 		if (m_VR->GetWalkAxis(ax, ay)) {
 			// 死区 + 归一化（和平滑转向一致的 0.2 死区）
@@ -367,10 +384,18 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 			// 最大移动速度：给一个安全常数；服务器会按自身规则再夹紧
 			const float maxSpeed = m_VR->m_AdjustingViewmodel ? 25.f : 250.f;
+			hadWalkAxis = true;
+			walkNx = nx;
+			walkNy = ny;
+			walkMaxSpeed = maxSpeed;
 
-			// 直接写 CUserCmd（服务器端对这两个字段天然支持）
-			cmd->forwardmove += ny * maxSpeed;
-			cmd->sidemove += nx * maxSpeed;
+			// VR-aware servers: we can apply movement directly in cmd space.
+			// Non-VR servers: we will re-base movement later after overriding cmd->viewangles.
+			if (!treatServerAsNonVR)
+			{
+				cmd->forwardmove += ny * maxSpeed;
+				cmd->sidemove += nx * maxSpeed;
+			}
 
 			// 可选：也把方向按钮位设置一下，增加兼容性
 			// IN_FORWARD=1<<3, IN_BACK=1<<4, IN_MOVELEFT=1<<9, IN_MOVERIGHT=1<<10
@@ -384,6 +409,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
 		if (treatServerAsNonVR) {
 			QAngle aim = m_VR->GetRightControllerAbsAngle();
+			// ForceNonVRServerMovement: prefer the eye-based solve (what the server will actually trace).
+			if (m_VR->m_HasNonVRAimSolution)
+				aim = m_VR->m_NonVRAimAngles;
 			// 简单夹角，避免异常值
 			if (aim.x > 89.f)  aim.x = 89.f;
 			if (aim.x < -89.f) aim.x = -89.f;
@@ -394,6 +422,155 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			cmd->viewangles.x = aim.x;   // pitch
 			cmd->viewangles.y = aim.y;   // yaw
 			cmd->viewangles.z = 0.f;     // roll 一般不用
+
+
+// Non-VR server melee feel: translate a controller swing into a normal melee attack (IN_ATTACK)
+// This only affects local *input* / presentation. The server still does normal melee resolution.
+if (m_Game->m_IsMeleeWeaponActive && !m_VR->m_AdjustingViewmodel)
+{
+	using clock = std::chrono::steady_clock;
+	const auto now = clock::now();
+
+	auto lerpAngle = [](float a, float b, float t) -> float {
+		float d = b - a;
+		while (d > 180.f) d -= 360.f;
+		while (d < -180.f) d += 360.f;
+		return a + d * t;
+	};
+
+	// Aim lock: during lock window, keep viewangles stable so the melee direction doesn't jitter.
+	if (now < s_nonvrMeleeLockUntil)
+	{
+		cmd->viewangles = s_nonvrMeleeLockedAngles;
+	}
+
+	// Hold/queue: keep IN_ATTACK pressed for a few ticks to reduce "dropped" swings.
+	if (s_nonvrMeleeHoldTicks > 0)
+	{
+		cmd->buttons |= (1 << 0); // IN_ATTACK
+		--s_nonvrMeleeHoldTicks;
+	}
+
+	// Edge trigger + hysteresis: only trigger once per swing, and require speed to fall below a lower
+	// threshold before re-arming.
+	// Controller velocity in tracking space can include whole-body/HMD motion; remove HMD velocity for cleaner gesture.
+	Vector relVel = m_VR->m_RightControllerPose.TrackedDeviceVel - m_VR->m_HmdPose.TrackedDeviceVel;
+
+	// Fallback: derive relative velocity from position delta (some runtimes report near-zero velocity).
+	const float dt = (flInputSampleTime > 0.0001f) ? flInputSampleTime : 0.011111f;
+	if (s_nonvrMeleeHasPrev)
+	{
+		Vector dCtrl = m_VR->m_RightControllerPose.TrackedDevicePos - s_nonvrMeleePrevCtrlPos;
+		Vector dHmd  = m_VR->m_HmdPose.TrackedDevicePos - s_nonvrMeleePrevHmdPos;
+		Vector derivedRelVel = (dCtrl - dHmd) * (1.0f / dt);
+
+		if (VectorLength(relVel) < 0.01f && VectorLength(derivedRelVel) > 0.01f)
+			relVel = derivedRelVel;
+	}
+	s_nonvrMeleePrevCtrlPos = m_VR->m_RightControllerPose.TrackedDevicePos;
+	s_nonvrMeleePrevHmdPos  = m_VR->m_HmdPose.TrackedDevicePos;
+	s_nonvrMeleeHasPrev = true;
+
+	// Gesture speed: ignore vertical to reduce false triggers from raising/lowering hands.
+	Vector swingVel = relVel;
+	swingVel.z = 0.0f;
+	const float v = (float)VectorLength(swingVel);
+	const QAngle av = m_VR->m_RightControllerPose.TrackedDeviceAngVel;
+	const float angV = sqrtf(av.x * av.x + av.y * av.y + av.z * av.z); // deg/s (tracking space)
+
+	const float thr = std::max(0.0f, m_VR->m_NonVRMeleeSwingThreshold);
+	const float hyst = std::clamp(m_VR->m_NonVRMeleeHysteresis, 0.1f, 0.95f);
+	const float rearmThr = thr * hyst;
+
+	const float angThr = std::max(0.0f, m_VR->m_NonVRMeleeAngVelThreshold);
+
+	const bool above =
+		(thr > 0.0f && v > thr) ||
+		(angThr > 0.0f && angV > angThr);
+
+	const bool below =
+		(thr <= 0.0f || v < rearmThr) &&
+		(angThr <= 0.0f || angV < angThr * hyst);
+
+	if (below)
+		s_nonvrMeleeArmed = true;
+
+	if (above && s_nonvrMeleeArmed && now >= s_nonvrMeleeCooldownUntil)
+	{
+		s_nonvrMeleeArmed = false;
+
+
+		// Hold IN_ATTACK for a few ticks so we don't miss the server-side melee window.
+		const float holdTime = std::max(0.0f, m_VR->m_NonVRMeleeHoldTime);
+		int holdTicks = (int)ceilf(holdTime / dt);
+		holdTicks = std::clamp(holdTicks, 1, 8);
+		s_nonvrMeleeHoldTicks = std::max(s_nonvrMeleeHoldTicks, holdTicks);
+
+		// Lock current aim direction, optionally blend toward swing velocity direction.
+		s_nonvrMeleeLockedAngles = cmd->viewangles;
+
+		const float blend = std::clamp(m_VR->m_NonVRMeleeSwingDirBlend, 0.0f, 1.0f);
+		if (blend > 0.0f)
+		{
+			Vector velDir = swingVel;
+			if (!velDir.IsZero())
+			{
+				VectorNormalize(velDir);
+				QAngle velAng;
+				QAngle::VectorAngles(velDir, velAng);
+				NormalizeAndClampViewAngles(velAng);
+
+				s_nonvrMeleeLockedAngles.x = lerpAngle(s_nonvrMeleeLockedAngles.x, velAng.x, blend);
+				s_nonvrMeleeLockedAngles.y = lerpAngle(s_nonvrMeleeLockedAngles.y, velAng.y, blend);
+				s_nonvrMeleeLockedAngles.z = 0.f;
+				NormalizeAndClampViewAngles(s_nonvrMeleeLockedAngles);
+			}
+		}
+
+		// Apply lock window
+		const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
+		s_nonvrMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
+
+		// Apply cooldown window
+		const float cd = std::max(0.05f, m_VR->m_NonVRMeleeSwingCooldown);
+		s_nonvrMeleeCooldownUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(cd));
+
+		// Fire now (this frame)
+		cmd->viewangles = s_nonvrMeleeLockedAngles;
+		cmd->buttons |= (1 << 0); // IN_ATTACK
+	}
+}
+
+			// Re-base movement for non-VR servers:
+			// - The server interprets forwardmove/sidemove in the basis of cmd->viewangles (aim).
+			// - We want movement to follow the HMD yaw (body direction), not the hand aim yaw.
+			// So we convert existing movement (built under originalViewAngles) into world space,
+			// add VR stick movement in HMD space, then project back into the final cmd basis.
+			{
+				// Existing movement (keyboard etc.) in world space
+				QAngle origYawOnly(0.f, originalViewAngles.y, 0.f);
+				Vector origForward, origRight, origUp;
+				QAngle::AngleVectors(origYawOnly, &origForward, &origRight, &origUp);
+				Vector worldMove = origForward * cmd->forwardmove + origRight * cmd->sidemove;
+
+				// VR stick movement (body = HMD yaw)
+				if (hadWalkAxis)
+				{
+					Vector hmdAng = m_VR->GetViewAngle();
+					QAngle bodyYawOnly(0.f, hmdAng.y, 0.f);
+					Vector bodyForward, bodyRight, bodyUp;
+					QAngle::AngleVectors(bodyYawOnly, &bodyForward, &bodyRight, &bodyUp);
+					worldMove += bodyForward * (walkNy * walkMaxSpeed) + bodyRight * (walkNx * walkMaxSpeed);
+				}
+
+				// Project into the final cmd basis (after aim/melee lock)
+				QAngle cmdYawOnly(0.f, cmd->viewangles.y, 0.f);
+				Vector cmdForward, cmdRight, cmdUp;
+				QAngle::AngleVectors(cmdYawOnly, &cmdForward, &cmdRight, &cmdUp);
+				cmd->forwardmove = DotProduct(worldMove, cmdForward);
+				cmd->sidemove = DotProduct(worldMove, cmdRight);
+			}
+
 		}
 		else {
 			// VR-aware servers: ensure cmd->viewangles matches HMD.
@@ -441,9 +618,28 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	{
 		vecNewOrigin = m_VR->GetRightControllerAbsPos();
 
+		// ForceNonVRServerMovement: aim the *visual* bullet line to the solved hit point (H)
+		// so what you see matches what the remote non-VR server will hit.
+		if (m_VR->m_ForceNonVRServerMovement && m_VR->m_HasNonVRAimSolution)
+		{
+			Vector to = m_VR->m_NonVRAimHitPoint - vecNewOrigin;
+			if (!to.IsZero())
+			{
+				VectorNormalize(to);
+				QAngle ang;
+				QAngle::VectorAngles(to, ang);
+				NormalizeAndClampViewAngles(ang);
+				vecNewAngles = ang;
+			}
+			else
+			{
+				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+			}
+		}
+
 		// Third-person convergence: aim bullets to the converge point so "bullet line" intersects
 		// the rendered aim line at the actual hit point.
-		if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+		else if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 		{
 			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
 			if (!to.IsZero())
@@ -474,26 +670,39 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	return hkServerFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
 }
 
-int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7)
+int Hooks::dClientFireTerrorBullets(
+	int playerId,
+	const Vector& vecOrigin,
+	const QAngle& vecAngles,
+	int a4, int a5, int a6,
+	float a7)
 {
 	Vector vecNewOrigin = vecOrigin;
 	QAngle vecNewAngles = vecAngles;
 
-	// 只有当本局服务器端确实运行了 VR 钩子时，才用控制器射线做本地预测
+	// 只改本地玩家的“本地预测/表现”
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->GetRightControllerAbsPos();
-
-		if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+		if (!m_VR->m_ForceNonVRServerMovement)
 		{
-			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
-			if (!to.IsZero())
+			// VR-aware server：起点/方向都跟控制器（你现在第三人称汇聚点逻辑保留）
+			vecNewOrigin = m_VR->GetRightControllerAbsPos();
+
+			if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 			{
-				VectorNormalize(to);
-				QAngle ang;
-				QAngle::VectorAngles(to, ang);
-				NormalizeAndClampViewAngles(ang);
-				vecNewAngles = ang;
+				Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
+				if (!to.IsZero())
+				{
+					VectorNormalize(to);
+					QAngle ang;
+					QAngle::VectorAngles(to, ang);
+					NormalizeAndClampViewAngles(ang);
+					vecNewAngles = ang;
+				}
+				else
+				{
+					vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				}
 			}
 			else
 			{
@@ -502,7 +711,43 @@ int Hooks::dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 		}
 		else
 		{
-			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+			// Non-VR server：服务器仍以常规射线起点(vecOrigin)为准，所以这里不要改 origin
+			// 开关决定：要不要把 angles 替换成“控制器纯角度/汇聚角度”
+			// - true  : 覆盖 angles（通常会让本地弹道更“直/更跟手”，但只是本地表现）
+			// - false : 保持 vecAngles（通常包含引擎/服务器那套散布偏转 → 看起来更“标准散布”）
+			if (m_VR->m_NonVRServerMovementAngleOverride)
+			{
+				// Prefer the solved eye-based aim. This keeps client prediction + hit feedback
+				// consistent with what the non-VR server will do.
+				if (m_VR->m_HasNonVRAimSolution)
+				{
+					vecNewAngles = m_VR->m_NonVRAimAngles;
+				}
+				else
+				{
+				if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+				{
+					Vector to = m_VR->m_AimConvergePoint - vecNewOrigin; // 注意：这里是 vecOrigin
+					if (!to.IsZero())
+					{
+						VectorNormalize(to);
+						QAngle ang;
+						QAngle::VectorAngles(to, ang);
+						NormalizeAndClampViewAngles(ang);
+						vecNewAngles = ang;
+					}
+					else
+					{
+						vecNewAngles = m_VR->GetRightControllerAbsAngle();
+					}
+				}
+				else
+				{
+					vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				}
+				}
+			}
+			// else：不动 vecNewAngles = vecAngles（保留“标准散布”的那套）
 		}
 	}
 
