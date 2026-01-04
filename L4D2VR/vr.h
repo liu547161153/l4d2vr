@@ -182,6 +182,17 @@ public:
 	float m_ScopeAimDistance = 8192.0f;          // Source units (far point along HMD forward)
 	bool m_ScopeActive = false;
 	Vector m_ScopeAimPoint = { 0,0,0 };
+	// Texture crop tuning for scope overlay (still sourced from an eye texture).
+	// Default behavior: center the crop based on the weapon-hand forward direction,
+	// so the scope image doesn't feel "glued to the HMD" as you rotate your head.
+	bool m_ScopeUseControllerCrop = true;
+	// Manual UV offset (fraction of the eye texture bounds). X = U, Y = V.
+	Vector m_ScopeUVOffset = { 0,0,0 };
+	// Lerp factor (0..1) for smoothing the crop center. 1 = snap every frame.
+	float m_ScopeUVCropLerp = 0.35f;
+	// Internal: smoothed crop center in UV space (z unused).
+	Vector m_ScopeUVCropCenter = { 0,0,0 };
+	bool m_ScopeUVCropCenterInitialized = false;
 
 	Vector m_LastAimDirection = { 0,0,0 };
 	Vector m_LastUnforcedAimDirection = { 0,0,0 };

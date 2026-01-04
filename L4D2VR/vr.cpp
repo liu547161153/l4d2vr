@@ -399,10 +399,77 @@ void VR::SubmitVRTextures()
             const float zoom = std::max(1.0f, m_ScopeZoom);
             const vr::VRTextureBounds_t& base = m_TextureBounds[1]; // use right eye
 
-            const float uCenter = 0.5f * (base.uMin + base.uMax);
-            const float vCenter = 0.5f * (base.vMin + base.vMax);
-            const float uHalf = 0.5f * (base.uMax - base.uMin) / zoom;
-            const float vHalf = 0.5f * (base.vMax - base.vMin) / zoom;
+            const float uExtent = (base.uMax - base.uMin);
+            const float vExtent = (base.vMax - base.vMin);
+
+            // Target crop center in UVs.
+            float targetU = 0.5f * (base.uMin + base.uMax);
+            float targetV = 0.5f * (base.vMin + base.vMax);
+
+            // Optionally center the crop based on the controller forward direction projected into the HMD view.
+            // This makes the scope image feel less like it's glued to your head rotation.
+            if (m_ScopeUseControllerCrop)
+            {
+                // Reconstruct tan half-FOV in each axis from cached values.
+                const float tanHalfX = tanf((m_Fov * 0.5f) * (3.14159265358979323846f / 180.0f));
+                const float tanHalfY = (m_Aspect > 0.0001f) ? (tanHalfX / m_Aspect) : tanHalfX;
+
+                Vector dir = m_RightControllerForwardRaw;
+                const float dirLen = dir.Length();
+                if (dirLen > 0.0001f && tanHalfX > 0.0001f && tanHalfY > 0.0001f)
+                {
+                    dir /= dirLen;
+
+                    const float f = dir.Dot(m_HmdForward);
+                    if (f > 0.01f)
+                    {
+                        const float x = dir.Dot(m_HmdRight) / f;
+                        const float y = dir.Dot(m_HmdUp) / f;
+
+                        float u = 0.5f + 0.5f * (x / tanHalfX);
+                        float v = 0.5f - 0.5f * (y / tanHalfY);
+
+                        // Clamp within the eye's valid bounds.
+                        u = std::clamp(u, base.uMin, base.uMax);
+                        v = std::clamp(v, base.vMin, base.vMax);
+
+                        targetU = u;
+                        targetV = v;
+                    }
+                }
+            }
+
+            // Manual fine-tune offset (fraction of the base eye bounds).
+            targetU += m_ScopeUVOffset.x * uExtent;
+            targetV += m_ScopeUVOffset.y * vExtent;
+
+            // Smooth crop center to reduce jitter.
+            const float lerp = std::clamp(m_ScopeUVCropLerp, 0.0f, 1.0f);
+            if (!m_ScopeUVCropCenterInitialized)
+            {
+                m_ScopeUVCropCenter.x = targetU;
+                m_ScopeUVCropCenter.y = targetV;
+                m_ScopeUVCropCenterInitialized = true;
+            }
+            else
+            {
+                m_ScopeUVCropCenter.x += (targetU - m_ScopeUVCropCenter.x) * lerp;
+                m_ScopeUVCropCenter.y += (targetV - m_ScopeUVCropCenter.y) * lerp;
+            }
+
+            float uCenter = m_ScopeUVCropCenter.x;
+            float vCenter = m_ScopeUVCropCenter.y;
+
+            const float uHalf = 0.5f * uExtent / zoom;
+            const float vHalf = 0.5f * vExtent / zoom;
+
+            auto clampCenter = [](float c, float half, float mn, float mx)
+                {
+                    return std::clamp(c, mn + half, mx - half);
+                };
+
+            uCenter = clampCenter(uCenter, uHalf, base.uMin, base.uMax);
+            vCenter = clampCenter(vCenter, vHalf, base.vMin, base.vMax);
 
             vr::VRTextureBounds_t scopedBounds{};
             scopedBounds.uMin = uCenter - uHalf;
@@ -4257,6 +4324,10 @@ void VR::ParseConfigFile()
     m_ScopeLookThroughMaxDistance = std::max(0.0f, getFloat("ScopeLookThroughMaxDistance", m_ScopeLookThroughMaxDistance));
     m_ScopeLookThroughMaxAngle = std::max(0.0f, getFloat("ScopeLookThroughMaxAngle", m_ScopeLookThroughMaxAngle));
     m_ScopeAimDistance = std::max(0.0f, getFloat("ScopeAimDistance", m_ScopeAimDistance));
+    // Scope texture crop tuning (still sourced from eye texture).
+    m_ScopeUseControllerCrop = getBool("ScopeUseControllerCrop", m_ScopeUseControllerCrop);
+    m_ScopeUVOffset = getVector3("ScopeUVOffset", m_ScopeUVOffset);
+    m_ScopeUVCropLerp = std::clamp(getFloat("ScopeUVCropLerp", m_ScopeUVCropLerp), 0.0f, 1.0f);
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
