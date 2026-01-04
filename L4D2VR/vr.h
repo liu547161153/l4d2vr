@@ -64,6 +64,8 @@ public:
 	vr::VROverlayHandle_t m_MainMenuHandle;
 	vr::VROverlayHandle_t m_HUDTopHandle;
 	std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
+	// Controller-attached scope overlay (magnified view).
+	vr::VROverlayHandle_t m_ScopeHandle = 0;
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
@@ -90,6 +92,10 @@ public:
 	Vector m_LeftControllerForward;
 	Vector m_LeftControllerRight;
 	Vector m_LeftControllerUp;
+	// Raw (pre pitch-bias) controller basis for physical alignment checks.
+	Vector m_RightControllerForwardRaw = { 0,0,0 };
+	Vector m_RightControllerRightRaw = { 0,0,0 };
+	Vector m_RightControllerUpRaw = { 0,0,0 };
 
 	Vector m_RightControllerForwardUnforced = { 0,0,0 };
 	Vector m_RightControllerForward;
@@ -163,6 +169,19 @@ public:
 	// move P to the blocking surface.
 	Vector m_AimConvergePoint = { 0,0,0 };
 	bool m_HasAimConvergePoint = false;
+
+	// --- Controller scope (magnified overlay + aim override when looking through it) ---
+	bool m_ScopeEnabled = false;
+	float m_ScopeZoom = 2.5f;                    // 1.0 = no zoom, 2.0 = 2x, etc.
+	float m_ScopeOverlaySize = 0.18f;            // overlay width in meters
+	// Offset in meters, in (forward, right, up) relative to the weapon hand.
+	Vector m_ScopeOffset = { 0.10f, 0.00f, 0.02f };
+	float m_ScopeLookThroughRadius = 0.05f;      // meters, radial window on lens plane
+	float m_ScopeLookThroughMaxDistance = 0.25f; // meters, HMD->lens plane max distance
+	float m_ScopeLookThroughMaxAngle = 12.0f;    // degrees, HMD forward vs scope forward
+	float m_ScopeAimDistance = 8192.0f;          // Source units (far point along HMD forward)
+	bool m_ScopeActive = false;
+	Vector m_ScopeAimPoint = { 0,0,0 };
 
 	Vector m_LastAimDirection = { 0,0,0 };
 	Vector m_LastUnforcedAimDirection = { 0,0,0 };
@@ -555,6 +574,8 @@ float m_NonVRMeleeSwingDirBlend = 0.0f;      // 0..1 blend locked aim toward vel
 	void UpdateNonVRAimSolution(C_BasePlayer* localPlayer);
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
+	void UpdateScope(C_BasePlayer* localPlayer);
+	void UpdateScopeOverlayPose();
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
 	float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;

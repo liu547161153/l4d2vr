@@ -659,6 +659,21 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 		{
 			vecNewAngles = m_VR->GetRightControllerAbsAngle();
 		}
+
+		// Scope aim override: when the player is physically looking through the scope,
+		// redirect the shot to the scope center.
+		if (m_VR->m_ScopeActive)
+		{
+			Vector to = m_VR->m_ScopeAimPoint - vecNewOrigin;
+			if (!to.IsZero())
+			{
+				VectorNormalize(to);
+				QAngle ang;
+				QAngle::VectorAngles(to, ang);
+				NormalizeAndClampViewAngles(ang);
+				vecNewAngles = ang;
+			}
+		}
 	}
 	// Clients
 	else if (m_Game->IsValidPlayerIndex(playerId) && m_Game->m_PlayersVRInfo[playerId].isUsingVR)
@@ -748,6 +763,21 @@ int Hooks::dClientFireTerrorBullets(
 				}
 			}
 			// else：不动 vecNewAngles = vecAngles（保留“标准散布”的那套）
+		}
+
+		// Scope aim override: when looking through the controller scope, redirect prediction
+		// to the scope center.
+		if (m_VR->m_ScopeActive)
+		{
+			Vector to = m_VR->m_ScopeAimPoint - vecNewOrigin;
+			if (!to.IsZero())
+			{
+				VectorNormalize(to);
+				QAngle ang;
+				QAngle::VectorAngles(to, ang);
+				NormalizeAndClampViewAngles(ang);
+				vecNewAngles = ang;
+			}
 		}
 	}
 
