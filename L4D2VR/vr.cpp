@@ -48,6 +48,21 @@ namespace
             return 0.0f;
         return 1.0f / std::max(1.0f, maxHz);
     }
+
+
+    // Normalize Source-style view angles:
+    // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 then clamped to 89).
+    // - Then clamp pitch to [-89, 89].
+    inline void NormalizeAndClampViewAngles(QAngle& a)
+    {
+        while (a.x > 180.f) a.x -= 360.f;
+        while (a.x < -180.f) a.x += 360.f;
+        while (a.y > 180.f) a.y -= 360.f;
+        while (a.y < -180.f) a.y += 360.f;
+        a.z = 0.f;
+        if (a.x > 89.f) a.x = 89.f;
+        if (a.x < -89.f) a.x = -89.f;
+    }
 }
 
 VR::VR(Game* game)
@@ -2186,6 +2201,9 @@ void VR::UpdateTracking()
         m_SpecialInfectedAutoAimDirection = m_RightControllerForward;
     }
 
+    // Non-VR servers only understand cmd->viewangles. When ForceNonVRServerMovement is enabled,
+    // solve an eye-based aim hit point so rendered aim line and real hit point stay consistent.
+    UpdateNonVRAimSolution(localPlayer);
     UpdateAimingLaser(localPlayer);
 
     // controller angles
@@ -2338,6 +2356,101 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     m_PrevHmdLocalPos = m_HmdPose.TrackedDevicePos;
 }
 
+void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
+{
+    // Keep the previous solution alive if we throttle this frame.
+    if (!m_ForceNonVRServerMovement)
+    {
+        m_HasNonVRAimSolution = false;
+        return;
+    }
+
+    if (!localPlayer || !m_Game || !m_Game->m_EngineTrace)
+    {
+        m_HasNonVRAimSolution = false;
+        return;
+    }
+
+    // Throttle expensive trace work. Keep this local/static so we don't depend on
+    // optional header fields across branches/patches.
+    static std::chrono::steady_clock::time_point s_lastSolve{};
+    const float kSolveMaxHz = 90.0f; // 0 disables throttling
+    if (ShouldThrottle(s_lastSolve, kSolveMaxHz))
+        return;
+
+    // Use the same controller direction/origin rules as UpdateAimingLaser.
+    Vector direction = m_RightControllerForward;
+    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+        direction = m_RightControllerForwardUnforced;
+
+    if (direction.IsZero())
+        direction = m_LastAimDirection.IsZero() ? m_LastUnforcedAimDirection : m_LastAimDirection;
+
+    if (direction.IsZero())
+    {
+        m_HasNonVRAimSolution = false;
+        return;
+    }
+
+    VectorNormalize(direction);
+
+    Vector originBase = m_RightControllerPosAbs;
+    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+        originBase += camDelta;
+
+    Vector origin = originBase + direction * 2.0f;
+
+    const float maxDistance = 8192.0f;
+    Vector target = origin + direction * maxDistance;
+
+    // 1) Controller ray -> P
+    CGameTrace traceP;
+    Ray_t rayP;
+    CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+    rayP.Init(origin, target);
+    m_Game->m_EngineTrace->TraceRay(rayP, STANDARD_TRACE_MASK, &tracefilter, &traceP);
+
+    const Vector P = (traceP.fraction < 1.0f && traceP.fraction > 0.0f) ? traceP.endpos : target;
+    m_NonVRAimDesiredPoint = P;
+
+    // 2) Eye ray towards P -> H (what the server will actually hit)
+    const Vector eye = localPlayer->EyePosition();
+    Vector toP = P - eye;
+    if (toP.IsZero())
+    {
+        m_HasNonVRAimSolution = false;
+        return;
+    }
+    VectorNormalize(toP);
+
+    Vector endEye = eye + toP * maxDistance;
+    CGameTrace traceH;
+    Ray_t rayH;
+    rayH.Init(eye, endEye);
+    m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, &tracefilter, &traceH);
+
+    const Vector H = (traceH.fraction < 1.0f && traceH.fraction > 0.0f) ? traceH.endpos : endEye;
+    m_NonVRAimHitPoint = H;
+
+    // 3) Eye -> H angles
+    Vector toH = H - eye;
+    if (toH.IsZero())
+    {
+        m_HasNonVRAimSolution = false;
+        return;
+    }
+    VectorNormalize(toH);
+
+    QAngle ang;
+    QAngle::VectorAngles(toH, ang);
+    // IMPORTANT: VectorAngles(forward) returns pitch/yaw in [0,360). Normalize BEFORE clamping.
+    NormalizeAndClampViewAngles(ang);
+
+    m_NonVRAimAngles = ang;
+    m_HasNonVRAimSolution = true;
+}
+
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 {
     UpdateSpecialInfectedWarningState();
@@ -2420,24 +2533,35 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
 
-    // Third-person convergence point P: where the *rendered* aim ray hits.
-    // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
-    if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+    // ForceNonVRServerMovement: keep the rendered aim line consistent with what the
+    // server will actually trace (eye -> cmd->viewangles).
+    if (m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
     {
-        CGameTrace trace;
-        Ray_t ray;
-        CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
-
-        ray.Init(origin, target);
-        m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
-
-        m_AimConvergePoint = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : target;
+        m_AimConvergePoint = m_NonVRAimHitPoint;
         m_HasAimConvergePoint = true;
-        target = m_AimConvergePoint; // draw to P
+        target = m_AimConvergePoint;
     }
     else
     {
-        m_HasAimConvergePoint = false;
+        // Third-person convergence point P: where the *rendered* aim ray hits.
+        // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
+        if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+        {
+            CGameTrace trace;
+            Ray_t ray;
+            CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+
+            ray.Init(origin, target);
+            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+
+            m_AimConvergePoint = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : target;
+            m_HasAimConvergePoint = true;
+            target = m_AimConvergePoint; // draw to P
+        }
+        else
+        {
+            m_HasAimConvergePoint = false;
+        }
     }
 
     m_AimLineStart = origin;
@@ -3958,6 +4082,15 @@ void VR::ParseConfigFile()
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+
+// Non-VR server melee feel tuning (ForceNonVRServerMovement=true only)
+m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));
+m_NonVRMeleeSwingCooldown = std::max(0.0f, getFloat("NonVRMeleeSwingCooldown", m_NonVRMeleeSwingCooldown));
+m_NonVRMeleeHoldTime = std::max(0.0f, getFloat("NonVRMeleeHoldTime", m_NonVRMeleeHoldTime));
+m_NonVRMeleeAimLockTime = std::max(0.0f, getFloat("NonVRMeleeAimLockTime", m_NonVRMeleeAimLockTime));
+m_NonVRMeleeHysteresis = std::clamp(getFloat("NonVRMeleeHysteresis", m_NonVRMeleeHysteresis), 0.1f, 0.95f);
+m_NonVRMeleeAngVelThreshold = std::max(0.0f, getFloat("NonVRMeleeAngVelThreshold", m_NonVRMeleeAngVelThreshold));
+m_NonVRMeleeSwingDirBlend = std::clamp(getFloat("NonVRMeleeSwingDirBlend", m_NonVRMeleeSwingDirBlend), 0.0f, 1.0f);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
