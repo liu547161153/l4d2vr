@@ -118,7 +118,7 @@ public:
     static void errorMsg(const char* msg);
 
     // === Engine State ===
-    bool IsEngineThirdPersonActive();
+    bool IsEngineThirdPersonActive(bool* outHasFlag = nullptr);
 
     // === Player Utilities ===
     bool IsValidPlayerIndex(int index) const;

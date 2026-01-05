@@ -260,10 +260,14 @@ ConVar* Game::FindConVar(const char* name) const
     return m_Cvar->FindVar(name);
 }
 
-bool Game::IsEngineThirdPersonActive()
+bool Game::IsEngineThirdPersonActive(bool* outHasFlag)
 {
     if (!m_Cvar)
+    {
+        if (outHasFlag)
+            *outHasFlag = false;
         return false;
+    }
 
     // Cache the lookup to avoid repeated string hashing.
     if (!m_ThirdPersonConVarChecked)
@@ -289,7 +293,11 @@ bool Game::IsEngineThirdPersonActive()
         }
     }
 
-    if (!m_ThirdPersonShoulderConVar)
+    const bool hasFlag = (m_ThirdPersonShoulderConVar != nullptr);
+    if (outHasFlag)
+        *outHasFlag = hasFlag;
+
+    if (!hasFlag)
         return false;
 
     return m_ThirdPersonShoulderConVar->GetBool();

@@ -239,7 +239,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
-	const bool engineThirdPersonFlag = m_Game->IsEngineThirdPersonActive();
+	bool engineFlagAvailable = false;
+	const bool engineThirdPersonFlag = m_Game->IsEngineThirdPersonActive(&engineFlagAvailable);
 	const bool distanceThirdPersonNow = (localPlayer && camDist > m_VR->m_ThirdPersonDistanceThreshold);
 	if (distanceThirdPersonNow)
 		m_VR->m_ThirdPersonHoldFrames = 2;
@@ -256,30 +257,37 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	bool usedEngineFlag = false;
 	bool usedDistanceFallback = false;
 
-	switch (m_VR->m_ThirdPersonDetectionMode)
-	{
-	case VR::ThirdPersonDetectionMode::EngineOnly:
-		useThirdPerson = engineThirdPersonFlag;
-		usedEngineFlag = useThirdPerson;
-		break;
-	case VR::ThirdPersonDetectionMode::DistanceOnly:
-		useThirdPerson = distanceThirdPerson;
-		usedDistanceFallback = useThirdPerson;
-		break;
-	case VR::ThirdPersonDetectionMode::Hybrid:
-	default:
-		if (engineThirdPersonFlag)
+		switch (m_VR->m_ThirdPersonDetectionMode)
 		{
-			useThirdPerson = true;
-			usedEngineFlag = true;
+		case VR::ThirdPersonDetectionMode::EngineOnly:
+			if (engineFlagAvailable)
+			{
+				useThirdPerson = engineThirdPersonFlag;
+				usedEngineFlag = true;
+			}
+			else
+			{
+				useThirdPerson = false;
+			}
+			break;
+		case VR::ThirdPersonDetectionMode::DistanceOnly:
+			useThirdPerson = distanceThirdPerson;
+			usedDistanceFallback = useThirdPerson;
+			break;
+		case VR::ThirdPersonDetectionMode::Hybrid:
+		default:
+			if (engineFlagAvailable)
+			{
+				useThirdPerson = engineThirdPersonFlag;
+				usedEngineFlag = true;
+			}
+			else if (distanceThirdPerson && camDist > (m_VR->m_ThirdPersonDistanceThreshold + m_VR->m_ThirdPersonEngineSlack))
+			{
+				useThirdPerson = true;
+				usedDistanceFallback = true;
+			}
+			break;
 		}
-		else if (distanceThirdPerson && camDist > (m_VR->m_ThirdPersonDistanceThreshold + m_VR->m_ThirdPersonEngineSlack))
-		{
-			useThirdPerson = true;
-			usedDistanceFallback = true;
-		}
-		break;
-	}
 
 	m_VR->ReportThirdPersonDecision(useThirdPerson, usedEngineFlag, usedDistanceFallback, engineThirdPersonFlag, distanceThirdPerson, camDist);
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
