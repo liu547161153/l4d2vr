@@ -1,4 +1,4 @@
-
+﻿
 #include "vr.h"
 #include <Windows.h>
 #include "sdk.h"
@@ -99,6 +99,7 @@ VR::VR(Game* game)
     m_System = vr::OpenVRInternal_ModuleContext().VRSystem();
 
     m_System->GetRecommendedRenderTargetSize(&m_RenderWidth, &m_RenderHeight);
+    m_AntiAliasing = 0;
 
     float l_left = 0.0f, l_right = 0.0f, l_top = 0.0f, l_bottom = 0.0f;
     m_System->GetProjectionRaw(vr::EVREye::Eye_Left, &l_left, &l_right, &l_top, &l_bottom);
@@ -145,12 +146,18 @@ VR::VR(Game* game)
         m_Overlay->CreateOverlay(bottomOverlayKeys[i], bottomOverlayKeys[i], &m_HUDBottomHandles[i]);
     }
 
+    // Gun-mounted scope lens overlay (render-to-texture)
+    m_Overlay->CreateOverlay("ScopeOverlayKey", "ScopeOverlay", &m_ScopeHandle);
+
     m_Overlay->SetOverlayInputMethod(m_MainMenuHandle, vr::VROverlayInputMethod_Mouse);
     m_Overlay->SetOverlayInputMethod(m_HUDTopHandle, vr::VROverlayInputMethod_Mouse);
     for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
     {
         m_Overlay->SetOverlayInputMethod(overlay, vr::VROverlayInputMethod_Mouse);
     }
+
+    // Scope overlay is purely visual
+    m_Overlay->SetOverlayInputMethod(m_ScopeHandle, vr::VROverlayInputMethod_None);
 
     m_Overlay->SetOverlayFlag(m_MainMenuHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
     m_Overlay->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
@@ -311,13 +318,24 @@ void VR::CreateVRTextures()
     m_Game->m_MaterialSystem->isGameRunning = true;
 
     m_CreatingTextureID = Texture_LeftEye;
-    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
+    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_RightEye;
-    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
+    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_HUD;
     m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
+
+    // Square RTT for gun-mounted scope lens
+    m_CreatingTextureID = Texture_Scope;
+    m_ScopeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+        "vrScope",
+        static_cast<int>(m_ScopeRTTSize),
+        static_cast<int>(m_ScopeRTTSize),
+        RT_SIZE_NO_CHANGE,
+        m_Game->m_MaterialSystem->GetBackBufferFormat(),
+        MATERIAL_RT_DEPTH_SHARED,
+        TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_Blank;
     m_BlankTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("blankTexture", 512, 512, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
@@ -387,6 +405,13 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKHUD.m_VRTexture);
         };
 
+    auto applyScopeTexture = [&](vr::VROverlayHandle_t overlay)
+        {
+            static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
+            vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
+            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKScope.m_VRTexture);
+        };
+
     //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
     {
@@ -399,6 +424,7 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
         vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
         hideHudOverlays();
+        vr::VROverlay()->HideOverlay(m_ScopeHandle);
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
@@ -435,6 +461,30 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
         }
     }
+
+    // Scope overlay independent of HUD cursor mode
+    if (m_ScopeTexture && m_ScopeEnabled)
+    {
+        applyScopeTexture(m_ScopeHandle);
+        const float alpha = IsScopeActive() ? 1.0f : std::clamp(m_ScopeOverlayIdleAlpha, 0.0f, 1.0f);
+        vr::VROverlay()->SetOverlayAlpha(m_ScopeHandle, alpha);
+
+        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
+        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+        if (m_LeftHanded)
+            std::swap(leftControllerIndex, rightControllerIndex);
+        const vr::TrackedDeviceIndex_t gunControllerIndex = rightControllerIndex;
+
+        if (ShouldRenderScope() && gunControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+            vr::VROverlay()->ShowOverlay(m_ScopeHandle);
+        else
+            vr::VROverlay()->HideOverlay(m_ScopeHandle);
+    }
+    else
+    {
+        vr::VROverlay()->HideOverlay(m_ScopeHandle);
+    }
+
     submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
     submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
 
@@ -625,6 +675,66 @@ void VR::RepositionOverlays(bool attachToControllers)
             vr::HmdMatrix34_t segmentTransform = buildFacingTransform(segmentPos);
             vr::VROverlay()->SetOverlayTransformAbsolute(overlay, trackingOrigin, &segmentTransform);
             vr::VROverlay()->SetOverlayWidthInMeters(overlay, segmentWidth);
+        }
+    }
+
+    // Reposition scope overlay relative to the gun-hand controller.
+    // Note: gun hand follows the same left-handed swap logic used in GetPoses().
+    {
+        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
+        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+        if (m_LeftHanded)
+            std::swap(leftControllerIndex, rightControllerIndex);
+
+        const vr::TrackedDeviceIndex_t gunControllerIndex = rightControllerIndex;
+        if (gunControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+        {
+            const float deg2rad = 3.14159265358979323846f / 180.0f;
+
+            auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
+                {
+                    for (int r = 0; r < 3; ++r)
+                        for (int c = 0; c < 3; ++c)
+                            out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
+                };
+
+            const float pitch = m_ScopeOverlayAngleOffset.x * deg2rad;
+            const float yaw = m_ScopeOverlayAngleOffset.y * deg2rad;
+            const float roll = m_ScopeOverlayAngleOffset.z * deg2rad;
+
+            const float cp = cosf(pitch), sp = sinf(pitch);
+            const float cy = cosf(yaw), sy = sinf(yaw);
+            const float cr = cosf(roll), sr = sinf(roll);
+
+            const float Rx[3][3] = {
+                {1.0f, 0.0f, 0.0f},
+                {0.0f, cp,   -sp},
+                {0.0f, sp,   cp}
+            };
+            const float Ry[3][3] = {
+                {cy,   0.0f, sy},
+                {0.0f, 1.0f, 0.0f},
+                {-sy,  0.0f, cy}
+            };
+            const float Rz[3][3] = {
+                {cr,   -sr,  0.0f},
+                {sr,   cr,   0.0f},
+                {0.0f, 0.0f, 1.0f}
+            };
+
+            float RyRx[3][3];
+            float R[3][3];
+            mul33(Ry, Rx, RyRx);
+            mul33(Rz, RyRx, R);
+
+            vr::HmdMatrix34_t scopeRelative = {
+                R[0][0], R[0][1], R[0][2], m_ScopeOverlayXOffset,
+                R[1][0], R[1][1], R[1][2], m_ScopeOverlayYOffset,
+                R[2][0], R[2][1], R[2][2], m_ScopeOverlayZOffset
+            };
+
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_ScopeHandle, gunControllerIndex, &scopeRelative);
+            vr::VROverlay()->SetOverlayWidthInMeters(m_ScopeHandle, std::max(0.01f, m_ScopeOverlayWidthMeters));
         }
     }
 }
@@ -2199,6 +2309,58 @@ void VR::UpdateTracking()
     else
     {
         m_SpecialInfectedAutoAimDirection = m_RightControllerForward;
+    }
+
+    // Update scope camera pose + look-through activation
+    if (m_ScopeEnabled)
+    {
+        m_ScopeCameraPosAbs = m_RightControllerPosAbs
+            + m_RightControllerForward * m_ScopeCameraOffset.x
+            + m_RightControllerRight * m_ScopeCameraOffset.y
+            + m_RightControllerUp * m_ScopeCameraOffset.z;
+
+        QAngle scopeAng;
+        QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAng);
+        scopeAng.x += m_ScopeCameraAngleOffset.x;
+        scopeAng.y += m_ScopeCameraAngleOffset.y;
+        scopeAng.z += m_ScopeCameraAngleOffset.z;
+        scopeAng.x = wrapAngle(scopeAng.x);
+        scopeAng.y = wrapAngle(scopeAng.y);
+        scopeAng.z = wrapAngle(scopeAng.z);
+        m_ScopeCameraAngAbs = scopeAng;
+
+        if (m_ScopeRequireLookThrough)
+        {
+            const float maxDist = std::max(0.0f, m_ScopeLookThroughDistanceMeters) * m_VRScale;
+            Vector toScope = m_ScopeCameraPosAbs - m_HmdPosAbs;
+            const float dist = VectorLength(toScope);
+            if (dist > 0.0f && dist <= maxDist)
+            {
+                toScope /= dist;
+                Vector scopeForward;
+                QAngle::AngleVectors(m_ScopeCameraAngAbs, &scopeForward, nullptr, nullptr);
+                if (!scopeForward.IsZero()) VectorNormalize(scopeForward);
+
+                const float maxAngleRad = std::clamp(m_ScopeLookThroughAngleDeg, 0.0f, 89.0f) * (3.14159265358979323846f / 180.0f);
+                const float minDot = cosf(maxAngleRad);
+
+                const float inFrontDot = DotProduct(m_HmdForward, toScope);
+                const float alignDot = DotProduct(m_HmdForward, scopeForward);
+                m_ScopeActive = (inFrontDot > 0.2f) && (alignDot >= minDot);
+            }
+            else
+            {
+                m_ScopeActive = false;
+            }
+        }
+        else
+        {
+            m_ScopeActive = true;
+        }
+    }
+    else
+    {
+        m_ScopeActive = false;
     }
 
     // Non-VR servers only understand cmd->viewangles. When ForceNonVRServerMovement is enabled,
@@ -4044,6 +4206,7 @@ void VR::ParseConfigFile()
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
     m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
+    m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_HudToggleState = m_HudAlwaysVisible;
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
@@ -4081,16 +4244,37 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
+
+    // Gun-mounted scope
+    m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
+    m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);
+    m_ScopeFov = std::clamp(getFloat("ScopeFov", m_ScopeFov), 1.0f, 179.0f);
+    m_ScopeZNear = std::clamp(getFloat("ScopeZNear", m_ScopeZNear), 0.1f, 64.0f);
+    m_ScopeCameraOffset = getVector3("ScopeCameraOffset", m_ScopeCameraOffset);
+    { Vector tmp = getVector3("ScopeCameraAngleOffset", Vector{ m_ScopeCameraAngleOffset.x, m_ScopeCameraAngleOffset.y, m_ScopeCameraAngleOffset.z }); m_ScopeCameraAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
+
+    m_ScopeOverlayWidthMeters = std::max(0.001f, getFloat("ScopeOverlayWidthMeters", m_ScopeOverlayWidthMeters));
+    m_ScopeOverlayXOffset = getFloat("ScopeOverlayXOffset", m_ScopeOverlayXOffset);
+    m_ScopeOverlayYOffset = getFloat("ScopeOverlayYOffset", m_ScopeOverlayYOffset);
+    m_ScopeOverlayZOffset = getFloat("ScopeOverlayZOffset", m_ScopeOverlayZOffset);
+    { Vector tmp = getVector3("ScopeOverlayAngleOffset", Vector{ m_ScopeOverlayAngleOffset.x, m_ScopeOverlayAngleOffset.y, m_ScopeOverlayAngleOffset.z }); m_ScopeOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
+
+    m_ScopeOverlayAlwaysVisible = getBool("ScopeOverlayAlwaysVisible", m_ScopeOverlayAlwaysVisible);
+    m_ScopeOverlayIdleAlpha = std::clamp(getFloat("ScopeOverlayIdleAlpha", m_ScopeOverlayIdleAlpha), 0.0f, 1.0f);
+    m_ScopeRequireLookThrough = getBool("ScopeRequireLookThrough", m_ScopeRequireLookThrough);
+    m_ScopeLookThroughDistanceMeters = std::clamp(getFloat("ScopeLookThroughDistanceMeters", m_ScopeLookThroughDistanceMeters), 0.01f, 2.0f);
+    m_ScopeLookThroughAngleDeg = std::clamp(getFloat("ScopeLookThroughAngleDeg", m_ScopeLookThroughAngleDeg), 1.0f, 89.0f);
+
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 
-// Non-VR server melee feel tuning (ForceNonVRServerMovement=true only)
-m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));
-m_NonVRMeleeSwingCooldown = std::max(0.0f, getFloat("NonVRMeleeSwingCooldown", m_NonVRMeleeSwingCooldown));
-m_NonVRMeleeHoldTime = std::max(0.0f, getFloat("NonVRMeleeHoldTime", m_NonVRMeleeHoldTime));
-m_NonVRMeleeAimLockTime = std::max(0.0f, getFloat("NonVRMeleeAimLockTime", m_NonVRMeleeAimLockTime));
-m_NonVRMeleeHysteresis = std::clamp(getFloat("NonVRMeleeHysteresis", m_NonVRMeleeHysteresis), 0.1f, 0.95f);
-m_NonVRMeleeAngVelThreshold = std::max(0.0f, getFloat("NonVRMeleeAngVelThreshold", m_NonVRMeleeAngVelThreshold));
-m_NonVRMeleeSwingDirBlend = std::clamp(getFloat("NonVRMeleeSwingDirBlend", m_NonVRMeleeSwingDirBlend), 0.0f, 1.0f);
+    // Non-VR server melee feel tuning (ForceNonVRServerMovement=true only)
+    m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));
+    m_NonVRMeleeSwingCooldown = std::max(0.0f, getFloat("NonVRMeleeSwingCooldown", m_NonVRMeleeSwingCooldown));
+    m_NonVRMeleeHoldTime = std::max(0.0f, getFloat("NonVRMeleeHoldTime", m_NonVRMeleeHoldTime));
+    m_NonVRMeleeAimLockTime = std::max(0.0f, getFloat("NonVRMeleeAimLockTime", m_NonVRMeleeAimLockTime));
+    m_NonVRMeleeHysteresis = std::clamp(getFloat("NonVRMeleeHysteresis", m_NonVRMeleeHysteresis), 0.1f, 0.95f);
+    m_NonVRMeleeAngVelThreshold = std::max(0.0f, getFloat("NonVRMeleeAngVelThreshold", m_NonVRMeleeAngVelThreshold));
+    m_NonVRMeleeSwingDirBlend = std::clamp(getFloat("NonVRMeleeSwingDirBlend", m_NonVRMeleeSwingDirBlend), 0.0f, 1.0f);
     m_RequireSecondaryAttackForItemSwitch = getBool("RequireSecondaryAttackForItemSwitch", m_RequireSecondaryAttackForItemSwitch);
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);

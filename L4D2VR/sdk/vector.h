@@ -1,7 +1,8 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
 #pragma once
 #include <cmath>
-
+#include <cstring>
+#include <algorithm>
 #define  FORCEINLINE			__forceinline
 
 #define DECL_ALIGN(x) __declspec(align(x))
@@ -25,7 +26,7 @@ public:
 	// Construction/destruction
 	Vector2D(void);
 	Vector2D(vec_t X, vec_t Y);
-	Vector2D(const float *pFloat);
+	Vector2D(const float* pFloat);
 
 	// Initialization
 	void Init(vec_t ix = 0.0f, vec_t iy = 0.0f);
@@ -35,26 +36,26 @@ public:
 
 	// array access...
 	vec_t operator[](int i) const;
-	vec_t &operator[](int i);
+	vec_t& operator[](int i);
 
 	// Base address...
-	vec_t *Base();
-	vec_t const *Base() const;
+	vec_t* Base();
+	vec_t const* Base() const;
 
 	// Initialization methods
 	void Random(float minVal, float maxVal);
 
 	// equality
-	bool operator==(const Vector2D &v) const;
-	bool operator!=(const Vector2D &v) const;
+	bool operator==(const Vector2D& v) const;
+	bool operator!=(const Vector2D& v) const;
 
 	// arithmetic operations
-	Vector2D &operator+=(const Vector2D &v);
-	Vector2D &operator-=(const Vector2D &v);
-	Vector2D &operator*=(const Vector2D &v);
-	Vector2D &operator*=(float s);
-	Vector2D &operator/=(const Vector2D &v);
-	Vector2D &operator/=(float s);
+	Vector2D& operator+=(const Vector2D& v);
+	Vector2D& operator-=(const Vector2D& v);
+	Vector2D& operator*=(const Vector2D& v);
+	Vector2D& operator*=(float s);
+	Vector2D& operator/=(const Vector2D& v);
+	Vector2D& operator/=(float s);
 
 	// negate the Vector2D components
 	void	Negate();
@@ -80,51 +81,51 @@ public:
 	bool	IsLengthLessThan(float val) const;
 
 	// Get the distance from this Vector2D to the other one.
-	vec_t	DistTo(const Vector2D &vOther) const;
+	vec_t	DistTo(const Vector2D& vOther) const;
 
 	// Get the distance from this Vector2D to the other one squared.
-	vec_t	DistToSqr(const Vector2D &vOther) const;
+	vec_t	DistToSqr(const Vector2D& vOther) const;
 
 	// Copy
-	void	CopyToArray(float *rgfl) const;
+	void	CopyToArray(float* rgfl) const;
 
 	// Multiply, add, and assign to this (ie: *this = a + b * scalar). This
 	// is about 12% faster than the actual Vector2D equation (because it's done per-component
 	// rather than per-Vector2D).
-	void	MulAdd(const Vector2D &a, const Vector2D &b, float scalar);
+	void	MulAdd(const Vector2D& a, const Vector2D& b, float scalar);
 
 	// Dot product.
-	vec_t	Dot(const Vector2D &vOther) const;
+	vec_t	Dot(const Vector2D& vOther) const;
 
 	// assignment
-	Vector2D &operator=(const Vector2D &vOther);
+	Vector2D& operator=(const Vector2D& vOther);
 
 #ifndef VECTOR_NO_SLOW_OPERATIONS
 	// copy constructors
-	Vector2D(const Vector2D &vOther);
+	Vector2D(const Vector2D& vOther);
 
 	// arithmetic operations
 	Vector2D	operator-(void) const;
 
-	Vector2D	operator+(const Vector2D &v) const;
-	Vector2D	operator-(const Vector2D &v) const;
-	Vector2D	operator*(const Vector2D &v) const;
-	Vector2D	operator/(const Vector2D &v) const;
+	Vector2D	operator+(const Vector2D& v) const;
+	Vector2D	operator-(const Vector2D& v) const;
+	Vector2D	operator*(const Vector2D& v) const;
+	Vector2D	operator/(const Vector2D& v) const;
 	Vector2D	operator*(float fl) const;
 	Vector2D	operator/(float fl) const;
 
 	// Cross product between two vectors.
-	Vector2D	Cross(const Vector2D &vOther) const;
+	Vector2D	Cross(const Vector2D& vOther) const;
 
 	// Returns a Vector2D with the min or max in X, Y, and Z.
-	Vector2D	Min(const Vector2D &vOther) const;
-	Vector2D	Max(const Vector2D &vOther) const;
+	Vector2D	Min(const Vector2D& vOther) const;
+	Vector2D	Max(const Vector2D& vOther) const;
 
 #else
 
 private:
 	// No copy constructors allowed if we're in optimal mode
-	Vector2D(const Vector2D &vOther);
+	Vector2D(const Vector2D& vOther);
 #endif
 };
 
@@ -151,35 +152,35 @@ public:
 
 	// array access...
 	vec_t operator[](int i) const;
-	vec_t &operator[](int i);
+	vec_t& operator[](int i);
 
 	// Base address...
-	vec_t *Base();
-	vec_t const *Base() const;
+	vec_t* Base();
+	vec_t const* Base() const;
 
 	// Cast to Vector2D...
-	Vector2D &AsVector2D();
-	const Vector2D &AsVector2D() const;
+	Vector2D& AsVector2D();
+	const Vector2D& AsVector2D() const;
 
 	// Initialization methods
 	void Random(vec_t minVal, vec_t maxVal);
 	inline void Zero(); ///< zero out a vector
 
 	// equality
-	bool operator==(const Vector &v) const;
-	bool operator!=(const Vector &v) const;
+	bool operator==(const Vector& v) const;
+	bool operator!=(const Vector& v) const;
 
 	// arithmetic operations
-	FORCEINLINE Vector &operator+=(const Vector &v);
-	FORCEINLINE Vector &operator-=(const Vector &v);
-	FORCEINLINE Vector &operator*=(const Vector &v);
-	FORCEINLINE Vector &operator*=(float s);
-	FORCEINLINE Vector &operator/=(const Vector &v);
-	FORCEINLINE Vector &operator/=(float s);
-	FORCEINLINE Vector &operator+=(float fl); ///< broadcast add
-	FORCEINLINE Vector &operator-=(float fl); ///< broadcast sub			
+	FORCEINLINE Vector& operator+=(const Vector& v);
+	FORCEINLINE Vector& operator-=(const Vector& v);
+	FORCEINLINE Vector& operator*=(const Vector& v);
+	FORCEINLINE Vector& operator*=(float s);
+	FORCEINLINE Vector& operator/=(const Vector& v);
+	FORCEINLINE Vector& operator/=(float s);
+	FORCEINLINE Vector& operator+=(float fl); ///< broadcast add
+	FORCEINLINE Vector& operator-=(float fl); ///< broadcast sub			
 
-// negate the vector components
+	// negate the vector components
 	void	Negate();
 
 	// Get the vector's magnitude.
@@ -191,7 +192,7 @@ public:
 		return (x * x + y * y + z * z);
 	}
 
-	
+
 
 	// return true if this vector is (0,0,0) within tolerance
 	bool IsZero(float tolerance = 0.01f) const
@@ -208,15 +209,15 @@ public:
 	bool	IsLengthLessThan(float val) const;
 
 	// check if a vector is within the box defined by two other vectors
-	FORCEINLINE bool WithinAABox(Vector const &boxmin, Vector const &boxmax);
+	FORCEINLINE bool WithinAABox(Vector const& boxmin, Vector const& boxmax);
 
 	// Get the distance from this vector to the other one.
-	vec_t	DistTo(const Vector &vOther) const;
+	vec_t	DistTo(const Vector& vOther) const;
 
 	// Get the distance from this vector to the other one squared.
 	// NJS: note, VC wasn't inlining it correctly in several deeply nested inlines due to being an 'out of line' inline.  
 	// may be able to tidy this up after switching to VC7
-	FORCEINLINE vec_t DistToSqr(const Vector &vOther) const
+	FORCEINLINE vec_t DistToSqr(const Vector& vOther) const
 	{
 		Vector delta;
 
@@ -228,25 +229,25 @@ public:
 	}
 
 	// Copy
-	void	CopyToArray(float *rgfl) const;
+	void	CopyToArray(float* rgfl) const;
 
 	// Multiply, add, and assign to this (ie: *this = a + b * scalar). This
 	// is about 12% faster than the actual vector equation (because it's done per-component
 	// rather than per-vector).
-	void	MulAdd(const Vector &a, const Vector &b, float scalar);
+	void	MulAdd(const Vector& a, const Vector& b, float scalar);
 
 	// Dot product.
-	vec_t	Dot(const Vector &vOther) const;
+	vec_t	Dot(const Vector& vOther) const;
 
 	// assignment
-	Vector &operator=(const Vector &vOther);
+	Vector& operator=(const Vector& vOther);
 
 	// 2d
 	vec_t	Length2D(void) const;
 	vec_t	Length2DSqr(void) const;
 
-	operator VectorByValue &() { return *((VectorByValue *)(this)); }
-	operator const VectorByValue &() const { return *((const VectorByValue *)(this)); }
+	operator VectorByValue& () { return *((VectorByValue*)(this)); }
+	operator const VectorByValue& () const { return *((const VectorByValue*)(this)); }
 
 #ifndef VECTOR_NO_SLOW_OPERATIONS
 	// copy constructors
@@ -255,25 +256,25 @@ public:
 	// arithmetic operations
 	Vector	operator-(void) const;
 
-	Vector	operator+(const Vector &v) const;
-	Vector	operator-(const Vector &v) const;
-	Vector	operator*(const Vector &v) const;
-	Vector	operator/(const Vector &v) const;
+	Vector	operator+(const Vector& v) const;
+	Vector	operator-(const Vector& v) const;
+	Vector	operator*(const Vector& v) const;
+	Vector	operator/(const Vector& v) const;
 	Vector	operator*(float fl) const;
 	Vector	operator/(float fl) const;
 
 	// Cross product between two vectors.
-	Vector	Cross(const Vector &vOther) const;
+	Vector	Cross(const Vector& vOther) const;
 
 	// Returns a vector with the min or max in X, Y, and Z.
-	Vector	Min(const Vector &vOther) const;
-	Vector	Max(const Vector &vOther) const;
+	Vector	Min(const Vector& vOther) const;
+	Vector	Max(const Vector& vOther) const;
 
 #else
 
 private:
 	// No copy constructors allowed if we're in optimal mode
-	Vector(const Vector &vOther);
+	Vector(const Vector& vOther);
 #endif
 };
 
@@ -292,14 +293,14 @@ FORCEINLINE Vector::Vector(vec_t X, vec_t Y, vec_t Z)
 	x = X; y = Y; z = Z;
 }
 
-inline vec_t &Vector::operator[](int i)
+inline vec_t& Vector::operator[](int i)
 {
-	return ((vec_t *)this)[i];
+	return ((vec_t*)this)[i];
 }
 
 inline vec_t Vector::operator[](int i) const
 {
-	return ((vec_t *)this)[i];
+	return ((vec_t*)this)[i];
 }
 
 inline vec_t Vector::Length() const
@@ -323,7 +324,7 @@ public:
 	// Construction/destruction:
 	VectorByValue(void) : Vector() {}
 	VectorByValue(vec_t X, vec_t Y, vec_t Z) : Vector(X, Y, Z) {}
-	VectorByValue(const VectorByValue &vOther) { *this = vOther; }
+	VectorByValue(const VectorByValue& vOther) { *this = vOther; }
 };
 
 class ALIGN16 VectorAligned : public Vector
@@ -339,17 +340,17 @@ public:
 
 private:
 	// No copy constructors allowed if we're in optimal mode
-	VectorAligned(const VectorAligned &vOther);
-	VectorAligned(const Vector &vOther);
+	VectorAligned(const VectorAligned& vOther);
+	VectorAligned(const Vector& vOther);
 
 #else
 public:
-	explicit VectorAligned(const Vector &vOther)
+	explicit VectorAligned(const Vector& vOther)
 	{
 		Init(vOther.x, vOther.y, vOther.z);
 	}
 
-	VectorAligned &operator=(const Vector &vOther)
+	VectorAligned& operator=(const Vector& vOther)
 	{
 		Init(vOther.x, vOther.y, vOther.z);
 		return *this;
@@ -360,23 +361,23 @@ public:
 } ALIGN16_POST;
 
 
-FORCEINLINE void VectorAdd(const Vector &a, const Vector &b, Vector &c)
+FORCEINLINE void VectorAdd(const Vector& a, const Vector& b, Vector& c)
 {
 	c.x = a.x + b.x;
 	c.y = a.y + b.y;
 	c.z = a.z + b.z;
 }
 
-FORCEINLINE void VectorSubtract(const Vector &a, const Vector &b, Vector &c)
+FORCEINLINE void VectorSubtract(const Vector& a, const Vector& b, Vector& c)
 {
 	c.x = a.x - b.x;
 	c.y = a.y - b.y;
 	c.z = a.z - b.z;
 }
 
-inline unsigned long &FloatBits(vec_t &f)
+inline unsigned long& FloatBits(vec_t& f)
 {
-	return *reinterpret_cast<unsigned long *>(&f);
+	return *reinterpret_cast<unsigned long*>(&f);
 }
 
 inline bool IsFinite(vec_t f)
@@ -384,26 +385,26 @@ inline bool IsFinite(vec_t f)
 	return ((FloatBits(f) & 0x7F800000) != 0x7F800000);
 }
 
-FORCEINLINE void VectorMultiply(const Vector &a, vec_t b, Vector &c)
+FORCEINLINE void VectorMultiply(const Vector& a, vec_t b, Vector& c)
 {
 	c.x = a.x * b;
 	c.y = a.y * b;
 	c.z = a.z * b;
 }
 
-FORCEINLINE void VectorMultiply(const Vector &a, const Vector &b, Vector &c)
+FORCEINLINE void VectorMultiply(const Vector& a, const Vector& b, Vector& c)
 {
 	c.x = a.x * b.x;
 	c.y = a.y * b.y;
 	c.z = a.z * b.z;
 }
 
-inline void VectorClear(Vector &a)
+inline void VectorClear(Vector& a)
 {
 	a.x = a.y = a.z = 0.0f;
 }
 
-FORCEINLINE void VectorCopy(const Vector &src, Vector &dst)
+FORCEINLINE void VectorCopy(const Vector& src, Vector& dst)
 {
 	dst.x = src.x;
 	dst.y = src.y;
@@ -440,11 +441,11 @@ public:
 
 	// Creates a matrix where the X axis = forward
 	// the Y axis = left, and the Z axis = up
-	VMatrix(const Vector &forward, const Vector &left, const Vector &up);
-	VMatrix(const Vector &forward, const Vector &left, const Vector &up, const Vector &translation);
+	VMatrix(const Vector& forward, const Vector& left, const Vector& up);
+	VMatrix(const Vector& forward, const Vector& left, const Vector& up, const Vector& translation);
 
 	// Construct from a 3x4 matrix
-	VMatrix(const matrix3x4_t &matrix3x4);
+	VMatrix(const matrix3x4_t& matrix3x4);
 
 	// Set the values in the matrix.
 	void		Init(
@@ -477,50 +478,50 @@ public:
 
 
 	// Initialize from a 3x4
-	void		Init(const matrix3x4_t &matrix3x4);
+	void		Init(const matrix3x4_t& matrix3x4);
 
 	// array access
-	inline float *operator[](int i)
+	inline float* operator[](int i)
 	{
 		return m[i];
 	}
 
-	inline const float *operator[](int i) const
+	inline const float* operator[](int i) const
 	{
 		return m[i];
 	}
 
 	// Get a pointer to m[0][0]
-	inline float *Base()
+	inline float* Base()
 	{
 		return &m[0][0];
 	}
 
-	inline const float *Base() const
+	inline const float* Base() const
 	{
 		return &m[0][0];
 	}
 
-	void		SetLeft(const Vector &vLeft);
-	void		SetUp(const Vector &vUp);
-	void		SetForward(const Vector &vForward);
+	void		SetLeft(const Vector& vLeft);
+	void		SetUp(const Vector& vUp);
+	void		SetForward(const Vector& vForward);
 
-	void		GetBasisVectors(Vector &vForward, Vector &vLeft, Vector &vUp) const;
-	void		SetBasisVectors(const Vector &vForward, const Vector &vLeft, const Vector &vUp);
+	void		GetBasisVectors(Vector& vForward, Vector& vLeft, Vector& vUp) const;
+	void		SetBasisVectors(const Vector& vForward, const Vector& vLeft, const Vector& vUp);
 
 	// Get/set the translation.
-	Vector &GetTranslation(Vector &vTrans) const;
-	void		SetTranslation(const Vector &vTrans);
+	Vector& GetTranslation(Vector& vTrans) const;
+	void		SetTranslation(const Vector& vTrans);
 
-	void		PreTranslate(const Vector &vTrans);
-	void		PostTranslate(const Vector &vTrans);
+	void		PreTranslate(const Vector& vTrans);
+	void		PostTranslate(const Vector& vTrans);
 
-	const matrix3x4_t &As3x4() const;
-	void		CopyFrom3x4(const matrix3x4_t &m3x4);
-	void		Set3x4(matrix3x4_t &matrix3x4) const;
+	const matrix3x4_t& As3x4() const;
+	void		CopyFrom3x4(const matrix3x4_t& m3x4);
+	void		Set3x4(matrix3x4_t& matrix3x4) const;
 
-	bool		operator==(const VMatrix &src) const;
-	bool		operator!=(const VMatrix &src) const { return !(*this == src); }
+	bool		operator==(const VMatrix& src) const;
+	bool		operator!=(const VMatrix& src) const { return !(*this == src); }
 
 #ifndef VECTOR_NO_SLOW_OPERATIONS
 	// Access the basis vectors.
@@ -534,83 +535,83 @@ public:
 	// Matrix->vector operations.
 public:
 	// Multiply by a 3D vector (same as operator*).
-	void		V3Mul(const Vector &vIn, Vector &vOut) const;
+	void		V3Mul(const Vector& vIn, Vector& vOut) const;
 
 	// Multiply by a 4D vector.
-	void		V4Mul(const Vector4D &vIn, Vector4D &vOut) const;
+	void		V4Mul(const Vector4D& vIn, Vector4D& vOut) const;
 
 #ifndef VECTOR_NO_SLOW_OPERATIONS
 	// Applies the rotation (ignores translation in the matrix). (This just calls VMul3x3).
-	Vector		ApplyRotation(const Vector &vVec) const;
+	Vector		ApplyRotation(const Vector& vVec) const;
 
 	// Multiply by a vector (divides by w, assumes input w is 1).
-	Vector		operator*(const Vector &vVec) const;
+	Vector		operator*(const Vector& vVec) const;
 
 	// Multiply by the upper 3x3 part of the matrix (ie: only apply rotation).
-	Vector		VMul3x3(const Vector &vVec) const;
+	Vector		VMul3x3(const Vector& vVec) const;
 
 	// Apply the inverse (transposed) rotation (only works on pure rotation matrix)
-	Vector		VMul3x3Transpose(const Vector &vVec) const;
+	Vector		VMul3x3Transpose(const Vector& vVec) const;
 
 	// Multiply by the upper 3 rows.
-	Vector		VMul4x3(const Vector &vVec) const;
+	Vector		VMul4x3(const Vector& vVec) const;
 
 	// Apply the inverse (transposed) transformation (only works on pure rotation/translation)
-	Vector		VMul4x3Transpose(const Vector &vVec) const;
+	Vector		VMul4x3Transpose(const Vector& vVec) const;
 #endif
 
 
 	// Matrix->plane operations.
 public:
 	// Transform the plane. The matrix can only contain translation and rotation.
-	void		TransformPlane(const VPlane &inPlane, VPlane &outPlane) const;
+	void		TransformPlane(const VPlane& inPlane, VPlane& outPlane) const;
 
 #ifndef VECTOR_NO_SLOW_OPERATIONS
 	// Just calls TransformPlane and returns the result.
-	VPlane		operator*(const VPlane &thePlane) const;
+	VPlane		operator*(const VPlane& thePlane) const;
 #endif
 
 	// Matrix->matrix operations.
 public:
 
-	VMatrix &operator=(const VMatrix &mOther);
+	VMatrix& operator=(const VMatrix& mOther);
 
 	// Multiply two matrices (out = this * vm).
-	void		MatrixMul(const VMatrix &vm, VMatrix &out) const
+	void		MatrixMul(const VMatrix& vm, VMatrix& out) const
 	{
 		out.Init(
-			m[0][0]*vm.m[0][0] + m[0][1]*vm.m[1][0] + m[0][2]*vm.m[2][0] + m[0][3]*vm.m[3][0],
-			m[0][0]*vm.m[0][1] + m[0][1]*vm.m[1][1] + m[0][2]*vm.m[2][1] + m[0][3]*vm.m[3][1],
-			m[0][0]*vm.m[0][2] + m[0][1]*vm.m[1][2] + m[0][2]*vm.m[2][2] + m[0][3]*vm.m[3][2],
-			m[0][0]*vm.m[0][3] + m[0][1]*vm.m[1][3] + m[0][2]*vm.m[2][3] + m[0][3]*vm.m[3][3],
+			m[0][0] * vm.m[0][0] + m[0][1] * vm.m[1][0] + m[0][2] * vm.m[2][0] + m[0][3] * vm.m[3][0],
+			m[0][0] * vm.m[0][1] + m[0][1] * vm.m[1][1] + m[0][2] * vm.m[2][1] + m[0][3] * vm.m[3][1],
+			m[0][0] * vm.m[0][2] + m[0][1] * vm.m[1][2] + m[0][2] * vm.m[2][2] + m[0][3] * vm.m[3][2],
+			m[0][0] * vm.m[0][3] + m[0][1] * vm.m[1][3] + m[0][2] * vm.m[2][3] + m[0][3] * vm.m[3][3],
 
-			m[1][0]*vm.m[0][0] + m[1][1]*vm.m[1][0] + m[1][2]*vm.m[2][0] + m[1][3]*vm.m[3][0],
-			m[1][0]*vm.m[0][1] + m[1][1]*vm.m[1][1] + m[1][2]*vm.m[2][1] + m[1][3]*vm.m[3][1],
-			m[1][0]*vm.m[0][2] + m[1][1]*vm.m[1][2] + m[1][2]*vm.m[2][2] + m[1][3]*vm.m[3][2],
-			m[1][0]*vm.m[0][3] + m[1][1]*vm.m[1][3] + m[1][2]*vm.m[2][3] + m[1][3]*vm.m[3][3],
+			m[1][0] * vm.m[0][0] + m[1][1] * vm.m[1][0] + m[1][2] * vm.m[2][0] + m[1][3] * vm.m[3][0],
+			m[1][0] * vm.m[0][1] + m[1][1] * vm.m[1][1] + m[1][2] * vm.m[2][1] + m[1][3] * vm.m[3][1],
+			m[1][0] * vm.m[0][2] + m[1][1] * vm.m[1][2] + m[1][2] * vm.m[2][2] + m[1][3] * vm.m[3][2],
+			m[1][0] * vm.m[0][3] + m[1][1] * vm.m[1][3] + m[1][2] * vm.m[2][3] + m[1][3] * vm.m[3][3],
 
-			m[2][0]*vm.m[0][0] + m[2][1]*vm.m[1][0] + m[2][2]*vm.m[2][0] + m[2][3]*vm.m[3][0],
-			m[2][0]*vm.m[0][1] + m[2][1]*vm.m[1][1] + m[2][2]*vm.m[2][1] + m[2][3]*vm.m[3][1],
-			m[2][0]*vm.m[0][2] + m[2][1]*vm.m[1][2] + m[2][2]*vm.m[2][2] + m[2][3]*vm.m[3][2],
-			m[2][0]*vm.m[0][3] + m[2][1]*vm.m[1][3] + m[2][2]*vm.m[2][3] + m[2][3]*vm.m[3][3],
+			m[2][0] * vm.m[0][0] + m[2][1] * vm.m[1][0] + m[2][2] * vm.m[2][0] + m[2][3] * vm.m[3][0],
+			m[2][0] * vm.m[0][1] + m[2][1] * vm.m[1][1] + m[2][2] * vm.m[2][1] + m[2][3] * vm.m[3][1],
+			m[2][0] * vm.m[0][2] + m[2][1] * vm.m[1][2] + m[2][2] * vm.m[2][2] + m[2][3] * vm.m[3][2],
+			m[2][0] * vm.m[0][3] + m[2][1] * vm.m[1][3] + m[2][2] * vm.m[2][3] + m[2][3] * vm.m[3][3],
 
-			m[3][0]*vm.m[0][0] + m[3][1]*vm.m[1][0] + m[3][2]*vm.m[2][0] + m[3][3]*vm.m[3][0],
-			m[3][0]*vm.m[0][1] + m[3][1]*vm.m[1][1] + m[3][2]*vm.m[2][1] + m[3][3]*vm.m[3][1],
-			m[3][0]*vm.m[0][2] + m[3][1]*vm.m[1][2] + m[3][2]*vm.m[2][2] + m[3][3]*vm.m[3][2],
-			m[3][0]*vm.m[0][3] + m[3][1]*vm.m[1][3] + m[3][2]*vm.m[2][3] + m[3][3]*vm.m[3][3]
+			m[3][0] * vm.m[0][0] + m[3][1] * vm.m[1][0] + m[3][2] * vm.m[2][0] + m[3][3] * vm.m[3][0],
+			m[3][0] * vm.m[0][1] + m[3][1] * vm.m[1][1] + m[3][2] * vm.m[2][1] + m[3][3] * vm.m[3][1],
+			m[3][0] * vm.m[0][2] + m[3][1] * vm.m[1][2] + m[3][2] * vm.m[2][2] + m[3][3] * vm.m[3][2],
+			m[3][0] * vm.m[0][3] + m[3][1] * vm.m[1][3] + m[3][2] * vm.m[2][3] + m[3][3] * vm.m[3][3]
 		);
 	}
 
 	// Add two matrices.
-	const VMatrix &operator+=(const VMatrix &other);
+	const VMatrix& operator+=(const VMatrix& other);
 
 #ifndef VECTOR_NO_SLOW_OPERATIONS
 	// Just calls MatrixMul and returns the result.	
-	VMatrix		operator*(const VMatrix &mOther) const;
+	VMatrix		operator*(const VMatrix& mOther) const;
 
 	// Add/Subtract two matrices.
-	VMatrix		operator+(const VMatrix &other) const;
-	VMatrix		operator-(const VMatrix &other) const;
+	VMatrix		operator+(const VMatrix& other) const;
+	VMatrix		operator-(const VMatrix& other) const;
 
 	// Negation.
 	VMatrix		operator-() const;
@@ -628,16 +629,16 @@ public:
 	bool		IsIdentity() const;
 
 	// Setup a matrix for origin and angles.
-	void		SetupMatrixOrgAngles(const Vector &origin, const QAngle &vAngles);
+	void		SetupMatrixOrgAngles(const Vector& origin, const QAngle& vAngles);
 
 	// Setup a matrix for angles and no translation.
-	void		SetupMatrixAngles(const QAngle &vAngles);
+	void		SetupMatrixAngles(const QAngle& vAngles);
 
 	// General inverse. This may fail so check the return!
-	bool		InverseGeneral(VMatrix &vInverse) const;
+	bool		InverseGeneral(VMatrix& vInverse) const;
 
 	// Does a fast inverse, assuming the matrix only contains translation and rotation.
-	void		InverseTR(VMatrix &mRet) const;
+	void		InverseTR(VMatrix& mRet) const;
 
 	// Usually used for debug checks. Returns true if the upper 3x3 contains
 	// unit vectors and they are all orthogonal.
@@ -651,7 +652,7 @@ public:
 	Vector		GetScale() const;
 
 	// (Fast) multiply by a scaling matrix setup from vScale.
-	VMatrix		Scale(const Vector &vScale);
+	VMatrix		Scale(const Vector& vScale);
 
 	// Normalize the basis vectors.
 	VMatrix		NormalizeBasisVectors() const;
@@ -668,7 +669,6 @@ public:
 	vec_t		m[4][4];
 };
 
-
 inline Vector Vector::operator*(float fl) const
 {
 	Vector res;
@@ -676,27 +676,27 @@ inline Vector Vector::operator*(float fl) const
 	return res;
 }
 
-inline Vector operator*(const float lhs, const Vector &rhs)
+inline Vector operator*(const float lhs, const Vector& rhs)
 {
 	Vector res;
 	VectorMultiply(rhs, lhs, res);
 	return res;
 }
 
-inline Vector Vector::operator*(const Vector &v) const
+inline Vector Vector::operator*(const Vector& v) const
 {
 	Vector res;
 	VectorMultiply(*this, v, res);
 	return res;
 }
 
-inline Vector &Vector::operator=(const Vector &vOther)
+inline Vector& Vector::operator=(const Vector& vOther)
 {
 	x = vOther.x; y = vOther.y; z = vOther.z;
 	return *this;
 }
 
-inline Vector Vector::operator+(const Vector &v) const
+inline Vector Vector::operator+(const Vector& v) const
 {
 	Vector res;
 	VectorAdd(*this, v, res);
@@ -708,7 +708,7 @@ inline Vector Vector::operator-(void) const
 	return Vector(-x, -y, -z);
 }
 
-FORCEINLINE void VectorDivide(const Vector &a, vec_t b, Vector &c)
+FORCEINLINE void VectorDivide(const Vector& a, vec_t b, Vector& c)
 {
 	vec_t oob = 1.0f / b;
 	c.x = a.x * oob;
@@ -723,26 +723,26 @@ inline Vector Vector::operator/(float fl) const
 	return res;
 }
 
-FORCEINLINE  Vector &Vector::operator+=(const Vector &v)
+FORCEINLINE  Vector& Vector::operator+=(const Vector& v)
 {
 	x += v.x; y += v.y; z += v.z;
 	return *this;
 }
 
-FORCEINLINE  Vector &Vector::operator-=(const Vector &v)
+FORCEINLINE  Vector& Vector::operator-=(const Vector& v)
 {
 	x -= v.x; y -= v.y; z -= v.z;
 	return *this;
 }
 
-inline Vector Vector::operator-(const Vector &v) const
+inline Vector Vector::operator-(const Vector& v) const
 {
 	Vector res;
 	VectorSubtract(*this, v, res);
 	return res;
 }
 
-FORCEINLINE  Vector &Vector::operator*=(float fl)
+FORCEINLINE  Vector& Vector::operator*=(float fl)
 {
 	x *= fl;
 	y *= fl;
@@ -750,7 +750,7 @@ FORCEINLINE  Vector &Vector::operator*=(float fl)
 	return *this;
 }
 
-FORCEINLINE  Vector &Vector::operator/=(float fl)
+FORCEINLINE  Vector& Vector::operator/=(float fl)
 {
 	float oofl = 1.0f / fl;
 	x *= oofl;
@@ -761,7 +761,7 @@ FORCEINLINE  Vector &Vector::operator/=(float fl)
 
 
 
-void inline SinCos(float radians, float *sine, float *cosine)
+void inline SinCos(float radians, float* sine, float* cosine)
 {
 	*sine = sin(radians);
 	*cosine = cos(radians);
@@ -774,25 +774,38 @@ enum
 	ROLL		// fall over
 };
 
+// ------------------------------------------------------------------
+// Missing inline implementations (fix unresolved externals)
+// The header declares Vector2D::Dot / Vector::Dot but doesn't define them.
+// Provide inline bodies here so any TU can use them without requiring a .cpp.
+// ------------------------------------------------------------------
+FORCEINLINE vec_t Vector2D::Dot(const Vector2D & vOther) const
+{
+	return (x * vOther.x + y * vOther.y);
+}
+FORCEINLINE vec_t Vector::Dot(const Vector & vOther) const
+{
+	return (x * vOther.x + y * vOther.y + z * vOther.z);
+}
 
-FORCEINLINE vec_t DotProduct(const Vector &a, const Vector &b)
+FORCEINLINE vec_t DotProduct(const Vector& a, const Vector& b)
 {
 	return(a.x * b.x + a.y * b.y + a.z * b.z);
 }
 
-FORCEINLINE vec_t DotProduct2D(const Vector &a, const Vector &b)
+FORCEINLINE vec_t DotProduct2D(const Vector& a, const Vector& b)
 {
 	return(a.x * b.x + a.y * b.y);
 }
 
-inline void CrossProduct(const Vector &a, const Vector &b, Vector &result)
+inline void CrossProduct(const Vector& a, const Vector& b, Vector& result)
 {
 	result.x = a.y * b.z - a.z * b.y;
 	result.y = a.z * b.x - a.x * b.z;
 	result.z = a.x * b.y - a.y * b.x;
 }
 
-inline Vector CrossProduct(const Vector &a, const Vector &b)
+inline Vector CrossProduct(const Vector& a, const Vector& b)
 {
 	Vector result{};
 	result.x = a.y * b.z - a.z * b.y;
@@ -801,12 +814,12 @@ inline Vector CrossProduct(const Vector &a, const Vector &b)
 	return result;
 }
 
-inline vec_t VectorLength(const Vector &v)
+inline vec_t VectorLength(const Vector& v)
 {
 	return (vec_t)sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
-inline vec_t VectorNormalize(Vector &v)
+inline vec_t VectorNormalize(Vector& v)
 {
 	vec_t l = VectorLength(v);
 	if (l != 0.0f)
@@ -820,7 +833,7 @@ inline vec_t VectorNormalize(Vector &v)
 	return l;
 }
 
-inline Vector VectorRotate(const Vector &v, const Vector &k, float degrees)
+inline Vector VectorRotate(const Vector& v, const Vector& k, float degrees)
 {
 	// Rodrigues rotation
 	float radians = degrees * 3.14159265 / 180;
@@ -828,10 +841,10 @@ inline Vector VectorRotate(const Vector &v, const Vector &k, float degrees)
 	Vector crossProduct;
 	CrossProduct(k, v, crossProduct);
 
-	return v*cos(radians) + crossProduct * sin(radians) + k * DotProduct(k,v) * (1-cos(radians));
+	return v * cos(radians) + crossProduct * sin(radians) + k * DotProduct(k, v) * (1 - cos(radians));
 }
 
-inline void VectorPivotXY(Vector &point, const Vector &pivot, float degrees)
+inline void VectorPivotXY(Vector& point, const Vector& pivot, float degrees)
 {
 	float s = sin(degrees * 3.14159265 / 180);
 	float c = cos(degrees * 3.14159265 / 180);
@@ -859,8 +872,8 @@ public:
 	//	QAngle(RadianEuler const &angles);	// evil auto type promotion!!!
 
 	// Allow pass-by-value
-	operator QAngleByValue &() { return *((QAngleByValue *)(this)); }
-	operator const QAngleByValue &() const { return *((const QAngleByValue *)(this)); }
+	operator QAngleByValue& () { return *((QAngleByValue*)(this)); }
+	operator const QAngleByValue& () const { return *((const QAngleByValue*)(this)); }
 
 	// Initialization
 	void Init(vec_t ix = 0.0f, vec_t iy = 0.0f, vec_t iz = 0.0f);
@@ -872,21 +885,21 @@ public:
 
 	// array access...
 	vec_t operator[](int i) const;
-	vec_t &operator[](int i);
+	vec_t& operator[](int i);
 
 	// Base address...
-	vec_t *Base();
-	vec_t const *Base() const;
+	vec_t* Base();
+	vec_t const* Base() const;
 
 	// equality
-	bool operator==(const QAngle &v) const;
-	bool operator!=(const QAngle &v) const;
+	bool operator==(const QAngle& v) const;
+	bool operator!=(const QAngle& v) const;
 
 	// arithmetic operations
-	QAngle &operator+=(const QAngle &v);
-	QAngle &operator-=(const QAngle &v);
-	QAngle &operator*=(float s);
-	QAngle &operator/=(float s);
+	QAngle& operator+=(const QAngle& v);
+	QAngle& operator-=(const QAngle& v);
+	QAngle& operator*=(float s);
+	QAngle& operator/=(float s);
 
 	// Get the vector's magnitude.
 	vec_t	Length() const;
@@ -896,7 +909,7 @@ public:
 	//void	Negate(); 
 
 	// No assignment operators either...
-	QAngle &operator=(const QAngle &src);
+	QAngle& operator=(const QAngle& src);
 
 #ifndef VECTOR_NO_SLOW_OPERATIONS
 	// copy constructors
@@ -904,21 +917,21 @@ public:
 	// arithmetic operations
 	QAngle	operator-(void) const;
 
-	QAngle	operator+(const QAngle &v) const;
-	QAngle	operator-(const QAngle &v) const;
+	QAngle	operator+(const QAngle& v) const;
+	QAngle	operator-(const QAngle& v) const;
 	QAngle	operator*(float fl) const;
 	QAngle	operator/(float fl) const;
 #else
 
 private:
 	// No copy constructors allowed if we're in optimal mode
-	QAngle(const QAngle &vOther);
+	QAngle(const QAngle& vOther);
 
 #endif
 
-	static void AngleVectors(const QAngle &angles, Vector *forward, Vector *right, Vector *up);
-	static void VectorAngles(const Vector &forward, QAngle &angles);
-	static void VectorAngles(const Vector &forward, const Vector &pseudoup, QAngle &angles);
+	static void AngleVectors(const QAngle& angles, Vector* forward, Vector* right, Vector* up);
+	static void VectorAngles(const Vector& forward, QAngle& angles);
+	static void VectorAngles(const Vector& forward, const Vector& pseudoup, QAngle& angles);
 };
 
 
@@ -945,17 +958,17 @@ inline void QAngle::Init(vec_t ix, vec_t iy, vec_t iz)
 	z = iz;
 }
 
-inline vec_t &QAngle::operator[](int i)
+inline vec_t& QAngle::operator[](int i)
 {
-	return ((vec_t *)this)[i];
+	return ((vec_t*)this)[i];
 }
 
 inline vec_t QAngle::operator[](int i) const
 {
-	return ((vec_t *)this)[i];
+	return ((vec_t*)this)[i];
 }
 
-inline QAngle &QAngle::operator=(const QAngle &vOther)
+inline QAngle& QAngle::operator=(const QAngle& vOther)
 {
 	x = vOther.x; y = vOther.y; z = vOther.z;
 	return *this;
@@ -967,7 +980,7 @@ inline QAngle QAngle::operator-(void) const
 	return ret;
 }
 
-inline QAngle QAngle::operator+(const QAngle &v) const
+inline QAngle QAngle::operator+(const QAngle& v) const
 {
 	QAngle res;
 	res.x = x + v.x;
@@ -976,7 +989,7 @@ inline QAngle QAngle::operator+(const QAngle &v) const
 	return res;
 }
 
-inline QAngle QAngle::operator-(const QAngle &v) const
+inline QAngle QAngle::operator-(const QAngle& v) const
 {
 	QAngle res;
 	res.x = x - v.x;
@@ -985,7 +998,7 @@ inline QAngle QAngle::operator-(const QAngle &v) const
 	return res;
 }
 
-inline void QAngle::AngleVectors(const QAngle &angles, Vector *forward, Vector *right, Vector *up)
+inline void QAngle::AngleVectors(const QAngle& angles, Vector* forward, Vector* right, Vector* up)
 {
 
 	float sr, sp, sy, cr, cp, cy;
@@ -1019,7 +1032,7 @@ inline void QAngle::AngleVectors(const QAngle &angles, Vector *forward, Vector *
 //-----------------------------------------------------------------------------
 // Forward direction vector -> Euler angles
 //-----------------------------------------------------------------------------
-inline void QAngle::VectorAngles(const Vector &forward, QAngle &angles)
+inline void QAngle::VectorAngles(const Vector& forward, QAngle& angles)
 {
 	float	tmp, yaw, pitch;
 
@@ -1050,7 +1063,7 @@ inline void QAngle::VectorAngles(const Vector &forward, QAngle &angles)
 //-----------------------------------------------------------------------------
 // Forward direction vector with a reference up vector -> Euler angles
 //-----------------------------------------------------------------------------
-inline void QAngle::VectorAngles(const Vector &forward, const Vector &pseudoup, QAngle &angles)
+inline void QAngle::VectorAngles(const Vector& forward, const Vector& pseudoup, QAngle& angles)
 {
 	Vector left;
 
@@ -1088,4 +1101,59 @@ inline void QAngle::VectorAngles(const Vector &forward, const Vector &pseudoup, 
 		// Assume no roll in this case as one degree of freedom has been lost (i.e. yaw == roll)
 		angles[2] = 0;
 	}
+}
+
+// Inline implementations for commonly used VMatrix helpers
+inline VMatrix& VMatrix::operator=(const VMatrix& mOther)
+{
+	if (this == &mOther)
+		return *this;
+
+	memcpy(m, mOther.m, sizeof(m));
+	return *this;
+}
+
+inline void VMatrix::Identity()
+{
+	m[0][0] = 1.0f; m[0][1] = 0.0f; m[0][2] = 0.0f; m[0][3] = 0.0f;
+	m[1][0] = 0.0f; m[1][1] = 1.0f; m[1][2] = 0.0f; m[1][3] = 0.0f;
+	m[2][0] = 0.0f; m[2][1] = 0.0f; m[2][2] = 1.0f; m[2][3] = 0.0f;
+	m[3][0] = 0.0f; m[3][1] = 0.0f; m[3][2] = 0.0f; m[3][3] = 1.0f;
+}
+
+inline void VMatrix::SetupMatrixOrgAngles(const Vector& origin, const QAngle& vAngles)
+{
+	Vector forward, right, up;
+	QAngle::AngleVectors(vAngles, &forward, &right, &up);
+
+	m[0][0] = forward.x; m[0][1] = right.x; m[0][2] = up.x;   m[0][3] = origin.x;
+	m[1][0] = forward.y; m[1][1] = right.y; m[1][2] = up.y;   m[1][3] = origin.y;
+	m[2][0] = forward.z; m[2][1] = right.z; m[2][2] = up.z;   m[2][3] = origin.z;
+	m[3][0] = 0.0f;      m[3][1] = 0.0f;    m[3][2] = 0.0f;    m[3][3] = 1.0f;
+}
+
+inline void VMatrix::InverseTR(VMatrix& mRet) const
+{
+	// Assumes rotation + translation only
+	mRet.m[0][0] = m[0][0]; mRet.m[0][1] = m[1][0]; mRet.m[0][2] = m[2][0];
+	mRet.m[1][0] = m[0][1]; mRet.m[1][1] = m[1][1]; mRet.m[1][2] = m[2][1];
+	mRet.m[2][0] = m[0][2]; mRet.m[2][1] = m[1][2]; mRet.m[2][2] = m[2][2];
+	mRet.m[3][0] = 0.0f;    mRet.m[3][1] = 0.0f;    mRet.m[3][2] = 0.0f;
+	mRet.m[3][3] = 1.0f;
+
+	// Translation
+	float tx = -m[0][3];
+	float ty = -m[1][3];
+	float tz = -m[2][3];
+
+	mRet.m[0][3] = tx * mRet.m[0][0] + ty * mRet.m[0][1] + tz * mRet.m[0][2];
+	mRet.m[1][3] = tx * mRet.m[1][0] + ty * mRet.m[1][1] + tz * mRet.m[1][2];
+	mRet.m[2][3] = tx * mRet.m[2][0] + ty * mRet.m[2][1] + tz * mRet.m[2][2];
+}
+
+inline VMatrix VMatrix::InverseTR() const
+{
+	VMatrix result;
+	InverseTR(result);
+	return result;
 }

@@ -11,12 +11,12 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
 {
 #ifdef _DEBUG
     AllocConsole();
-    FILE *fp;
+    FILE* fp;
     freopen_s(&fp, "CONOUT$", "w", stdout);
 #endif
 
     // Make sure -insecure is used
-    LPWSTR *szArglist;
+    LPWSTR* szArglist;
     int nArgs;
     szArglist = CommandLineToArgvW(GetCommandLineW(), &nArgs);
     bool insecureEnabled = false;
@@ -27,38 +27,6 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
     }
     LocalFree(szArglist);
 
-    if (!insecureEnabled)
-    {
-        std::wstring warningMessage =
-            L"L4D2VR was launched without the -insecure parameter.\n"
-            L"That launch option prevents VAC from starting.\n\n"
-            L"Without it, VAC may run as normal and could detect unsupported modifications,"
-            L" increasing your ban risk.\n\n"
-            L"Press OK to continue anyway or Cancel to exit.";
-        std::wstring warningTitle = L"L4D2VR Warning";
-        UINT messageBoxFlags = MB_ICONWARNING | MB_OKCANCEL | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND | MB_TASKMODAL;
-        HWND ownerWindow = GetForegroundWindow();
-        if (!ownerWindow)
-            ownerWindow = GetActiveWindow();
-        if (!ownerWindow)
-            ownerWindow = GetDesktopWindow();
-
-        int result = MessageBoxW(
-            ownerWindow,
-            warningMessage.c_str(),
-            warningTitle.c_str(),
-            messageBoxFlags);
-
-        if (result == 0)
-        {
-            OutputDebugStringW(L"L4D2VR: Failed to display -insecure warning dialog; continuing without confirmation.\n");
-            result = IDOK;
-        }
-
-        if (result != IDOK)
-            ExitProcess(0);
-    }
-
     g_Game = new Game();
 
     return 0;
@@ -66,15 +34,15 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
 
 
 
-BOOL APIENTRY DllMain( HMODULE hModule,
-                       DWORD  ul_reason_for_call,
-                       LPVOID lpReserved
-                     )
+BOOL APIENTRY DllMain(HMODULE hModule,
+    DWORD  ul_reason_for_call,
+    LPVOID lpReserved
+)
 {
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
-            CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)InitL4D2VR, hModule, 0, NULL);
+        CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)InitL4D2VR, hModule, 0, NULL);
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
     case DLL_PROCESS_DETACH:
@@ -82,5 +50,3 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     }
     return TRUE;
 }
-
-

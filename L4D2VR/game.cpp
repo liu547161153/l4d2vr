@@ -212,8 +212,6 @@ char* Game::getNetworkName(uintptr_t* entity)
 
     char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
     int classID = static_cast<int>(*(clientClass + 0x10));
-
-    Game::logMsg("[NetworkClass] ID: %d, Name: %s", classID, name ? name : "nullptr");
     return name;
 }
 

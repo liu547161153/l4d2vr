@@ -21,25 +21,25 @@ struct PositionAngle
 class IClientEntityList
 {
 public:
-    // Get IClientNetworkable interface for specified entity
-    virtual void *GetClientNetworkable(int entnum) = 0;
-    virtual void *GetClientNetworkableFromHandle(int hEnt) = 0;
-    virtual void *GetClientUnknownFromHandle(int hEnt) = 0;
+	// Get IClientNetworkable interface for specified entity
+	virtual void* GetClientNetworkable(int entnum) = 0;
+	virtual void* GetClientNetworkableFromHandle(int hEnt) = 0;
+	virtual void* GetClientUnknownFromHandle(int hEnt) = 0;
 
-    // NOTE: This function is only a convenience wrapper.
-    // It returns GetClientNetworkable( entnum )->GetIClientEntity().
-    virtual void *GetClientEntity(int entnum) = 0;
-    virtual void *GetClientEntityFromHandle(int hEnt) = 0;
+	// NOTE: This function is only a convenience wrapper.
+	// It returns GetClientNetworkable( entnum )->GetIClientEntity().
+	virtual void* GetClientEntity(int entnum) = 0;
+	virtual void* GetClientEntityFromHandle(int hEnt) = 0;
 
-    // Returns number of entities currently in use
-    virtual int					NumberOfEntities(bool bIncludeNonNetworkable) = 0;
+	// Returns number of entities currently in use
+	virtual int					NumberOfEntities(bool bIncludeNonNetworkable) = 0;
 
-    // Returns highest index actually used
-    virtual int					GetHighestEntityIndex(void) = 0;
+	// Returns highest index actually used
+	virtual int					GetHighestEntityIndex(void) = 0;
 
-    // Sizes entity list to specified size
-    virtual void				SetMaxEntities(int maxents) = 0;
-    virtual int					GetMaxEntities() = 0;
+	// Sizes entity list to specified size
+	virtual void				SetMaxEntities(int maxents) = 0;
+	virtual int					GetMaxEntities() = 0;
 };
 
 
@@ -63,36 +63,36 @@ typedef struct player_info_s
 class IClientEngineTools
 {
 public:
-	virtual void *fn0() = 0;
-	virtual void *fn1() = 0;
-	virtual void *fn2() = 0;
-	virtual void *fn3() = 0;
-	virtual void *fn4() = 0;
-	virtual void *fn5() = 0;
-	virtual void *fn6() = 0;
-	virtual void *fn7() = 0;
-	virtual void *fn8() = 0;
-	virtual void *fn9() = 0;
-	virtual void *fn10() = 0;
-	virtual void *fn11() = 0;
-	virtual void *fn12() = 0;
+	virtual void* fn0() = 0;
+	virtual void* fn1() = 0;
+	virtual void* fn2() = 0;
+	virtual void* fn3() = 0;
+	virtual void* fn4() = 0;
+	virtual void* fn5() = 0;
+	virtual void* fn6() = 0;
+	virtual void* fn7() = 0;
+	virtual void* fn8() = 0;
+	virtual void* fn9() = 0;
+	virtual void* fn10() = 0;
+	virtual void* fn11() = 0;
+	virtual void* fn12() = 0;
 	virtual bool IsThirdPersonCamera() = 0;
 };
 
 class IEngineClient
 {
 public:
-	virtual void *fn0() = 0;
-	virtual void *fn1() = 0;
-	virtual void *fn2() = 0;
-	virtual void *fn3() = 0;
-	virtual void *fn4() = 0;
-	virtual void *fn5() = 0;
-	virtual void *fn6() = 0;
-	virtual void *ClientCmd(const char *szCmdString) = 0;
-	virtual bool GetPlayerInfo(int ent_num, player_info_t *pinfo) = 0;
+	virtual void* fn0() = 0;
+	virtual void* fn1() = 0;
+	virtual void* fn2() = 0;
+	virtual void* fn3() = 0;
+	virtual void* fn4() = 0;
+	virtual void* fn5() = 0;
+	virtual void* fn6() = 0;
+	virtual void* ClientCmd(const char* szCmdString) = 0;
+	virtual bool GetPlayerInfo(int ent_num, player_info_t* pinfo) = 0;
 	virtual int GetPlayerForUserID(int userID) = 0;
-	virtual void *fn10() = 0;
+	virtual void* fn10() = 0;
 	virtual bool Con_IsVisible() = 0;
 	virtual int GetLocalPlayer(void) = 0;
 	virtual int fn13() = 0;
@@ -101,110 +101,110 @@ public:
 	virtual int fn16() = 0;
 	virtual int fn17() = 0;
 	virtual int fn18() = 0;
-	virtual QAngle* GetViewAngles(QAngle &angle) = 0;
-	virtual QAngle* SetViewAngles(QAngle &angle) = 0;
-	virtual void *sub_1005D230() = 0;
-	virtual void *sub_1005D280() = 0;
-	virtual void *sub_1005D2A0() = 0;
-	virtual void *sub_1005D2C0() = 0;
-	virtual void *sub_1005D2D0() = 0;
+	virtual QAngle* GetViewAngles(QAngle& angle) = 0;
+	virtual QAngle* SetViewAngles(QAngle& angle) = 0;
+	virtual void* sub_1005D230() = 0;
+	virtual void* sub_1005D280() = 0;
+	virtual void* sub_1005D2A0() = 0;
+	virtual void* sub_1005D2C0() = 0;
+	virtual void* sub_1005D2D0() = 0;
 	virtual bool IsInGame() = 0;
-	virtual void *sub_1005F150() = 0;
-	virtual void *sub_1005D2F0() = 0;
-	virtual void *sub_1005D300() = 0;
-	virtual void *sub_1005D350() = 0;
-	virtual void *sub_1005D3B0() = 0;
-	virtual void *sub_1005D430() = 0;
-	virtual void *sub_1005D460() = 0;
-	virtual void *sub_1005D5A0() = 0;
-	virtual void *sub_1005D4F0() = 0;
-	virtual void *sub_1005D5B0() = 0;
-	virtual void *sub_1005D5C0() = 0;
-	virtual void *sub_1005D5D0() = 0;
-	virtual void *sub_1005D5E0() = 0;
-	virtual void *sub_1005D600() = 0;
-	virtual void *sub_1005D620() = 0;
-	virtual void *sub_1005D640() = 0;
-	virtual void *sub_1005D710() = 0;
-	virtual void *sub_1005D720() = 0;
-	virtual void *sub_1005D790() = 0;
-	virtual void *sub_1005D7C0() = 0;
-	virtual void *sub_1005D840() = 0;
-	virtual void *sub_1005D880() = 0;
-	virtual void *sub_1005D890() = 0;
-	virtual void *sub_1005D8A0() = 0;
-	virtual void *sub_1005D8D0() = 0;
-	virtual void *sub_1005F160() = 0;
-	virtual void *sub_1005F190() = 0;
-	virtual void *sub_1005DA90() = 0;
-	virtual void *sub_1005DAA0() = 0;
-	virtual void *sub_1005DAB0() = 0;
-	virtual void *sub_1005DAC0() = 0;
-	virtual void *sub_1005DAE0() = 0;
-	virtual void *sub_1005DB40() = 0;
-	virtual void *sub_1005DB70() = 0;
-	virtual void *sub_1005DBA0() = 0;
-	virtual void *sub_1005DBC0() = 0;
-	virtual void *sub_1005DBE0() = 0;
-	virtual void *sub_1005DC10() = 0;
-	virtual void *sub_1005DC40() = 0;
-	virtual void *sub_1005DC60() = 0;
-	virtual void *sub_1005DC80() = 0;
-	virtual void *sub_1005DCA0() = 0;
-	virtual void *sub_1005D7E0() = 0;
-	virtual void *sub_1005DCC0() = 0;
-	virtual void *sub_1005DCE0() = 0;
-	virtual void *sub_1005DD00() = 0;
-	virtual void *sub_1005DD20() = 0;
-	virtual void *sub_1005DD40() = 0;
-	virtual void *sub_100606A0() = 0;
-	virtual void *sub_10060670() = 0;
-	virtual void *sub_1005DAD0() = 0;
-	virtual void *sub_1005D7B0() = 0;
-	virtual void *sub_1005DD50() = 0;
-	virtual void *sub_1005DD60() = 0;
-	virtual void *sub_1005DD70() = 0;
-	virtual void *sub_1005DDE0() = 0;
-	virtual void *sub_1005DDF0() = 0;
-	virtual void *sub_1005DE00() = 0;
-	virtual void *sub_1005DE10() = 0;
-	virtual void *sub_1005DE20() = 0;
+	virtual void* sub_1005F150() = 0;
+	virtual void* sub_1005D2F0() = 0;
+	virtual void* sub_1005D300() = 0;
+	virtual void* sub_1005D350() = 0;
+	virtual void* sub_1005D3B0() = 0;
+	virtual void* sub_1005D430() = 0;
+	virtual void* sub_1005D460() = 0;
+	virtual void* sub_1005D5A0() = 0;
+	virtual void* sub_1005D4F0() = 0;
+	virtual void* sub_1005D5B0() = 0;
+	virtual void* sub_1005D5C0() = 0;
+	virtual void* sub_1005D5D0() = 0;
+	virtual void* sub_1005D5E0() = 0;
+	virtual void* sub_1005D600() = 0;
+	virtual void* sub_1005D620() = 0;
+	virtual void* sub_1005D640() = 0;
+	virtual void* sub_1005D710() = 0;
+	virtual void* sub_1005D720() = 0;
+	virtual void* sub_1005D790() = 0;
+	virtual void* sub_1005D7C0() = 0;
+	virtual void* sub_1005D840() = 0;
+	virtual void* sub_1005D880() = 0;
+	virtual void* sub_1005D890() = 0;
+	virtual void* sub_1005D8A0() = 0;
+	virtual void* sub_1005D8D0() = 0;
+	virtual void* sub_1005F160() = 0;
+	virtual void* sub_1005F190() = 0;
+	virtual void* sub_1005DA90() = 0;
+	virtual void* sub_1005DAA0() = 0;
+	virtual void* sub_1005DAB0() = 0;
+	virtual void* sub_1005DAC0() = 0;
+	virtual void* sub_1005DAE0() = 0;
+	virtual void* sub_1005DB40() = 0;
+	virtual void* sub_1005DB70() = 0;
+	virtual void* sub_1005DBA0() = 0;
+	virtual void* sub_1005DBC0() = 0;
+	virtual void* sub_1005DBE0() = 0;
+	virtual void* sub_1005DC10() = 0;
+	virtual void* sub_1005DC40() = 0;
+	virtual void* sub_1005DC60() = 0;
+	virtual void* sub_1005DC80() = 0;
+	virtual void* sub_1005DCA0() = 0;
+	virtual void* sub_1005D7E0() = 0;
+	virtual void* sub_1005DCC0() = 0;
+	virtual void* sub_1005DCE0() = 0;
+	virtual void* sub_1005DD00() = 0;
+	virtual void* sub_1005DD20() = 0;
+	virtual void* sub_1005DD40() = 0;
+	virtual void* sub_100606A0() = 0;
+	virtual void* sub_10060670() = 0;
+	virtual void* sub_1005DAD0() = 0;
+	virtual void* sub_1005D7B0() = 0;
+	virtual void* sub_1005DD50() = 0;
+	virtual void* sub_1005DD60() = 0;
+	virtual void* sub_1005DD70() = 0;
+	virtual void* sub_1005DDE0() = 0;
+	virtual void* sub_1005DDF0() = 0;
+	virtual void* sub_1005DE00() = 0;
+	virtual void* sub_1005DE10() = 0;
+	virtual void* sub_1005DE20() = 0;
 	virtual bool IsPaused() = 0;
-	virtual void *sub_1005DD90() = 0;
-	virtual void *sub_1005DDA0() = 0;
-	virtual void *sub_1005DE30() = 0;
-	virtual void *sub_1005D900() = 0;
-	virtual void *sub_1005D910() = 0;
-	virtual void *sub_1005D9B0() = 0;
-	virtual void *sub_1005DE40() = 0;
-	virtual void *sub_1005F1C0() = 0;
-	virtual void *sub_1005DE80() = 0;
-	virtual void *sub_1005DE90() = 0;
-	virtual void *sub_1005DEB0() = 0;
-	virtual void *sub_1005CB30() = 0;
-	virtual void *sub_1005CB40() = 0;
-	virtual void *sub_1005DF00() = 0;
-	virtual void *sub_1005DF20() = 0;
-	virtual void *sub_1005CF70() = 0;
-	virtual void *sub_1005D000() = 0;
-	virtual void *sub_1005DED0() = 0;
-	virtual void *sub_1005CBB0() = 0;
-	virtual void *ClientCmd_Unrestricted(const char *szCmdString) = 0;
+	virtual void* sub_1005DD90() = 0;
+	virtual void* sub_1005DDA0() = 0;
+	virtual void* sub_1005DE30() = 0;
+	virtual void* sub_1005D900() = 0;
+	virtual void* sub_1005D910() = 0;
+	virtual void* sub_1005D9B0() = 0;
+	virtual void* sub_1005DE40() = 0;
+	virtual void* sub_1005F1C0() = 0;
+	virtual void* sub_1005DE80() = 0;
+	virtual void* sub_1005DE90() = 0;
+	virtual void* sub_1005DEB0() = 0;
+	virtual void* sub_1005CB30() = 0;
+	virtual void* sub_1005CB40() = 0;
+	virtual void* sub_1005DF00() = 0;
+	virtual void* sub_1005DF20() = 0;
+	virtual void* sub_1005CF70() = 0;
+	virtual void* sub_1005D000() = 0;
+	virtual void* sub_1005DED0() = 0;
+	virtual void* sub_1005CBB0() = 0;
+	virtual void* ClientCmd_Unrestricted(const char* szCmdString) = 0;
 };
 
 class IModelInfo
 {
 public:
-	virtual	~IModelInfo(void) { }
+	virtual	~IModelInfo(void) {}
 	// Returns model_t* pointer for a model given a precached or dynamic model index.
-	virtual void *GetModel(int modelindex) = 0;
+	virtual void* GetModel(int modelindex) = 0;
 
 	// Returns index of model by name for precached or known dynamic models.
 	// Does not adjust reference count for dynamic models.
-	virtual int	GetModelIndex(const char *name) const = 0;
+	virtual int	GetModelIndex(const char* name) const = 0;
 
 	// Returns name of model
-	virtual char *GetModelName(void *model) const = 0;
+	virtual char* GetModelName(void* model) const = 0;
 };
 
 struct model_t;
@@ -213,11 +213,11 @@ struct ModelRenderInfo_t
 {
 	Vector origin;
 	QAngle angles;
-	void *pRenderable;
-	model_t *pModel;
-	const matrix3x4_t *pModelToWorld;
-	const matrix3x4_t *pLightingOffset;
-	const Vector *pLightingOrigin;
+	void* pRenderable;
+	model_t* pModel;
+	const matrix3x4_t* pModelToWorld;
+	const matrix3x4_t* pLightingOffset;
+	const Vector* pLightingOrigin;
 	int flags;
 	int entity_index;
 	int skin;
@@ -272,12 +272,12 @@ static_assert(sizeof(CViewSetup) == 0x6E4);
 
 class IBaseClientDLL
 {
-	virtual int				Connect(void* appSystemFactory, void *pGlobals) = 0;
+	virtual int				Connect(void* appSystemFactory, void* pGlobals) = 0;
 
 	virtual int				Disconnect(void) = 0;
 
 	// run other init code here
-	virtual int				Init(void* appSystemFactory, void *pGlobals) = 0;
+	virtual int				Init(void* appSystemFactory, void* pGlobals) = 0;
 
 	virtual void			PostInit() = 0;
 
@@ -285,7 +285,7 @@ class IBaseClientDLL
 	virtual void			Shutdown(void) = 0;
 
 	// Called at the start of each level change
-	virtual void			LevelInitPreEntity(char const *pMapName) = 0;
+	virtual void			LevelInitPreEntity(char const* pMapName) = 0;
 	// Called at the start of a new level, after the entities have been received and created
 	virtual void			LevelInitPostEntity() = 0;
 
@@ -295,7 +295,7 @@ class IBaseClientDLL
 	virtual void			LevelShutdown(void) = 0;
 
 	// Request a pointer to the list of client datatable classes
-	virtual void *GetAllClasses(void) = 0;
+	virtual void* GetAllClasses(void) = 0;
 
 	// Called once per level to re-initialize any hud element drawing stuff
 	virtual int				HudVidInit(void) = 0;
@@ -306,7 +306,7 @@ class IBaseClientDLL
 	// Reset the hud elements to their initial states
 	virtual void			HudReset(void) = 0;
 	// Display a hud text message
-	virtual void			HudText(const char *message) = 0;
+	virtual void			HudText(const char* message) = 0;
 
 	// Mouse Input Interfaces
 	// Activate the mouse (hides the cursor and locks it to the center of the screen)
@@ -320,7 +320,7 @@ class IBaseClientDLL
 	// Reset all key and mouse states to their initial, unpressed state
 	virtual void			IN_ClearStates(void) = 0;
 	// If key is found by name, returns whether it's being held down in isdown, otherwise function returns false
-	virtual bool			IN_IsKeyDown(const char *name, bool &isdown) = 0;
+	virtual bool			IN_IsKeyDown(const char* name, bool& isdown) = 0;
 	// Notify the client that the mouse was wheeled while in game - called prior to executing any bound commands.
 	virtual void			IN_OnMouseWheeled(int nDelta) = 0;
 	// Raw keyboard signal, if the client .dll returns 1, the engine processes the key as usual, otherwise,
@@ -335,8 +335,8 @@ class IBaseClientDLL
 		float input_sample_frametime,	// Frametime for mouse input sampling
 		bool active) = 0;				// True if the player is active (not paused)
 
-// If the game is running faster than the tick_interval framerate, then we do extra mouse sampling to avoid jittery input
-//  This code path is much like the normal move creation code, except no move is created
+	// If the game is running faster than the tick_interval framerate, then we do extra mouse sampling to avoid jittery input
+	//  This code path is much like the normal move creation code, except no move is created
 	virtual void			ExtraMouseSample(float frametime, bool active) = 0;
 
 	// Encode the delta (changes) between the CUserCmd in slot from vs the one in slot to.  The game code will have
@@ -351,7 +351,7 @@ class IBaseClientDLL
 
 	// Allow engine to expressly render a view (e.g., during timerefresh)
 	// See IVRenderView.h, PushViewFlags_t for nFlags values
-	virtual void			RenderView(const CViewSetup &view, int nClearFlags, int whatToDraw) = 0;
+	virtual void			RenderView(const CViewSetup& view, int nClearFlags, int whatToDraw) = 0;
 };
 
 class IViewRender
@@ -377,7 +377,7 @@ public:
 	virtual	void		Render(void) = 0;
 
 	// Called to render just a particular setup ( for timerefresh and envmap creation )
-	virtual void		RenderView(const CViewSetup &view, int nClearFlags, int whatToDraw) = 0;
+	virtual void		RenderView(const CViewSetup& view, int nClearFlags, int whatToDraw) = 0;
 
 	// What are we currently rendering? Returns a combination of DF_ flags.
 	virtual int GetDrawFlags() = 0;
@@ -388,12 +388,12 @@ public:
 	virtual void		StopPitchDrift(void) = 0;
 
 	// This can only be called during rendering (while within RenderView).
-	virtual VPlane *GetFrustum() = 0;
+	virtual VPlane* GetFrustum() = 0;
 
 	virtual bool		ShouldDrawBrushModels(void) = 0;
 
-	virtual const CViewSetup *GetPlayerViewSetup(void) const = 0;
-	virtual const CViewSetup *GetViewSetup(void) const = 0;
+	virtual const CViewSetup* GetPlayerViewSetup(void) const = 0;
+	virtual const CViewSetup* GetViewSetup(void) const = 0;
 
 	virtual void		DisableVis(void) = 0;
 
@@ -402,155 +402,155 @@ public:
 	virtual void		SetCheapWaterStartDistance(float flCheapWaterStartDistance) = 0;
 	virtual void		SetCheapWaterEndDistance(float flCheapWaterEndDistance) = 0;
 
-	virtual void		GetWaterLODParams(float &flCheapWaterStartDistance, float &flCheapWaterEndDistance) = 0;
+	virtual void		GetWaterLODParams(float& flCheapWaterStartDistance, float& flCheapWaterEndDistance) = 0;
 
 	virtual void		DriftPitch(void) = 0;
 
 	virtual void		SetScreenOverlayMaterial(void) = 0;
-	virtual void *GetScreenOverlayMaterial() = 0;
+	virtual void* GetScreenOverlayMaterial() = 0;
 
-	virtual void		WriteSaveGameScreenshot(const char *pFilename) = 0;
-	virtual void		WriteSaveGameScreenshotOfSize(const char *pFilename, int width, int height, bool bCreatePowerOf2Padded = false, bool bWriteVTF = false) = 0;
+	virtual void		WriteSaveGameScreenshot(const char* pFilename) = 0;
+	virtual void		WriteSaveGameScreenshotOfSize(const char* pFilename, int width, int height, bool bCreatePowerOf2Padded = false, bool bWriteVTF = false) = 0;
 
 	virtual void		WriteReplayScreenshot(void) = 0;
 	virtual void		UpdateReplayScreenshotCache() = 0;
 
 	// Draws another rendering over the top of the screen
-	virtual void		QueueOverlayRenderView(const CViewSetup &view, int nClearFlags, int whatToDraw) = 0;
+	virtual void		QueueOverlayRenderView(const CViewSetup& view, int nClearFlags, int whatToDraw) = 0;
 
 	// Returns znear and zfar
 	virtual float		GetZNear() = 0;
 	virtual float		GetZFar() = 0;
 
-	virtual void		GetScreenFadeDistances(float *min, float *max) = 0;
+	virtual void		GetScreenFadeDistances(float* min, float* max) = 0;
 
-	virtual void *GetCurrentlyDrawingEntity() = 0;
+	virtual void* GetCurrentlyDrawingEntity() = 0;
 	virtual void		SetCurrentlyDrawingEntity(void) = 0;
 
 	virtual bool		UpdateShadowDepthTexture(void) = 0;
 
 	virtual void		FreezeFrame(float flFreezeTime) = 0;
 
-	virtual void *GetReplayScreenshotSystem() = 0;
+	virtual void* GetReplayScreenshotSystem() = 0;
 };
 
 class IClientMode
 {
 	// Misc.
-	public:
+public:
 
-		virtual			~IClientMode() {}
+	virtual			~IClientMode() {}
 
-		// Called before the HUD is initialized.
-		virtual void	InitViewport() = 0;
+	// Called before the HUD is initialized.
+	virtual void	InitViewport() = 0;
 
-		// One time init when .dll is first loaded.
-		virtual void	Init() = 0;
+	// One time init when .dll is first loaded.
+	virtual void	Init() = 0;
 
-		// Called when vgui is shutting down.
-		virtual void	VGui_Shutdown() = 0;
+	// Called when vgui is shutting down.
+	virtual void	VGui_Shutdown() = 0;
 
-		// One time call when dll is shutting down
-		virtual void	Shutdown() = 0;
+	// One time call when dll is shutting down
+	virtual void	Shutdown() = 0;
 
-		// Called when switching from one IClientMode to another.
-		// This can re-layout the view and such.
-		// Note that Enable and Disable are called when the DLL initializes and shuts down.
-		virtual void	Enable() = 0;
+	// Called when switching from one IClientMode to another.
+	// This can re-layout the view and such.
+	// Note that Enable and Disable are called when the DLL initializes and shuts down.
+	virtual void	Enable() = 0;
 
-		// Called when it's about to go into another client mode.
-		virtual void	Disable() = 0;
+	// Called when it's about to go into another client mode.
+	virtual void	Disable() = 0;
 
-		// Called when initializing or when the view changes.
-		// This should move the viewport into the correct position.
-		virtual void	Layout() = 0;
+	// Called when initializing or when the view changes.
+	// This should move the viewport into the correct position.
+	virtual void	Layout() = 0;
 
-		// Gets at the viewport, if there is one...
-		virtual void *GetViewport() = 0;
+	// Gets at the viewport, if there is one...
+	virtual void* GetViewport() = 0;
 
-		// Gets at the viewports vgui panel animation controller, if there is one...
-		virtual void *GetViewportAnimationController() = 0;
+	// Gets at the viewports vgui panel animation controller, if there is one...
+	virtual void* GetViewportAnimationController() = 0;
 
-		// called every time shared client dll/engine data gets changed,
-		// and gives the cdll a chance to modify the data.
-		virtual void	ProcessInput(bool bActive) = 0;
+	// called every time shared client dll/engine data gets changed,
+	// and gives the cdll a chance to modify the data.
+	virtual void	ProcessInput(bool bActive) = 0;
 
-		// The mode can choose to draw/not draw entities.
-		virtual bool	ShouldDrawDetailObjects() = 0;
-		virtual bool	ShouldDrawEntity(void *pEnt) = 0;
-		virtual bool	ShouldDrawLocalPlayer(void *pPlayer) = 0;
-		virtual bool	ShouldDrawParticles() = 0;
+	// The mode can choose to draw/not draw entities.
+	virtual bool	ShouldDrawDetailObjects() = 0;
+	virtual bool	ShouldDrawEntity(void* pEnt) = 0;
+	virtual bool	ShouldDrawLocalPlayer(void* pPlayer) = 0;
+	virtual bool	ShouldDrawParticles() = 0;
 
-		// The mode can choose to not draw fog
-		virtual bool	ShouldDrawFog(void) = 0;
+	// The mode can choose to not draw fog
+	virtual bool	ShouldDrawFog(void) = 0;
 
-		virtual void	OverrideView(void *pSetup) = 0;
-		virtual int		KeyInput(int down, int keynum, const char *pszCurrentBinding) = 0;
-		virtual void	StartMessageMode(int iMessageModeType) = 0;
-		virtual void *GetMessagePanel() = 0;
-		virtual void	OverrideMouseInput(float *x, float *y) = 0;
-		virtual bool	CreateMove(float flInputSampleTime, void *cmd) = 0;
+	virtual void	OverrideView(void* pSetup) = 0;
+	virtual int		KeyInput(int down, int keynum, const char* pszCurrentBinding) = 0;
+	virtual void	StartMessageMode(int iMessageModeType) = 0;
+	virtual void* GetMessagePanel() = 0;
+	virtual void	OverrideMouseInput(float* x, float* y) = 0;
+	virtual bool	CreateMove(float flInputSampleTime, void* cmd) = 0;
 
-		virtual void	LevelInit(const char *newmap) = 0;
-		virtual void	LevelShutdown(void) = 0;
+	virtual void	LevelInit(const char* newmap) = 0;
+	virtual void	LevelShutdown(void) = 0;
 
-		// Certain modes hide the view model
-		virtual bool	ShouldDrawViewModel(void) = 0;
-		virtual bool	ShouldDrawCrosshair(void) = 0;
+	// Certain modes hide the view model
+	virtual bool	ShouldDrawViewModel(void) = 0;
+	virtual bool	ShouldDrawCrosshair(void) = 0;
 
-		// Let mode override viewport for engine
-		virtual void	AdjustEngineViewport(int &x, int &y, int &width, int &height) = 0;
+	// Let mode override viewport for engine
+	virtual void	AdjustEngineViewport(int& x, int& y, int& width, int& height) = 0;
 
-		// Called before rendering a view.
-		virtual void	PreRender(void *pSetup) = 0;
+	// Called before rendering a view.
+	virtual void	PreRender(void* pSetup) = 0;
 
-		// Called after everything is rendered.
-		virtual void	PostRender(void) = 0;
+	// Called after everything is rendered.
+	virtual void	PostRender(void) = 0;
 
-		virtual void	PostRenderVGui() = 0;
+	virtual void	PostRenderVGui() = 0;
 
-		virtual void	ActivateInGameVGuiContext(void *pPanel) = 0;
-		virtual void	DeactivateInGameVGuiContext() = 0;
-		virtual float	GetViewModelFOV(void) = 0;
+	virtual void	ActivateInGameVGuiContext(void* pPanel) = 0;
+	virtual void	DeactivateInGameVGuiContext() = 0;
+	virtual float	GetViewModelFOV(void) = 0;
 
-		virtual bool	CanRecordDemo(char *errorMsg, int length) const = 0;
+	virtual bool	CanRecordDemo(char* errorMsg, int length) const = 0;
 
-		virtual void	ComputeVguiResConditions(void *pkvConditions) = 0;
+	virtual void	ComputeVguiResConditions(void* pkvConditions) = 0;
 
-		//=============================================================================
-		// HPE_BEGIN:
-		// [menglish] Save server information shown to the client in a persistent place
-		//=============================================================================
+	//=============================================================================
+	// HPE_BEGIN:
+	// [menglish] Save server information shown to the client in a persistent place
+	//=============================================================================
 
-		virtual wchar_t *GetServerName() = 0;
-		virtual void SetServerName(wchar_t *name) = 0;
-		virtual wchar_t *GetMapName() = 0;
-		virtual void SetMapName(wchar_t *name) = 0;
+	virtual wchar_t* GetServerName() = 0;
+	virtual void SetServerName(wchar_t* name) = 0;
+	virtual wchar_t* GetMapName() = 0;
+	virtual void SetMapName(wchar_t* name) = 0;
 
-		//=============================================================================
-		// HPE_END
-		//=============================================================================
+	//=============================================================================
+	// HPE_END
+	//=============================================================================
 
-		virtual bool	DoPostScreenSpaceEffects(const void *pSetup) = 0;
+	virtual bool	DoPostScreenSpaceEffects(const void* pSetup) = 0;
 
-		virtual void	DisplayReplayMessage(const char *pLocalizeName, float flDuration, bool bUrgent,
-											  const char *pSound, bool bDlg) = 0;
+	virtual void	DisplayReplayMessage(const char* pLocalizeName, float flDuration, bool bUrgent,
+		const char* pSound, bool bDlg) = 0;
 
-		// Updates.
-		public:
+	// Updates.
+public:
 
-			// Called every frame.
-			virtual void	Update() = 0;
+	// Called every frame.
+	virtual void	Update() = 0;
 
-			// Returns true if VR mode should black out everything around the UI
-			virtual bool	ShouldBlackoutAroundHUD() = 0;
+	// Returns true if VR mode should black out everything around the UI
+	virtual bool	ShouldBlackoutAroundHUD() = 0;
 
-			// Returns true if VR mode should black out everything around the UI
-			virtual int ShouldOverrideHeadtrackControl() = 0;
+	// Returns true if VR mode should black out everything around the UI
+	virtual int ShouldOverrideHeadtrackControl() = 0;
 
-			virtual bool	IsInfoPanelAllowed() = 0;
-			virtual void	InfoPanelDisplayed() = 0;
-			virtual bool	IsHTMLInfoPanelAllowed() = 0;
+	virtual bool	IsInfoPanelAllowed() = 0;
+	virtual void	InfoPanelDisplayed() = 0;
+	virtual bool	IsHTMLInfoPanelAllowed() = 0;
 };
 
 #define  AssertMsg( _exp, _msg, ... )						((void)0)
@@ -560,40 +560,40 @@ class CBaseAutoPtr
 {
 public:
 	CBaseAutoPtr() : m_pObject(0) {}
-	CBaseAutoPtr(T *pFrom) : m_pObject(pFrom) {}
+	CBaseAutoPtr(T* pFrom) : m_pObject(pFrom) {}
 
-	operator const void *() const { return m_pObject; }
-	operator void *() { return m_pObject; }
+	operator const void* () const { return m_pObject; }
+	operator void* () { return m_pObject; }
 
-	operator const T *() const { return m_pObject; }
-	operator const T *() { return m_pObject; }
-	operator T *() { return m_pObject; }
+	operator const T* () const { return m_pObject; }
+	operator const T* () { return m_pObject; }
+	operator T* () { return m_pObject; }
 
 	int			operator=(int i) { AssertMsg(i == 0, "Only NULL allowed on integer assign"); m_pObject = 0; return 0; }
-	T *operator=(T *p) { m_pObject = p; return p; }
+	T* operator=(T* p) { m_pObject = p; return p; }
 
 	bool        operator !() const { return (!m_pObject); }
 	bool        operator!=(int i) const { AssertMsg(i == 0, "Only NULL allowed on integer compare"); return (m_pObject != NULL); }
-	bool		operator==(const void *p) const { return (m_pObject == p); }
-	bool		operator!=(const void *p) const { return (m_pObject != p); }
-	bool		operator==(T *p) const { return operator==((void *)p); }
-	bool		operator!=(T *p) const { return operator!=((void *)p); }
-	bool		operator==(const CBaseAutoPtr<T> &p) const { return operator==((const void *)p); }
-	bool		operator!=(const CBaseAutoPtr<T> &p) const { return operator!=((const void *)p); }
+	bool		operator==(const void* p) const { return (m_pObject == p); }
+	bool		operator!=(const void* p) const { return (m_pObject != p); }
+	bool		operator==(T* p) const { return operator==((void*)p); }
+	bool		operator!=(T* p) const { return operator!=((void*)p); }
+	bool		operator==(const CBaseAutoPtr<T>& p) const { return operator==((const void*)p); }
+	bool		operator!=(const CBaseAutoPtr<T>& p) const { return operator!=((const void*)p); }
 
-	T *operator->() { return m_pObject; }
-	T &operator *() { return *m_pObject; }
-	T **operator &() { return &m_pObject; }
+	T* operator->() { return m_pObject; }
+	T& operator *() { return *m_pObject; }
+	T** operator &() { return &m_pObject; }
 
-	const T *operator->() const { return m_pObject; }
-	const T &operator *() const { return *m_pObject; }
-	T *const *operator &() const { return &m_pObject; }
+	const T* operator->() const { return m_pObject; }
+	const T& operator *() const { return *m_pObject; }
+	T* const* operator &() const { return &m_pObject; }
 
 protected:
-	CBaseAutoPtr(const CBaseAutoPtr<T> &from) : m_pObject(from.m_pObject) {}
-	void operator=(const CBaseAutoPtr<T> &from) { m_pObject = from.m_pObject; }
+	CBaseAutoPtr(const CBaseAutoPtr<T>& from) : m_pObject(from.m_pObject) {}
+	void operator=(const CBaseAutoPtr<T>& from) { m_pObject = from.m_pObject; }
 
-	T *m_pObject;
+	T* m_pObject;
 };
 
 template <class T>
@@ -602,47 +602,47 @@ class CRefPtr : public CBaseAutoPtr<T>
 	typedef CBaseAutoPtr<T> BaseClass;
 public:
 	CRefPtr() {}
-	CRefPtr(T *pInit) : BaseClass(pInit) {}
-	CRefPtr(const CRefPtr<T> &from) : BaseClass(from) {}
+	CRefPtr(T* pInit) : BaseClass(pInit) {}
+	CRefPtr(const CRefPtr<T>& from) : BaseClass(from) {}
 	~CRefPtr() { if (BaseClass::m_pObject) BaseClass::m_pObject->Release(); }
 
-	void operator=(const CRefPtr<T> &from) { BaseClass::operator=(from); }
+	void operator=(const CRefPtr<T>& from) { BaseClass::operator=(from); }
 
 	int operator=(int i) { return BaseClass::operator=(i); }
-	T *operator=(T *p) { return BaseClass::operator=(p); }
+	T* operator=(T* p) { return BaseClass::operator=(p); }
 
 	operator bool() const { return !BaseClass::operator!(); }
 	operator bool() { return !BaseClass::operator!(); }
 
 	void SafeRelease() { if (BaseClass::m_pObject) BaseClass::m_pObject->Release(); BaseClass::m_pObject = 0; }
-	void AssignAddRef(T *pFrom) { SafeRelease(); if (pFrom) pFrom->AddRef(); BaseClass::m_pObject = pFrom; }
-	void AddRefAssignTo(T *&pTo) { ::SafeRelease(pTo); if (BaseClass::m_pObject) BaseClass::m_pObject->AddRef(); pTo = BaseClass::m_pObject; }
+	void AssignAddRef(T* pFrom) { SafeRelease(); if (pFrom) pFrom->AddRef(); BaseClass::m_pObject = pFrom; }
+	void AddRefAssignTo(T*& pTo) { ::SafeRelease(pTo); if (BaseClass::m_pObject) BaseClass::m_pObject->AddRef(); pTo = BaseClass::m_pObject; }
 };
 
 class IMaterial
 {
 public:
-	virtual const char *GetName() const = 0;
-	virtual const char *GetTextureGroupName() const = 0;
-	virtual void * GetPreviewImageProperties(int *width, int *height, ImageFormat *imageFormat, bool *isTranslucent) const = 0;
-	virtual void* GetPreviewImage(unsigned char *data, int width, int height, ImageFormat imageFormat) const = 0;
+	virtual const char* GetName() const = 0;
+	virtual const char* GetTextureGroupName() const = 0;
+	virtual void* GetPreviewImageProperties(int* width, int* height, ImageFormat* imageFormat, bool* isTranslucent) const = 0;
+	virtual void* GetPreviewImage(unsigned char* data, int width, int height, ImageFormat imageFormat) const = 0;
 	virtual int				GetMappingWidth() = 0;
 	virtual int				GetMappingHeight() = 0;
 	virtual int				GetNumAnimationFrames() = 0;
 	virtual bool			InMaterialPage(void) = 0;
-	virtual	void			GetMaterialOffset(float *pOffset) = 0;
-	virtual void			GetMaterialScale(float *pScale) = 0;
-	virtual IMaterial *GetMaterialPage(void) = 0;
-	virtual void *FindVar(const char *varName, bool *found, bool complain = true) = 0;
+	virtual	void			GetMaterialOffset(float* pOffset) = 0;
+	virtual void			GetMaterialScale(float* pScale) = 0;
+	virtual IMaterial* GetMaterialPage(void) = 0;
+	virtual void* FindVar(const char* varName, bool* found, bool complain = true) = 0;
 	virtual void			IncrementReferenceCount(void) = 0;
 	virtual void			DecrementReferenceCount(void) = 0;
 	virtual int 			GetEnumerationID(void) const = 0;
-	virtual void			GetLowResColorSample(float s, float t, float *color) const = 0;
+	virtual void			GetLowResColorSample(float s, float t, float* color) const = 0;
 	virtual void			RecomputeStateSnapshots() = 0;
 	virtual bool			IsTranslucent() = 0;
 	virtual bool			IsAlphaTested() = 0;
 	virtual bool			IsVertexLit() = 0;
-	virtual void *GetVertexFormat() const = 0;
+	virtual void* GetVertexFormat() const = 0;
 	virtual bool			HasProxy(void) const = 0;
 	virtual bool			UsesEnvCubemap(void) = 0;
 	virtual bool			NeedsTangentSpace(void) = 0;
@@ -655,7 +655,7 @@ public:
 	virtual bool			GetMaterialVarFlag(void) const = 0;
 
 	// Gets material reflectivity
-	virtual void			GetReflectivity(Vector &reflect) = 0;
+	virtual void			GetReflectivity(Vector& reflect) = 0;
 
 	// Gets material property flags
 	virtual bool			GetPropertyFlag(void) = 0;
@@ -664,7 +664,7 @@ public:
 	virtual bool			IsTwoSided() = 0;
 
 	// Sets the shader associated with the material
-	virtual void			SetShader(const char *pShaderName) = 0;
+	virtual void			SetShader(const char* pShaderName) = 0;
 
 	// Can't be const because the material might have to precache itself.
 	virtual int				GetNumPasses(void) = 0;
@@ -685,7 +685,7 @@ public:
 
 	// Gets at the shader parameters
 	virtual int				ShaderParamCount() const = 0;
-	virtual void **GetShaderParams(void) = 0;
+	virtual void** GetShaderParams(void) = 0;
 
 	// Returns true if this is the error material you get back from IMaterialSystem::FindMaterial if
 	// the material can't be found.
@@ -695,25 +695,25 @@ public:
 
 	// Gets the current alpha modulation
 	virtual float			GetAlphaModulation() = 0;
-	virtual void			GetColorModulation(float *r, float *g, float *b) = 0;
+	virtual void			GetColorModulation(float* r, float* g, float* b) = 0;
 
 	// Gets the morph format
 	virtual void	GetMorphFormat() const = 0;
 
 	// fast find that stores the index of the found var in the string table in local cache
-	virtual void *FindVarFast(char const *pVarName, unsigned int *pToken) = 0;
+	virtual void* FindVarFast(char const* pVarName, unsigned int* pToken) = 0;
 
 	// Sets new VMT shader parameters for the material
 	virtual void			SetShaderAndParams(void) = 0;
-	virtual const char *GetShaderName() const = 0;
+	virtual const char* GetShaderName() const = 0;
 
 	virtual void			DeleteIfUnreferenced() = 0;
 
 	virtual bool			IsSpriteCard() = 0;
 
-	virtual void			CallBindProxy(void *proxyData) = 0;
+	virtual void			CallBindProxy(void* proxyData) = 0;
 
-	virtual IMaterial *CheckProxyReplacement(void *proxyData) = 0;
+	virtual IMaterial* CheckProxyReplacement(void* proxyData) = 0;
 
 	virtual void			RefreshPreservingMaterialVars() = 0;
 
@@ -734,21 +734,21 @@ class IModelRender
 {
 public:
 	virtual int		DrawModel(int flags,
-								void * pRenderable,
-								int instance,
-								int entity_index,
-								const void * model,
-								Vector const &origin,
-								QAngle const &angles,
-								int skin,
-								int body,
-								int hitboxset,
-								const matrix3x4_t * modelToWorld = NULL,
-								const matrix3x4_t * pLightingOffset = NULL) = 0;
+		void* pRenderable,
+		int instance,
+		int entity_index,
+		const void* model,
+		Vector const& origin,
+		QAngle const& angles,
+		int skin,
+		int body,
+		int hitboxset,
+		const matrix3x4_t* modelToWorld = NULL,
+		const matrix3x4_t* pLightingOffset = NULL) = 0;
 
 	// This causes a material to be used when rendering the model instead 
 	// of the materials the model was compiled with
-	virtual void	ForcedMaterialOverride(IMaterial *newMaterial, OverrideType_t nOverrideType = OVERRIDE_NORMAL) = 0;
+	virtual void	ForcedMaterialOverride(IMaterial* newMaterial, OverrideType_t nOverrideType = OVERRIDE_NORMAL) = 0;
 
 };
 
@@ -766,8 +766,8 @@ public:
 	virtual void EndRender();
 	virtual void Flush(bool flushHardware = false);
 	virtual void sub_10016C70();
-	virtual void SetRenderTarget(ITexture *pTexture);
-	virtual ITexture *GetRenderTarget();
+	virtual void SetRenderTarget(ITexture* pTexture);
+	virtual ITexture* GetRenderTarget();
 	virtual void sub_10025440();
 	virtual void sub_100274A0();
 	virtual void sub_10016CA0();
@@ -863,7 +863,7 @@ public:
 	virtual void sub_10029100();
 	virtual void sub_1002A400();
 	virtual void sub_10024150();
-	virtual void GetWindowSize(int &, int &);
+	virtual void GetWindowSize(int&, int&);
 	virtual void DrawScreenSpaceRectangle() = 0;
 	virtual void sub_10027EA0() = 0;
 	virtual void PushRenderTargetAndViewport() = 0;
@@ -948,21 +948,21 @@ class CMatRenderContextPtr : public CRefPtr<IMatRenderContext>
 	typedef CRefPtr<IMatRenderContext> BaseClass;
 public:
 	CMatRenderContextPtr() {}
-	CMatRenderContextPtr(IMatRenderContext *pInit) : BaseClass(pInit) { if (BaseClass::m_pObject) BaseClass::m_pObject->BeginRender(); }
-	CMatRenderContextPtr(IMaterialSystem *pFrom) : BaseClass(pFrom->GetRenderContext()) { if (BaseClass::m_pObject) BaseClass::m_pObject->BeginRender(); }
+	CMatRenderContextPtr(IMatRenderContext* pInit) : BaseClass(pInit) { if (BaseClass::m_pObject) BaseClass::m_pObject->BeginRender(); }
+	CMatRenderContextPtr(IMaterialSystem* pFrom) : BaseClass(pFrom->GetRenderContext()) { if (BaseClass::m_pObject) BaseClass::m_pObject->BeginRender(); }
 	~CMatRenderContextPtr() { if (BaseClass::m_pObject) BaseClass::m_pObject->EndRender(); }
 
-	IMatRenderContext *operator=(IMatRenderContext *p) { if (p) p->BeginRender(); return BaseClass::operator=(p); }
+	IMatRenderContext* operator=(IMatRenderContext* p) { if (p) p->BeginRender(); return BaseClass::operator=(p); }
 
 	void SafeRelease() { if (BaseClass::m_pObject) BaseClass::m_pObject->EndRender(); BaseClass::SafeRelease(); }
-	void AssignAddRef(IMatRenderContext *pFrom) { if (BaseClass::m_pObject) BaseClass::m_pObject->EndRender(); BaseClass::AssignAddRef(pFrom); BaseClass::m_pObject->BeginRender(); }
+	void AssignAddRef(IMatRenderContext* pFrom) { if (BaseClass::m_pObject) BaseClass::m_pObject->EndRender(); BaseClass::AssignAddRef(pFrom); BaseClass::m_pObject->BeginRender(); }
 
-	void GetFrom(IMaterialSystem *pFrom) { AssignAddRef(pFrom->GetRenderContext()); }
+	void GetFrom(IMaterialSystem* pFrom) { AssignAddRef(pFrom->GetRenderContext()); }
 
 
 private:
-	CMatRenderContextPtr(const CMatRenderContextPtr &from);
-	void operator=(const CMatRenderContextPtr &from);
+	CMatRenderContextPtr(const CMatRenderContextPtr& from);
+	void operator=(const CMatRenderContextPtr& from);
 
 };
 
@@ -987,29 +987,30 @@ class IServerUnknown : public IHandleEntity
 {
 public:
 	// Gets the interface to the collideable + networkable representation of the entity
-	virtual void *GetCollideable() = 0;
-	virtual void *GetNetworkable() = 0;
-	virtual void *GetBaseEntity() = 0;
+	virtual void* GetCollideable() = 0;
+	virtual void* GetNetworkable() = 0;
+	virtual void* GetBaseEntity() = 0;
 };
 
 class IClientUnknown : public IHandleEntity
 {
 public:
-	virtual void *GetCollideable() = 0;
-	virtual void *GetClientNetworkable() = 0;
-	virtual void *GetClientRenderable() = 0;
-	virtual void *GetIClientEntity() = 0;
-	virtual void *GetBaseEntity() = 0;
-	virtual void *GetClientThinkable() = 0;
-	virtual void *GetClientModelRenderable() = 0;
-	virtual void *GetClientAlphaProperty() = 0;
+	virtual void* GetCollideable() = 0;
+	virtual void* GetClientNetworkable() = 0;
+	virtual void* GetClientRenderable() = 0;
+	virtual void* GetIClientEntity() = 0;
+	virtual void* GetBaseEntity() = 0;
+	virtual void* GetClientThinkable() = 0;
+	virtual void* GetClientModelRenderable() = 0;
+	virtual void* GetClientAlphaProperty() = 0;
 };
 
 class IClientEntity : public IClientUnknown
 {
-	virtual Vector &GetAbsOrigin() = 0;
-	virtual QAngle &GetAbsAngles() = 0;
-	virtual void *GetMouth() = 0;
+public:
+	virtual Vector& GetAbsOrigin() = 0;
+	virtual QAngle& GetAbsAngles() = 0;
+	virtual void* GetMouth() = 0;
 	virtual bool GetSoundSpatialization() = 0;
 	virtual bool IsBlurred() = 0;
 };
@@ -1018,215 +1019,215 @@ class C_BaseEntity : public IClientEntity
 {
 public:
 	virtual ~C_BaseEntity() = 0;
-	virtual void *GetDataDescMap() = 0;
-	virtual void *YouForgotToImplementOrDeclareClientClass() = 0;
-	virtual void *GetPredDescMap() = 0;
-	virtual void *FireBullets() = 0;
-	virtual void *sub_1001A1E0() = 0;
-	virtual void *sub_100194A0() = 0;
-	virtual void *sub_1001B830() = 0;
-	virtual void *sub_1001A1F0() = 0;
-	virtual void *sub_1001A200() = 0;
-	virtual void *TraceAttack() = 0;
-	virtual void *sub_1001A210() = 0;
-	virtual void *sub_1001A230() = 0;
-	virtual void *sub_1001A2D0() = 0;
-	virtual void *sub_1001A2F0() = 0;
-	virtual void *sub_1001A300() = 0;
-	virtual void *nullsub_7() = 0;
-	virtual void *nullsub_170() = 0;
-	virtual void *nullsub_70() = 0;
-	virtual void *nullsub_171() = 0;
-	virtual void *nullsub_172() = 0;
-	virtual void *sub_1001A010() = 0;
-	virtual void *sub_10019FA0() = 0;
-	virtual void *KeyValue() = 0;
-	virtual void *GetKeyValue () = 0;
-	virtual void *nullsub_173() = 0;
-	virtual void *sub_100487C0() = 0;
-	virtual void *loc_1001EA50() = 0;
-	virtual void *fn0() = 0;
-	virtual void *sub_1004CBC0() = 0;
-	virtual void *sub_10019530() = 0;
-	virtual void *sub_10042370() = 0;
-	virtual void *sub_10042380() = 0;
-	virtual void *sub_10043470() = 0;
-	virtual void *sub_100430D0() = 0;
-	virtual void *sub_1004CD20() = 0;
-	virtual void *sub_10049060() = 0;
-	virtual void *nullsub_174() = 0;
-	virtual void *fn1() = 0;
-	virtual void *sub_100427B0() = 0;
-	virtual void *sub_10043280() = 0;
-	virtual void *sub_100474F0() = 0;
-	virtual void *OnRestore() = 0;
-	virtual void *sub_100432A0() = 0;
-	virtual void *sub_10019950() = 0;
-	virtual void *sub_10044FE0() = 0;
-	virtual void *sub_10047500() = 0;
-	virtual void *sub_1001A150() = 0;
-	virtual void *sub_1001A120() = 0;
-	virtual void *sub_1001DA90() = 0;
-	virtual void *sub_10043E80() = 0;
-	virtual void *sub_100421C0() = 0;
-	virtual void *sub_100495A0() = 0;
-	virtual void *sub_100495E0() = 0;
-	virtual void *sub_10019830() = 0;
-	virtual void *sub_10019850() = 0;
-	virtual void *sub_1001BEE0() = 0;
-	virtual void *nullsub_175() = 0;
-	virtual void *sub_10019810() = 0;
-	virtual void *sub_100197F0() = 0;
-	virtual void *sub_100425D0() = 0;
-	virtual void *sub_10048AF0() = 0;
-	virtual void *locret_1001EA80() = 0;
-	virtual void *sub_10042B10() = 0;
-	virtual void *fn2() = 0;
-	virtual void *fn3() = 0;
-	virtual void *sub_10042B30() = 0;
-	virtual void *sub_10042B40() = 0;
-	virtual void *sub_10042B80() = 0;
-	virtual void *sub_100195B0() = 0;
-	virtual void *sub_100195C0() = 0;
-	virtual void *sub_100195D0() = 0;
-	virtual void *sub_100195E0() = 0;
-	virtual void *sub_100195F0() = 0;
-	virtual void *sub_10019600() = 0;
-	virtual void *sub_100420C0() = 0;
-	virtual void *sub_100445A0() = 0;
-	virtual void *sub_1004D170() = 0;
-	virtual void *loc_1001EA90() = 0;
-	virtual void *sub_10019610() = 0;
-	virtual void *sub_100428C0() = 0;
-	virtual void *sub_10042780() = 0;
-	virtual void *sub_10042520() = 0;
-	virtual void *sub_100475B0() = 0;
-	virtual void *nullsub_13() = 0;
-	virtual void *sub_100465F0() = 0;
-	virtual void *sub_10042790() = 0;
-	virtual void *sub_1004ED10() = 0;
-	virtual void *sub_10044690() = 0;
-	virtual void *nullsub_9() = 0;
-	virtual void *nullsub_10() = 0;
-	virtual void *sub_10047260() = 0;
-	virtual void *sub_1004DDB0() = 0;
-	virtual void *sub_10042880() = 0;
-	virtual void *sub_10044700() = 0;
-	virtual void *sub_1004B620() = 0;
-	virtual void *sub_10042620() = 0;
-	virtual void *sub_10042910() = 0;
-	virtual void *nullsub_176() = 0;
-	virtual void *sub_10044A50() = 0;
-	virtual void *nullsub_177() = 0;
-	virtual void *sub_10019650() = 0;
-	virtual void *sub_10019660() = 0;
-	virtual void *sub_10019670() = 0;
-	virtual void *sub_100467C0() = 0;
-	virtual void *sub_10043070() = 0;
-	virtual void *sub_1004C1C0() = 0;
-	virtual void *sub_100471C0() = 0;
-	virtual void *sub_100461B0() = 0;
-	virtual void *sub_1004E2D0() = 0;
-	virtual void *sub_100491E0() = 0;
-	virtual void *sub_1001A0D0() = 0;
-	virtual void *sub_1001A8D0() = 0;
-	virtual void *sub_1001A950() = 0;
-	virtual void *sub_10019680() = 0;
-	virtual void *sub_10019690() = 0;
-	virtual void *sub_10043420() = 0;
-	virtual void *sub_100196B0() = 0;
-	virtual void *sub_1004C230() = 0;
-	virtual void *sub_100196C0() = 0;
-	virtual void *sub_100196D0() = 0;
-	virtual void *sub_101653F0() = 0;
-	virtual void *nullsub_22() = 0;
-	virtual void *sub_10164EC0() = 0;
-	virtual void *nullsub_178() = 0;
-	virtual void *sub_10165410() = 0;
-	virtual void *nullsub_179() = 0;
-	virtual void *sub_101686F0() = 0;
-	virtual void *IsPlayer() = 0;
-	virtual void *sub_10019700() = 0;
-	virtual void *sub_10019710() = 0;
-	virtual void *sub_10019720() = 0;
-	virtual void *MyInfectedRagdollPointer() = 0;
-	virtual void *IsNPC() = 0;
-	virtual void *sub_10019750() = 0;
-	virtual void *sub_10019760() = 0;
-	virtual void *sub_1001E000() = 0;
-	virtual void *sub_1001E010() = 0;
-	virtual void *sub_10019770() = 0;
-	virtual void *sub_10019780() = 0;
+	virtual void* GetDataDescMap() = 0;
+	virtual void* YouForgotToImplementOrDeclareClientClass() = 0;
+	virtual void* GetPredDescMap() = 0;
+	virtual void* FireBullets() = 0;
+	virtual void* sub_1001A1E0() = 0;
+	virtual void* sub_100194A0() = 0;
+	virtual void* sub_1001B830() = 0;
+	virtual void* sub_1001A1F0() = 0;
+	virtual void* sub_1001A200() = 0;
+	virtual void* TraceAttack() = 0;
+	virtual void* sub_1001A210() = 0;
+	virtual void* sub_1001A230() = 0;
+	virtual void* sub_1001A2D0() = 0;
+	virtual void* sub_1001A2F0() = 0;
+	virtual void* sub_1001A300() = 0;
+	virtual void* nullsub_7() = 0;
+	virtual void* nullsub_170() = 0;
+	virtual void* nullsub_70() = 0;
+	virtual void* nullsub_171() = 0;
+	virtual void* nullsub_172() = 0;
+	virtual void* sub_1001A010() = 0;
+	virtual void* sub_10019FA0() = 0;
+	virtual void* KeyValue() = 0;
+	virtual void* GetKeyValue() = 0;
+	virtual void* nullsub_173() = 0;
+	virtual void* sub_100487C0() = 0;
+	virtual void* loc_1001EA50() = 0;
+	virtual void* fn0() = 0;
+	virtual void* sub_1004CBC0() = 0;
+	virtual void* sub_10019530() = 0;
+	virtual void* sub_10042370() = 0;
+	virtual void* sub_10042380() = 0;
+	virtual void* sub_10043470() = 0;
+	virtual void* sub_100430D0() = 0;
+	virtual void* sub_1004CD20() = 0;
+	virtual void* sub_10049060() = 0;
+	virtual void* nullsub_174() = 0;
+	virtual void* fn1() = 0;
+	virtual void* sub_100427B0() = 0;
+	virtual void* sub_10043280() = 0;
+	virtual void* sub_100474F0() = 0;
+	virtual void* OnRestore() = 0;
+	virtual void* sub_100432A0() = 0;
+	virtual void* sub_10019950() = 0;
+	virtual void* sub_10044FE0() = 0;
+	virtual void* sub_10047500() = 0;
+	virtual void* sub_1001A150() = 0;
+	virtual void* sub_1001A120() = 0;
+	virtual void* sub_1001DA90() = 0;
+	virtual void* sub_10043E80() = 0;
+	virtual void* sub_100421C0() = 0;
+	virtual void* sub_100495A0() = 0;
+	virtual void* sub_100495E0() = 0;
+	virtual void* sub_10019830() = 0;
+	virtual void* sub_10019850() = 0;
+	virtual void* sub_1001BEE0() = 0;
+	virtual void* nullsub_175() = 0;
+	virtual void* sub_10019810() = 0;
+	virtual void* sub_100197F0() = 0;
+	virtual void* sub_100425D0() = 0;
+	virtual void* sub_10048AF0() = 0;
+	virtual void* locret_1001EA80() = 0;
+	virtual void* sub_10042B10() = 0;
+	virtual void* fn2() = 0;
+	virtual void* fn3() = 0;
+	virtual void* sub_10042B30() = 0;
+	virtual void* sub_10042B40() = 0;
+	virtual void* sub_10042B80() = 0;
+	virtual void* sub_100195B0() = 0;
+	virtual void* sub_100195C0() = 0;
+	virtual void* sub_100195D0() = 0;
+	virtual void* sub_100195E0() = 0;
+	virtual void* sub_100195F0() = 0;
+	virtual void* sub_10019600() = 0;
+	virtual void* sub_100420C0() = 0;
+	virtual void* sub_100445A0() = 0;
+	virtual void* sub_1004D170() = 0;
+	virtual void* loc_1001EA90() = 0;
+	virtual void* sub_10019610() = 0;
+	virtual void* sub_100428C0() = 0;
+	virtual void* sub_10042780() = 0;
+	virtual void* sub_10042520() = 0;
+	virtual void* sub_100475B0() = 0;
+	virtual void* nullsub_13() = 0;
+	virtual void* sub_100465F0() = 0;
+	virtual void* sub_10042790() = 0;
+	virtual void* sub_1004ED10() = 0;
+	virtual void* sub_10044690() = 0;
+	virtual void* nullsub_9() = 0;
+	virtual void* nullsub_10() = 0;
+	virtual void* sub_10047260() = 0;
+	virtual void* sub_1004DDB0() = 0;
+	virtual void* sub_10042880() = 0;
+	virtual void* sub_10044700() = 0;
+	virtual void* sub_1004B620() = 0;
+	virtual void* sub_10042620() = 0;
+	virtual void* sub_10042910() = 0;
+	virtual void* nullsub_176() = 0;
+	virtual void* sub_10044A50() = 0;
+	virtual void* nullsub_177() = 0;
+	virtual void* sub_10019650() = 0;
+	virtual void* sub_10019660() = 0;
+	virtual void* sub_10019670() = 0;
+	virtual void* sub_100467C0() = 0;
+	virtual void* sub_10043070() = 0;
+	virtual void* sub_1004C1C0() = 0;
+	virtual void* sub_100471C0() = 0;
+	virtual void* sub_100461B0() = 0;
+	virtual void* sub_1004E2D0() = 0;
+	virtual void* sub_100491E0() = 0;
+	virtual void* sub_1001A0D0() = 0;
+	virtual void* sub_1001A8D0() = 0;
+	virtual void* sub_1001A950() = 0;
+	virtual void* sub_10019680() = 0;
+	virtual void* sub_10019690() = 0;
+	virtual void* sub_10043420() = 0;
+	virtual void* sub_100196B0() = 0;
+	virtual void* sub_1004C230() = 0;
+	virtual void* sub_100196C0() = 0;
+	virtual void* sub_100196D0() = 0;
+	virtual void* sub_101653F0() = 0;
+	virtual void* nullsub_22() = 0;
+	virtual void* sub_10164EC0() = 0;
+	virtual void* nullsub_178() = 0;
+	virtual void* sub_10165410() = 0;
+	virtual void* nullsub_179() = 0;
+	virtual void* sub_101686F0() = 0;
+	virtual void* IsPlayer() = 0;
+	virtual void* sub_10019700() = 0;
+	virtual void* sub_10019710() = 0;
+	virtual void* sub_10019720() = 0;
+	virtual void* MyInfectedRagdollPointer() = 0;
+	virtual void* IsNPC() = 0;
+	virtual void* sub_10019750() = 0;
+	virtual void* sub_10019760() = 0;
+	virtual void* sub_1001E000() = 0;
+	virtual void* sub_1001E010() = 0;
+	virtual void* sub_10019770() = 0;
+	virtual void* sub_10019780() = 0;
 	virtual Vector EyePosition() = 0;
-	virtual void *sub_10019DF0() = 0;
-	virtual void *sub_10019E00() = 0;
-	virtual void *sub_10019E10() = 0;
-	virtual void *sub_1001A090() = 0;
-	virtual void *sub_10019870() = 0;
-	virtual void *GetViewOffset() = 0;
-	virtual void *SetViewOffset() = 0;
-	virtual void *GetGroundVelocityToApply() = 0;
-	virtual void *ShouldInterpolate() = 0;
-	virtual void *BoneMergeFastCullBloat() = 0;
-	virtual void *sub_10043080() = 0;
-	virtual void *GetShadowUseOtherEntity() = 0;
-	virtual void *SetShadowUseOtherEntity() = 0;
-	virtual void *sub_100197E0() = 0;
-	virtual void *loc_1001EAC0() = 0;
-	virtual void *nullsub_180() = 0;
+	virtual void* sub_10019DF0() = 0;
+	virtual void* sub_10019E00() = 0;
+	virtual void* sub_10019E10() = 0;
+	virtual void* sub_1001A090() = 0;
+	virtual void* sub_10019870() = 0;
+	virtual void* GetViewOffset() = 0;
+	virtual void* SetViewOffset() = 0;
+	virtual void* GetGroundVelocityToApply() = 0;
+	virtual void* ShouldInterpolate() = 0;
+	virtual void* BoneMergeFastCullBloat() = 0;
+	virtual void* sub_10043080() = 0;
+	virtual void* GetShadowUseOtherEntity() = 0;
+	virtual void* SetShadowUseOtherEntity() = 0;
+	virtual void* sub_100197E0() = 0;
+	virtual void* loc_1001EAC0() = 0;
+	virtual void* nullsub_180() = 0;
 };
 
 class C_BaseAnimating : public C_BaseEntity
 {
 public:
 	virtual ~C_BaseAnimating() = 0;
-	virtual void *GetBoneControllers() = 0;
-	virtual void *SetBoneController() = 0;
-	virtual void *GetPoseParameters() = 0;
-	virtual void *sub_10039850() = 0;
-	virtual void *sub_1002F430() = 0;
-	virtual void *sub_100334A0() = 0;
-	virtual void *sub_10033550() = 0;
-	virtual void *sub_10030150() = 0;
-	virtual void *sub_1002FD00() = 0;
-	virtual void *sub_1002BEA0() = 0;
-	virtual void *sub_10033F70() = 0;
-	virtual void *sub_10034280() = 0;
-	virtual void *sub_10038770() = 0;
-	virtual void *sub_1002DD30() = 0;
-	virtual void *DispatchMuzzleEffect() = 0;
-	virtual void *sub_1003A3C0() = 0;
-	virtual void *sub_1003C050() = 0;
-	virtual void *sub_1003BDF0() = 0;
-	virtual void *nullsub_5() = 0;
-	virtual void *nullsub_79() = 0;
-	virtual void *sub_1003AD80() = 0;
-	virtual void *sub_1003CF70() = 0;
-	virtual void *sub_1002BFE0() = 0;
-	virtual void *sub_1002F590() = 0;
-	virtual void *sub_1002B8D0() = 0;
-	virtual void *GetRagdollInitBoneArrays() = 0;
-	virtual void *sub_100345B0() = 0;
-	virtual void *sub_100346C0() = 0;
-	virtual void *sub_100314E0() = 0;
-	virtual void *sub_1002C000() = 0;
-	virtual void *sub_1002E740() = 0;
-	virtual void *sub_1002BFF0() = 0;
-	virtual void *nullsub_181() = 0;
-	virtual void *sub_100198D0() = 0;
-	virtual void *nullsub_182() = 0;
-	virtual void *sub_1002C400() = 0;
-	virtual void *ProcessMuzzleFlashEvent() = 0;
-	virtual void *nullsub_183() = 0;
-	virtual void *sub_10019900() = 0;
-	virtual void *sub_1002C7B0() = 0;
-	virtual void *sub_1002BAB0() = 0;
-	virtual void *sub_10019910() = 0;
-	virtual void *nullsub_184() = 0;
-	virtual void *sub_1002BAC0() = 0;
-	virtual void *sub_1002B9B0() = 0;
-	virtual void *ComputeStencilState() = 0;
-	virtual void *LastBoneChangedTime() = 0;
+	virtual void* GetBoneControllers() = 0;
+	virtual void* SetBoneController() = 0;
+	virtual void* GetPoseParameters() = 0;
+	virtual void* sub_10039850() = 0;
+	virtual void* sub_1002F430() = 0;
+	virtual void* sub_100334A0() = 0;
+	virtual void* sub_10033550() = 0;
+	virtual void* sub_10030150() = 0;
+	virtual void* sub_1002FD00() = 0;
+	virtual void* sub_1002BEA0() = 0;
+	virtual void* sub_10033F70() = 0;
+	virtual void* sub_10034280() = 0;
+	virtual void* sub_10038770() = 0;
+	virtual void* sub_1002DD30() = 0;
+	virtual void* DispatchMuzzleEffect() = 0;
+	virtual void* sub_1003A3C0() = 0;
+	virtual void* sub_1003C050() = 0;
+	virtual void* sub_1003BDF0() = 0;
+	virtual void* nullsub_5() = 0;
+	virtual void* nullsub_79() = 0;
+	virtual void* sub_1003AD80() = 0;
+	virtual void* sub_1003CF70() = 0;
+	virtual void* sub_1002BFE0() = 0;
+	virtual void* sub_1002F590() = 0;
+	virtual void* sub_1002B8D0() = 0;
+	virtual void* GetRagdollInitBoneArrays() = 0;
+	virtual void* sub_100345B0() = 0;
+	virtual void* sub_100346C0() = 0;
+	virtual void* sub_100314E0() = 0;
+	virtual void* sub_1002C000() = 0;
+	virtual void* sub_1002E740() = 0;
+	virtual void* sub_1002BFF0() = 0;
+	virtual void* nullsub_181() = 0;
+	virtual void* sub_100198D0() = 0;
+	virtual void* nullsub_182() = 0;
+	virtual void* sub_1002C400() = 0;
+	virtual void* ProcessMuzzleFlashEvent() = 0;
+	virtual void* nullsub_183() = 0;
+	virtual void* sub_10019900() = 0;
+	virtual void* sub_1002C7B0() = 0;
+	virtual void* sub_1002BAB0() = 0;
+	virtual void* sub_10019910() = 0;
+	virtual void* nullsub_184() = 0;
+	virtual void* sub_1002BAC0() = 0;
+	virtual void* sub_1002B9B0() = 0;
+	virtual void* ComputeStencilState() = 0;
+	virtual void* LastBoneChangedTime() = 0;
 };
 
 class C_BaseAnimatingOverlay : public C_BaseAnimating
@@ -1239,39 +1240,39 @@ class C_BaseFlex : public C_BaseAnimatingOverlay
 {
 public:
 	virtual ~C_BaseFlex() = 0;
-	virtual void *sub_1004F2E0() = 0;
-	virtual void *sub_1001E020() = 0;
-	virtual void *sub_1001E030() = 0;
-	virtual void *sub_1004F430() = 0;
-	virtual void *sub_1004F1F0() = 0;
-	virtual void *sub_1004F170() = 0;
-	virtual void *sub_1004F1C0() = 0;
+	virtual void* sub_1004F2E0() = 0;
+	virtual void* sub_1001E020() = 0;
+	virtual void* sub_1001E030() = 0;
+	virtual void* sub_1004F430() = 0;
+	virtual void* sub_1004F1F0() = 0;
+	virtual void* sub_1004F170() = 0;
+	virtual void* sub_1004F1C0() = 0;
 };
 
 class C_BaseCombatCharacter : public C_BaseFlex
 {
 public:
 	virtual ~C_BaseCombatCharacter() = 0;
-	virtual void *sub_10012380() = 0;
-	virtual void *sub_100122E0() = 0;
-	virtual void *sub_10012620() = 0;
-	virtual void *sub_10012430() = 0;
-	virtual void *sub_10012DE0() = 0;
-	virtual void *sub_10011DC0() = 0;
-	virtual void *nullsub_205() = 0;
-	virtual void *sub_10012EB0() = 0;
-	virtual void *sub_1001E070() = 0;
-	virtual void *sub_1001E080() = 0;
-	virtual void *sub_1001E090() = 0;
-	virtual void *GetFootstepRunThreshold() = 0;
-	virtual void *GetClass() = 0;
-	virtual void *sub_1001E0C0() = 0;
-	virtual void *sub_1001E0A0() = 0;
-	virtual void *sub_10040B90() = 0;
-	virtual void *sub_10012980() = 0;
-	virtual void *sub_10013330() = 0;
-	virtual void *Weapon_GetSlot(int i) = 0;
-	virtual C_BaseCombatWeapon *GetActiveWeapon() = 0;
+	virtual void* sub_10012380() = 0;
+	virtual void* sub_100122E0() = 0;
+	virtual void* sub_10012620() = 0;
+	virtual void* sub_10012430() = 0;
+	virtual void* sub_10012DE0() = 0;
+	virtual void* sub_10011DC0() = 0;
+	virtual void* nullsub_205() = 0;
+	virtual void* sub_10012EB0() = 0;
+	virtual void* sub_1001E070() = 0;
+	virtual void* sub_1001E080() = 0;
+	virtual void* sub_1001E090() = 0;
+	virtual void* GetFootstepRunThreshold() = 0;
+	virtual void* GetClass() = 0;
+	virtual void* sub_1001E0C0() = 0;
+	virtual void* sub_1001E0A0() = 0;
+	virtual void* sub_10040B90() = 0;
+	virtual void* sub_10012980() = 0;
+	virtual void* sub_10013330() = 0;
+	virtual void* Weapon_GetSlot(int i) = 0;
+	virtual C_BaseCombatWeapon* GetActiveWeapon() = 0;
 };
 
 
@@ -1280,158 +1281,158 @@ class C_BaseCombatWeapon : public C_BaseAnimating
 {
 public:
 	virtual ~C_BaseCombatWeapon() = 0;
-	virtual void *sub_10019980() = 0;
-	virtual void *sub_10019990() = 0;
-	virtual void *sub_100199A0() = 0;
-	virtual void Equip(void *pOwner) = 0;
-	virtual void *nullsub_45() = 0;
-	virtual void *sub_10017850() = 0;
-	virtual void *sub_100155A0() = 0;
-	virtual void *sub_100155B0() = 0;
-	virtual void *sub_100155D0() = 0;
-	virtual void *sub_100160D0() = 0;
-	virtual void *nullsub_185() = 0;
-	virtual void *nullsub_4() = 0;
-	virtual void *sub_10016350() = 0;
-	virtual void *nullsub_186() = 0;
-	virtual void *nullsub_187() = 0;
-	virtual void *sub_100163A0() = 0;
-	virtual void *nullsub_188() = 0;
-	virtual void *nullsub_189() = 0;
-	virtual void *sub_10017890() = 0;
-	virtual void *sub_100170D0() = 0;
-	virtual void *sub_10016500() = 0;
-	virtual void *sub_100199B0() = 0;
-	virtual void *sub_100165D0() = 0;
-	virtual void *sub_10015E60() = 0;
-	virtual void *sub_100176C0() = 0;
-	virtual void *sub_10015E80() = 0;
-	virtual void *sub_10016680() = 0;
-	virtual void *sub_100166D0() = 0;
-	virtual void *sub_10016750() = 0;
-	virtual void *sub_100199C0() = 0;
-	virtual void *sub_10018970() = 0;
-	virtual void *sub_100199D0() = 0;
-	virtual void *sub_10015EA0() = 0;
-	virtual void *sub_10018BC0() = 0;
-	virtual void *sub_100199E0() = 0;
-	virtual void *sub_100167D0() = 0;
-	virtual void *sub_10016860() = 0;
-	virtual void *sub_100178B0() = 0;
-	virtual void *sub_10015660() = 0;
-	virtual void *sub_100170E0() = 0;
-	virtual void *sub_10017A40() = 0;
-	virtual void *sub_10017E40() = 0;
-	virtual void *nullsub_190() = 0;
-	virtual void *sub_100157E0() = 0;
-	virtual void *sub_100156D0() = 0;
-	virtual void *nullsub_191() = 0;
-	virtual void *sub_10019A10() = 0;
-	virtual void *sub_10018160() = 0;
-	virtual void *sub_10018380() = 0;
-	virtual void *sub_100184F0() = 0;
-	virtual void *sub_10018120() = 0;
-	virtual void *sub_10018520() = 0;
-	virtual void *nullsub_192() = 0;
-	virtual void *sub_10016E80() = 0;
-	virtual void *sub_10018DD0() = 0;
-	virtual void *sub_10015810() = 0;
-	virtual void *sub_10015820() = 0;
-	virtual void *sub_10015670() = 0;
-	virtual void *sub_100157D0() = 0;
-	virtual void *sub_10019A30() = 0;
-	virtual void *sub_10015740() = 0;
-	virtual void *sub_10019A40() = 0;
-	virtual void *sub_10015750() = 0;
-	virtual void *sub_10019A70() = 0;
-	virtual void *sub_100157A0() = 0;
-	virtual void *sub_10019A80() = 0;
-	virtual void *sub_10019A90() = 0;
-	virtual void *sub_10019AA0() = 0;
-	virtual void *sub_10019AB0() = 0;
-	virtual void *sub_10019AC0() = 0;
-	virtual void *sub_100169B0() = 0;
-	virtual void *sub_10016B70() = 0;
-	virtual void *sub_10015790() = 0;
-	virtual void *sub_10019B00() = 0;
-	virtual void *sub_10019B10() = 0;
-	virtual void *sub_10019B20() = 0;
-	virtual void *sub_10019B30() = 0;
-	virtual void *sub_10019B40() = 0;
-	virtual void *sub_10016450() = 0;
-	virtual void *nullsub_193() = 0;
-	virtual void *sub_10015840() = 0;
-	virtual void *nullsub_194() = 0;
-	virtual void *nullsub_195() = 0;
-	virtual void *sub_10019B60() = 0;
-	virtual void *sub_10015850() = 0;
-	virtual void *sub_10015860() = 0;
-	virtual void *sub_10019B70() = 0;
-	virtual void *sub_10019B80() = 0;
-	virtual void *sub_10019B90() = 0;
-	virtual void *sub_100151C0() = 0;
-	virtual void *sub_100151E0() = 0;
-	virtual void *sub_10015200() = 0;
-	virtual void *sub_10015240() = 0;
-	virtual void *sub_10015260() = 0;
-	virtual void *sub_10015280() = 0;
-	virtual void *sub_100152A0() = 0;
-	virtual void *sub_10015310() = 0;
-	virtual void *sub_10015330() = 0;
-	virtual void *sub_10015350() = 0;
-	virtual void *sub_10015370() = 0;
+	virtual void* sub_10019980() = 0;
+	virtual void* sub_10019990() = 0;
+	virtual void* sub_100199A0() = 0;
+	virtual void Equip(void* pOwner) = 0;
+	virtual void* nullsub_45() = 0;
+	virtual void* sub_10017850() = 0;
+	virtual void* sub_100155A0() = 0;
+	virtual void* sub_100155B0() = 0;
+	virtual void* sub_100155D0() = 0;
+	virtual void* sub_100160D0() = 0;
+	virtual void* nullsub_185() = 0;
+	virtual void* nullsub_4() = 0;
+	virtual void* sub_10016350() = 0;
+	virtual void* nullsub_186() = 0;
+	virtual void* nullsub_187() = 0;
+	virtual void* sub_100163A0() = 0;
+	virtual void* nullsub_188() = 0;
+	virtual void* nullsub_189() = 0;
+	virtual void* sub_10017890() = 0;
+	virtual void* sub_100170D0() = 0;
+	virtual void* sub_10016500() = 0;
+	virtual void* sub_100199B0() = 0;
+	virtual void* sub_100165D0() = 0;
+	virtual void* sub_10015E60() = 0;
+	virtual void* sub_100176C0() = 0;
+	virtual void* sub_10015E80() = 0;
+	virtual void* sub_10016680() = 0;
+	virtual void* sub_100166D0() = 0;
+	virtual void* sub_10016750() = 0;
+	virtual void* sub_100199C0() = 0;
+	virtual void* sub_10018970() = 0;
+	virtual void* sub_100199D0() = 0;
+	virtual void* sub_10015EA0() = 0;
+	virtual void* sub_10018BC0() = 0;
+	virtual void* sub_100199E0() = 0;
+	virtual void* sub_100167D0() = 0;
+	virtual void* sub_10016860() = 0;
+	virtual void* sub_100178B0() = 0;
+	virtual void* sub_10015660() = 0;
+	virtual void* sub_100170E0() = 0;
+	virtual void* sub_10017A40() = 0;
+	virtual void* sub_10017E40() = 0;
+	virtual void* nullsub_190() = 0;
+	virtual void* sub_100157E0() = 0;
+	virtual void* sub_100156D0() = 0;
+	virtual void* nullsub_191() = 0;
+	virtual void* sub_10019A10() = 0;
+	virtual void* sub_10018160() = 0;
+	virtual void* sub_10018380() = 0;
+	virtual void* sub_100184F0() = 0;
+	virtual void* sub_10018120() = 0;
+	virtual void* sub_10018520() = 0;
+	virtual void* nullsub_192() = 0;
+	virtual void* sub_10016E80() = 0;
+	virtual void* sub_10018DD0() = 0;
+	virtual void* sub_10015810() = 0;
+	virtual void* sub_10015820() = 0;
+	virtual void* sub_10015670() = 0;
+	virtual void* sub_100157D0() = 0;
+	virtual void* sub_10019A30() = 0;
+	virtual void* sub_10015740() = 0;
+	virtual void* sub_10019A40() = 0;
+	virtual void* sub_10015750() = 0;
+	virtual void* sub_10019A70() = 0;
+	virtual void* sub_100157A0() = 0;
+	virtual void* sub_10019A80() = 0;
+	virtual void* sub_10019A90() = 0;
+	virtual void* sub_10019AA0() = 0;
+	virtual void* sub_10019AB0() = 0;
+	virtual void* sub_10019AC0() = 0;
+	virtual void* sub_100169B0() = 0;
+	virtual void* sub_10016B70() = 0;
+	virtual void* sub_10015790() = 0;
+	virtual void* sub_10019B00() = 0;
+	virtual void* sub_10019B10() = 0;
+	virtual void* sub_10019B20() = 0;
+	virtual void* sub_10019B30() = 0;
+	virtual void* sub_10019B40() = 0;
+	virtual void* sub_10016450() = 0;
+	virtual void* nullsub_193() = 0;
+	virtual void* sub_10015840() = 0;
+	virtual void* nullsub_194() = 0;
+	virtual void* nullsub_195() = 0;
+	virtual void* sub_10019B60() = 0;
+	virtual void* sub_10015850() = 0;
+	virtual void* sub_10015860() = 0;
+	virtual void* sub_10019B70() = 0;
+	virtual void* sub_10019B80() = 0;
+	virtual void* sub_10019B90() = 0;
+	virtual void* sub_100151C0() = 0;
+	virtual void* sub_100151E0() = 0;
+	virtual void* sub_10015200() = 0;
+	virtual void* sub_10015240() = 0;
+	virtual void* sub_10015260() = 0;
+	virtual void* sub_10015280() = 0;
+	virtual void* sub_100152A0() = 0;
+	virtual void* sub_10015310() = 0;
+	virtual void* sub_10015330() = 0;
+	virtual void* sub_10015350() = 0;
+	virtual void* sub_10015370() = 0;
 	virtual int GetSlot() = 0;
 	virtual int GetPosition() = 0;
-	virtual char *GetName() = 0;
-	virtual char *GetPrintName() = 0;
-	virtual char *GetShootSound(int index) = 0;
-	virtual void *sub_10015580() = 0;
-	virtual void *sub_100152C0() = 0;
-	virtual void *sub_100152F0() = 0;
-	virtual void *sub_100152E0() = 0;
-	virtual void *nullsub_196() = 0;
-	virtual void *sub_10015190() = 0;
-	virtual void *sub_10019CD0() = 0;
-	virtual void *sub_10019CE0() = 0;
-	virtual void *sub_100153F0() = 0;
-	virtual void *sub_10015410() = 0;
-	virtual void *sub_10015430() = 0;
-	virtual void *sub_10015450() = 0;
-	virtual void *sub_10015470() = 0;
-	virtual void *sub_100154D0() = 0;
-	virtual void *sub_100154F0() = 0;
-	virtual void *sub_10015510() = 0;
-	virtual void *sub_10015530() = 0;
-	virtual void *sub_10015490() = 0;
-	virtual void *sub_100154B0() = 0;
-	virtual void *sub_10015870() = 0;
-	virtual void *sub_10019BB0() = 0;
-	virtual void *sub_10019BC0() = 0;
-	virtual void *sub_100157B0() = 0;
-	virtual void *sub_100157C0() = 0;
-	virtual void *sub_10019BD0() = 0;
-	virtual void *sub_10040C60() = 0;
-	virtual void *nullsub_197() = 0;
-	virtual void *sub_10040E80() = 0;
-	virtual void *sub_10019BE0() = 0;
-	virtual void *sub_10040CA0() = 0;
-	virtual void *sub_10040FF0() = 0;
-	virtual void *sub_10040CF0() = 0;
-	virtual void *nullsub_198() = 0;
-	virtual void *nullsub_199() = 0;
-	virtual void *nullsub_200() = 0;
-	virtual void *fn0() = 0;
-	virtual void *sub_10019C30() = 0;
-	virtual void *nullsub_201() = 0;
-	virtual void *sub_10040E70() = 0;
-	virtual void *sub_10041020() = 0;
-	virtual void *nullsub_202() = 0;
-	virtual void *sub_10019C60() = 0;
-	virtual void *sub_10019C70() = 0;
-	virtual void *sub_10019C80() = 0;
+	virtual char* GetName() = 0;
+	virtual char* GetPrintName() = 0;
+	virtual char* GetShootSound(int index) = 0;
+	virtual void* sub_10015580() = 0;
+	virtual void* sub_100152C0() = 0;
+	virtual void* sub_100152F0() = 0;
+	virtual void* sub_100152E0() = 0;
+	virtual void* nullsub_196() = 0;
+	virtual void* sub_10015190() = 0;
+	virtual void* sub_10019CD0() = 0;
+	virtual void* sub_10019CE0() = 0;
+	virtual void* sub_100153F0() = 0;
+	virtual void* sub_10015410() = 0;
+	virtual void* sub_10015430() = 0;
+	virtual void* sub_10015450() = 0;
+	virtual void* sub_10015470() = 0;
+	virtual void* sub_100154D0() = 0;
+	virtual void* sub_100154F0() = 0;
+	virtual void* sub_10015510() = 0;
+	virtual void* sub_10015530() = 0;
+	virtual void* sub_10015490() = 0;
+	virtual void* sub_100154B0() = 0;
+	virtual void* sub_10015870() = 0;
+	virtual void* sub_10019BB0() = 0;
+	virtual void* sub_10019BC0() = 0;
+	virtual void* sub_100157B0() = 0;
+	virtual void* sub_100157C0() = 0;
+	virtual void* sub_10019BD0() = 0;
+	virtual void* sub_10040C60() = 0;
+	virtual void* nullsub_197() = 0;
+	virtual void* sub_10040E80() = 0;
+	virtual void* sub_10019BE0() = 0;
+	virtual void* sub_10040CA0() = 0;
+	virtual void* sub_10040FF0() = 0;
+	virtual void* sub_10040CF0() = 0;
+	virtual void* nullsub_198() = 0;
+	virtual void* nullsub_199() = 0;
+	virtual void* nullsub_200() = 0;
+	virtual void* fn0() = 0;
+	virtual void* sub_10019C30() = 0;
+	virtual void* nullsub_201() = 0;
+	virtual void* sub_10040E70() = 0;
+	virtual void* sub_10041020() = 0;
+	virtual void* nullsub_202() = 0;
+	virtual void* sub_10019C60() = 0;
+	virtual void* sub_10019C70() = 0;
+	virtual void* sub_10019C80() = 0;
 	virtual void HideThink() = 0;
-	virtual void *nullsub_203() = 0;
-	virtual void *nullsub_204() = 0;
+	virtual void* nullsub_203() = 0;
+	virtual void* nullsub_204() = 0;
 };
 
 class C_WeaponCSBase : public C_BaseCombatWeapon
@@ -1500,40 +1501,40 @@ public:
 	virtual ~C_WeaponCSBase() = 0;
 	virtual bool unknown0() = 0;
 	virtual bool IsHelpingHandExtended() = 0;
-	virtual void *sub_102316A0() = 0;
+	virtual void* sub_102316A0() = 0;
 	virtual char IsAttacking() = 0;
-	virtual void *unknown_libname_20() = 0;
-	virtual void *sub_10231290() = 0;
-	virtual void *sub_10230AB0() = 0;
-	virtual void *sub_102314E0() = 0;
+	virtual void* unknown_libname_20() = 0;
+	virtual void* sub_10231290() = 0;
+	virtual void* sub_10230AB0() = 0;
+	virtual void* sub_102314E0() = 0;
 	virtual int IsAwp() = 0;
 	virtual bool CanZoom() = 0;
 	virtual bool HasScope() = 0;
-	virtual void *CycleZoom() = 0;
-	virtual void *sub_10231AC0() = 0;
+	virtual void* CycleZoom() = 0;
+	virtual void* sub_10231AC0() = 0;
 	virtual WeaponID GetWeaponID() = 0;
-	virtual void *sub_10230B00() = 0;
-	virtual void *sub_102325B0() = 0;
-	virtual void *sub_10230B10() = 0;
-	virtual void *sub_10230B20() = 0;
-	virtual void *sub_10231F60() = 0;
-	virtual void *sub_10231BE0() = 0;
-	virtual void *sub_10231760() = 0;
-	virtual void *sub_10231740() = 0;
-	virtual void *sub_10230B30() = 0;
-	virtual void *sub_10230B40() = 0;
-	virtual void *sub_10230B50() = 0;
-	virtual void *sub_10231860() = 0;
-	virtual void *sub_10231880() = 0;
-	virtual void *sub_10230B70() = 0;
-	virtual void *sub_102315E0() = 0;
-	virtual void *sub_10230BC0() = 0;
-	virtual void *sub_102315D0() = 0;
-	virtual void *sub_102318A0() = 0;
-	virtual void *sub_10230B80() = 0;
-	virtual void *sub_10230B90() = 0;
-	virtual void *sub_10230BA0() = 0;
-	virtual void *sub_10230BB0() = 0;
+	virtual void* sub_10230B00() = 0;
+	virtual void* sub_102325B0() = 0;
+	virtual void* sub_10230B10() = 0;
+	virtual void* sub_10230B20() = 0;
+	virtual void* sub_10231F60() = 0;
+	virtual void* sub_10231BE0() = 0;
+	virtual void* sub_10231760() = 0;
+	virtual void* sub_10231740() = 0;
+	virtual void* sub_10230B30() = 0;
+	virtual void* sub_10230B40() = 0;
+	virtual void* sub_10230B50() = 0;
+	virtual void* sub_10231860() = 0;
+	virtual void* sub_10231880() = 0;
+	virtual void* sub_10230B70() = 0;
+	virtual void* sub_102315E0() = 0;
+	virtual void* sub_10230BC0() = 0;
+	virtual void* sub_102315D0() = 0;
+	virtual void* sub_102318A0() = 0;
+	virtual void* sub_10230B80() = 0;
+	virtual void* sub_10230B90() = 0;
+	virtual void* sub_10230BA0() = 0;
+	virtual void* sub_10230BB0() = 0;
 
 	int padding_0[826];
 	int m_MapBasedMeleeID;
@@ -1580,7 +1581,7 @@ public:
 		{ "pitchfork",		 {{12.5, 4, -9.5}, {40, 9, -3.5}}}
 	};
 
-	static inline C_WeaponCSBase *prevWep;
+	static inline C_WeaponCSBase* prevWep;
 	static inline WeaponID prevWeaponID;
 	static inline PositionAngle prevViewmodelOffset;
 
@@ -1600,9 +1601,9 @@ public:
 
 		if (id == MELEE)
 		{
-			typedef CMeleeWeaponInfoStore *(__thiscall *tGetMeleeWepInfo)(void *thisptr);
+			typedef CMeleeWeaponInfoStore* (__thiscall* tGetMeleeWepInfo)(void* thisptr);
 			static tGetMeleeWepInfo oGetMeleeWepInfo = (tGetMeleeWepInfo)(g_Game->m_Offsets->GetMeleeWeaponInfoClient.address);
-			CMeleeWeaponInfoStore *meleeWepInfo = oGetMeleeWepInfo(this);
+			CMeleeWeaponInfoStore* meleeWepInfo = oGetMeleeWepInfo(this);
 
 			std::string wepName(meleeWepInfo->meleeWeaponName);
 
@@ -1617,7 +1618,7 @@ public:
 			prevViewmodelOffset = viewmodelOffsets[id];
 		else
 			prevViewmodelOffset = viewmodelOffsets[NONE];
-		
+
 		return prevViewmodelOffset;
 	}
 };
@@ -1626,103 +1627,103 @@ class C_BasePlayer : public C_BaseCombatCharacter
 {
 public:
 	virtual ~C_BasePlayer() = 0;
-	virtual void *sub_10021E00() = 0;
-	virtual void *nullsub_240() = 0;
-	virtual void *sub_10021980() = 0;
-	virtual void *CalcViewModelView() = 0;
-	virtual void *sub_1001F0F0() = 0;
-	virtual void *sub_10069800() = 0;
-	virtual void *sub_1001F290() = 0;
-	virtual void *sub_1001F270() = 0;
-	virtual void *sub_1001ED40() = 0;
-	virtual void *nullsub_241() = 0;
-	virtual void *sub_100648E0() = 0;
-	virtual void *sub_10065CB0() = 0;
-	virtual void *sub_1001FB30() = 0;
-	virtual void *nullsub_242() = 0;
-	virtual void *sub_100636B0() = 0;
-	virtual void *sub_10069820() = 0;
-	virtual void *sub_100211C0() = 0;
-	virtual void *sub_100636F0() = 0;
-	virtual void *nullsub_243() = 0;
-	virtual void *nullsub_244() = 0;
-	virtual void *sub_10063CC0() = 0;
-	virtual void *sub_10063C70() = 0;
-	virtual void *sub_10069880() = 0;
-	virtual void *sub_10063810() = 0;
-	virtual void *nullsub_245() = 0;
-	virtual void *sub_10069890() = 0;
-	virtual void *sub_100698A0() = 0;
-	virtual void *sub_100698B0() = 0;
-	virtual void *sub_100698C0() = 0;
-	virtual void *sub_100698D0() = 0;
-	virtual void *sub_100EC8B0() = 0;
-	virtual void *sub_10069A40() = 0;
-	virtual void *sub_100634D0() = 0;
-	virtual void *sub_10067B70() = 0;
-	virtual void *sub_100698E0() = 0;
-	virtual void *sub_100698F0() = 0;
-	virtual void *sub_10069900() = 0;
-	virtual void *sub_10063540() = 0;
-	virtual void *sub_10063490() = 0;
-	virtual void *sub_1001F360() = 0;
-	virtual void *sub_10020D90() = 0;
-	virtual void *sub_10063840() = 0;
-	virtual void *sub_10069170() = 0;
-	virtual void *sub_10064530() = 0;
-	virtual void *sub_1001FFF0() = 0;
-	virtual void *sub_10020110() = 0;
-	virtual void *sub_1001EE20() = 0;
-	virtual void *sub_1001F940() = 0;
-	virtual void *sub_10020F90() = 0;
-	virtual void *sub_10069940() = 0;
-	virtual void *sub_1001EE50() = 0;
-	virtual void *sub_10069A50() = 0;
-	virtual void *sub_1001EF00() = 0;
-	virtual void *sub_1001EE70() = 0;
-	virtual void *sub_100672A0() = 0;
-	virtual void *sub_100674C0() = 0;
-	virtual void *sub_1001FAC0() = 0;
-	virtual void *sub_10069950() = 0;
-	virtual void *sub_10021880() = 0;
-	virtual void *nullsub_246() = 0;
-	virtual char *GetCharacterDisplayName() = 0;
-	virtual void *sub_1001F3A0() = 0;
-	virtual void *sub_1001F430() = 0;
-	virtual void *sub_10065850() = 0;
-	virtual void *nullsub_247() = 0;
-	virtual void *sub_10064940() = 0;
-	virtual void *sub_10063700() = 0;
-	virtual void *sub_100692A0() = 0;
-	virtual void *sub_1001F4C0() = 0;
-	virtual void *sub_10022020() = 0;
-	virtual void *sub_1001ECB0() = 0;
-	virtual void *sub_1001F850() = 0;
-	virtual void *sub_1001F8B0() = 0;
-	virtual void *nullsub_248() = 0;
-	virtual void *sub_100699B0() = 0;
-	virtual void *sub_100699C0() = 0;
-	virtual void *sub_10063820() = 0;
-	virtual void *sub_100699D0() = 0;
-	virtual void *nullsub_249() = 0;
-	virtual void *sub_1001F020() = 0;
-	virtual void *sub_10066250() = 0;
-	virtual void *sub_10066350() = 0;
-	virtual void *sub_10066C00() = 0;
-	virtual void *sub_10066EB0() = 0;
-	virtual void *sub_10064130() = 0;
-	virtual void *sub_10066780() = 0;
-	virtual void *sub_100633E0() = 0;
-	virtual void *sub_10063410() = 0;
-	virtual void *sub_100699F0() = 0;
-	virtual void *sub_10069A00() = 0;
-	virtual void *sub_10069A10() = 0;
-	virtual void *sub_10069A20() = 0;
-	virtual void *sub_10069A30() = 0;
+	virtual void* sub_10021E00() = 0;
+	virtual void* nullsub_240() = 0;
+	virtual void* sub_10021980() = 0;
+	virtual void* CalcViewModelView() = 0;
+	virtual void* sub_1001F0F0() = 0;
+	virtual void* sub_10069800() = 0;
+	virtual void* sub_1001F290() = 0;
+	virtual void* sub_1001F270() = 0;
+	virtual void* sub_1001ED40() = 0;
+	virtual void* nullsub_241() = 0;
+	virtual void* sub_100648E0() = 0;
+	virtual void* sub_10065CB0() = 0;
+	virtual void* sub_1001FB30() = 0;
+	virtual void* nullsub_242() = 0;
+	virtual void* sub_100636B0() = 0;
+	virtual void* sub_10069820() = 0;
+	virtual void* sub_100211C0() = 0;
+	virtual void* sub_100636F0() = 0;
+	virtual void* nullsub_243() = 0;
+	virtual void* nullsub_244() = 0;
+	virtual void* sub_10063CC0() = 0;
+	virtual void* sub_10063C70() = 0;
+	virtual void* sub_10069880() = 0;
+	virtual void* sub_10063810() = 0;
+	virtual void* nullsub_245() = 0;
+	virtual void* sub_10069890() = 0;
+	virtual void* sub_100698A0() = 0;
+	virtual void* sub_100698B0() = 0;
+	virtual void* sub_100698C0() = 0;
+	virtual void* sub_100698D0() = 0;
+	virtual void* sub_100EC8B0() = 0;
+	virtual void* sub_10069A40() = 0;
+	virtual void* sub_100634D0() = 0;
+	virtual void* sub_10067B70() = 0;
+	virtual void* sub_100698E0() = 0;
+	virtual void* sub_100698F0() = 0;
+	virtual void* sub_10069900() = 0;
+	virtual void* sub_10063540() = 0;
+	virtual void* sub_10063490() = 0;
+	virtual void* sub_1001F360() = 0;
+	virtual void* sub_10020D90() = 0;
+	virtual void* sub_10063840() = 0;
+	virtual void* sub_10069170() = 0;
+	virtual void* sub_10064530() = 0;
+	virtual void* sub_1001FFF0() = 0;
+	virtual void* sub_10020110() = 0;
+	virtual void* sub_1001EE20() = 0;
+	virtual void* sub_1001F940() = 0;
+	virtual void* sub_10020F90() = 0;
+	virtual void* sub_10069940() = 0;
+	virtual void* sub_1001EE50() = 0;
+	virtual void* sub_10069A50() = 0;
+	virtual void* sub_1001EF00() = 0;
+	virtual void* sub_1001EE70() = 0;
+	virtual void* sub_100672A0() = 0;
+	virtual void* sub_100674C0() = 0;
+	virtual void* sub_1001FAC0() = 0;
+	virtual void* sub_10069950() = 0;
+	virtual void* sub_10021880() = 0;
+	virtual void* nullsub_246() = 0;
+	virtual char* GetCharacterDisplayName() = 0;
+	virtual void* sub_1001F3A0() = 0;
+	virtual void* sub_1001F430() = 0;
+	virtual void* sub_10065850() = 0;
+	virtual void* nullsub_247() = 0;
+	virtual void* sub_10064940() = 0;
+	virtual void* sub_10063700() = 0;
+	virtual void* sub_100692A0() = 0;
+	virtual void* sub_1001F4C0() = 0;
+	virtual void* sub_10022020() = 0;
+	virtual void* sub_1001ECB0() = 0;
+	virtual void* sub_1001F850() = 0;
+	virtual void* sub_1001F8B0() = 0;
+	virtual void* nullsub_248() = 0;
+	virtual void* sub_100699B0() = 0;
+	virtual void* sub_100699C0() = 0;
+	virtual void* sub_10063820() = 0;
+	virtual void* sub_100699D0() = 0;
+	virtual void* nullsub_249() = 0;
+	virtual void* sub_1001F020() = 0;
+	virtual void* sub_10066250() = 0;
+	virtual void* sub_10066350() = 0;
+	virtual void* sub_10066C00() = 0;
+	virtual void* sub_10066EB0() = 0;
+	virtual void* sub_10064130() = 0;
+	virtual void* sub_10066780() = 0;
+	virtual void* sub_100633E0() = 0;
+	virtual void* sub_10063410() = 0;
+	virtual void* sub_100699F0() = 0;
+	virtual void* sub_10069A00() = 0;
+	virtual void* sub_10069A10() = 0;
+	virtual void* sub_10069A20() = 0;
+	virtual void* sub_10069A30() = 0;
 
 	PositionAngle GetViewmodelOffset()
 	{
-		C_WeaponCSBase *weapon = (C_WeaponCSBase *)GetActiveWeapon();
+		C_WeaponCSBase* weapon = (C_WeaponCSBase*)GetActiveWeapon();
 		if (!weapon)
 			return PositionAngle{ {0,0,0}, {0,0,0} };
 
@@ -1731,7 +1732,7 @@ public:
 
 	bool IsMeleeWeaponActive()
 	{
-		C_WeaponCSBase *weapon = (C_WeaponCSBase *)GetActiveWeapon();
+		C_WeaponCSBase* weapon = (C_WeaponCSBase*)GetActiveWeapon();
 		if (weapon)
 			return weapon->GetWeaponID() == 19;
 
@@ -1756,17 +1757,17 @@ public:
 
 	// Returns an IServerEntity if FL_FULLEDICT is set or NULL if this 
 	// is a lightweight networking entity.
-	void *GetIServerEntity();
-	const void *GetIServerEntity() const;
+	void* GetIServerEntity();
+	const void* GetIServerEntity() const;
 
-	void *GetNetworkable();
-	IServerUnknown *GetUnknown();
+	void* GetNetworkable();
+	IServerUnknown* GetUnknown();
 
 	// Set when initting an entity. If it's only a networkable, this is false.
-	void				SetEdict(IServerUnknown *pUnk, bool bFullEdict);
+	void				SetEdict(IServerUnknown* pUnk, bool bFullEdict);
 
 	int					AreaNum() const;
-	const char *GetClassName() const;
+	const char* GetClassName() const;
 
 	bool				IsFree() const;
 	void				SetFree();
@@ -1812,15 +1813,15 @@ public:
 #endif
 
 	// NOTE: this is in the edict instead of being accessed by a virtual because the engine needs fast access to it.
-	void *m_pNetworkable;
+	void* m_pNetworkable;
 
-	IServerUnknown *m_pUnk;
+	IServerUnknown* m_pUnk;
 
 
 public:
 
-	void *GetChangeAccessor(); // The engine implements this and the game .dll implements as
-	const void *GetChangeAccessor() const; // The engine implements this and the game .dll implements as
+	void* GetChangeAccessor(); // The engine implements this and the game .dll implements as
+	const void* GetChangeAccessor() const; // The engine implements this and the game .dll implements as
 	// as callback through to the engine!!!
 
 	// NOTE: YOU CAN'T CHANGE THE LAYOUT OR SIZE OF CBASEEDICT AND REMAIN COMPATIBLE WITH HL2_VC6!!!!!
@@ -1829,13 +1830,13 @@ public:
 	//unsigned short m_iChangeInfo;
 	//unsigned short m_iChangeInfoSerialNumber;
 
-	friend void InitializeEntityDLLFields(void *pEdict);
+	friend void InitializeEntityDLLFields(void* pEdict);
 };
 
 struct edict_t : public CBaseEdict
 {
 public:
-	void *GetCollideable();
+	void* GetCollideable();
 
 	// The server timestampe at which the edict was freed (so we can try to use other edicts before reallocating this one)
 	float		freetime;
@@ -1845,7 +1846,7 @@ enum ButtonCode_t
 {
 	KEY_SPACE = 65,
 	KEY_ESCAPE = 70,
-	KEY_UP = 88, 
+	KEY_UP = 88,
 	KEY_LEFT,
 	KEY_DOWN,
 	KEY_RIGHT,
@@ -1861,12 +1862,12 @@ public:
 	virtual ~IInput();
 	virtual void SetMouseFocus(void);;
 	virtual void SetMouseCapture(void);
-	virtual void GetKeyCodeText(ButtonCode_t, char *, int);
+	virtual void GetKeyCodeText(ButtonCode_t, char*, int);
 	virtual void GetFocus(void);
 	virtual void GetCalculatedFocus(void);
 	virtual void GetMouseOver(void);
 	virtual void SetCursorPos(int, int);
-	virtual void GetCursorPos(int &, int &);
+	virtual void GetCursorPos(int&, int&);
 	virtual void WasMousePressed(ButtonCode_t);
 	virtual void WasMouseDoublePressed(ButtonCode_t);
 	virtual void IsMouseDown(ButtonCode_t);
@@ -1880,14 +1881,14 @@ public:
 	virtual void GetAppModalSurface(void);
 	virtual void SetAppModalSurface(void);
 	virtual void ReleaseAppModalSurface(void);
-	virtual void GetCursorPosition(int &, int &);
-	virtual void SetIMEWindow(void *);
+	virtual void GetCursorPosition(int&, int&);
+	virtual void SetIMEWindow(void*);
 	virtual void GetIMEWindow(void);
 	virtual void OnChangeIME(bool);
 	virtual void GetCurrentIMEHandle(void);
 	virtual void GetEnglishIMEHandle(void);
-	virtual void GetIMELanguageName(wchar_t *, int);
-	virtual void GetIMELanguageShortCode(wchar_t *, int);
+	virtual void GetIMELanguageName(wchar_t*, int);
+	virtual void GetIMELanguageShortCode(wchar_t*, int);
 	virtual void GetIMELanguageList(void);
 	virtual void GetIMEConversionModes(void);
 	virtual void GetIMESentenceModes(void);
@@ -1903,7 +1904,7 @@ public:
 	virtual void OnIMECloseCandidates(void);
 	virtual void OnIMERecomputeModes(void);
 	virtual void GetCandidateListCount(void);
-	virtual void GetCandidate(int, wchar_t *, int);
+	virtual void GetCandidate(int, wchar_t*, int);
 	virtual void GetCandidateListSelectedItem(void);
 	virtual void GetCandidateListPageSize(void);
 	virtual void GetCandidateListPageStart(void);

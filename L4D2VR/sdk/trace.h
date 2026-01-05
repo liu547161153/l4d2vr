@@ -15,7 +15,7 @@ struct cplane_t
 
 struct csurface_t
 {
-	const char *name;
+	const char* name;
 	short		surfaceProps;
 	unsigned short	flags;		// BUGBUG: These are declared per surface, not per material, but this database is per-material now
 };
@@ -124,18 +124,18 @@ public:
 
 public:
 
-	float		fractionleftsolid;		
-	csurface_t	surface;				
-	int			hitgroup;				
-	short		physicsbone;			
-	void *m_pEnt;
-	int			hitbox;					
+	float		fractionleftsolid;
+	csurface_t	surface;
+	int			hitgroup;
+	short		physicsbone;
+	void* m_pEnt;
+	int			hitbox;
 
 	CGameTrace() {}
 
 private:
 	// No copy constructors allowed
-	CGameTrace(const CGameTrace &vOther);
+	CGameTrace(const CGameTrace& vOther);
 };
 
 enum TraceType_t
@@ -157,14 +157,14 @@ enum class TraceType
 class ITraceFilter
 {
 public:
-	virtual bool ShouldHitEntity(IHandleEntity * pEntity, int contentsMask) = 0;
+	virtual bool ShouldHitEntity(IHandleEntity* pEntity, int contentsMask) = 0;
 	virtual TraceType	GetTraceType() const = 0;
 };
 
 class CTraceFilter : public ITraceFilter
 {
 public:
-	CTraceFilter(IHandleEntity *passentity, int collisionGroup, void *pExtraShouldHitCheckFn = NULL)
+	CTraceFilter(IHandleEntity* passentity, int collisionGroup, void* pExtraShouldHitCheckFn = NULL)
 	{
 		m_pPassEnt = passentity;
 		m_collisionGroup = collisionGroup;
@@ -175,84 +175,84 @@ public:
 		return TraceType::TRACE_EVERYTHING;
 	}
 
-	IHandleEntity *m_pPassEnt;
+	IHandleEntity* m_pPassEnt;
 	int m_collisionGroup;
-	void *m_pExtraShouldHitCheckFunction;
+	void* m_pExtraShouldHitCheckFunction;
 };
 
 
 class CTraceFilterSkipNPCsAndPlayers : public CTraceFilter
 {
 public:
-        CTraceFilterSkipNPCsAndPlayers(IHandleEntity *passentity, int collisionGroup)
-                : CTraceFilter(passentity, collisionGroup)
-        {
-        }
+	CTraceFilterSkipNPCsAndPlayers(IHandleEntity* passentity, int collisionGroup)
+		: CTraceFilter(passentity, collisionGroup)
+	{
+	}
 
-        virtual bool ShouldHitEntity(IHandleEntity *pServerEntity, int contentsMask)
-        {
-                C_BasePlayer *pEntity = (C_BasePlayer *)pServerEntity;
-                if (!pEntity)
-                        return true;
+	virtual bool ShouldHitEntity(IHandleEntity* pServerEntity, int contentsMask)
+	{
+		C_BasePlayer* pEntity = (C_BasePlayer*)pServerEntity;
+		if (!pEntity)
+			return true;
 
-                if (m_pPassEnt == pServerEntity)
-                        return false;
+		if (m_pPassEnt == pServerEntity)
+			return false;
 
-                if (pEntity->IsNPC() || pEntity->IsPlayer())
-                {
-                        return false;
-                }
+		if (pEntity->IsNPC() || pEntity->IsPlayer())
+		{
+			return false;
+		}
 
-                return true;
-        }
+		return true;
+	}
 };
 
 class CTraceFilterSkipSelf : public CTraceFilter
 {
 public:
-        CTraceFilterSkipSelf(IHandleEntity *passentity, int collisionGroup)
-                : CTraceFilter(passentity, collisionGroup)
-        {
-        }
+	CTraceFilterSkipSelf(IHandleEntity* passentity, int collisionGroup)
+		: CTraceFilter(passentity, collisionGroup)
+	{
+	}
 
-        virtual bool ShouldHitEntity(IHandleEntity *pServerEntity, int contentsMask)
-        {
-                if (!pServerEntity)
-                        return true;
+	virtual bool ShouldHitEntity(IHandleEntity* pServerEntity, int contentsMask)
+	{
+		if (!pServerEntity)
+			return true;
 
-                if (m_pPassEnt == pServerEntity)
-                        return false;
+		if (m_pPassEnt == pServerEntity)
+			return false;
 
-                return true;
-        }
+		return true;
+	}
 };
 
 class CTraceFilterSkipNPCsAndEntity : public CTraceFilter
 {
 public:
-        CTraceFilterSkipNPCsAndEntity(IHandleEntity *passentity, IHandleEntity *skipentity, int collisionGroup)
-                : CTraceFilter(passentity, collisionGroup)
-                , m_pSkipEnt(skipentity)
-        {
-        }
+	CTraceFilterSkipNPCsAndEntity(IHandleEntity* passentity, IHandleEntity* skipentity, int collisionGroup)
+		: CTraceFilter(passentity, collisionGroup)
+		, m_pSkipEnt(skipentity)
+	{
+	}
 
-        virtual bool ShouldHitEntity(IHandleEntity *pServerEntity, int contentsMask)
-        {
-                if (!pServerEntity)
-                        return true;
+	virtual bool ShouldHitEntity(IHandleEntity* pServerEntity, int contentsMask)
+	{
+		if (!pServerEntity)
+			return true;
 
-                if (m_pPassEnt == pServerEntity || m_pSkipEnt == pServerEntity)
-                        return false;
+		if (m_pPassEnt == pServerEntity || m_pSkipEnt == pServerEntity)
+			return false;
 
-                C_BasePlayer *pEntity = (C_BasePlayer *)pServerEntity;
-                if (pEntity && pEntity->IsNPC())
-                        return false;
+		C_BasePlayer* pEntity = (C_BasePlayer*)pServerEntity;
+		if (pEntity && pEntity->IsNPC())
+			return false;
 
-                return true;
-        }
+		return true;
+	}
 
 private:
-        IHandleEntity *m_pSkipEnt;
+	IHandleEntity* m_pSkipEnt;
 };
 
 
@@ -263,18 +263,18 @@ struct Ray_t
 	VectorAligned  m_Delta;	// direction + length of the ray
 	VectorAligned  m_StartOffset;	// Add this to m_Start to get the actual ray start
 	VectorAligned  m_Extents;	// Describes an axis aligned box extruded along a ray
-	const matrix3x4_t *m_pWorldAxisTransform;
+	const matrix3x4_t* m_pWorldAxisTransform;
 	bool	m_IsRay;	// are the extents zero?
 	bool	m_IsSwept;	// is delta != 0?
 
-	void Init(Vector const &start, Vector const &end)
+	void Init(Vector const& start, Vector const& end)
 	{
 		//Assert(&end);
 		VectorSubtract(end, start, m_Delta);
 
 		m_IsSwept = (m_Delta.LengthSqr() != 0);
 
-		VectorClear(m_Extents); 
+		VectorClear(m_Extents);
 		m_IsRay = true;
 
 		m_pWorldAxisTransform = 0;
@@ -284,7 +284,7 @@ struct Ray_t
 		VectorCopy(start, m_Start);
 	}
 
-	void Init(Vector const &start, Vector const &end, Vector const &mins, Vector const &maxs)
+	void Init(Vector const& start, Vector const& end, Vector const& mins, Vector const& maxs)
 	{
 		//Assert(&end);
 		VectorSubtract(end, start, m_Delta);
@@ -333,8 +333,8 @@ public:
 	virtual void	fn2() = 0;
 	virtual void	fn3() = 0;
 	virtual void	fn4() = 0;
-	virtual void	TraceRay(const Ray_t &ray, unsigned int fMask, CTraceFilter *pTraceFilter, trace_t *pTrace) = 0;
+	virtual void	TraceRay(const Ray_t& ray, unsigned int fMask, CTraceFilter* pTraceFilter, trace_t* pTrace) = 0;
 };
 
 
-typedef void(__fastcall *tTraceRay)(void *thisptr, void *not_edx, Ray_t &ray, unsigned int fMask, CTraceFilter *pTraceFilter, CGameTrace *pTrace);
+typedef void(__fastcall* tTraceRay)(void* thisptr, void* not_edx, Ray_t& ray, unsigned int fMask, CTraceFilter* pTraceFilter, CGameTrace* pTrace);
