@@ -5,6 +5,7 @@
 #include "sdk_server.h"
 #include "vr.h"
 #include "offsets.h"
+#include "sdk/ivdebugoverlay.h"
 #include <iostream>
 #include <cstdint>
 #include <string>
@@ -269,7 +270,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	const float holdSeconds = std::max(0.0f, m_VR->m_ThirdPersonHoldTimeMs * 0.001f);
 	bool engineThirdPersonNow = (signalCount >= m_VR->m_ThirdPersonSignalsRequired);
 	if (engineThirdPersonNow && holdSeconds > 0.0f)
-		m_VR->m_ThirdPersonHoldUntil = now + std::chrono::duration<float>(holdSeconds);
+	{
+		const auto holdDuration = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(holdSeconds));
+		m_VR->m_ThirdPersonHoldUntil = now + holdDuration;
+	}
 
 	const bool holdActive = holdSeconds > 0.0f && now < m_VR->m_ThirdPersonHoldUntil;
 	if (!engineThirdPersonNow && holdActive)
