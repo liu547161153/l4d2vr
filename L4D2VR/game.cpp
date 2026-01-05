@@ -14,6 +14,7 @@
 #include "offsets.h"
 #include "sigscanner.h"
 #include "sdk/ivdebugoverlay.h"
+#include "cvar.h"
 
 static std::mutex logMutex;
 using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
@@ -110,6 +111,9 @@ Game::Game()
     m_DebugOverlay = static_cast<IVDebugOverlay*>(TryInterfaceNoError("engine.dll", "VDebugOverlay004"));
     if (!m_DebugOverlay)
         m_DebugOverlay = static_cast<IVDebugOverlay*>(TryInterfaceNoError("engine.dll", "VDebugOverlay003"));
+    m_Cvar = static_cast<ICvar*>(GetInterfaceSafe("vstdlib.dll", "VEngineCvar007"));
+    if (!m_Cvar)
+        m_Cvar = static_cast<ICvar*>(GetInterfaceSafe("vstdlib.dll", "VEngineCvar006"));
 
     m_Offsets = new Offsets();
     m_VR = new VR(this);
@@ -246,4 +250,47 @@ void Game::ClientCmd_Unrestricted(const char* szCmdString)
 {
     if (m_EngineClient)
         m_EngineClient->ClientCmd_Unrestricted(szCmdString);
+}
+
+ConVar* Game::FindConVar(const char* name) const
+{
+    if (!m_Cvar || !name)
+        return nullptr;
+
+    return m_Cvar->FindVar(name);
+}
+
+bool Game::IsEngineThirdPersonActive()
+{
+    if (!m_Cvar)
+        return false;
+
+    // Cache the lookup to avoid repeated string hashing.
+    if (!m_ThirdPersonConVarChecked)
+    {
+        static const char* kThirdPersonCvars[] =
+        {
+            "c_thirdpersonshoulder",
+            "thirdpersonshoulder",
+            "c_thirdperson",
+        };
+
+        for (const char* convarName : kThirdPersonCvars)
+        {
+            m_ThirdPersonShoulderConVar = m_Cvar->FindVar(convarName);
+            if (m_ThirdPersonShoulderConVar)
+                break;
+        }
+
+        m_ThirdPersonConVarChecked = true;
+        if (m_ThirdPersonShoulderConVar)
+        {
+            Game::logMsg("[VR] Third-person ConVar source: %s", m_ThirdPersonShoulderConVar->GetName());
+        }
+    }
+
+    if (!m_ThirdPersonShoulderConVar)
+        return false;
+
+    return m_ThirdPersonShoulderConVar->GetBool();
 }

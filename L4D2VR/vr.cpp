@@ -65,6 +65,60 @@ namespace
     }
 }
 
+const char* VR::GetThirdPersonDetectionModeName() const
+{
+    switch (m_ThirdPersonDetectionMode)
+    {
+    case ThirdPersonDetectionMode::EngineOnly:
+        return "engine";
+    case ThirdPersonDetectionMode::DistanceOnly:
+        return "distance";
+    case ThirdPersonDetectionMode::Hybrid:
+    default:
+        return "hybrid";
+    }
+}
+
+void VR::ReportThirdPersonDecision(bool isThirdPerson, bool usedEngine, bool usedDistance, bool engineFlag, bool distanceFlag, float camDist)
+{
+    const bool stateChanged = (isThirdPerson != m_LastThirdPersonState) ||
+        (usedEngine != m_LastThirdPersonUsedEngine) ||
+        (usedDistance != m_LastThirdPersonUsedDistance);
+    const bool sourceChanged = (engineFlag != m_LastThirdPersonEngineFlag) ||
+        (usedDistance != m_LastThirdPersonUsedDistance);
+
+    if (!stateChanged && !sourceChanged)
+        return;
+
+    const char* modeName = GetThirdPersonDetectionModeName();
+    if (isThirdPerson)
+    {
+        if (usedEngine || engineFlag)
+        {
+            Game::logMsg("[VR] Third-person active (engine-confirmed, mode=%s).", modeName);
+        }
+        else if (usedDistance || distanceFlag)
+        {
+            Game::logMsg("[VR] Third-person active (distance fallback, mode=%s, camDist=%.2f).", modeName, camDist);
+        }
+        else
+        {
+            Game::logMsg("[VR] Third-person active (mode=%s).", modeName);
+        }
+    }
+    else
+    {
+        Game::logMsg("[VR] First-person active (mode=%s, engineFlag=%d, camDist=%.2f).",
+            modeName, engineFlag ? 1 : 0, camDist);
+    }
+
+    m_LastThirdPersonState = isThirdPerson;
+    m_LastThirdPersonEngineFlag = engineFlag;
+    m_LastThirdPersonDistanceFlag = distanceFlag;
+    m_LastThirdPersonUsedEngine = usedEngine;
+    m_LastThirdPersonUsedDistance = usedDistance;
+}
+
 VR::VR(Game* game)
 {
     m_Game = game;
@@ -4304,6 +4358,17 @@ void VR::ParseConfigFile()
     m_ScopeLookThroughAngleDeg = std::clamp(getFloat("ScopeLookThroughAngleDeg", m_ScopeLookThroughAngleDeg), 1.0f, 89.0f);
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+    std::string thirdPersonMode = getString("ThirdPersonDetectionMode", GetThirdPersonDetectionModeName());
+    std::transform(thirdPersonMode.begin(), thirdPersonMode.end(), thirdPersonMode.begin(), [](unsigned char c) { return std::tolower(c); });
+    if (thirdPersonMode == "engine")
+        m_ThirdPersonDetectionMode = ThirdPersonDetectionMode::EngineOnly;
+    else if (thirdPersonMode == "distance")
+        m_ThirdPersonDetectionMode = ThirdPersonDetectionMode::DistanceOnly;
+    else
+        m_ThirdPersonDetectionMode = ThirdPersonDetectionMode::Hybrid;
+
+    m_ThirdPersonDistanceThreshold = std::max(0.0f, getFloat("ThirdPersonDistanceThreshold", m_ThirdPersonDistanceThreshold));
+    m_ThirdPersonEngineSlack = std::max(0.0f, getFloat("ThirdPersonEngineSlack", m_ThirdPersonEngineSlack));
 
     // Non-VR server melee feel tuning (ForceNonVRServerMovement=true only)
     m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));

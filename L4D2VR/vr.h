@@ -54,6 +54,13 @@ struct CustomActionBinding
 class VR
 {
 public:
+	enum class ThirdPersonDetectionMode
+	{
+		Hybrid = 0,
+		EngineOnly,
+		DistanceOnly
+	};
+
 	Game* m_Game = nullptr;
 
 	vr::IVRSystem* m_System = nullptr;
@@ -129,6 +136,14 @@ public:
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.5f;
+	ThirdPersonDetectionMode m_ThirdPersonDetectionMode = ThirdPersonDetectionMode::Hybrid;
+	float m_ThirdPersonDistanceThreshold = 5.0f;
+	float m_ThirdPersonEngineSlack = 2.0f;
+	bool m_LastThirdPersonState = false;
+	bool m_LastThirdPersonEngineFlag = false;
+	bool m_LastThirdPersonDistanceFlag = false;
+	bool m_LastThirdPersonUsedEngine = false;
+	bool m_LastThirdPersonUsedDistance = false;
 
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
@@ -581,6 +596,8 @@ public:
 	Vector GetThirdPersonViewOrigin() const { return m_ThirdPersonViewOrigin; }
 	QAngle GetThirdPersonViewAngles() const { return m_ThirdPersonViewAngles; }
 	bool IsThirdPersonCameraActive() const { return m_IsThirdPersonCamera; }
+	const char* GetThirdPersonDetectionModeName() const;
+	void ReportThirdPersonDecision(bool isThirdPerson, bool usedEngine, bool usedDistance, bool engineFlag, bool distanceFlag, float camDist);
 	bool PressedDigitalAction(vr::VRActionHandle_t& actionHandle, bool checkIfActionChanged = false);
 	bool GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigitalActionData_t& digitalDataOut);
 	bool GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut);

@@ -7,6 +7,7 @@
 #include <Windows.h>
 
 #include "vector.h"
+#include "cvar.h"
 
 // === Forward Declarations for Engine Interfaces ===
 class IClientEntityList;
@@ -23,6 +24,7 @@ class C_BaseEntity;
 class C_BasePlayer;
 struct model_t;
 class IVDebugOverlay;
+class ConVar;
 
 // === Forward Declarations for Internal Systems ===
 class Game;
@@ -62,6 +64,7 @@ public:
     IInput* m_VguiInput = nullptr;
     ISurface* m_VguiSurface = nullptr;
     IVDebugOverlay* m_DebugOverlay = nullptr;
+    ICvar* m_Cvar = nullptr;
 
     // === Module Base Addresses ===
     uintptr_t m_BaseEngine = 0;
@@ -92,6 +95,10 @@ public:
     IMaterial* m_ArmsMaterial = nullptr;
     bool m_CachedArmsModel = false;
 
+    // === ConVar Cache ===
+    ConVar* m_ThirdPersonShoulderConVar = nullptr;
+    bool m_ThirdPersonConVarChecked = false;
+
     // === Constructor ===
     Game();
 
@@ -100,6 +107,7 @@ public:
     C_BaseEntity* GetClientEntity(int entityIndex);
     char* getNetworkName(uintptr_t* entity);
     const char* GetNetworkClassName(uintptr_t* entity) const;
+    ConVar* FindConVar(const char* name) const;
 
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);
@@ -108,6 +116,9 @@ public:
     // === Logging ===
     static void logMsg(const char* fmt, ...);
     static void errorMsg(const char* msg);
+
+    // === Engine State ===
+    bool IsEngineThirdPersonActive();
 
     // === Player Utilities ===
     bool IsValidPlayerIndex(int index) const;

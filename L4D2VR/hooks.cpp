@@ -239,22 +239,51 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
-	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
+	const bool engineThirdPersonFlag = m_Game->IsEngineThirdPersonActive();
+	const bool distanceThirdPersonNow = (localPlayer && camDist > m_VR->m_ThirdPersonDistanceThreshold);
+	if (distanceThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = 2;
+	else if (m_VR->m_ThirdPersonHoldFrames > 0)
+		m_VR->m_ThirdPersonHoldFrames--;
+
+	const bool distanceThirdPerson = distanceThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
 	m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
-	// Detect third-person by comparing rendered camera origin to the real eye origin.
-	// Use a small threshold + hysteresis to avoid flicker.
-	if (engineThirdPersonNow)
-		m_VR->m_ThirdPersonHoldFrames = 2;
-	else if (m_VR->m_ThirdPersonHoldFrames > 0)
-		m_VR->m_ThirdPersonHoldFrames--;
+	bool useThirdPerson = false;
+	bool usedEngineFlag = false;
+	bool usedDistanceFallback = false;
 
-	const bool engineThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	switch (m_VR->m_ThirdPersonDetectionMode)
+	{
+	case VR::ThirdPersonDetectionMode::EngineOnly:
+		useThirdPerson = engineThirdPersonFlag;
+		usedEngineFlag = useThirdPerson;
+		break;
+	case VR::ThirdPersonDetectionMode::DistanceOnly:
+		useThirdPerson = distanceThirdPerson;
+		usedDistanceFallback = useThirdPerson;
+		break;
+	case VR::ThirdPersonDetectionMode::Hybrid:
+	default:
+		if (engineThirdPersonFlag)
+		{
+			useThirdPerson = true;
+			usedEngineFlag = true;
+		}
+		else if (distanceThirdPerson && camDist > (m_VR->m_ThirdPersonDistanceThreshold + m_VR->m_ThirdPersonEngineSlack))
+		{
+			useThirdPerson = true;
+			usedDistanceFallback = true;
+		}
+		break;
+	}
+
+	m_VR->ReportThirdPersonDecision(useThirdPerson, usedEngineFlag, usedDistanceFallback, engineThirdPersonFlag, distanceThirdPerson, camDist);
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
-	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
+	m_VR->m_IsThirdPersonCamera = useThirdPerson;
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -271,14 +300,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.zNearViewmodel = 6;
 	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
 	m_VR->m_SetupOrigin = eyeOrigin;
-	if (!engineThirdPerson)
+	if (!useThirdPerson)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
 
-	if (engineThirdPerson)
+	if (useThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
 		// but aim the camera with the HMD so head look still works in third-person.
