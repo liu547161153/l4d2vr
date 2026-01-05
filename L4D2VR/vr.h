@@ -132,13 +132,15 @@ public:
 	bool m_IsThirdPersonCamera = false;
 	bool m_ObserverThirdPerson = false;
 	int m_ThirdPersonHoldFrames = 0;
+	int m_ThirdPersonDistanceHoldFrames = 2;
 	Vector m_ThirdPersonViewOrigin = { 0,0,0 };
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.5f;
-	ThirdPersonDetectionMode m_ThirdPersonDetectionMode = ThirdPersonDetectionMode::Hybrid;
+	ThirdPersonDetectionMode m_ThirdPersonDetectionMode = ThirdPersonDetectionMode::EngineOnly;
 	float m_ThirdPersonDistanceThreshold = 5.0f;
 	float m_ThirdPersonEngineSlack = 2.0f;
+	bool m_ThirdPersonDistanceFallbackEnabled = false;
 	bool m_LastThirdPersonState = false;
 	bool m_LastThirdPersonEngineFlag = false;
 	bool m_LastThirdPersonDistanceFlag = false;

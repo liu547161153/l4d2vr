@@ -241,9 +241,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	bool engineFlagAvailable = false;
 	const bool engineThirdPersonFlag = m_Game->IsEngineThirdPersonActive(&engineFlagAvailable);
-	const bool distanceThirdPersonNow = (localPlayer && camDist > m_VR->m_ThirdPersonDistanceThreshold);
+	const bool allowDistanceFallback = (m_VR->m_ThirdPersonDetectionMode == VR::ThirdPersonDetectionMode::DistanceOnly) || m_VR->m_ThirdPersonDistanceFallbackEnabled;
+	const bool distanceThirdPersonNow = allowDistanceFallback && localPlayer && (camDist > m_VR->m_ThirdPersonDistanceThreshold);
 	if (distanceThirdPersonNow)
-		m_VR->m_ThirdPersonHoldFrames = 2;
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, m_VR->m_ThirdPersonDistanceHoldFrames);
 	else if (m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 

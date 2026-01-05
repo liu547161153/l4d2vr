@@ -85,7 +85,7 @@ void VR::ReportThirdPersonDecision(bool isThirdPerson, bool usedEngine, bool use
         (usedEngine != m_LastThirdPersonUsedEngine) ||
         (usedDistance != m_LastThirdPersonUsedDistance);
     const bool sourceChanged = (engineFlag != m_LastThirdPersonEngineFlag) ||
-        (usedDistance != m_LastThirdPersonUsedDistance);
+        (distanceFlag != m_LastThirdPersonDistanceFlag);
 
     if (!stateChanged && !sourceChanged)
         return;
@@ -4369,6 +4369,8 @@ void VR::ParseConfigFile()
 
     m_ThirdPersonDistanceThreshold = std::max(0.0f, getFloat("ThirdPersonDistanceThreshold", m_ThirdPersonDistanceThreshold));
     m_ThirdPersonEngineSlack = std::max(0.0f, getFloat("ThirdPersonEngineSlack", m_ThirdPersonEngineSlack));
+    m_ThirdPersonDistanceFallbackEnabled = getBool("ThirdPersonDistanceFallbackEnabled", m_ThirdPersonDistanceFallbackEnabled);
+    m_ThirdPersonDistanceHoldFrames = std::max(0, getInt("ThirdPersonDistanceHoldFrames", m_ThirdPersonDistanceHoldFrames));
 
     // Non-VR server melee feel tuning (ForceNonVRServerMovement=true only)
     m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));
