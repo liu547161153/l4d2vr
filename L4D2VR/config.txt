@@ -23,6 +23,16 @@ ControllerSmoothing=0.0
 
 HideArms=false
 
+ThirdPersonDistanceThreshold=5.0
+ThirdPersonHorizontalThreshold=2.5
+ThirdPersonVerticalThreshold=1.25
+ThirdPersonAngleDeltaThreshold=50.0
+ThirdPersonHoldTimeMs=75
+ThirdPersonSignalsRequired=1
+ThirdPersonShoulderHint=false
+ThirdPersonDebugOverlay=false
+ThirdPersonDebugOverlayDuration=0.18
+
 RequireSecondaryAttackForItemSwitch=true
 VoiceRecordCombo=Crouch+Reload
 QuickTurnCombo=SecondaryAttack+Crouch
@@ -131,4 +141,3 @@ ScopeLookThroughDistanceMeters=0.6
 ScopeLookThroughAngleDeg=60
 ScopeOverlayAlwaysVisible=false
 ScopeOverlayIdleAlpha=0.5
-

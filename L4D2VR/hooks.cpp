@@ -27,6 +27,16 @@ static inline void NormalizeAndClampViewAngles(QAngle& a)
 	if (a.x < -89.f) a.x = -89.f;
 }
 
+static inline float AngleDiffDeg(float from, float to)
+{
+	float delta = std::fmodf(to - from, 360.0f);
+	if (delta > 180.0f)
+		delta -= 360.0f;
+	else if (delta < -180.0f)
+		delta += 360.0f;
+	return delta;
+}
+
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -237,23 +247,80 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (localPlayer)
 		eyeOrigin = localPlayer->EyePosition();
 
-	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
-	const float camDist = (setup.origin - eyeOrigin).Length();
-	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
+	Vector viewAngles = m_VR->GetViewAngle();
+	QAngle hmdAngles(viewAngles.x, viewAngles.y, viewAngles.z);
+	Vector camDelta = setup.origin - eyeOrigin;
+	const float camDist = camDelta.Length();
+	const float camHorizontal = Vector(camDelta.x, camDelta.y, 0.0f).Length();
+	const float camVertical = fabsf(camDelta.z);
+	const float yawDelta = fabsf(AngleDiffDeg(setup.angles.y, hmdAngles.y));
+	const float pitchDelta = fabsf(AngleDiffDeg(setup.angles.x, hmdAngles.x));
+	const float angleDelta = std::max(yawDelta, pitchDelta);
+	const bool distanceSignal = localPlayer && camDist > m_VR->m_ThirdPersonDistanceThreshold &&
+		(camHorizontal > m_VR->m_ThirdPersonHorizontalThreshold || camVertical > m_VR->m_ThirdPersonVerticalThreshold);
+	const bool angleSignal = angleDelta > m_VR->m_ThirdPersonAngleDeltaThreshold;
+	const bool shoulderSignal = m_VR->m_ThirdPersonShoulderHint;
+	int signalCount = 0;
+	signalCount += distanceSignal ? 1 : 0;
+	signalCount += angleSignal ? 1 : 0;
+	signalCount += shoulderSignal ? 1 : 0;
+
+	const auto now = std::chrono::steady_clock::now();
+	const float holdSeconds = std::max(0.0f, m_VR->m_ThirdPersonHoldTimeMs * 0.001f);
+	bool engineThirdPersonNow = (signalCount >= m_VR->m_ThirdPersonSignalsRequired);
+	if (engineThirdPersonNow && holdSeconds > 0.0f)
+		m_VR->m_ThirdPersonHoldUntil = now + std::chrono::duration<float>(holdSeconds);
+
+	const bool holdActive = holdSeconds > 0.0f && now < m_VR->m_ThirdPersonHoldUntil;
+	if (!engineThirdPersonNow && holdActive)
+		engineThirdPersonNow = true;
+
+	const float frameSeconds = std::max(m_VR->m_LastFrameDuration, 1.0f / 240.0f);
+	if (engineThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = static_cast<int>(std::ceil(holdSeconds / frameSeconds));
+	else if (holdActive)
+		m_VR->m_ThirdPersonHoldFrames = static_cast<int>(std::ceil(std::chrono::duration<float>(m_VR->m_ThirdPersonHoldUntil - now).count() / frameSeconds));
+	else
+		m_VR->m_ThirdPersonHoldFrames = 0;
+
+	const bool engineThirdPerson = engineThirdPersonNow;
+
+	m_VR->m_ThirdPersonLastCamDistance = camDist;
+	m_VR->m_ThirdPersonLastHorizontalDistance = camHorizontal;
+	m_VR->m_ThirdPersonLastVerticalDistance = camVertical;
+	m_VR->m_ThirdPersonLastAngleDelta = angleDelta;
+	m_VR->m_ThirdPersonLastSignalCount = signalCount;
+
+	// Track signals for third-person camera use. Distance/angle checks reduce jitter from small camera offsets.
+	static bool s_prevThirdPerson = false;
+	if (engineThirdPerson != s_prevThirdPerson)
+	{
+		Game::logMsg("[VR] Third-person detection %s (signals=%d dist=%.2f h=%.2f v=%.2f ang=%.1f hold=%.0fms%s)",
+			engineThirdPerson ? "ON" : "OFF", signalCount, camDist, camHorizontal, camVertical, angleDelta,
+			holdSeconds * 1000.0f, holdActive ? " (holding)" : "");
+	}
+	s_prevThirdPerson = engineThirdPerson;
+
+	if (m_VR->m_ThirdPersonDebugOverlayEnabled && m_Game->m_DebugOverlay)
+	{
+		const float overlayDuration = std::max(m_VR->m_ThirdPersonDebugOverlayDuration, m_VR->m_LastFrameDuration * 2.0f);
+		const int overlayR = engineThirdPerson ? 0 : 255;
+		const int overlayG = engineThirdPerson ? 200 : 128;
+		const int overlayB = engineThirdPerson ? 255 : 64;
+		const int overlayIndex = (playerIndex > 0) ? playerIndex : 0;
+		m_Game->m_DebugOverlay->AddEntityTextOverlay(overlayIndex, 0, overlayDuration, overlayR, overlayG, overlayB, 255,
+			"3P:%s sig:%d dist:%.2f h:%.2f v:%.2f ang:%.1f hold:%d",
+			engineThirdPerson ? "Y" : "N", signalCount, camDist, camHorizontal, camVertical, angleDelta, m_VR->m_ThirdPersonHoldFrames);
+		m_Game->m_DebugOverlay->AddLineOverlay(eyeOrigin, setup.origin, overlayR, overlayG, overlayB, true, overlayDuration);
+	}
+
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
 	m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
-	// Detect third-person by comparing rendered camera origin to the real eye origin.
-	// Use a small threshold + hysteresis to avoid flicker.
-	if (engineThirdPersonNow)
-		m_VR->m_ThirdPersonHoldFrames = 2;
-	else if (m_VR->m_ThirdPersonHoldFrames > 0)
-		m_VR->m_ThirdPersonHoldFrames--;
-
-	const bool engineThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
-	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
+	// Expose the evaluated third-person camera state (distance/angle signals + timed hold)
+	// to VR helpers (aim line, overlays, etc.).
 	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
@@ -276,7 +343,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
-	Vector viewAngles = m_VR->GetViewAngle();
 
 	if (engineThirdPerson)
 	{

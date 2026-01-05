@@ -2596,7 +2596,8 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
 
     Vector originBase = m_RightControllerPosAbs;
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+    const float camDeltaThresholdSq = m_ThirdPersonDistanceThreshold * m_ThirdPersonDistanceThreshold;
+    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > camDeltaThresholdSq)
         originBase += camDelta;
 
     Vector origin = originBase + direction * 2.0f;
@@ -2713,7 +2714,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     // We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
     Vector originBase = m_RightControllerPosAbs;
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+    const float camDeltaThresholdSq = m_ThirdPersonDistanceThreshold * m_ThirdPersonDistanceThreshold;
+    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > camDeltaThresholdSq)
         originBase += camDelta;
 
     Vector origin = originBase + direction * 2.0f;
@@ -4263,6 +4265,16 @@ void VR::ParseConfigFile()
     else
         headSmoothingValue = controllerSmoothingValue; // Match controller smoothing by default
     m_HeadSmoothing = std::clamp(headSmoothingValue, 0.0f, 0.99f);
+
+    m_ThirdPersonDistanceThreshold = std::max(0.0f, getFloat("ThirdPersonDistanceThreshold", m_ThirdPersonDistanceThreshold));
+    m_ThirdPersonHorizontalThreshold = std::max(0.0f, getFloat("ThirdPersonHorizontalThreshold", m_ThirdPersonHorizontalThreshold));
+    m_ThirdPersonVerticalThreshold = std::max(0.0f, getFloat("ThirdPersonVerticalThreshold", m_ThirdPersonVerticalThreshold));
+    m_ThirdPersonAngleDeltaThreshold = std::max(0.0f, getFloat("ThirdPersonAngleDeltaThreshold", m_ThirdPersonAngleDeltaThreshold));
+    m_ThirdPersonHoldTimeMs = std::clamp(getFloat("ThirdPersonHoldTimeMs", m_ThirdPersonHoldTimeMs), 0.0f, 1000.0f);
+    m_ThirdPersonSignalsRequired = std::max(1, getInt("ThirdPersonSignalsRequired", m_ThirdPersonSignalsRequired));
+    m_ThirdPersonShoulderHint = getBool("ThirdPersonShoulderHint", m_ThirdPersonShoulderHint);
+    m_ThirdPersonDebugOverlayEnabled = getBool("ThirdPersonDebugOverlay", m_ThirdPersonDebugOverlayEnabled);
+    m_ThirdPersonDebugOverlayDuration = std::max(0.01f, getFloat("ThirdPersonDebugOverlayDuration", m_ThirdPersonDebugOverlayDuration));
     m_MotionGestureSwingThreshold = std::max(0.0f, getFloat("MotionGestureSwingThreshold", m_MotionGestureSwingThreshold));
     m_MotionGestureDownSwingThreshold = std::max(0.0f, getFloat("MotionGestureDownSwingThreshold", m_MotionGestureDownSwingThreshold));
     m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));

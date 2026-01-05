@@ -129,6 +129,21 @@ public:
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.5f;
+	float m_ThirdPersonDistanceThreshold = 5.0f;
+	float m_ThirdPersonHorizontalThreshold = 2.5f;
+	float m_ThirdPersonVerticalThreshold = 1.25f;
+	float m_ThirdPersonAngleDeltaThreshold = 50.0f;
+	float m_ThirdPersonHoldTimeMs = 75.0f;
+	int m_ThirdPersonSignalsRequired = 1;
+	bool m_ThirdPersonShoulderHint = false;
+	bool m_ThirdPersonDebugOverlayEnabled = false;
+	float m_ThirdPersonDebugOverlayDuration = 0.18f;
+	std::chrono::steady_clock::time_point m_ThirdPersonHoldUntil{};
+	float m_ThirdPersonLastCamDistance = 0.0f;
+	float m_ThirdPersonLastHorizontalDistance = 0.0f;
+	float m_ThirdPersonLastVerticalDistance = 0.0f;
+	float m_ThirdPersonLastAngleDelta = 0.0f;
+	int m_ThirdPersonLastSignalCount = 0;
 
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
