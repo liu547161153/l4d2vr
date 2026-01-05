@@ -1365,15 +1365,53 @@ void VR::ProcessInput()
     bool inventoryGripActiveLeft = false;
     bool inventoryGripActiveRight = false;
 
+    // Back inventory gesture: prefer drawing the primary weapon (slot1).
+    // If the player has no primary weapon, fall back to secondary (slot2).
+    // If you're already holding primary, switch to secondary (and vice versa) when both exist.
     auto togglePrimarySecondary = [&]()
         {
-            C_WeaponCSBase* activeWeapon = localPlayer ? static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon()) : nullptr;
-            const int currentSlot = getWeaponSlot(activeWeapon);
-            const char* targetSlotCmd = "slot1";
+            if (!localPlayer)
+                return;
 
-            if (currentSlot == 1)
-                targetSlotCmd = "slot2";
-            m_Game->ClientCmd_Unrestricted(targetSlotCmd);
+            // Weapon_GetSlot uses 0-based slots (0=slot1/primary, 1=slot2/secondary).
+            C_BaseCombatWeapon* primary = reinterpret_cast<C_BaseCombatWeapon*>(localPlayer->Weapon_GetSlot(0));
+            C_BaseCombatWeapon* secondary = reinterpret_cast<C_BaseCombatWeapon*>(localPlayer->Weapon_GetSlot(1));
+            C_BaseCombatWeapon* active = localPlayer->GetActiveWeapon();
+
+            const bool havePrimary = (primary != nullptr);
+            const bool haveSecondary = (secondary != nullptr);
+            const bool activeIsPrimary = havePrimary && active && (active == primary);
+            const bool activeIsSecondary = haveSecondary && active && (active == secondary);
+
+            const char* targetSlotCmd = nullptr;
+
+            if (activeIsPrimary)
+            {
+                // Already holding primary: swap to secondary if available.
+                if (haveSecondary)
+                    targetSlotCmd = "slot2";
+                else
+                    targetSlotCmd = "slot1";
+            }
+            else if (activeIsSecondary)
+            {
+                // Already holding secondary: swap to primary if available.
+                if (havePrimary)
+                    targetSlotCmd = "slot1";
+                else
+                    targetSlotCmd = "slot2";
+            }
+            else
+            {
+                // Holding something else (items, empty hands, etc.): prefer primary, else secondary.
+                if (havePrimary)
+                    targetSlotCmd = "slot1";
+                else if (haveSecondary)
+                    targetSlotCmd = "slot2";
+            }
+
+            if (targetSlotCmd)
+                m_Game->ClientCmd_Unrestricted(targetSlotCmd);
         };
 
     auto handleGripInventoryGesture = [&](const Vector& controllerPos, bool gripDown, bool gripJustPressed, bool isRightHand)

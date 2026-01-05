@@ -41,7 +41,7 @@ MotionGestureJumpThreshold=2.0
 MotionGestureCooldown=0.8
 MotionGestureHoldDuration=0.2
 
-NonVRMeleeSwingThreshold=1.5
+NonVRMeleeSwingThreshold=100
 NonVRMeleeSwingCooldown=1.2
 NonVRMeleeHoldTime=0.06
 NonVRMeleeAimLockTime=0.35
@@ -96,7 +96,7 @@ SpecialInfectedPreWarningTargetUpdateInterval=0.1
 SpecialInfectedWarningSecondaryHoldDuration=0.05
 SpecialInfectedWarningPostAttackDelay=0.1
 SpecialInfectedWarningJumpHoldDuration=0.3
-SpecialInfectedDebug=false
+SpecialInfectedDebug=true
 
 SpecialInfectedPreWarningAimOffsetBoomer=5,0,60
 SpecialInfectedPreWarningAimOffsetSmoker=-2,0,61
