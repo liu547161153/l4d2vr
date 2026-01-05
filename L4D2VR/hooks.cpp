@@ -1,4 +1,4 @@
-﻿#include "hooks.h"
+#include "hooks.h"
 #include "game.h"
 #include "texture.h"
 #include "sdk.h"

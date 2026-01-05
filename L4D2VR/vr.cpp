@@ -1,4 +1,4 @@
-﻿
+
 #include "vr.h"
 #include <Windows.h>
 #include "sdk.h"
