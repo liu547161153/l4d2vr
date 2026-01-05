@@ -4,8 +4,8 @@ TurnSpeed=0.2
 SnapTurning=false
 SnapTurnAngle=45.0
 LeftHanded=false
-AntiAliasing=2
-ForceNonVRServerMovement=true
+AntiAliasing=0
+ForceNonVRServerMovement=false
 
 HudDistance=1.3
 HudSize=1.8
@@ -13,7 +13,7 @@ HudAlwaysVisible=true
 FixedHudYOffset=0.25
 FixedHudDistanceOffset=0.25
 
-ControllerHudCut=true
+ControllerHudCut=false
 ControllerHudSize=0.1
 ControllerHudXOffset=0.1
 ControllerHudYOffset=0.1
@@ -22,8 +22,6 @@ ControllerHudRotation=-60
 ControllerSmoothing=0.0
 
 HideArms=false
-DebugHandsEnabled=true
-DebugHandColor=0,200,255,255
 
 RequireSecondaryAttackForItemSwitch=true
 VoiceRecordCombo=Crouch+Reload
@@ -70,7 +68,7 @@ CustomAction3Command=+walk
 CustomAction4Command=
 CustomAction5Command=
 
-SpecialInfectedArrowEnabled=true
+SpecialInfectedArrowEnabled=false
 SpecialInfectedArrowSize=15.0
 SpecialInfectedArrowHeight=90.0
 SpecialInfectedArrowThickness=0.4
@@ -84,7 +82,7 @@ SpecialInfectedArrowColorCharger=0,200,200,255
 SpecialInfectedArrowColorTank=255,0,0,255
 SpecialInfectedArrowColorWitch=255,0,0,255
 
-SpecialInfectedAutoEvade=true
+SpecialInfectedAutoEvade=false
 SpecialInfectedBlindSpotDistance=105.0
 SpecialInfectedPreWarningEvadeDistance=180.0
 SpecialInfectedPreWarningDistance=800.0
@@ -98,7 +96,7 @@ SpecialInfectedPreWarningTargetUpdateInterval=0.1
 SpecialInfectedWarningSecondaryHoldDuration=0.05
 SpecialInfectedWarningPostAttackDelay=0.1
 SpecialInfectedWarningJumpHoldDuration=0.3
-SpecialInfectedDebug=true
+SpecialInfectedDebug=false
 
 SpecialInfectedPreWarningAimOffsetBoomer=5,0,60
 SpecialInfectedPreWarningAimOffsetSmoker=-2,0,61
@@ -133,5 +131,4 @@ ScopeLookThroughDistanceMeters=0.6
 ScopeLookThroughAngleDeg=60
 ScopeOverlayAlwaysVisible=false
 ScopeOverlayIdleAlpha=0.5
-ScopeStabilization=0.38
-ScopeStabilizationDeadzoneDeg=0.20
+
