@@ -2401,6 +2401,11 @@ void VR::UpdateTracking()
         m_ScopeActive = false;
     }
 
+    // If the user disabled aim lines, temporarily enable them while looking through the scope.
+    // When the scope closes, revert to the original disabled state instead of turning off a
+    // user-enabled aim line.
+    m_AimLineScopeOverride = (!m_AimLineEnabled && m_ScopeEnabled && m_ScopeActive);
+
     // Non-VR servers only understand cmd->viewangles. When ForceNonVRServerMovement is enabled,
     // solve an eye-based aim hit point so rendered aim line and real hit point stay consistent.
     UpdateNonVRAimSolution(localPlayer);
@@ -2774,7 +2779,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
 bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
 {
-    if (!m_AimLineEnabled || !weapon)
+    const bool aimLineRequested = m_AimLineEnabled || m_AimLineScopeOverride;
+
+    if (!aimLineRequested || !weapon)
         return false;
 
     switch (weapon->GetWeaponID())
@@ -2860,7 +2867,7 @@ float VR::CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMa
 
 void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
-    if (!m_AimLineEnabled)
+    if (!m_AimLineEnabled && !m_AimLineScopeOverride)
         return;
 
     // Throttle expensive overlay geometry. Duration persistence keeps it visible.
@@ -2869,7 +2876,7 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 
     // Keep the overlay alive for at least two frames so it doesn't disappear when the framerate drops.
     const float duration = std::max(std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier), MinIntervalSeconds(m_AimLineMaxHz));
-    if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
+    if (!m_Game->m_DebugOverlay || (!m_AimLineEnabled && !m_AimLineScopeOverride))
         return;
 
     DrawLineWithThickness(start, end, duration);
@@ -2877,7 +2884,7 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 
 void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource)
 {
-    if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
+    if (!m_Game->m_DebugOverlay || (!m_AimLineEnabled && !m_AimLineScopeOverride))
         return;
 
     Vector direction = forward;

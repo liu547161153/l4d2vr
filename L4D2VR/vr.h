@@ -172,6 +172,7 @@ public:
 	bool m_HasAimLine = false;
 	float m_AimLineThickness = 2.0f;
 	bool m_AimLineEnabled = true;
+	bool m_AimLineScopeOverride = false;
 	bool m_MeleeAimLineEnabled = true;
 	float m_AimLinePersistence = 0.02f;
 	float m_AimLineFrameDurationMultiplier = 2.0f;
