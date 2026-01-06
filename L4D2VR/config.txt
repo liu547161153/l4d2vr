@@ -5,6 +5,7 @@ SnapTurning=false
 SnapTurnAngle=45.0
 LeftHanded=false
 AntiAliasing=0
+ThirdPersonVRCameraOffset=50
 ForceNonVRServerMovement=false
 
 HudDistance=1.3
