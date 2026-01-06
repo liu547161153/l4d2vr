@@ -129,7 +129,7 @@ public:
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.5f;
-
+	float m_ThirdPersonVRCameraOffset = 80.0f;
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
 	Vector m_RightControllerPosAbs;
