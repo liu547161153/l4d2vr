@@ -319,10 +319,8 @@ void VR::CreateVRTextures()
 
     m_CreatingTextureID = Texture_LeftEye;
     m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
-
     m_CreatingTextureID = Texture_RightEye;
     m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
-
     m_CreatingTextureID = Texture_HUD;
     m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
@@ -1365,9 +1363,6 @@ void VR::ProcessInput()
     bool inventoryGripActiveLeft = false;
     bool inventoryGripActiveRight = false;
 
-    // Back inventory gesture: prefer drawing the primary weapon (slot1).
-    // If the player has no primary weapon, fall back to secondary (slot2).
-    // If you're already holding primary, switch to secondary (and vice versa) when both exist.
     auto togglePrimarySecondary = [&]()
         {
             if (!localPlayer)
@@ -4234,6 +4229,7 @@ void VR::ParseConfigFile()
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
+    m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
@@ -4244,8 +4240,8 @@ void VR::ParseConfigFile()
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
     m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
-    m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_HudToggleState = m_HudAlwaysVisible;
+    m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
     float controllerSmoothingValue = m_ControllerSmoothing;
