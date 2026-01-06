@@ -16,7 +16,7 @@
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
 // - Then clamp pitch to [-89, 89].
-static inline void NormalizeAndClampViewAngles(QAngle& a)
+static inline void NormalizeAndClampViewAngles(QAngle & a)
 {
 	while (a.x > 180.f) a.x -= 360.f;
 	while (a.x < -180.f) a.x += 360.f;
@@ -240,12 +240,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
-
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
 	m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
-
 
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
@@ -298,6 +296,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		Vector camCenter = setup.origin + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
+		// Expose the *rendered* camera origin (after VR-only offset) so aim lines/convergence use the true view.
+		m_VR->m_ThirdPersonViewOrigin = camCenter;
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
 	}
