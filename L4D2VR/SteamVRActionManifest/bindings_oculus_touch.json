@@ -118,7 +118,16 @@
                "mode" : "button",
                "path" : "/user/hand/right/input/b"
             },
-			{
+            {
+               "inputs" : {
+                  "click" : {
+                     "output" : "/actions/main/in/ScopeMagnificationToggle"
+                  }
+               },
+               "mode" : "button",
+               "path" : "/user/hand/right/input/a"
+            },
+            {
                "inputs" : {
                   "click" : {
                      "output" : "/actions/main/in/ActivateVR"
@@ -223,4 +232,3 @@
    "options" : {},
    "simulated_actions" : []
 }
-

@@ -234,6 +234,7 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/ToggleHUD", &m_ToggleHUD);
     m_Input->GetActionHandle("/actions/main/in/Pause", &m_Pause);
     m_Input->GetActionHandle("/actions/main/in/NonVRServerMovementAngleToggle", &m_NonVRServerMovementAngleToggle);
+    m_Input->GetActionHandle("/actions/main/in/ScopeMagnificationToggle", &m_ActionScopeMagnificationToggle);
     m_Input->GetActionHandle("/actions/main/in/CustomAction1", &m_CustomAction1);
     m_Input->GetActionHandle("/actions/main/in/CustomAction2", &m_CustomAction2);
     m_Input->GetActionHandle("/actions/main/in/CustomAction3", &m_CustomAction3);
@@ -1164,6 +1165,11 @@ void VR::ProcessInput()
     bool nonVrServerMovementToggleJustPressed = false;
     [[maybe_unused]] bool nonVrServerMovementToggleDataValid = getActionState(&m_NonVRServerMovementAngleToggle, nonVrServerMovementToggleActionData, nonVrServerMovementToggleDown, nonVrServerMovementToggleJustPressed);
 
+    vr::InputDigitalActionData_t scopeMagnificationToggleActionData{};
+    [[maybe_unused]] bool scopeMagnificationToggleDown = false;
+    bool scopeMagnificationToggleJustPressed = false;
+    [[maybe_unused]] bool scopeMagnificationToggleDataValid = getActionState(&m_ActionScopeMagnificationToggle, scopeMagnificationToggleActionData, scopeMagnificationToggleDown, scopeMagnificationToggleJustPressed);
+
     C_BasePlayer* localPlayer = nullptr;
     {
         const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
@@ -1498,6 +1504,11 @@ void VR::ProcessInput()
     if (nonVrServerMovementToggleJustPressed)
     {
         m_NonVRServerMovementAngleOverride = !m_NonVRServerMovementAngleOverride;
+    }
+
+    if (scopeMagnificationToggleJustPressed)
+    {
+        CycleScopeMagnification();
     }
 
     if (primaryAttackDown)
@@ -2396,6 +2407,8 @@ void VR::UpdateTracking()
         m_ScopeActive = false;
     }
 
+    UpdateScopeAimLineState();
+
     // Non-VR servers only understand cmd->viewangles. When ForceNonVRServerMovement is enabled,
     // solve an eye-based aim hit point so rendered aim line and real hit point stay consistent.
     UpdateNonVRAimSolution(localPlayer);
@@ -2815,6 +2828,50 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
         return m_MeleeAimLineEnabled;
     default:
         return false;
+    }
+}
+
+void VR::CycleScopeMagnification()
+{
+    if (!m_ScopeEnabled || m_ScopeMagnificationOptions.empty())
+        return;
+
+    m_ScopeMagnificationIndex = (m_ScopeMagnificationIndex + 1) % m_ScopeMagnificationOptions.size();
+    m_ScopeFov = std::clamp(m_ScopeMagnificationOptions[m_ScopeMagnificationIndex], 1.0f, 179.0f);
+
+    Game::logMsg("[VR] Scope magnification set to %.2f", m_ScopeFov);
+}
+
+void VR::UpdateScopeAimLineState()
+{
+    if (m_AimLineConfigEnabled)
+    {
+        m_ScopeForcingAimLine = false;
+        return;
+    }
+
+    if (!m_ScopeEnabled)
+    {
+        if (m_ScopeForcingAimLine)
+        {
+            m_AimLineEnabled = false;
+            m_HasAimLine = false;
+            m_ScopeForcingAimLine = false;
+        }
+        return;
+    }
+
+    const bool scopeActive = IsScopeActive();
+    if (scopeActive && !m_AimLineEnabled)
+    {
+        m_AimLineEnabled = true;
+        m_ScopeForcingAimLine = true;
+    }
+    else if (!scopeActive && m_ScopeForcingAimLine)
+    {
+        m_AimLineEnabled = false;
+        m_HasAimLine = false;
+        m_ScopeForcingAimLine = false;
     }
 }
 
@@ -3987,6 +4044,33 @@ void VR::ParseConfigFile()
         return result;
         };
 
+    auto getFloatList = [&](const char* k) -> std::vector<float>
+        {
+            std::vector<float> values;
+            auto it = userConfig.find(k);
+            if (it == userConfig.end())
+                return values;
+
+            std::stringstream ss(it->second);
+            std::string token;
+            while (std::getline(ss, token, ','))
+            {
+                trim(token);
+                if (token.empty())
+                    continue;
+
+                try
+                {
+                    values.push_back(std::stof(token));
+                }
+                catch (...)
+                {
+                }
+            }
+
+            return values;
+        };
+
     auto getString = [&](const char* k, const std::string& defVal)->std::string {
         auto it = userConfig.find(k);
         if (it == userConfig.end())
@@ -4267,6 +4351,7 @@ void VR::ParseConfigFile()
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
+    m_AimLineConfigEnabled = m_AimLineEnabled;
     m_MeleeAimLineEnabled = getBool("MeleeAimLineEnabled", m_MeleeAimLineEnabled);
     auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
     m_AimLineColorR = aimColor[0];
@@ -4284,6 +4369,33 @@ void VR::ParseConfigFile()
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);
     m_ScopeFov = std::clamp(getFloat("ScopeFov", m_ScopeFov), 1.0f, 179.0f);
     m_ScopeZNear = std::clamp(getFloat("ScopeZNear", m_ScopeZNear), 0.1f, 64.0f);
+    {
+        const float configuredScopeFov = m_ScopeFov;
+        const auto magnifications = getFloatList("ScopeMagnification");
+        if (!magnifications.empty())
+        {
+            m_ScopeMagnificationOptions.clear();
+            for (float mag : magnifications)
+            {
+                if (std::isfinite(mag))
+                    m_ScopeMagnificationOptions.push_back(std::clamp(mag, 1.0f, 179.0f));
+            }
+        }
+
+        if (m_ScopeMagnificationOptions.empty())
+            m_ScopeMagnificationOptions.push_back(m_ScopeFov);
+
+        m_ScopeMagnificationIndex = 0;
+        for (size_t i = 0; i < m_ScopeMagnificationOptions.size(); ++i)
+        {
+            if (fabs(m_ScopeMagnificationOptions[i] - configuredScopeFov) < 0.01f)
+            {
+                m_ScopeMagnificationIndex = i;
+                break;
+            }
+        }
+        m_ScopeFov = std::clamp(m_ScopeMagnificationOptions[m_ScopeMagnificationIndex], 1.0f, 179.0f);
+    }
     m_ScopeCameraOffset = getVector3("ScopeCameraOffset", m_ScopeCameraOffset);
     { Vector tmp = getVector3("ScopeCameraAngleOffset", Vector{ m_ScopeCameraAngleOffset.x, m_ScopeCameraAngleOffset.y, m_ScopeCameraAngleOffset.z }); m_ScopeCameraAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
 
