@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 #define MAX_STR_LEN 256
 
 class Game;
@@ -172,6 +173,8 @@ public:
 	bool m_HasAimLine = false;
 	float m_AimLineThickness = 2.0f;
 	bool m_AimLineEnabled = true;
+	bool m_AimLineConfigEnabled = true;
+	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
 	float m_AimLinePersistence = 0.02f;
 	float m_AimLineFrameDurationMultiplier = 2.0f;
@@ -303,6 +306,7 @@ public:
 	vr::VRActionHandle_t m_CustomAction3;
 	vr::VRActionHandle_t m_CustomAction4;
 	vr::VRActionHandle_t m_CustomAction5;
+	vr::VRActionHandle_t m_ActionScopeMagnificationToggle;
 
 	TrackedDevicePoseData m_HmdPose;
 	TrackedDevicePoseData m_LeftControllerPose;
@@ -515,6 +519,8 @@ public:
 	int   m_ScopeRTTSize = 1024;               // square RTT size in pixels
 	float m_ScopeFov = 20.0f;                  // smaller = more zoom
 	float m_ScopeZNear = 2.0f;                 // game units
+	std::vector<float> m_ScopeMagnificationOptions{ 20.0f, 15.0f, 10.0f, 5.0f };
+	size_t m_ScopeMagnificationIndex = 0;
 
 	// Scope camera pose relative to gun hand (game units, in controller basis fwd/right/up)
 	Vector m_ScopeCameraOffset = { 10.0f, 0.0f, 2.0f };
@@ -543,6 +549,8 @@ public:
 	QAngle GetScopeCameraAbsAngle() const { return m_ScopeCameraAngAbs; }
 	bool   IsScopeActive() const { return m_ScopeEnabled && m_ScopeActive; }
 	bool   ShouldRenderScope() const { return m_ScopeEnabled && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
+	void   CycleScopeMagnification();
+	void   UpdateScopeAimLineState();
 
 	VR() {};
 	VR(Game* game);
