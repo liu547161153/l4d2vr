@@ -1,4 +1,4 @@
-﻿#include "hooks.h"
+#include "hooks.h"
 #include "game.h"
 #include "texture.h"
 #include "sdk.h"
@@ -240,10 +240,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
+
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
 	m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+
 
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
@@ -294,6 +296,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
 		Vector camCenter = setup.origin + (fwd * (-eyeZ));
+		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
+			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
 	}
