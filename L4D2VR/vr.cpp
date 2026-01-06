@@ -179,22 +179,79 @@ VR::VR(Game* game)
     const vr::HmdVector2_t mouseScaleMenu = { m_RenderWidth, m_RenderHeight };
     m_Overlay->SetOverlayMouseScale(m_MainMenuHandle, &mouseScaleMenu);
 
-    UpdatePosesAndActions();
-    FinishFrame();
+	UpdatePosesAndActions();
+	FinishFrame();
 
-    m_IsInitialized = true;
-    m_IsVREnabled = true;
+	InitializeCameraMode();
+
+	m_IsInitialized = true;
+	m_IsVREnabled = true;
 }
 
 void VR::ConfigureExplicitTiming()
 {
-    if (!m_Compositor)
-        return;
+	if (!m_Compositor)
+		return;
 
-    m_Compositor->SetExplicitTimingMode(
-        vr::VRCompositorTimingMode_Explicit_ApplicationPerformsPostPresentHandoff);
+	m_Compositor->SetExplicitTimingMode(
+		vr::VRCompositorTimingMode_Explicit_ApplicationPerformsPostPresentHandoff);
 
-    m_CompositorExplicitTiming = true;
+	m_CompositorExplicitTiming = true;
+}
+
+void VR::ApplyCameraCollision(bool enable)
+{
+	if (m_CamCollisionEnabled == enable)
+		return;
+
+	m_CamCollisionEnabled = enable;
+	if (m_Game)
+		m_Game->ClientCmd_Unrestricted(enable ? "cam_collision 1" : "cam_collision 0");
+}
+
+void VR::SetCameraMode(CameraMode mode, bool lockThirdPerson)
+{
+	const bool modeChanged = (m_CameraMode != mode);
+	m_CameraMode = mode;
+	m_ThirdPersonModeLocked = (mode == CameraMode::ThirdPerson) && lockThirdPerson;
+
+	if (mode == CameraMode::FirstPerson)
+	{
+		m_ThirdPersonHoldFrames = 0;
+	}
+
+	if (modeChanged)
+	{
+		ApplyCameraCollision(mode == CameraMode::ThirdPerson);
+	}
+	else if (m_ThirdPersonModeLocked && mode == CameraMode::ThirdPerson)
+	{
+		ApplyCameraCollision(true);
+	}
+}
+
+void VR::InitializeCameraMode()
+{
+	m_CameraMode = CameraMode::FirstPerson;
+	m_ThirdPersonModeLocked = false;
+	m_ThirdPersonHoldFrames = 0;
+	m_CamCollisionEnabled = true; // Force an update on first call
+	ApplyCameraCollision(false);
+}
+
+void VR::RequestThirdPersonShoulder()
+{
+	SetCameraMode(CameraMode::ThirdPerson, true);
+}
+
+void VR::RequestFirstPerson()
+{
+	SetCameraMode(CameraMode::FirstPerson, false);
+}
+
+bool VR::ShouldForceThirdPersonCamera() const
+{
+	return m_ThirdPersonModeLocked && m_CameraMode == CameraMode::ThirdPerson;
 }
 
 int VR::SetActionManifest(const char* fileName)

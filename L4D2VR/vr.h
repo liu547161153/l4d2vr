@@ -54,6 +54,12 @@ struct CustomActionBinding
 class VR
 {
 public:
+	enum class CameraMode
+	{
+		FirstPerson,
+		ThirdPerson
+	};
+
 	Game* m_Game = nullptr;
 
 	vr::IVRSystem* m_System = nullptr;
@@ -129,6 +135,9 @@ public:
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.5f;
+	bool m_ThirdPersonModeLocked = false;
+	CameraMode m_CameraMode = CameraMode::FirstPerson;
+	bool m_CamCollisionEnabled = false;
 
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
@@ -623,4 +632,12 @@ public:
 	void GetAimLineColor(int& r, int& g, int& b, int& a) const;
 	void FinishFrame();
 	void ConfigureExplicitTiming();
+	void InitializeCameraMode();
+	void RequestThirdPersonShoulder();
+	void RequestFirstPerson();
+	bool ShouldForceThirdPersonCamera() const;
+	bool IsThirdPersonModeLocked() const { return m_ThirdPersonModeLocked; }
+	bool IsThirdPersonUserMode() const { return m_CameraMode == CameraMode::ThirdPerson; }
+	void SetCameraMode(CameraMode mode, bool lockThirdPerson);
+	void ApplyCameraCollision(bool enable);
 };

@@ -83,6 +83,8 @@ typedef void(__thiscall* tPopRenderTargetAndViewport)(void* thisptr);
 typedef void(__thiscall* tVgui_Paint)(void* thisptr, int mode);
 typedef int(__cdecl* tIsSplitScreen)();
 typedef DWORD* (__thiscall* tPrePushRenderTarget)(void* thisptr, int a2);
+typedef void* (__thiscall* tClientCmd)(void* thisptr, const char* szCmdString);
+typedef void* (__thiscall* tClientCmdUnrestricted)(void* thisptr, const char* szCmdString);
 
 
 class Hooks
@@ -119,6 +121,8 @@ public:
 	static inline Hook<tVgui_Paint> hkVgui_Paint;
 	static inline Hook<tIsSplitScreen> hkIsSplitScreen;
 	static inline Hook<tPrePushRenderTarget> hkPrePushRenderTarget;
+	static inline Hook<tClientCmd> hkClientCmd;
+	static inline Hook<tClientCmdUnrestricted> hkClientCmdUnrestricted;
 	static bool s_ServerUnderstandsVR;
 
 	Hooks() {};
@@ -157,6 +161,8 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
+	static void* __fastcall dClientCmd(void* ecx, void* edx, const char* szCmdString);
+	static void* __fastcall dClientCmdUnrestricted(void* ecx, void* edx, const char* szCmdString);
 
 	static inline int m_PushHUDStep;
 	static inline bool m_PushedHud;

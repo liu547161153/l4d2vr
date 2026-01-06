@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <cctype>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -25,6 +26,41 @@ static inline void NormalizeAndClampViewAngles(QAngle& a)
 	a.z = 0.f;
 	if (a.x > 89.f) a.x = 89.f;
 	if (a.x < -89.f) a.x = -89.f;
+}
+
+static bool CommandMatchesToken(const char* cmd, const char* token)
+{
+	if (!cmd || !token)
+		return false;
+
+	while (*cmd && std::isspace(static_cast<unsigned char>(*cmd)))
+		++cmd;
+
+	const char* end = cmd;
+	while (*end && !std::isspace(static_cast<unsigned char>(*end)) && *end != ';')
+		++end;
+
+	const size_t len = static_cast<size_t>(end - cmd);
+	const size_t tokenLen = std::strlen(token);
+	if (len != tokenLen)
+		return false;
+
+	return _strnicmp(cmd, token, len) == 0;
+}
+
+static void HandleCameraCommand(const char* cmd)
+{
+	if (!Hooks::m_VR)
+		return;
+
+	if (CommandMatchesToken(cmd, "thirdpersonshoulder"))
+	{
+		Hooks::m_VR->RequestThirdPersonShoulder();
+	}
+	else if (CommandMatchesToken(cmd, "firstperson"))
+	{
+		Hooks::m_VR->RequestFirstPerson();
+	}
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -70,6 +106,10 @@ Hooks::Hooks(Game* game)
 	hkVgui_Paint.enableHook();
 	hkIsSplitScreen.enableHook();
 	hkPrePushRenderTarget.enableHook();
+	if (hkClientCmd.pTarget)
+		hkClientCmd.enableHook();
+	if (hkClientCmdUnrestricted.pTarget)
+		hkClientCmdUnrestricted.enableHook();
 }
 
 Hooks::~Hooks()
@@ -161,6 +201,19 @@ int Hooks::initSourceHooks()
 	LPVOID PrePushRenderTargetAddr = (LPVOID)(m_Game->m_Offsets->PrePushRenderTarget.address);
 	hkPrePushRenderTarget.createHook(PrePushRenderTargetAddr, &dPrePushRenderTarget);
 
+	// Hook client commands to monitor view mode toggles.
+	void*** engineClientPtr = reinterpret_cast<void***>(m_Game->m_EngineClient);
+	void** engineClientVTable = (engineClientPtr != nullptr) ? *engineClientPtr : nullptr;
+	if (engineClientVTable)
+	{
+		hkClientCmd.createHook(engineClientVTable[7], &dClientCmd);
+		hkClientCmdUnrestricted.createHook(engineClientVTable[107], &dClientCmdUnrestricted);
+	}
+	else
+	{
+		Game::errorMsg("Engine client vtable pointer was null; command hooks not installed");
+	}
+
 	uintptr_t clientModeAddress = m_Game->m_Offsets->g_pClientMode.address;
 	if (!clientModeAddress)
 	{
@@ -240,6 +293,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
 	const float camDist = (setup.origin - eyeOrigin).Length();
 	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
+	const bool userForcedThirdPerson = m_VR->ShouldForceThirdPersonCamera();
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
@@ -247,12 +301,19 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
-	if (engineThirdPersonNow)
-		m_VR->m_ThirdPersonHoldFrames = 2;
-	else if (m_VR->m_ThirdPersonHoldFrames > 0)
-		m_VR->m_ThirdPersonHoldFrames--;
+	if (!userForcedThirdPerson)
+	{
+		if (engineThirdPersonNow)
+			m_VR->m_ThirdPersonHoldFrames = 2;
+		else if (m_VR->m_ThirdPersonHoldFrames > 0)
+			m_VR->m_ThirdPersonHoldFrames--;
+	}
+	else
+	{
+		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
 
-	const bool engineThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool engineThirdPerson = userForcedThirdPerson || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
 	CViewSetup leftEyeView = setup;
@@ -1332,4 +1393,16 @@ DWORD* Hooks::dPrePushRenderTarget(void* ecx, void* edx, int a2)
 		m_PushHUDStep = -999;
 
 	return hkPrePushRenderTarget.fOriginal(ecx, a2);
+}
+
+void* __fastcall Hooks::dClientCmd(void* ecx, void* edx, const char* szCmdString)
+{
+	HandleCameraCommand(szCmdString);
+	return hkClientCmd.fOriginal(ecx, szCmdString);
+}
+
+void* __fastcall Hooks::dClientCmdUnrestricted(void* ecx, void* edx, const char* szCmdString)
+{
+	HandleCameraCommand(szCmdString);
+	return hkClientCmdUnrestricted.fOriginal(ecx, szCmdString);
 }
