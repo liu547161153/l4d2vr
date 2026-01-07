@@ -2589,10 +2589,9 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     if (ShouldThrottle(s_lastSolve, kSolveMaxHz))
         return;
 
-    // Use the same controller direction/origin rules as UpdateAimingLaser.
-    Vector direction = m_RightControllerForward;
-    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-        direction = m_RightControllerForwardUnforced;
+    // Always keep the solution controller-anchored, even in third-person.
+    // Prefer the *unforced* controller forward (before any auto-aim overrides) when available.
+    Vector direction = !m_RightControllerForwardUnforced.IsZero() ? m_RightControllerForwardUnforced : m_RightControllerForward;
 
     if (direction.IsZero())
         direction = m_LastAimDirection.IsZero() ? m_LastUnforcedAimDirection : m_LastAimDirection;
@@ -2605,12 +2604,9 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
 
     VectorNormalize(direction);
 
-    Vector originBase = m_RightControllerPosAbs;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-        originBase += camDelta;
-
-    Vector origin = originBase + direction * 2.0f;
+    // World-space controller position: do NOT offset by third-person camera.
+    // Offsetting here makes the ray appear "stuck" to the player model instead of the controller.
+    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
 
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
@@ -2691,11 +2687,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
 
     bool isThrowable = IsThrowableWeapon(activeWeapon);
-    // First-person: aim line follows the right controller.
-    // Third-person: aim line follows the camera/HMD (more intuitive and doesn't drift when you look around).
-    Vector direction = m_RightControllerForward;
-    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-        direction = m_RightControllerForwardUnforced;
+    // Aim line should always be controller-anchored, even in third-person.
+    // Prefer the *unforced* controller forward (before any auto-aim overrides) when available.
+    Vector direction = !m_RightControllerForwardUnforced.IsZero() ? m_RightControllerForwardUnforced : m_RightControllerForward;
     if (direction.IsZero())
     {
         if (m_LastAimDirection.IsZero())
@@ -2725,15 +2719,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     VectorNormalize(direction);
 
-    // Aim line origin is controller-based. In third-person the rendered camera is offset behind the player,
-    // so we translate the controller position into the rendered-camera frame.
-    // We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
-    Vector originBase = m_RightControllerPosAbs;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-        originBase += camDelta;
-
-    Vector origin = originBase + direction * 2.0f;
+    // World-space controller position: do NOT offset by third-person camera.
+    // Offsetting here makes the line appear "stuck" to the player model instead of the controller.
+    Vector origin = m_RightControllerPosAbs + direction * 2.0f;
 
     if (isThrowable)
     {
