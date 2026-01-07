@@ -2785,6 +2785,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
 bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
 {
+    // While pinned/controlled by SI, the player model/camera can be driven by animations,
+// causing the aim line to wildly drift and feel broken. Disable it in those states.
+    if (m_PlayerControlledBySI)
+        return false;
+
     if (!m_AimLineEnabled || !weapon)
         return false;
 
@@ -3182,7 +3187,7 @@ void VR::DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type
     drawArrowLine(base + Vector(0.0f, -wingLength, 0.0f), tip);
 }
 
-void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex)
+void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin)
 {
     if (m_SpecialInfectedBlindSpotDistance <= 0.0f)
         return;
@@ -3192,8 +3197,6 @@ void VR::RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin, Sp
 
     m_SpecialInfectedWarningTarget = infectedOrigin;
     m_SpecialInfectedWarningTargetActive = true;
-    m_SpecialInfectedWarningTargetEntityIndex = entityIndex;
-    m_SpecialInfectedWarningTargetType = type;
 
     const bool wasActive = m_SpecialInfectedBlindSpotWarningActive;
     m_SpecialInfectedBlindSpotWarningActive = true;
@@ -3352,8 +3355,6 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             {
                 m_SpecialInfectedWarningTarget = infectedOrigin;
                 m_SpecialInfectedWarningTargetActive = true;
-                m_SpecialInfectedWarningTargetEntityIndex = entityIndex;
-                m_SpecialInfectedWarningTargetType = type;
                 m_LastSpecialInfectedWarningTime = now;
                 m_SpecialInfectedBlindSpotWarningActive = true;
 
@@ -3504,245 +3505,79 @@ void VR::UpdateSpecialInfectedPreWarningState()
 
 void VR::StartSpecialInfectedWarningAction()
 {
-    // Legacy entrypoint: the actual input injection now happens in
-    // VR::ApplySpecialInfectedAutoEvade (called from Hooks::dCreateMove).
-    // Keep this function as a cheap "arm" so existing call sites stay intact.
     if (!m_SpecialInfectedWarningActionEnabled)
         return;
 
-    // Allow an immediate attempt on the next CreateMove tick.
-    m_AutoEvadeNextAllowedTick = 0;
+    if (m_SpecialInfectedWarningActionStep != SpecialInfectedWarningActionStep::None)
+        return;
+
+    m_Game->ClientCmd_Unrestricted("-attack");
+    m_Game->ClientCmd_Unrestricted("-attack2");
+    m_Game->ClientCmd_Unrestricted("-jump");
+    m_Game->ClientCmd_Unrestricted("-use");
+    m_Game->ClientCmd_Unrestricted("-reload");
+    m_Game->ClientCmd_Unrestricted("-back");
+    m_Game->ClientCmd_Unrestricted("-forward");
+    m_Game->ClientCmd_Unrestricted("-moveleft");
+    m_Game->ClientCmd_Unrestricted("-moveright");
+    m_Game->ClientCmd_Unrestricted("-voicerecord");
+
+    m_SuppressPlayerInput = true;
+    m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressSecondaryAttack;
+    m_SpecialInfectedWarningNextActionTime = std::chrono::steady_clock::now();
 }
 
 void VR::UpdateSpecialInfectedWarningAction()
 {
-    // Kept for compatibility: ProcessInput calls this every frame.
-    // The old ClientCmd-based state machine is disabled.
     if (!m_SpecialInfectedWarningActionEnabled)
+    {
         ResetSpecialInfectedWarningAction();
+        return;
+    }
+
+    if (m_SpecialInfectedWarningActionStep == SpecialInfectedWarningActionStep::None)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now < m_SpecialInfectedWarningNextActionTime)
+        return;
+
+    const auto secondsToDuration = [](float seconds)
+        {
+            return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
+        };
+
+    switch (m_SpecialInfectedWarningActionStep)
+    {
+    case SpecialInfectedWarningActionStep::PressSecondaryAttack:
+        m_Game->ClientCmd_Unrestricted("+attack2");
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseSecondaryAttack;
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningSecondaryHoldDuration);
+        break;
+    case SpecialInfectedWarningActionStep::ReleaseSecondaryAttack:
+        m_Game->ClientCmd_Unrestricted("-attack2");
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressJump;
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningPostAttackDelay);
+        break;
+    case SpecialInfectedWarningActionStep::PressJump:
+        m_Game->ClientCmd_Unrestricted("+jump");
+        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseJump;
+        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningJumpHoldDuration);
+        break;
+    case SpecialInfectedWarningActionStep::ReleaseJump:
+        m_Game->ClientCmd_Unrestricted("-jump");
+        ResetSpecialInfectedWarningAction();
+        break;
+    default:
+        break;
+    }
 }
 
 void VR::ResetSpecialInfectedWarningAction()
 {
-    // Old state machine (kept for ABI stability).
     m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
     m_SpecialInfectedWarningNextActionTime = {};
     m_SuppressPlayerInput = false;
-
-    // New CUserCmd-driven state.
-    m_AutoEvadeStep = AutoEvadeStep::None;
-    m_AutoEvadeStepEndTick = 0;
-    m_AutoEvadeNextAllowedTick = 0;
-    m_AutoEvadeLastAttemptEnt = -1;
-    m_AutoEvadeLastBashedStart = 0.0f;
-    m_AutoEvadeLastAttemptTick = 0;
-}
-
-void VR::ApplySpecialInfectedAutoEvade(CUserCmd* cmd)
-{
-    if (!cmd || !m_SpecialInfectedWarningActionEnabled)
-        return;
-
-    // Only react while a warning target is live.
-    if (!m_SpecialInfectedWarningTargetActive || m_SpecialInfectedWarningTargetEntityIndex <= 0)
-        return;
-
-    // Only hunter/jockey are shove-evaded (the rest use aim/overlay only).
-    const bool isPounceType = (m_SpecialInfectedWarningTargetType == SpecialInfectedType::Hunter
-        || m_SpecialInfectedWarningTargetType == SpecialInfectedType::Jockey);
-    if (!isPounceType)
-        return;
-
-    // Basic tick timing (L4D2 is typically 30 tick). We only need a stable scale.
-    constexpr float kTickInterval = 1.0f / 30.0f;
-    const int curTick = cmd->tick_count;
-
-    auto secondsToTicks = [](float seconds) -> int
-        {
-            constexpr float kTI = 1.0f / 30.0f;
-            if (seconds <= 0.0f)
-                return 0;
-            return std::max(1, (int)std::ceil(seconds / kTI));
-        };
-
-    // --- Adaptive lead-time tuning (netvar-based) ---
-    // If the infected's m_bashedStart changes shortly after our shove attempt, we treat it as "success".
-    // Otherwise we bias the shove earlier next time.
-    {
-        const int dt = curTick - m_AutoEvadeLastAttemptTick;
-        if (m_AutoEvadeLastAttemptEnt > 0 && dt > 0)
-        {
-            C_BaseEntity* prev = nullptr;
-            if (m_Game)
-                prev = m_Game->GetClientEntity(m_AutoEvadeLastAttemptEnt);
-
-            // m_bashedStart (from offsets.txt)
-            constexpr int kOffBashedStart = 0x27fc;
-            if (prev)
-            {
-                const float bashedNow = *(float*)((uintptr_t)prev + kOffBashedStart);
-                if (dt <= 12 && fabsf(bashedNow - m_AutoEvadeLastBashedStart) > 0.0001f)
-                {
-                    // Successful shove -> try slightly later next time.
-                    m_AutoEvadeLeadSeconds = std::max(0.02f, m_AutoEvadeLeadSeconds - 0.005f);
-                    m_AutoEvadeLastAttemptEnt = -1;
-                }
-                else if (dt > 12)
-                {
-                    // Missed window -> try slightly earlier next time.
-                    m_AutoEvadeLeadSeconds = std::min(0.20f, m_AutoEvadeLeadSeconds + 0.01f);
-                    m_AutoEvadeLastAttemptEnt = -1;
-                }
-            }
-            else if (dt > 12)
-            {
-                // Entity vanished; don't keep stale attempts around.
-                m_AutoEvadeLastAttemptEnt = -1;
-            }
-        }
-    }
-
-    // --- Step machine: hold shove / optional jump (CUserCmd buttons) ---
-    // Runs early so it can span multiple ticks.
-    switch (m_AutoEvadeStep)
-    {
-    case AutoEvadeStep::HoldShove:
-        cmd->buttons |= (1 << 11); // IN_ATTACK2
-        if (curTick >= m_AutoEvadeStepEndTick)
-        {
-            m_AutoEvadeStep = AutoEvadeStep::PostDelay;
-            m_AutoEvadeStepEndTick = curTick + secondsToTicks(m_SpecialInfectedWarningPostAttackDelay);
-        }
-        return;
-    case AutoEvadeStep::PostDelay:
-        if (curTick >= m_AutoEvadeStepEndTick)
-        {
-            // Optional hop to de-sync pounce tracking / help dodge follow-ups.
-            if (m_SpecialInfectedWarningJumpHoldDuration > 0.0f)
-            {
-                m_AutoEvadeStep = AutoEvadeStep::HoldJump;
-                m_AutoEvadeStepEndTick = curTick + secondsToTicks(m_SpecialInfectedWarningJumpHoldDuration);
-            }
-            else
-            {
-                m_AutoEvadeStep = AutoEvadeStep::None;
-            }
-        }
-        return;
-    case AutoEvadeStep::HoldJump:
-        cmd->buttons |= (1 << 1); // IN_JUMP
-        if (curTick >= m_AutoEvadeStepEndTick)
-            m_AutoEvadeStep = AutoEvadeStep::None;
-        return;
-    default:
-        break;
-    }
-
-    // Don't spam attempts every tick.
-    if (m_AutoEvadeNextAllowedTick != 0 && curTick < m_AutoEvadeNextAllowedTick)
-        return;
-
-    // Local player + shove cooldown (netvars from offsets.txt).
-    C_BaseEntity* local = nullptr;
-    if (m_Game && m_Game->m_EngineClient)
-        local = m_Game->GetClientEntity(m_Game->m_EngineClient->GetLocalPlayer());
-    if (!local)
-        return;
-
-    constexpr int kOffNextShoveTime = 0x1ca8; // m_flNextShoveTime
-    constexpr int kOffShovePenalty = 0x1cac;  // m_iShovePenalty
-    const float nextShoveTime = *(float*)((uintptr_t)local + kOffNextShoveTime);
-    const int shovePenalty = *(int*)((uintptr_t)local + kOffShovePenalty);
-    (void)shovePenalty; // currently unused; kept for future tuning.
-
-    // Convert client tick to approximate "curtime".
-    const float approxCurTime = (float)curTick * kTickInterval;
-    if (nextShoveTime > approxCurTime + 0.0001f)
-        return;
-
-    C_BaseEntity* infected = m_Game->GetClientEntity(m_SpecialInfectedWarningTargetEntityIndex);
-    if (!infected)
-        return;
-
-    // Hunter/Jockey state (netvars from offsets.txt).
-    constexpr int kOffIsAttemptingToPounce = 0x2730; // m_isAttemptingToPounce
-    constexpr int kOffBashedStart = 0x27fc;          // m_bashedStart
-    constexpr int kOffFlags = 0x0f0;                 // m_fFlags
-    constexpr int kOffVel0 = 0x100;                  // m_vecVelocity[0]
-    constexpr int kOffVel1 = 0x104;
-    constexpr int kOffVel2 = 0x108;
-
-    const int flags = *(int*)((uintptr_t)infected + kOffFlags);
-    const bool onGround = (flags & 1) != 0; // FL_ONGROUND
-    const Vector vel(
-        *(float*)((uintptr_t)infected + kOffVel0),
-        *(float*)((uintptr_t)infected + kOffVel1),
-        *(float*)((uintptr_t)infected + kOffVel2));
-
-    // Use HMD as the player's "center"; it's stable in VR.
-    const Vector myPos = m_HmdPosAbs;
-    const Vector targetPos = m_SpecialInfectedWarningTarget;
-    Vector toMe = myPos - targetPos;
-    const float dist = toMe.Length();
-    if (dist <= 0.01f)
-        return;
-
-    Vector dir = toMe;
-    dir.NormalizeInPlace();
-    const float closingSpeed = vel.Dot(dir); // positive when moving toward the HMD
-
-    bool shouldShove = false;
-
-    // Close-range emergency shove regardless of "pounce" state.
-    if (dist <= 65.0f)
-    {
-        shouldShove = true;
-    }
-    else
-    {
-        const float lead = std::clamp(m_AutoEvadeLeadSeconds, 0.02f, 0.20f);
-
-        if (m_SpecialInfectedWarningTargetType == SpecialInfectedType::Hunter)
-        {
-            const int attempting = *(int*)((uintptr_t)infected + kOffIsAttemptingToPounce);
-            if (attempting)
-            {
-                const float speed = std::max(1.0f, closingSpeed);
-                const float tti = dist / speed; // time-to-impact estimate
-                shouldShove = (tti <= lead);
-            }
-        }
-        else if (m_SpecialInfectedWarningTargetType == SpecialInfectedType::Jockey)
-        {
-            if (!onGround)
-            {
-                const float speed = std::max(1.0f, closingSpeed);
-                const float tti = dist / speed;
-                shouldShove = (tti <= lead);
-            }
-            else
-            {
-                shouldShove = (dist <= 120.0f);
-            }
-        }
-    }
-
-    if (!shouldShove)
-        return;
-
-    // Record bashedStart so we can adaptively tune the lead time.
-    const float bashedBefore = *(float*)((uintptr_t)infected + kOffBashedStart);
-    m_AutoEvadeLastAttemptEnt = m_SpecialInfectedWarningTargetEntityIndex;
-    m_AutoEvadeLastBashedStart = bashedBefore;
-    m_AutoEvadeLastAttemptTick = curTick;
-
-    // Start the shove hold step.
-    m_AutoEvadeStep = AutoEvadeStep::HoldShove;
-    m_AutoEvadeStepEndTick = curTick + secondsToTicks(m_SpecialInfectedWarningSecondaryHoldDuration);
-    cmd->buttons |= (1 << 11); // IN_ATTACK2
-
-    // Small dead-time to avoid re-trigger spam on the same approach.
-    m_AutoEvadeNextAllowedTick = curTick + 2;
 }
 
 void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
