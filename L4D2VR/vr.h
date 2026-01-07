@@ -67,6 +67,8 @@ public:
 	std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
 	// Gun-mounted scope overlay (render-to-texture lens)
 	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
+	// Rear mirror overlay (off-hand)
+	vr::VROverlayHandle_t m_RearMirrorHandle = vr::k_ulOverlayHandleInvalid;
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
@@ -225,6 +227,7 @@ public:
 		Texture_RightEye,
 		Texture_HUD,
 		Texture_Scope,
+		Texture_RearMirror,
 		Texture_Blank
 	};
 
@@ -232,12 +235,14 @@ public:
 	ITexture* m_RightEyeTexture;
 	ITexture* m_HUDTexture;
 	ITexture* m_ScopeTexture = nullptr;
+	ITexture* m_RearMirrorTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
 	IDirect3DSurface9* m_D9LeftEyeSurface;
 	IDirect3DSurface9* m_D9RightEyeSurface;
 	IDirect3DSurface9* m_D9HUDSurface;
 	IDirect3DSurface9* m_D9ScopeSurface;
+	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
 	IDirect3DSurface9* m_D9BlankSurface;
 
 	SharedTextureHolder m_VKLeftEye;
@@ -245,6 +250,7 @@ public:
 	SharedTextureHolder m_VKBackBuffer;
 	SharedTextureHolder m_VKHUD;
 	SharedTextureHolder m_VKScope;
+	SharedTextureHolder m_VKRearMirror;
 	SharedTextureHolder m_VKBlankTexture;
 
 	bool m_IsVREnabled = false;
@@ -555,6 +561,31 @@ public:
 	bool   ShouldRenderScope() const { return m_ScopeEnabled && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
+
+	// ----------------------------
+	// Rear mirror (off-hand)
+	// ----------------------------
+	bool  m_RearMirrorEnabled = false;
+	int   m_RearMirrorRTTSize = 512;
+	float m_RearMirrorFov = 85.0f;
+	float m_RearMirrorZNear = 6.0f;
+
+	Vector m_RearMirrorCameraOffset = { 0.0f, 0.0f, 0.0f };
+	QAngle m_RearMirrorCameraAngleOffset = { 0.0f, 0.0f, 0.0f };
+
+	float  m_RearMirrorOverlayWidthMeters = 0.10f;
+	float  m_RearMirrorOverlayXOffset = -0.01f;
+	float  m_RearMirrorOverlayYOffset = 0.02f;
+	float  m_RearMirrorOverlayZOffset = 0.08f;
+	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
+	float  m_RearMirrorAlpha = 1.0f;
+
+	Vector m_RearMirrorCameraPosAbs = { 0.0f, 0.0f, 0.0f };
+	QAngle m_RearMirrorCameraAngAbs = { 0.0f, 0.0f, 0.0f };
+
+	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
+	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
+	bool   ShouldRenderRearMirror() const { return m_RearMirrorEnabled; }
 
 	VR() {};
 	VR(Game* game);

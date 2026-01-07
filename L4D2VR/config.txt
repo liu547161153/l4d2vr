@@ -133,3 +133,16 @@ ScopeLookThroughDistanceMeters=0.6
 ScopeLookThroughAngleDeg=60
 ScopeOverlayAlwaysVisible=false
 ScopeOverlayIdleAlpha=0.5
+
+RearMirrorEnabled=true
+RearMirrorRTTSize=512
+RearMirrorFov=85
+RearMirrorZNear=6
+RearMirrorCameraOffset=0,0,0
+RearMirrorCameraAngleOffset=0,0,0
+RearMirrorOverlayWidthMeters=0.1
+RearMirrorOverlayXOffset=-0.01
+RearMirrorOverlayYOffset=0.02
+RearMirrorOverlayZOffset=0.08
+RearMirrorOverlayAngleOffset=0,180,0
+RearMirrorAlpha=1.0
