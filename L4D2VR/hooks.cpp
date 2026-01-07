@@ -316,9 +316,19 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (localPlayer)
 		eyeOrigin = localPlayer->EyePosition();
 
-	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
-	const float camDist = (setup.origin - eyeOrigin).Length();
-	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
+	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position.
+	// IMPORTANT: stairs/step-smoothing can create large Z deltas between setup.origin and EyePosition().
+	// So prefer XY distance for "real" third-person detection.
+	Vector camDelta = (setup.origin - eyeOrigin);
+	const float camDist3D = camDelta.Length();
+	const float camDz = camDelta.z;
+	camDelta.z = 0.0f;
+	const float camDistXY = camDelta.Length();
+
+	// Tune thresholds:
+	// - XY > ~30 strongly indicates shoulder cam (true 3P)
+	// - 3D > ~90 is a fallback for edge cases
+	const bool engineThirdPersonNow = (localPlayer && (camDistXY > 30.0f || camDist3D > 90.0f));
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
@@ -366,13 +376,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			s_prevHold = m_VR->m_ThirdPersonHoldFrames;
 
 			Game::logMsg(
-				"TPDBG engine=%d state=%d render=%d camDist=%.1f hold=%d->%d | "
+				"TPDBG engine=%d state=%d render=%d camDist=%.1f xy=%.1f dz=%.1f hold=%d->%d | "
 				"incap=%d ledge=%d tongueOwner=%d hangTongue=%d | "
 				"carry=%d pummel=%d pounce=%d jockey=%d useAction=%d reviveOwner=%d reviveTarget=%d",
 				engineThirdPersonNow ? 1 : 0,
 				stateWantsThirdPerson ? 1 : 0,
 				renderThirdPerson ? 1 : 0,
-				camDist,
+				camDist3D,
+				camDistXY,
+				camDz,
 				holdBefore,
 				m_VR->m_ThirdPersonHoldFrames,
 				tpStateDbg.incap ? 1 : 0,
