@@ -20,6 +20,112 @@
 #include <chrono>
 #include <cmath>
 
+namespace {
+	// Minimal trace filter: skip one entity (usually local player)
+	class CTraceFilterSkipOne : public CTraceFilter {
+	public:
+		explicit CTraceFilterSkipOne(IHandleEntity* passEnt)
+			: CTraceFilter(passEnt, 0) {}
+		bool ShouldHitEntity(IHandleEntity* pEntity, int /*contentsMask*/) override {
+			return pEntity != m_pPassEnt;
+		}
+	};
+
+	static bool PointInSolid(IEngineTrace* tr, IHandleEntity* skip, const Vector& p, unsigned int mask)
+	{
+		if (!tr) return false;
+		Ray_t ray;
+		// tiny non-zero ray to make startsolid/allsolid meaningful
+		ray.Init(p, p + Vector(0.01f, 0.01f, 0.01f));
+		trace_t out{};
+		CTraceFilterSkipOne filter(skip);
+		tr->TraceRay(ray, mask, &filter, &out);
+		return out.startsolid || out.allsolid;
+	}
+
+	static bool TryPushOut(IEngineTrace* tr, IHandleEntity* skip, const Vector& start,
+		const Vector& dir, float maxDist, float step, unsigned int mask, Vector& outPos)
+	{
+		for (float d = step; d <= maxDist; d += step)
+		{
+			Vector p = start + dir * d;
+			if (!PointInSolid(tr, skip, p, mask))
+			{
+				outPos = p;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Clamp desired scope origin to something that sits in a sane leaf (PVS stable).
+	// Strategy:
+	// 1) line trace from setup.origin -> desired; if hits, move to hit point minus epsilon
+	// 2) if still in solid, try push out in several directions
+	// 3) if still stuck, fallback to setup.origin (the "always sane" choice)
+	static Vector ComputeSafeScopeOrigin(IEngineTrace* tr, IHandleEntity* skip,
+		const Vector& setupOrigin, const Vector& desiredOrigin,
+		const QAngle& ang, bool& fixedOk, float& pushedDist)
+	{
+		const unsigned int mask = STANDARD_TRACE_MASK;
+		fixedOk = true;
+		pushedDist = 0.0f;
+
+		if (!tr)
+			return desiredOrigin;
+
+		Vector safe = desiredOrigin;
+
+		// 1) Clamp along segment from setupOrigin to desiredOrigin.
+		{
+			Ray_t ray;
+			ray.Init(setupOrigin, desiredOrigin);
+			trace_t hit{};
+			CTraceFilterSkipOne filter(skip);
+			tr->TraceRay(ray, mask, &filter, &hit);
+			if (hit.fraction < 1.0f)
+			{
+				Vector dir = desiredOrigin - setupOrigin;
+				float len = dir.Length();
+				if (len > 0.001f) dir /= len;
+				// back off a bit from the surface
+				safe = hit.endpos - dir * 2.0f;
+			}
+		}
+
+		// 2) Push out if still inside solid.
+		if (PointInSolid(tr, skip, safe, mask))
+		{
+			Vector fwd, right, up;
+			QAngle::AngleVectors(ang, &fwd, &right, &up);
+
+			Vector pushed = safe;
+			bool ok =
+				TryPushOut(tr, skip, safe, up, 64.0f, 2.0f, mask, pushed) ||
+				TryPushOut(tr, skip, safe, -up, 64.0f, 2.0f, mask, pushed) ||
+				TryPushOut(tr, skip, safe, fwd, 64.0f, 2.0f, mask, pushed) ||
+				TryPushOut(tr, skip, safe, -fwd, 64.0f, 2.0f, mask, pushed) ||
+				TryPushOut(tr, skip, safe, right, 64.0f, 2.0f, mask, pushed) ||
+				TryPushOut(tr, skip, safe, -right, 64.0f, 2.0f, mask, pushed);
+
+			if (ok)
+			{
+				pushedDist = (pushed - safe).Length();
+				safe = pushed;
+			}
+			else
+			{
+				// 3) Hard fallback: keep PVS sane.
+				fixedOk = false;
+				pushedDist = -1.0f;
+				safe = setupOrigin;
+			}
+		}
+
+		return safe;
+	}
+} // anon namespace
+
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
 // - Then clamp pitch to [-89, 89].
@@ -588,6 +694,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		};
 
 		CViewSetup scopeView = setup;
+		const Vector setupOrigin = setup.origin;
 		scopeView.x = 0;
 		scopeView.y = 0;
 		scopeView.m_nUnscaledX = 0;
@@ -603,16 +710,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.zNearViewmodel = 99999.0f; // hard-clip viewmodel so scope image is "world only"
 
 		QAngle scopeAngles = m_VR->GetScopeCameraAbsAngle();
+		Vector desiredScopeOrigin = m_VR->GetScopeCameraAbsPos();
 
-		// IMPORTANT:
-		// Use HMD as the view origin to stabilize PVS/leaf visibility.
-		// The scope camera position on the weapon can jitter across BSP leaves,
-		// causing common infected to intermittently disappear in this offscreen pass.
-		const Vector scopePos = m_VR->GetScopeCameraAbsPos();
-		const Vector hmdPos = m_VR->m_HmdPosAbs;
+		// Make scope origin PVS-safe (common infected vanish when origin sits in SOLID/invalid leaf).
+		bool fixedOk = true;
+		[[maybe_unused]] float pushed = 0.0f;
+		IHandleEntity* skipEnt = nullptr;
+		{
+			int lp = m_Game->m_EngineClient->GetLocalPlayer();
+			if (lp > 0)
+				skipEnt = (IHandleEntity*)m_Game->GetClientEntity(lp);
+		}
+		Vector safeOrigin = ComputeSafeScopeOrigin(
+			m_Game->m_EngineTrace, skipEnt,
+			setupOrigin, desiredScopeOrigin, scopeAngles,
+			fixedOk, pushed);
 
-		// Default origin choice (may be overridden by anti-solid / fallback below)
-		scopeView.origin = hmdPos;
+		scopeView.origin = safeOrigin;
 		scopeView.angles.x = scopeAngles.x;
 		scopeView.angles.y = scopeAngles.y;
 		scopeView.angles.z = scopeAngles.z;
@@ -620,125 +734,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 #if VR_SCOPEDBG
 		if (doScopeDbg)
 		{
-			LOG("[SCOPEDBG] scope origin override: scopePos=(%.1f %.1f %.1f) -> hmdPos=(%.1f %.1f %.1f)",
-				scopePos.x, scopePos.y, scopePos.z,
-				hmdPos.x, hmdPos.y, hmdPos.z);
+			LOG("[SCOPEDBG] scope origin override: scopePos=(%.1f %.1f %.1f) -> safePos=(%.1f %.1f %.1f)",
+				desiredScopeOrigin.x, desiredScopeOrigin.y, desiredScopeOrigin.z,
+				scopeView.origin.x, scopeView.origin.y, scopeView.origin.z);
 		}
 #endif
-		// ------------------------------------------------------------
-		// Robust anti-solid: use a small hull + try directions.
-		// Priority: towards HMD (pull back) -> up -> -forward -> right/left
-		// ------------------------------------------------------------
-		if (m_Game && m_Game->m_EngineTrace)
-		{
-			Vector fwd, right, up;
-			QAngle::AngleVectors(scopeAngles, &fwd, &right, &up);
-
-			// IMPORTANT: avoid Vector::NormalizeInPlace() (you had unresolved external before).
-			auto unit = [](const Vector& v) -> Vector
-			{
-				const float len = v.Length();
-				if (len > 1e-6f)
-					return v * (1.0f / len);
-				return Vector(0.0f, 0.0f, 0.0f);
-			};
-
-			// Use a tiny hull so "startsolid" is stable (ray-only is too sensitive near walls).
-			const Vector hullMins(-1.0f, -1.0f, -1.0f);
-			const Vector hullMaxs(1.0f, 1.0f, 1.0f);
-
-			CTraceFilterSkipSelf filter(nullptr, 0);
-
-			auto inSolidAt = [&](const Vector& pos) -> bool
-			{
-				Ray_t ray;
-				// Small swept hull (avoid degenerate start=end)
-				ray.Init(pos, pos + Vector(0.0f, 0.0f, 0.5f), hullMins, hullMaxs);
-				trace_t tr;
-				// IMPORTANT: only test true SOLID. Using broader masks (playerclip/etc) can cause false positives,
-				// which makes us move the scope origin too far and destabilize PVS (common infected vanishes).
-				m_Game->m_EngineTrace->TraceRay(ray, CONTENTS_SOLID, &filter, &tr);
-				return tr.startsolid || tr.allsolid;
-			};
-
-			auto tryPushOut = [&](Vector& pos, const Vector& dirUnit, float maxPush, float step) -> float
-			{
-				if (dirUnit.LengthSqr() < 1e-8f)
-					return -1.0f;
-				const Vector orig = pos;
-				const int steps = (int)(maxPush / step);
-				for (int i = 1; i <= steps; ++i)
-				{
-					const float d = step * (float)i;
-					Vector candidate = orig + dirUnit * d;
-					if (!inSolidAt(candidate))
-					{
-						pos = candidate;
-						return d;
-					}
-				}
-				return -1.0f;
-			};
-
-			const Vector orig = scopeView.origin;
-			if (inSolidAt(scopeView.origin))
-			{
-				// Direction list (ordered)
-				const Vector dirToHmd = unit(hmdPos - scopeView.origin); // pull back toward head
-				const Vector dirUp = unit(up);
-				const Vector dirBack = unit(-fwd);
-				const Vector dirR = unit(right);
-				const Vector dirL = unit(-right);
-
-				// Cap displacement: moving the camera too far (e.g. +15~20 units Z) changes PVS/leaf drastically
-				// and is worse than staying put.
-				const float kMaxPush = 10.0f;
-				const float kStep = 1.0f;
-
-				float pushed = -1.0f;
-				Vector fixedPos = scopeView.origin;
-
-				pushed = tryPushOut(fixedPos, dirToHmd, kMaxPush, kStep);
-				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirUp, kMaxPush, kStep);
-				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirBack, kMaxPush, kStep);
-				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirR, kMaxPush, kStep);
-				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirL, kMaxPush, kStep);
-
-				const bool fixedOk = (pushed >= 0.0f);
-				if (fixedOk)
-					scopeView.origin = fixedPos; // only apply when displacement is small and successful
-
-#if VR_SCOPEDBG
-				// throttle spam: only log on the scoped once-per-second tick
-				if (doScopeDbg)
-				{
-					LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f) fixedOk=%d pushed=%.1f",
-						orig.x, orig.y, orig.z,
-						fixedOk ? scopeView.origin.x : orig.x,
-						fixedOk ? scopeView.origin.y : orig.y,
-						fixedOk ? scopeView.origin.z : orig.z,
-						fixedOk ? 1 : 0,
-						pushed);
-				}
-#endif
-
-				// If we still can't get a non-solid origin (or we didn't move at all),
-				// fall back to the main view origin to stabilize PVS and prevent common infected disappearing.
-				if (!fixedOk && inSolidAt(scopeView.origin))
-				{
-					const Vector fallback = setup.origin;
-					if (!inSolidAt(fallback))
-					{
-						scopeView.origin = fallback;
-#if VR_SCOPEDBG
-						if (doScopeDbg)
-							LOG("[SCOPEDBG][FALLBACK] scope origin fallback to setup.origin=(%.1f %.1f %.1f) (HMD origin was SOLID)",
-								fallback.x, fallback.y, fallback.z);
-#endif
-					}
-				}
-			}
-		}
 
 		CViewSetup hudScope = hudViewSetup;
 		hudScope.origin = scopeView.origin;
@@ -803,6 +803,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			}
 #endif
 			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, scopeDepth, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
+
+#if VR_SCOPEDBG
+			if (doScopeDbg && !fixedOk)
+				LOG("[SCOPEDBG][WARN] scope origin stuck in SOLID; fallback to setup.origin. desired=(%.1f %.1f %.1f) setup=(%.1f %.1f %.1f)",
+					desiredScopeOrigin.x, desiredScopeOrigin.y, desiredScopeOrigin.z, setupOrigin.x, setupOrigin.y, setupOrigin.z);
+#endif
 
 #if VR_SCOPEDBG
 			if (doScopeDbg)
