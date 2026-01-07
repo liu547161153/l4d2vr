@@ -232,6 +232,10 @@ public:
 	ITexture* m_RightEyeTexture;
 	ITexture* m_HUDTexture;
 	ITexture* m_ScopeTexture = nullptr;
+	// Dedicated depth-stencil for scope RTT. Without this, the scope pass can accidentally
+	// reuse the main view's depth surface (size mismatch), causing common infected to show
+	// only as faint/transparent silhouettes.
+	ITexture* m_ScopeDepthTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
 	IDirect3DSurface9* m_D9LeftEyeSurface;

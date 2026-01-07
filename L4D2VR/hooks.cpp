@@ -567,7 +567,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
 		if (renderContext)
 		{
-			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, nullptr, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
+			// Scope pass MUST bind a matching depth-stencil. If pDepthTexture is nullptr, Source may
+			// keep using the previously-bound depth (usually the main eye RT), which is a different size.
+			// That mismatch makes common infected frequently render as transparent silhouettes.
+			ITexture* scopeDepth = m_VR->m_ScopeDepthTexture;
+			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, scopeDepth, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
+
+			// SteamVR overlays respect the texture alpha. Some world shaders can write 0 alpha even when
+			// they look opaque in the main view. Prevent scope RTT from clobbering alpha so the lens stays solid.
+			renderContext->OverrideAlphaWriteEnable(true, false);
 			renderContext->ClearColor4ub(0, 0, 0, 255);
 			renderContext->ClearBuffers(true, true, true);
 
@@ -576,6 +584,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			m_Game->m_EngineClient->SetViewAngles(scopeAngles);
 
 			hkRenderView.fOriginal(ecx, scopeView, hudScope, nClearFlags, whatToDraw);
+
+			renderContext->OverrideAlphaWriteEnable(false, true);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 			hkPopRenderTargetAndViewport.fOriginal(renderContext);

@@ -339,6 +339,36 @@ void VR::CreateVRTextures()
         MATERIAL_RT_DEPTH_SEPARATE,
         TEXTUREFLAGS_NOMIP);
 
+    // IMPORTANT: PushRenderTargetAndViewport(pTexture, nullptr, ...) may silently keep using whatever
+    // depth-stencil was already bound (usually the main eye RT depth), which is a different size.
+    // That mismatch is exactly the "common infected only shows as transparent outline" symptom.
+    // Create an explicit depth-stencil RT and pass it during the scope pass.
+    {
+        const TextureID oldCreating = m_CreatingTextureID;
+        m_CreatingTextureID = Texture_None; // don't expose this depth RT as a SteamVR texture
+
+        // Try a few depth-stencil formats. Different render paths / wrappers may support different ones.
+        auto createScopeDepth = [&](ImageFormat fmt) -> ITexture*
+        {
+            return m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+                "vrScopeDepth",
+                static_cast<int>(m_ScopeRTTSize),
+                static_cast<int>(m_ScopeRTTSize),
+                RT_SIZE_NO_CHANGE,
+                fmt,
+                MATERIAL_RT_DEPTH_SHARED,
+                TEXTUREFLAGS_NOMIP);
+        };
+
+        m_ScopeDepthTexture = createScopeDepth(IMAGE_FORMAT_NV_INTZ);
+        if (!m_ScopeDepthTexture || m_ScopeDepthTexture->IsError())
+            m_ScopeDepthTexture = createScopeDepth(IMAGE_FORMAT_NV_DST24);
+        if (!m_ScopeDepthTexture || m_ScopeDepthTexture->IsError())
+            m_ScopeDepthTexture = createScopeDepth(IMAGE_FORMAT_NV_DST16);
+
+        m_CreatingTextureID = oldCreating;
+    }
+
     m_CreatingTextureID = Texture_Blank;
     m_BlankTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("blankTexture", 512, 512, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
