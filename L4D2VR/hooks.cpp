@@ -607,6 +607,51 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.angles.y = scopeAngles.y;
 		scopeView.angles.z = scopeAngles.z;
 
+		// ------------------------------------------------------------
+		// Scope camera anti-clipping:
+		// If the scope camera origin is inside solid world geometry (very common when the gun is near a wall),
+		// Source can produce angle-dependent visibility / entity drawing artifacts.
+		// We'll detect "startsolid/allsolid" and nudge the scope camera backwards along -forward until it's valid.
+		// ------------------------------------------------------------
+		if (m_Game && m_Game->m_EngineTrace)
+		{
+			Vector fwd;
+			QAngle::AngleVectors(scopeAngles, &fwd, nullptr, nullptr);
+
+			auto inSolidAt = [&](const Vector& pos) -> bool
+			{
+				Ray_t ray;
+				ray.Init(pos, pos + Vector(0.0f, 0.0f, 1.0f)); // tiny ray to force content test
+				CGameTrace tr;
+				CTraceFilterSkipSelf filter(nullptr, 0);
+				m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &filter, &tr);
+				return tr.startsolid || tr.allsolid;
+			};
+
+			bool wasSolid = inSolidAt(scopeView.origin);
+			if (wasSolid)
+			{
+				const Vector orig = scopeView.origin;
+				// Push out up to 32 units, step 2 units.
+				for (int i = 1; i <= 16; ++i)
+				{
+					Vector candidate = orig - fwd * (2.0f * (float)i);
+					if (!inSolidAt(candidate))
+					{
+						scopeView.origin = candidate;
+						break;
+					}
+				}
+
+#if VR_SCOPEDBG
+				LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f) fwd=(%.2f %.2f %.2f)",
+					orig.x, orig.y, orig.z,
+					scopeView.origin.x, scopeView.origin.y, scopeView.origin.z,
+					fwd.x, fwd.y, fwd.z);
+#endif
+			}
+		}
+
 		CViewSetup hudScope = hudViewSetup;
 		hudScope.origin = scopeView.origin;
 		hudScope.angles = scopeView.angles;
