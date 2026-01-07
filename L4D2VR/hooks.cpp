@@ -392,43 +392,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const bool changed = (engineThirdPersonNow != s_prevEngineTp) || (stateWantsThirdPerson != s_prevStateTp) ||
 			(renderThirdPerson != s_prevRenderTp) || (m_VR->m_ThirdPersonHoldFrames != s_prevHold);
 		const bool timeUp = (s_lastTpDbg.time_since_epoch().count() == 0) ||
-			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000);
-
-		if (changed || timeUp)
-		{
-			s_lastTpDbg = now;
-			s_prevEngineTp = engineThirdPersonNow;
-			s_prevStateTp = stateWantsThirdPerson;
-			s_prevRenderTp = renderThirdPerson;
-			s_prevHold = m_VR->m_ThirdPersonHoldFrames;
-
-			Game::logMsg(
-				"TPDBG engine=%d state=%d render=%d camDist=%.1f xy=%.1f dz=%.1f hold=%d->%d | "
-				"incap=%d ledge=%d tongueOwner=%d hangTongue=%d | "
-				"carry=%d pummel=%d pounce=%d jockey=%d useAction=%d reviveOwner=%d reviveTarget=%d",
-				engineThirdPersonNow ? 1 : 0,
-				stateWantsThirdPerson ? 1 : 0,
-				renderThirdPerson ? 1 : 0,
-				camDist3D,
-				camDistXY,
-				camDz,
-				holdBefore,
-				m_VR->m_ThirdPersonHoldFrames,
-				tpStateDbg.incap ? 1 : 0,
-				tpStateDbg.ledge ? 1 : 0,
-				tpStateDbg.tongueOwner,
-				tpStateDbg.hangingTongue ? 1 : 0,
-				tpStateDbg.carryAttacker,
-				tpStateDbg.pummelAttacker,
-				tpStateDbg.pounceAttacker,
-				tpStateDbg.jockeyAttacker,
-				tpStateDbg.useAction,
-				tpStateDbg.reviveOwner,
-				tpStateDbg.reviveTarget);
-		}
+			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000)
 	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
-	//m_VR->m_IsThirdPersonCamera = renderThirdPerson;
+	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
