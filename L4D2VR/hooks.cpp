@@ -642,8 +642,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			};
 
 			// Use a tiny hull so "startsolid" is stable (ray-only is too sensitive near walls).
-			const Vector hullMins(-1.5f, -1.5f, -1.5f);
-			const Vector hullMaxs(1.5f, 1.5f, 1.5f);
+			const Vector hullMins(-1.0f, -1.0f, -1.0f);
+			const Vector hullMaxs(1.0f, 1.0f, 1.0f);
 
 			CTraceFilterSkipSelf filter(nullptr, 0);
 
@@ -653,26 +653,29 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				// Small swept hull (avoid degenerate start=end)
 				ray.Init(pos, pos + Vector(0.0f, 0.0f, 0.5f), hullMins, hullMaxs);
 				trace_t tr;
-				m_Game->m_EngineTrace->TraceRay(ray, MASK_STATICWORLD, &filter, &tr);
+				// IMPORTANT: only test true SOLID. Using broader masks (playerclip/etc) can cause false positives,
+				// which makes us move the scope origin too far and destabilize PVS (common infected vanishes).
+				m_Game->m_EngineTrace->TraceRay(ray, CONTENTS_SOLID, &filter, &tr);
 				return tr.startsolid || tr.allsolid;
 			};
 
-			auto tryPushOut = [&](Vector& pos, const Vector& dirUnit) -> bool
+			auto tryPushOut = [&](Vector& pos, const Vector& dirUnit, float maxPush, float step) -> float
 			{
 				if (dirUnit.LengthSqr() < 1e-8f)
-					return false;
+					return -1.0f;
 				const Vector orig = pos;
-				// up to 64 units, step 2
-				for (int i = 1; i <= 32; ++i)
+				const int steps = (int)(maxPush / step);
+				for (int i = 1; i <= steps; ++i)
 				{
-					Vector candidate = orig + dirUnit * (2.0f * (float)i);
+					const float d = step * (float)i;
+					Vector candidate = orig + dirUnit * d;
 					if (!inSolidAt(candidate))
 					{
 						pos = candidate;
-						return true;
+						return d;
 					}
 				}
-				return false;
+				return -1.0f;
 			};
 
 			const Vector orig = scopeView.origin;
@@ -685,21 +688,35 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				const Vector dirR = unit(right);
 				const Vector dirL = unit(-right);
 
-				bool fixed =
-					tryPushOut(scopeView.origin, dirToHmd) ||
-					tryPushOut(scopeView.origin, dirUp) ||
-					tryPushOut(scopeView.origin, dirBack) ||
-					tryPushOut(scopeView.origin, dirR) ||
-					tryPushOut(scopeView.origin, dirL);
+				// Cap displacement: moving the camera too far (e.g. +15~20 units Z) changes PVS/leaf drastically
+				// and is worse than staying put.
+				const float kMaxPush = 10.0f;
+				const float kStep = 1.0f;
+
+				float pushed = -1.0f;
+				Vector fixedPos = scopeView.origin;
+
+				pushed = tryPushOut(fixedPos, dirToHmd, kMaxPush, kStep);
+				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirUp, kMaxPush, kStep);
+				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirBack, kMaxPush, kStep);
+				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirR, kMaxPush, kStep);
+				if (pushed < 0.0f) pushed = tryPushOut(fixedPos, dirL, kMaxPush, kStep);
+
+				const bool fixedOk = (pushed >= 0.0f);
+				if (fixedOk)
+					scopeView.origin = fixedPos; // only apply when displacement is small and successful
 
 #if VR_SCOPEDBG
 				// throttle spam: only log on the scoped once-per-second tick
 				if (doScopeDbg)
 				{
-					LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f) fixedOk=%d",
+					LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f) fixedOk=%d pushed=%.1f",
 						orig.x, orig.y, orig.z,
-						scopeView.origin.x, scopeView.origin.y, scopeView.origin.z,
-						fixed ? 1 : 0);
+						fixedOk ? scopeView.origin.x : orig.x,
+						fixedOk ? scopeView.origin.y : orig.y,
+						fixedOk ? scopeView.origin.z : orig.z,
+						fixedOk ? 1 : 0,
+						pushed);
 				}
 #endif
 			}
