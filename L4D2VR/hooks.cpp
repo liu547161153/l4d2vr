@@ -27,6 +27,54 @@ static inline void NormalizeAndClampViewAngles(QAngle & a)
 	if (a.x < -89.f) a.x = -89.f;
 }
 
+
+// ------------------------------------------------------------
+// Third-person render stability helpers (netvars from offsets.txt)
+// When the player is pinned / incapacitated / using certain actions,
+// the engine can momentarily "snap" between first/third-person.
+// We treat those states as "force third-person rendering" to avoid flicker.
+// ------------------------------------------------------------
+template <typename T>
+static inline T ReadNetvar(const void* base, int ofs)
+{
+	return *reinterpret_cast<const T*>(reinterpret_cast<const uint8_t*>(base) + ofs);
+}
+
+static inline bool HandleValid(int h)
+{
+	return (h != 0 && h != -1);
+}
+
+static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player)
+{
+	if (!player)
+		return false;
+
+	// Offsets are client netvars (see offsets.txt)
+	const bool incap = ReadNetvar<uint8_t>(player, 0x1ea9) != 0;          // m_isIncapacitated
+	const bool ledge = ReadNetvar<uint8_t>(player, 0x25ec) != 0;          // m_isHangingFromLedge
+
+	const int tongueOwner = ReadNetvar<int>(player, 0x1f6c);              // m_tongueOwner
+	const bool hangingTongue = ReadNetvar<uint8_t>(player, 0x1f84) != 0;  // m_isHangingFromTongue
+	const bool tongue = hangingTongue || HandleValid(tongueOwner);
+
+	const int carryAttacker = ReadNetvar<int>(player, 0x2714);           // m_carryAttacker
+	const int pummelAttacker = ReadNetvar<int>(player, 0x2720);          // m_pummelAttacker
+	const int pounceAttacker = ReadNetvar<int>(player, 0x272c);          // m_pounceAttacker
+	const int jockeyAttacker = ReadNetvar<int>(player, 0x274c);          // m_jockeyAttacker
+	const bool pinned = HandleValid(carryAttacker) || HandleValid(pummelAttacker) ||
+		HandleValid(pounceAttacker) || HandleValid(jockeyAttacker);
+
+	const int useAction = ReadNetvar<int>(player, 0x1ba8);                // m_iCurrentUseAction
+	const bool doingUseAction = (useAction != 0);
+
+	const int reviveOwner = ReadNetvar<int>(player, 0x1f88);             // m_reviveOwner
+	const int reviveTarget = ReadNetvar<int>(player, 0x1f8c);            // m_reviveTarget
+	const bool reviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
+
+	return incap || ledge || tongue || pinned || doingUseAction || reviving;
+}
+
 bool Hooks::s_ServerUnderstandsVR = false;
 Hooks::Hooks(Game* game)
 {
@@ -247,14 +295,24 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
+	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer);
+	constexpr int kStateThirdPersonHoldFrames = 20;
 	if (engineThirdPersonNow)
+	{
 		m_VR->m_ThirdPersonHoldFrames = 2;
+	}
+	else if (stateWantsThirdPerson)
+	{
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
+	}
 	else if (m_VR->m_ThirdPersonHoldFrames > 0)
+	{
 		m_VR->m_ThirdPersonHoldFrames--;
+	}
 
-	const bool engineThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool renderThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
-	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
+	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -271,14 +329,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.zNearViewmodel = 6;
 	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
 	m_VR->m_SetupOrigin = eyeOrigin;
-	if (!engineThirdPerson)
+	if (!renderThirdPerson)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
 
-	if (engineThirdPerson)
+	if (renderThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
 		// but aim the camera with the HMD so head look still works in third-person.
@@ -292,8 +350,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
 		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
 
-		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
-		Vector camCenter = setup.origin + (fwd * (-eyeZ));
+		// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
+		// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
+		Vector baseCenter = engineThirdPersonNow ? setup.origin : m_VR->m_HmdPosAbs;
+		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		// Expose the *rendered* camera origin (after VR-only offset) so aim lines/convergence use the true view.
