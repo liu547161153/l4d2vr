@@ -339,6 +339,39 @@ void VR::CreateVRTextures()
         MATERIAL_RT_DEPTH_SEPARATE,
         TEXTUREFLAGS_NOMIP);
 
+#ifdef _DEBUG
+	auto dbgTex = [&](const char* tag, ITexture* t)
+	{
+		if (!t)
+		{
+			LOG("[SCOPEDBG] %s: (null)", tag);
+			return;
+		}
+		LOG("[SCOPEDBG] %s: %p name='%s' map=%dx%d actual=%dx%d fmt=%d flags=0x%x rt=%d err=%d",
+			tag,
+			t,
+			t->GetName() ? t->GetName() : "(no-name)",
+			t->GetMappingWidth(), t->GetMappingHeight(),
+			t->GetActualWidth(), t->GetActualHeight(),
+			(int)t->GetImageFormat(),
+			t->GetFlags(),
+			t->IsRenderTarget() ? 1 : 0,
+			t->IsError() ? 1 : 0);
+	};
+	LOG("[SCOPEDBG] CreateVRTextures: window=%dx%d eye=%ux%u scopeRTT=%u scopeFov=%.2f scopeZNear=%.2f",
+		windowWidth,
+		windowHeight,
+		(unsigned)m_RenderWidth,
+		(unsigned)m_RenderHeight,
+		(unsigned)m_ScopeRTTSize,
+		(float)m_ScopeFov,
+		(float)m_ScopeZNear);
+	dbgTex("LeftEye", m_LeftEyeTexture);
+	dbgTex("RightEye", m_RightEyeTexture);
+	dbgTex("HUD", m_HUDTexture);
+	dbgTex("Scope", m_ScopeTexture);
+#endif
+
     // IMPORTANT: PushRenderTargetAndViewport(pTexture, nullptr, ...) may silently keep using whatever
     // depth-stencil was already bound (usually the main eye RT depth), which is a different size.
     // That mismatch is exactly the "common infected only shows as transparent outline" symptom.

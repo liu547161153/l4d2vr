@@ -536,6 +536,50 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// ----------------------------
 	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture)
 	{
+		// Debug logging (throttled) for scope RTT issues like:
+		// "common infected only shows as a transparent silhouette except at certain angles".
+		// We want to see scope RT size/FOV/zNear, the RT bound before/after push,
+		// and whether we're passing a depth-stencil texture (nullptr is suspicious).
+#ifdef _DEBUG
+		static std::chrono::steady_clock::time_point s_lastScopeDbg;
+		const bool doScopeDbg = [&]() -> bool
+		{
+			using namespace std::chrono;
+			const auto now = steady_clock::now();
+			if (s_lastScopeDbg.time_since_epoch().count() != 0 && (now - s_lastScopeDbg) < seconds(1))
+				return false;
+			s_lastScopeDbg = now;
+			return true;
+		}();
+#else
+		[[maybe_unused]] const bool doScopeDbg = false;
+#endif
+
+		auto dbgTex = [&](const char* tag, ITexture* t)
+		{
+#ifdef _DEBUG
+			if (!doScopeDbg)
+				return;
+			if (!t)
+			{
+				LOG("[SCOPEDBG] %s: (null)", tag);
+				return;
+			}
+			LOG("[SCOPEDBG] %s: %p name='%s' map=%dx%d actual=%dx%d fmt=%d flags=0x%x rt=%d err=%d",
+				tag,
+				t,
+				t->GetName() ? t->GetName() : "(no-name)",
+				t->GetMappingWidth(), t->GetMappingHeight(),
+				t->GetActualWidth(), t->GetActualHeight(),
+				(int)t->GetImageFormat(),
+				t->GetFlags(),
+				t->IsRenderTarget() ? 1 : 0,
+				t->IsError() ? 1 : 0);
+#else
+			(void)tag; (void)t;
+#endif
+		};
+
 		CViewSetup scopeView = setup;
 		scopeView.x = 0;
 		scopeView.y = 0;
@@ -567,11 +611,40 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
 		if (renderContext)
 		{
+#ifdef _DEBUG
+			if (doScopeDbg)
+			{
+				LOG("[SCOPEDBG] scope pass: rtt=%u fov=%.2f zNear=%.2f pos=(%.1f %.1f %.1f) ang=(%.1f %.1f %.1f) clearFlags=%d whatToDraw=%d",
+					(unsigned)m_VR->m_ScopeRTTSize,
+					(float)m_VR->m_ScopeFov,
+					(float)m_VR->m_ScopeZNear,
+					scopeView.origin.x, scopeView.origin.y, scopeView.origin.z,
+					scopeView.angles.x, scopeView.angles.y, scopeView.angles.z,
+					nClearFlags,
+					whatToDraw);
+				ITexture* beforeRT = renderContext->GetRenderTarget();
+				dbgTex("RT(before)", beforeRT);
+				dbgTex("RT(scope)", m_VR->m_ScopeTexture);
+			}
+#endif
+
 			// Scope pass MUST bind a matching depth-stencil. If pDepthTexture is nullptr, Source may
 			// keep using the previously-bound depth (usually the main eye RT), which is a different size.
 			// That mismatch makes common infected frequently render as transparent silhouettes.
 			ITexture* scopeDepth = m_VR->m_ScopeDepthTexture;
+#ifdef _DEBUG
+			if (doScopeDbg)
+				LOG("[SCOPEDBG] PushRenderTargetAndViewport depthTexture=%p (nullptr may reuse previous depth-stencil)", scopeDepth);
+#endif
 			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, scopeDepth, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
+
+#ifdef _DEBUG
+			if (doScopeDbg)
+			{
+				ITexture* afterRT = renderContext->GetRenderTarget();
+				dbgTex("RT(after)", afterRT);
+			}
+#endif
 
 			// SteamVR overlays respect the texture alpha. Some world shaders can write 0 alpha even when
 			// they look opaque in the main view. Prevent scope RTT from clobbering alpha so the lens stays solid.
@@ -585,10 +658,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 			hkRenderView.fOriginal(ecx, scopeView, hudScope, nClearFlags, whatToDraw);
 
+#ifdef _DEBUG
+			if (doScopeDbg)
+				LOG("[SCOPEDBG] scope pass finished");
+#endif
+
 			renderContext->OverrideAlphaWriteEnable(false, true);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 			hkPopRenderTargetAndViewport.fOriginal(renderContext);
+		}
+		else
+		{
+#ifdef _DEBUG
+			if (doScopeDbg)
+				LOG("[SCOPEDBG] renderContext is null; scope pass skipped");
+#endif
 		}
 
 		m_VR->m_SuppressHudCapture = false;
