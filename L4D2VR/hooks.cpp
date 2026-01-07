@@ -45,34 +45,62 @@ static inline bool HandleValid(int h)
 	return (h != 0 && h != -1);
 }
 
-static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player)
+struct ThirdPersonStateDebug
 {
+	bool incap = false;
+	bool ledge = false;
+	bool hangingTongue = false;
+	bool tongue = false;
+	bool pinned = false;
+	bool doingUseAction = false;
+	bool reviving = false;
+
+	int tongueOwner = 0;
+	int carryAttacker = 0;
+	int pummelAttacker = 0;
+	int pounceAttacker = 0;
+	int jockeyAttacker = 0;
+	int useAction = 0;
+	int reviveOwner = 0;
+	int reviveTarget = 0;
+};
+
+static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, ThirdPersonStateDebug* outDbg = nullptr)
+{
+	if (outDbg)
+		*outDbg = ThirdPersonStateDebug{};
+
 	if (!player)
 		return false;
 
+	ThirdPersonStateDebug dbg{};
+
 	// Offsets are client netvars (see offsets.txt)
-	const bool incap = ReadNetvar<uint8_t>(player, 0x1ea9) != 0;          // m_isIncapacitated
-	const bool ledge = ReadNetvar<uint8_t>(player, 0x25ec) != 0;          // m_isHangingFromLedge
+	dbg.incap = ReadNetvar<uint8_t>(player, 0x1ea9) != 0;          // m_isIncapacitated
+	dbg.ledge = ReadNetvar<uint8_t>(player, 0x25ec) != 0;          // m_isHangingFromLedge
 
-	const int tongueOwner = ReadNetvar<int>(player, 0x1f6c);              // m_tongueOwner
-	const bool hangingTongue = ReadNetvar<uint8_t>(player, 0x1f84) != 0;  // m_isHangingFromTongue
-	const bool tongue = hangingTongue || HandleValid(tongueOwner);
+	dbg.tongueOwner = ReadNetvar<int>(player, 0x1f6c);             // m_tongueOwner
+	dbg.hangingTongue = ReadNetvar<uint8_t>(player, 0x1f84) != 0;  // m_isHangingFromTongue
+	dbg.tongue = dbg.hangingTongue || HandleValid(dbg.tongueOwner);
 
-	const int carryAttacker = ReadNetvar<int>(player, 0x2714);           // m_carryAttacker
-	const int pummelAttacker = ReadNetvar<int>(player, 0x2720);          // m_pummelAttacker
-	const int pounceAttacker = ReadNetvar<int>(player, 0x272c);          // m_pounceAttacker
-	const int jockeyAttacker = ReadNetvar<int>(player, 0x274c);          // m_jockeyAttacker
-	const bool pinned = HandleValid(carryAttacker) || HandleValid(pummelAttacker) ||
-		HandleValid(pounceAttacker) || HandleValid(jockeyAttacker);
+	dbg.carryAttacker = ReadNetvar<int>(player, 0x2714);           // m_carryAttacker
+	dbg.pummelAttacker = ReadNetvar<int>(player, 0x2720);          // m_pummelAttacker
+	dbg.pounceAttacker = ReadNetvar<int>(player, 0x272c);          // m_pounceAttacker
+	dbg.jockeyAttacker = ReadNetvar<int>(player, 0x274c);          // m_jockeyAttacker
+	dbg.pinned = HandleValid(dbg.carryAttacker) || HandleValid(dbg.pummelAttacker) ||
+		HandleValid(dbg.pounceAttacker) || HandleValid(dbg.jockeyAttacker);
 
-	const int useAction = ReadNetvar<int>(player, 0x1ba8);                // m_iCurrentUseAction
-	const bool doingUseAction = (useAction != 0);
+	dbg.useAction = ReadNetvar<int>(player, 0x1ba8);               // m_iCurrentUseAction
+	dbg.doingUseAction = (dbg.useAction != 0);
 
-	const int reviveOwner = ReadNetvar<int>(player, 0x1f88);             // m_reviveOwner
-	const int reviveTarget = ReadNetvar<int>(player, 0x1f8c);            // m_reviveTarget
-	const bool reviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
+	dbg.reviveOwner = ReadNetvar<int>(player, 0x1f88);             // m_reviveOwner
+	dbg.reviveTarget = ReadNetvar<int>(player, 0x1f8c);            // m_reviveTarget
+	dbg.reviving = HandleValid(dbg.reviveOwner) || HandleValid(dbg.reviveTarget);
 
-	return incap || ledge || tongue || pinned || doingUseAction || reviving;
+	if (outDbg)
+		*outDbg = dbg;
+
+	return dbg.incap || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -295,8 +323,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
-	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer);
-	constexpr int kStateThirdPersonHoldFrames = 20;
+	ThirdPersonStateDebug tpStateDbg;
+	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
+	const int holdBefore = m_VR->m_ThirdPersonHoldFrames;
+	constexpr int kStateThirdPersonHoldFrames = 40;
 	if (engineThirdPersonNow)
 	{
 		m_VR->m_ThirdPersonHoldFrames = 2;
@@ -311,6 +341,51 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 
 	const bool renderThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	// Debug: log third-person state + relevant netvars (throttled)
+	{
+		static std::chrono::steady_clock::time_point s_lastTpDbg{};
+		static bool s_prevEngineTp = false;
+		static bool s_prevStateTp = false;
+		static bool s_prevRenderTp = false;
+		static int s_prevHold = -999;
+
+		const auto now = std::chrono::steady_clock::now();
+		const bool changed = (engineThirdPersonNow != s_prevEngineTp) || (stateWantsThirdPerson != s_prevStateTp) ||
+			(renderThirdPerson != s_prevRenderTp) || (m_VR->m_ThirdPersonHoldFrames != s_prevHold);
+		const bool timeUp = (s_lastTpDbg.time_since_epoch().count() == 0) ||
+			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000);
+
+		if (changed || timeUp)
+		{
+			s_lastTpDbg = now;
+			s_prevEngineTp = engineThirdPersonNow;
+			s_prevStateTp = stateWantsThirdPerson;
+			s_prevRenderTp = renderThirdPerson;
+			s_prevHold = m_VR->m_ThirdPersonHoldFrames;
+
+			Game::logMsg(
+				"TPDBG engine=%d state=%d render=%d camDist=%.1f hold=%d->%d | "
+				"incap=%d ledge=%d tongueOwner=%d hangTongue=%d | "
+				"carry=%d pummel=%d pounce=%d jockey=%d useAction=%d reviveOwner=%d reviveTarget=%d",
+				engineThirdPersonNow ? 1 : 0,
+				stateWantsThirdPerson ? 1 : 0,
+				renderThirdPerson ? 1 : 0,
+				camDist,
+				holdBefore,
+				m_VR->m_ThirdPersonHoldFrames,
+				tpStateDbg.incap ? 1 : 0,
+				tpStateDbg.ledge ? 1 : 0,
+				tpStateDbg.tongueOwner,
+				tpStateDbg.hangingTongue ? 1 : 0,
+				tpStateDbg.carryAttacker,
+				tpStateDbg.pummelAttacker,
+				tpStateDbg.pounceAttacker,
+				tpStateDbg.jockeyAttacker,
+				tpStateDbg.useAction,
+				tpStateDbg.reviveOwner,
+				tpStateDbg.reviveTarget);
+		}
+	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
 	CViewSetup leftEyeView = setup;
