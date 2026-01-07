@@ -647,6 +647,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		}
 	}
 
+	// Netvar-driven auto-evade (hunter/jockey shove timing) without ClientCmd jitter.
+	m_VR->ApplySpecialInfectedAutoEvade(cmd);
+
 	return result;
 }
 
@@ -1204,7 +1207,7 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 						&& infectedType != VR::SpecialInfectedType::Witch
 						&& infectedType != VR::SpecialInfectedType::Charger)
 					{
-						m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin);
+						m_VR->RefreshSpecialInfectedBlindSpotWarning(info.origin, infectedType, info.entity_index);
 					}
 					m_VR->DrawSpecialInfectedArrow(info.origin, infectedType);
 				}

@@ -16,6 +16,7 @@ class Game;
 class C_BaseEntity;
 class C_BasePlayer;
 class C_WeaponCSBase;
+class CUserCmd;
 class IDirect3DTexture9;
 class IDirect3DSurface9;
 class ITexture;
@@ -497,6 +498,26 @@ public:
 	std::chrono::steady_clock::time_point m_LastSpecialInfectedPreWarningTargetUpdateTime{};
 	Vector m_SpecialInfectedWarningTarget = { 0.0f, 0.0f, 0.0f };
 	bool m_SpecialInfectedWarningTargetActive = false;
+	int m_SpecialInfectedWarningTargetEntityIndex = -1;
+	SpecialInfectedType m_SpecialInfectedWarningTargetType = SpecialInfectedType::None;
+
+	// Auto-evade timing is applied in Hooks::dCreateMove via CUserCmd.
+	enum class AutoEvadeStep
+	{
+		None,
+		HoldShove,
+		PostDelay,
+		HoldJump
+	};
+	AutoEvadeStep m_AutoEvadeStep = AutoEvadeStep::None;
+	int m_AutoEvadeStepEndTick = 0;
+	int m_AutoEvadeNextAllowedTick = 0;
+
+	// Adaptive shove lead-time tuning using hunter/jockey netvars.
+	int m_AutoEvadeLastAttemptEnt = -1;
+	float m_AutoEvadeLastBashedStart = 0.0f;
+	int m_AutoEvadeLastAttemptTick = 0;
+	float m_AutoEvadeLeadSeconds = 0.07f;
 	bool m_SuppressPlayerInput = false;
 	enum class SpecialInfectedWarningActionStep
 	{
@@ -620,7 +641,7 @@ public:
 	bool IsEntityAlive(const C_BaseEntity* entity) const;
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex, bool isPlayerClass);
-	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
+	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex);
 	bool HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entityIndex) const;
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
@@ -628,6 +649,7 @@ public:
 	void StartSpecialInfectedWarningAction();
 	void UpdateSpecialInfectedWarningAction();
 	void ResetSpecialInfectedWarningAction();
+	void ApplySpecialInfectedAutoEvade(CUserCmd* cmd);
 	void GetAimLineColor(int& r, int& g, int& b, int& a) const;
 	void FinishFrame();
 	void ConfigureExplicitTiming();
