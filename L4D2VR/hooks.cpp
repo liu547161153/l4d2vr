@@ -1,3 +1,9 @@
+// Optional: allow SCOPEDBG in Release if you already enabled it elsewhere.
+// If you didn't, ignore this block.
+#ifndef VR_SCOPEDBG
+#define VR_SCOPEDBG 1
+#endif
+
 #include "hooks.h"
 #include "game.h"
 #include "texture.h"
@@ -540,7 +546,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// "common infected only shows as a transparent silhouette except at certain angles".
 		// We want to see scope RT size/FOV/zNear, the RT bound before/after push,
 		// and whether we're passing a depth-stencil texture (nullptr is suspicious).
-#ifdef _DEBUG
+#if VR_SCOPEDBG
 		static std::chrono::steady_clock::time_point s_lastScopeDbg;
 		const bool doScopeDbg = [&]() -> bool
 		{
@@ -557,7 +563,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 		auto dbgTex = [&](const char* tag, ITexture* t)
 		{
-#ifdef _DEBUG
+#if VR_SCOPEDBG
 			if (!doScopeDbg)
 				return;
 			if (!t)
@@ -611,7 +617,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
 		if (renderContext)
 		{
-#ifdef _DEBUG
+#if VR_SCOPEDBG
 			if (doScopeDbg)
 			{
 				LOG("[SCOPEDBG] scope pass: rtt=%u fov=%.2f zNear=%.2f pos=(%.1f %.1f %.1f) ang=(%.1f %.1f %.1f) clearFlags=%d whatToDraw=%d",
@@ -632,13 +638,40 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			// keep using the previously-bound depth (usually the main eye RT), which is a different size.
 			// That mismatch makes common infected frequently render as transparent silhouettes.
 			ITexture* scopeDepth = m_VR->m_ScopeDepthTexture;
-#ifdef _DEBUG
+#if VR_SCOPEDBG
 			if (doScopeDbg)
 				LOG("[SCOPEDBG] PushRenderTargetAndViewport depthTexture=%p (nullptr may reuse previous depth-stencil)", scopeDepth);
 #endif
+
+#if VR_SCOPEDBG
+			if (doScopeDbg)
+			{
+				// Print depth texture details too — this is the smoking gun for size/format mismatch.
+				dbgTex("Depth(scope)", scopeDepth);
+
+				if (!scopeDepth)
+				{
+					LOG("[SCOPEDBG][WARN] scopeDepth is NULL -> engine will reuse previous depth-stencil (often eye RT), high chance of mismatch.");
+				}
+				else
+				{
+					const int w = scopeDepth->GetMappingWidth();
+					const int h = scopeDepth->GetMappingHeight();
+					const bool sizeMismatch = (w != (int)m_VR->m_ScopeRTTSize) || (h != (int)m_VR->m_ScopeRTTSize);
+					const bool isErr = scopeDepth->IsError();
+					const bool sameFmtAsColor = (scopeDepth->GetImageFormat() == m_VR->m_ScopeTexture->GetImageFormat());
+					if (isErr)
+						LOG("[SCOPEDBG][WARN] scopeDepth IsError()==true. This is NOT a valid depth RT.");
+					if (sizeMismatch)
+						LOG("[SCOPEDBG][WARN] scopeDepth size mismatch: depth map=%dx%d but scopeRTT=%u. This can break common infected rendering.", w, h, (unsigned)m_VR->m_ScopeRTTSize);
+					if (sameFmtAsColor)
+						LOG("[SCOPEDBG][WARN] scopeDepth image format equals scope COLOR format (%d). Depth RT should NOT look like a color RT.", (int)scopeDepth->GetImageFormat());
+				}
+			}
+#endif
 			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, scopeDepth, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
 
-#ifdef _DEBUG
+#if VR_SCOPEDBG
 			if (doScopeDbg)
 			{
 				ITexture* afterRT = renderContext->GetRenderTarget();
@@ -658,7 +691,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 			hkRenderView.fOriginal(ecx, scopeView, hudScope, nClearFlags, whatToDraw);
 
-#ifdef _DEBUG
+#if VR_SCOPEDBG
 			if (doScopeDbg)
 				LOG("[SCOPEDBG] scope pass finished");
 #endif
@@ -670,7 +703,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		}
 		else
 		{
-#ifdef _DEBUG
+#if VR_SCOPEDBG
 			if (doScopeDbg)
 				LOG("[SCOPEDBG] renderContext is null; scope pass skipped");
 #endif
