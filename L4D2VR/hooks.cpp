@@ -624,49 +624,83 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		}
 #endif
 		// ------------------------------------------------------------
-		// Scope camera anti-clipping (project-compatible)
-		// If the scope camera starts inside solid, entity visibility can become angle-dependent.
-		// Detect startsolid/allsolid and nudge the scope camera backward along -forward.
+		// Robust anti-solid: use a small hull + try directions.
+		// Priority: towards HMD (pull back) -> up -> -forward -> right/left
 		// ------------------------------------------------------------
 		if (m_Game && m_Game->m_EngineTrace)
 		{
-			Vector fwd;
-			QAngle::AngleVectors(scopeAngles, &fwd, nullptr, nullptr);
+			Vector fwd, right, up;
+			QAngle::AngleVectors(scopeAngles, &fwd, &right, &up);
 
-			// Use project's built-in filter (TraceRay expects CTraceFilter*).
-			// passentity=nullptr => it won't skip anything meaningful.
+			// IMPORTANT: avoid Vector::NormalizeInPlace() (you had unresolved external before).
+			auto unit = [](const Vector& v) -> Vector
+			{
+				const float len = v.Length();
+				if (len > 1e-6f)
+					return v * (1.0f / len);
+				return Vector(0.0f, 0.0f, 0.0f);
+			};
+
+			// Use a tiny hull so "startsolid" is stable (ray-only is too sensitive near walls).
+			const Vector hullMins(-1.5f, -1.5f, -1.5f);
+			const Vector hullMaxs(1.5f, 1.5f, 1.5f);
+
 			CTraceFilterSkipSelf filter(nullptr, 0);
 
 			auto inSolidAt = [&](const Vector& pos) -> bool
 			{
 				Ray_t ray;
-				ray.Init(pos, pos + Vector(0.0f, 0.0f, 1.0f)); // tiny ray
-
+				// Small swept hull (avoid degenerate start=end)
+				ray.Init(pos, pos + Vector(0.0f, 0.0f, 0.5f), hullMins, hullMaxs);
 				trace_t tr;
-				m_Game->m_EngineTrace->TraceRay(ray, CONTENTS_SOLID, &filter, &tr);
+				m_Game->m_EngineTrace->TraceRay(ray, MASK_STATICWORLD, &filter, &tr);
 				return tr.startsolid || tr.allsolid;
 			};
 
-			if (inSolidAt(scopeView.origin))
+			auto tryPushOut = [&](Vector& pos, const Vector& dirUnit) -> bool
 			{
-				const Vector orig = scopeView.origin;
-
-				// Push out up to 32 units (2 * 16), step 2 units.
-				for (int i = 1; i <= 16; ++i)
+				if (dirUnit.LengthSqr() < 1e-8f)
+					return false;
+				const Vector orig = pos;
+				// up to 64 units, step 2
+				for (int i = 1; i <= 32; ++i)
 				{
-					Vector candidate = orig - fwd * (2.0f * (float)i);
+					Vector candidate = orig + dirUnit * (2.0f * (float)i);
 					if (!inSolidAt(candidate))
 					{
-						scopeView.origin = candidate;
-						break;
+						pos = candidate;
+						return true;
 					}
 				}
+				return false;
+			};
+
+			const Vector orig = scopeView.origin;
+			if (inSolidAt(scopeView.origin))
+			{
+				// Direction list (ordered)
+				const Vector dirToHmd = unit(hmdPos - scopeView.origin); // pull back toward head
+				const Vector dirUp = unit(up);
+				const Vector dirBack = unit(-fwd);
+				const Vector dirR = unit(right);
+				const Vector dirL = unit(-right);
+
+				bool fixed =
+					tryPushOut(scopeView.origin, dirToHmd) ||
+					tryPushOut(scopeView.origin, dirUp) ||
+					tryPushOut(scopeView.origin, dirBack) ||
+					tryPushOut(scopeView.origin, dirR) ||
+					tryPushOut(scopeView.origin, dirL);
 
 #if VR_SCOPEDBG
-				LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f) fwd=(%.3f %.3f %.3f)",
-					orig.x, orig.y, orig.z,
-					scopeView.origin.x, scopeView.origin.y, scopeView.origin.z,
-					fwd.x, fwd.y, fwd.z);
+				// throttle spam: only log on the scoped once-per-second tick
+				if (doScopeDbg)
+				{
+					LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f) fixedOk=%d",
+						orig.x, orig.y, orig.z,
+						scopeView.origin.x, scopeView.origin.y, scopeView.origin.z,
+						fixed ? 1 : 0);
+				}
 #endif
 			}
 		}
