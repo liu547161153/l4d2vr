@@ -603,36 +603,26 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.zNearViewmodel = 99999.0f; // hard-clip viewmodel so scope image is "world only"
 
 		QAngle scopeAngles = m_VR->GetScopeCameraAbsAngle();
-		scopeView.origin = m_VR->GetScopeCameraAbsPos();
+
+		// IMPORTANT:
+		// Use HMD as the view origin to stabilize PVS/leaf visibility.
+		// The scope camera position on the weapon can jitter across BSP leaves,
+		// causing common infected to intermittently disappear in this offscreen pass.
+		Vector scopePos = m_VR->GetScopeCameraAbsPos();
+		Vector hmdPos = m_VR->m_HmdPosAbs;
+		scopeView.origin = hmdPos;
 		scopeView.angles.x = scopeAngles.x;
 		scopeView.angles.y = scopeAngles.y;
 		scopeView.angles.z = scopeAngles.z;
 
-		// ------------------------------------------------------------
-		// PVS/leaf stability fix:
-		// Scope camera origin sits on the weapon and can jitter across BSP leaf boundaries
-		// (even sub-unit movement). That makes PVS change and common infected may vanish.
-		// Pull the scope origin slightly toward HMD to keep it in a stable leaf.
-		// ------------------------------------------------------------
-		{
-			const Vector hmd = m_VR->m_HmdPosAbs;
-			Vector toHmd = hmd - scopeView.origin;
-			const float dist = toHmd.Length();
-
-			// Max pull distance in Source units (1 unit ≈ 1 inch). 12 is a good start.
-			const float kMaxPull = 12.0f;
-			if (dist > 0.001f)
-			{
-				const float pull = std::min(dist, kMaxPull);
-				scopeView.origin += toHmd * (pull / dist);
-
 #if VR_SCOPEDBG
-				if (doScopeDbg && pull > 0.5f)
-					LOG("[SCOPEDBG] scope origin pulled toward HMD by %.2f (dist=%.2f)", pull, dist);
-#endif
-			}
+		if (doScopeDbg)
+		{
+			LOG("[SCOPEDBG] scope origin override: scopePos=(%.1f %.1f %.1f) -> hmdPos=(%.1f %.1f %.1f)",
+				scopePos.x, scopePos.y, scopePos.z,
+				hmdPos.x, hmdPos.y, hmdPos.z);
 		}
-
+#endif
 		// ------------------------------------------------------------
 		// Scope camera anti-clipping (project-compatible)
 		// If the scope camera starts inside solid, entity visibility can become angle-dependent.
