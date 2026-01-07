@@ -11,6 +11,7 @@
 #include "sdk_server.h"
 #include "vr.h"
 #include "offsets.h"
+#include "trace.h"
 #include <iostream>
 #include <cstdint>
 #include <string>
@@ -608,27 +609,26 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.angles.z = scopeAngles.z;
 
 		// ------------------------------------------------------------
-		// Scope camera anti-clipping (project-compatible version)
+		// Scope camera anti-clipping (project-compatible)
+		// If the scope camera starts inside solid, entity visibility can become angle-dependent.
+		// Detect startsolid/allsolid and nudge the scope camera backward along -forward.
 		// ------------------------------------------------------------
 		if (m_Game && m_Game->m_EngineTrace)
 		{
 			Vector fwd;
-			AngleVectors(scopeAngles, &fwd, nullptr, nullptr);
+			QAngle::AngleVectors(scopeAngles, &fwd, nullptr, nullptr);
 
-			// Minimal trace filter: don't skip anything special
-			struct SimpleTraceFilter : public ITraceFilter
-			{
-				bool ShouldHitEntity(IHandleEntity*, int) override { return true; }
-				TraceType_t GetTraceType() const override { return TRACE_EVERYTHING; }
-			} filter;
+			// Use project's built-in filter (TraceRay expects CTraceFilter*).
+			// passentity=nullptr => it won't skip anything meaningful.
+			CTraceFilterSkipSelf filter(nullptr, 0);
 
 			auto inSolidAt = [&](const Vector& pos) -> bool
 			{
 				Ray_t ray;
-				ray.Init(pos, pos + Vector(0.0f, 0.0f, 1.0f));
+				ray.Init(pos, pos + Vector(0.0f, 0.0f, 1.0f)); // tiny ray
 
 				trace_t tr;
-				m_Game->m_EngineTrace->TraceRay(ray, MASK_SOLID, &filter, &tr);
+				m_Game->m_EngineTrace->TraceRay(ray, CONTENTS_SOLID, &filter, &tr);
 				return tr.startsolid || tr.allsolid;
 			};
 
@@ -636,7 +636,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			{
 				const Vector orig = scopeView.origin;
 
-				// Push camera backwards along -forward, max 32 units
+				// Push out up to 32 units (2 * 16), step 2 units.
 				for (int i = 1; i <= 16; ++i)
 				{
 					Vector candidate = orig - fwd * (2.0f * (float)i);
@@ -648,9 +648,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				}
 
 #if VR_SCOPEDBG
-				LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f)",
+				LOG("[SCOPEDBG][WARN] scope origin in SOLID. orig=(%.1f %.1f %.1f) fixed=(%.1f %.1f %.1f) fwd=(%.3f %.3f %.3f)",
 					orig.x, orig.y, orig.z,
-					scopeView.origin.x, scopeView.origin.y, scopeView.origin.z);
+					scopeView.origin.x, scopeView.origin.y, scopeView.origin.z,
+					fwd.x, fwd.y, fwd.z);
 #endif
 			}
 		}
