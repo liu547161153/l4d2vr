@@ -609,6 +609,31 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.angles.z = scopeAngles.z;
 
 		// ------------------------------------------------------------
+		// PVS/leaf stability fix:
+		// Scope camera origin sits on the weapon and can jitter across BSP leaf boundaries
+		// (even sub-unit movement). That makes PVS change and common infected may vanish.
+		// Pull the scope origin slightly toward HMD to keep it in a stable leaf.
+		// ------------------------------------------------------------
+		{
+			const Vector hmd = m_VR->m_HmdPosAbs;
+			Vector toHmd = hmd - scopeView.origin;
+			const float dist = toHmd.Length();
+
+			// Max pull distance in Source units (1 unit ≈ 1 inch). 12 is a good start.
+			const float kMaxPull = 12.0f;
+			if (dist > 0.001f)
+			{
+				const float pull = std::min(dist, kMaxPull);
+				scopeView.origin += toHmd * (pull / dist);
+
+#if VR_SCOPEDBG
+				if (doScopeDbg && pull > 0.5f)
+					LOG("[SCOPEDBG] scope origin pulled toward HMD by %.2f (dist=%.2f)", pull, dist);
+#endif
+			}
+		}
+
+		// ------------------------------------------------------------
 		// Scope camera anti-clipping (project-compatible)
 		// If the scope camera starts inside solid, entity visibility can become angle-dependent.
 		// Detect startsolid/allsolid and nudge the scope camera backward along -forward.
