@@ -333,7 +333,10 @@ void VR::CreateVRTextures()
         static_cast<int>(m_ScopeRTTSize),
         RT_SIZE_NO_CHANGE,
         m_Game->m_MaterialSystem->GetBackBufferFormat(),
-        MATERIAL_RT_DEPTH_SHARED,
+        // IMPORTANT: scope RTT needs its own depth buffer.
+        // Sharing depth with the main view/HUD can cause certain opaque models (notably common infected)
+        // to fail depth/culling in this offscreen pass, showing up as a faint/transparent silhouette.
+        MATERIAL_RT_DEPTH_SEPARATE,
         TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_Blank;

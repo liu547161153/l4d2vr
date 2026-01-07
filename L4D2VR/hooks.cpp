@@ -435,9 +435,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.angles.y = scopeAngles.y;
 		scopeView.angles.z = scopeAngles.z;
 
-		CViewSetup hudScope = hudViewSetup;
-		hudScope.origin = scopeView.origin;
-		hudScope.angles = scopeView.angles;
+        // Keep the HUD view setup consistent with the offscreen scope view.
+        // Mismatched viewport/FOV here can confuse some internal render paths and lead to
+        // "only a transparent silhouette" for certain NPCs in the scope RTT.
+        CViewSetup hudScope = scopeView;
 
 		// prevent HUD capture hooks during this pass
 		m_VR->m_SuppressHudCapture = true;
