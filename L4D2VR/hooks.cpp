@@ -100,7 +100,10 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 	if (outDbg)
 		*outDbg = dbg;
 
-	return dbg.incap || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
+	// NOTE: user request:
+	// - "倒地" (incapacitated) 不强制第三人称
+	// Keep other pinned/use/revive/tongue states.
+	return dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
