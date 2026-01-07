@@ -326,19 +326,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	ThirdPersonStateDebug tpStateDbg;
 	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
 	const int holdBefore = m_VR->m_ThirdPersonHoldFrames;
+	constexpr int kEngineThirdPersonHoldFrames = 2;
 	constexpr int kStateThirdPersonHoldFrames = 40;
-	if (engineThirdPersonNow)
-	{
-		m_VR->m_ThirdPersonHoldFrames = 2;
-	}
-	else if (stateWantsThirdPerson)
-	{
+
+	// 先按“状态”锁定（优先级最高）
+	if (stateWantsThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
-	}
-	else if (m_VR->m_ThirdPersonHoldFrames > 0)
-	{
+
+	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
+	if (engineThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
+	else if (!stateWantsThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
-	}
 
 	const bool renderThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Debug: log third-person state + relevant netvars (throttled)
@@ -427,7 +426,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 		// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
 		// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
-		Vector baseCenter = engineThirdPersonNow ? setup.origin : m_VR->m_HmdPosAbs;
+		// IMPORTANT:
+		// engineThirdPersonNow can flicker during pinned/incap/use actions.
+		// If stateWantsThirdPerson is true, always synthesize from HMD to avoid camera "jumping"
+		// between setup.origin and HmdPosAbs.
+		Vector baseCenter;
+		if (stateWantsThirdPerson)
+			baseCenter = m_VR->m_HmdPosAbs;
+		else
+			baseCenter = engineThirdPersonNow ? setup.origin : m_VR->m_HmdPosAbs;
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
