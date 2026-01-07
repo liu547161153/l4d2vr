@@ -608,8 +608,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Use HMD as the view origin to stabilize PVS/leaf visibility.
 		// The scope camera position on the weapon can jitter across BSP leaves,
 		// causing common infected to intermittently disappear in this offscreen pass.
-		Vector scopePos = m_VR->GetScopeCameraAbsPos();
-		Vector hmdPos = m_VR->m_HmdPosAbs;
+		const Vector scopePos = m_VR->GetScopeCameraAbsPos();
+		const Vector hmdPos = m_VR->m_HmdPosAbs;
+
+		// Default origin choice (may be overridden by anti-solid / fallback below)
 		scopeView.origin = hmdPos;
 		scopeView.angles.x = scopeAngles.x;
 		scopeView.angles.y = scopeAngles.y;
@@ -719,6 +721,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 						pushed);
 				}
 #endif
+
+				// If we still can't get a non-solid origin (or we didn't move at all),
+				// fall back to the main view origin to stabilize PVS and prevent common infected disappearing.
+				if (!fixedOk && inSolidAt(scopeView.origin))
+				{
+					const Vector fallback = setup.origin;
+					if (!inSolidAt(fallback))
+					{
+						scopeView.origin = fallback;
+#if VR_SCOPEDBG
+						if (doScopeDbg)
+							LOG("[SCOPEDBG][FALLBACK] scope origin fallback to setup.origin=(%.1f %.1f %.1f) (HMD origin was SOLID)",
+								fallback.x, fallback.y, fallback.z);
+#endif
+					}
+				}
 			}
 		}
 
