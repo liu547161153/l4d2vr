@@ -2782,6 +2782,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
 bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
 {
+    // While pinned/controlled by SI, the player model/camera can be driven by animations,
+    // causing the aim line to wildly drift and feel broken. Disable it in those states.
+    if (m_PlayerControlledBySI)
+        return false;
+
     if (!m_AimLineEnabled || !weapon)
         return false;
 

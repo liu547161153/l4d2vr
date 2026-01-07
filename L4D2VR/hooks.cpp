@@ -45,6 +45,29 @@ static inline bool HandleValid(int h)
 	return (h != 0 && h != -1);
 }
 
+// Returns true if the local player is currently pinned/controlled by special infected.
+// Used to disable jittery aim line while being dragged / pinned.
+static inline bool IsPlayerControlledBySI(const C_BasePlayer* player)
+{
+	if (!player)
+		return false;
+
+	// Smoker
+	const int tongueOwner = ReadNetvar<int>(player, 0x1f6c);              // m_tongueOwner
+	const bool hangingTongue = ReadNetvar<uint8_t>(player, 0x1f84) != 0;  // m_isHangingFromTongue
+	const bool tongue = hangingTongue || HandleValid(tongueOwner);
+
+	// Hunter / Charger / Jockey pins
+	const int carryAttacker  = ReadNetvar<int>(player, 0x2714);           // m_carryAttacker
+	const int pummelAttacker = ReadNetvar<int>(player, 0x2720);           // m_pummelAttacker
+	const int pounceAttacker = ReadNetvar<int>(player, 0x272c);           // m_pounceAttacker
+	const int jockeyAttacker = ReadNetvar<int>(player, 0x274c);           // m_jockeyAttacker
+	const bool pinned = HandleValid(carryAttacker) || HandleValid(pummelAttacker) ||
+		HandleValid(pounceAttacker) || HandleValid(jockeyAttacker);
+
+	return tongue || pinned;
+}
+
 struct ThirdPersonStateDebug
 {
 	bool incap = false;
@@ -336,6 +359,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
+	// Also expose a simple "player is pinned/controlled" flag so VR can disable jittery aim line.
+	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
 	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
 	const int holdBefore = m_VR->m_ThirdPersonHoldFrames;

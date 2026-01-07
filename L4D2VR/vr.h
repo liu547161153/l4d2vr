@@ -176,6 +176,10 @@ public:
 	bool m_AimLineConfigEnabled = true;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
+	// When the local player is pinned / controlled by special infected (smoked, pounced, jockey,
+	// charger carry/pummel), the body animation can cause the aim line to jitter wildly.
+	// Disable the aim line in those states.
+	bool m_PlayerControlledBySI = false;
 	float m_AimLinePersistence = 0.02f;
 	float m_AimLineFrameDurationMultiplier = 2.0f;
 	int m_AimLineColorR = 0;
