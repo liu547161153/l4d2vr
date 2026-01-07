@@ -2622,7 +2622,13 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     rayP.Init(origin, target);
     m_Game->m_EngineTrace->TraceRay(rayP, STANDARD_TRACE_MASK, &tracefilter, &traceP);
 
-    const Vector P = (traceP.fraction < 1.0f && traceP.fraction > 0.0f) ? traceP.endpos : target;
+    Vector P = target;
+    if (traceP.fraction < 1.0f && traceP.fraction > 0.0f)
+    {
+        const float hitDist = (traceP.endpos - origin).Length();
+        if (hitDist >= m_AimLineMinHitDistance)
+            P = traceP.endpos;
+    }
     m_NonVRAimDesiredPoint = P;
 
     // 2) Eye ray towards P -> H (what the server will actually hit)
@@ -2765,7 +2771,15 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             ray.Init(origin, target);
             m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
 
-            m_AimConvergePoint = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : target;
+            m_AimConvergePoint = target;
+            if (trace.fraction < 1.0f && trace.fraction > 0.0f)
+            {
+                const float hitDist = (trace.endpos - origin).Length();
+                if (hitDist >= m_AimLineMinHitDistance)
+                    m_AimConvergePoint = trace.endpos;
+                else
+                    m_AimConvergePoint = target;
+            }
             m_HasAimConvergePoint = true;
             target = m_AimConvergePoint; // draw to P
         }
@@ -4368,6 +4382,7 @@ void VR::ParseConfigFile()
     m_AimLineColorA = aimColor[3];
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
+    m_AimLineMinHitDistance = std::max(0.0f, getFloat("AimLineMinHitDistance", m_AimLineMinHitDistance));
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));

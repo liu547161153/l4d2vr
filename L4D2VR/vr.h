@@ -182,6 +182,9 @@ public:
 	bool m_PlayerControlledBySI = false;
 	float m_AimLinePersistence = 0.02f;
 	float m_AimLineFrameDurationMultiplier = 2.0f;
+	// If the aim ray hits something extremely close to its origin (e.g. player hugging a wall),
+	// ignore that hit so the line doesn't "stick" to nearby geometry. 0 = disable.
+	float m_AimLineMinHitDistance = 8.0f;
 	int m_AimLineColorR = 0;
 	int m_AimLineColorG = 255;
 	int m_AimLineColorB = 0;
