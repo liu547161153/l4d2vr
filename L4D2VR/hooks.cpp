@@ -535,6 +535,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (renderContext)
 		{
 			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, nullptr, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
+			renderContext->OverrideAlphaWriteEnable(true, false);
 			renderContext->ClearColor4ub(0, 0, 0, 255);
 			renderContext->ClearBuffers(true, true, true);
 
@@ -545,6 +546,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			hkRenderView.fOriginal(ecx, scopeView, hudScope, nClearFlags, whatToDraw);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+			renderContext->OverrideAlphaWriteEnable(false, true);
 			hkPopRenderTargetAndViewport.fOriginal(renderContext);
 		}
 
@@ -587,6 +589,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (renderContext)
 		{
 			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_RearMirrorTexture, nullptr, 0, 0, m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize);
+			renderContext->OverrideAlphaWriteEnable(true, false);
 			renderContext->ClearColor4ub(0, 0, 0, 255);
 			renderContext->ClearBuffers(true, true, true);
 
@@ -597,6 +600,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			hkRenderView.fOriginal(ecx, mirrorView, hudMirror, nClearFlags, whatToDraw);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+			renderContext->OverrideAlphaWriteEnable(false, true);
 			hkPopRenderTargetAndViewport.fOriginal(renderContext);
 		}
 
@@ -1511,7 +1515,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
 	// When scope RTT is rendering, don't redirect HUD/VGUI
 	if (m_VR->m_SuppressHudCapture)
-		return hkVgui_Paint.fOriginal(ecx, mode);
+		return;
 
 	if (m_PushedHud)
 		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
