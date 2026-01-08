@@ -148,6 +148,7 @@ VR::VR(Game* game)
 
     // Gun-mounted scope lens overlay (render-to-texture)
     m_Overlay->CreateOverlay("ScopeOverlayKey", "ScopeOverlay", &m_ScopeHandle);
+    m_Overlay->CreateOverlay("RearMirrorOverlayKey", "RearMirrorOverlay", &m_RearMirrorHandle);
 
     m_Overlay->SetOverlayInputMethod(m_MainMenuHandle, vr::VROverlayInputMethod_Mouse);
     m_Overlay->SetOverlayInputMethod(m_HUDTopHandle, vr::VROverlayInputMethod_Mouse);
@@ -158,6 +159,7 @@ VR::VR(Game* game)
 
     // Scope overlay is purely visual
     m_Overlay->SetOverlayInputMethod(m_ScopeHandle, vr::VROverlayInputMethod_None);
+    m_Overlay->SetOverlayInputMethod(m_RearMirrorHandle, vr::VROverlayInputMethod_None);
 
     m_Overlay->SetOverlayFlag(m_MainMenuHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
     m_Overlay->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
@@ -339,6 +341,17 @@ void VR::CreateVRTextures()
         MATERIAL_RT_DEPTH_SEPARATE,
         TEXTUREFLAGS_NOMIP);
 
+    // Square RTT for off-hand rear mirror
+    m_CreatingTextureID = Texture_RearMirror;
+    m_RearMirrorTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+        "vrRearMirror",
+        static_cast<int>(m_RearMirrorRTTSize),
+        static_cast<int>(m_RearMirrorRTTSize),
+        RT_SIZE_NO_CHANGE,
+        m_Game->m_MaterialSystem->GetBackBufferFormat(),
+        MATERIAL_RT_DEPTH_SEPARATE,
+        TEXTUREFLAGS_NOMIP);
+
     m_CreatingTextureID = Texture_Blank;
     m_BlankTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("blankTexture", 512, 512, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
@@ -413,6 +426,12 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKScope.m_VRTexture);
         };
+    auto applyRearMirrorTexture = [&](vr::VROverlayHandle_t overlay)
+        {
+            static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
+            vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
+            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
+        };
 
     //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
@@ -427,6 +446,7 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
         hideHudOverlays();
         vr::VROverlay()->HideOverlay(m_ScopeHandle);
+        vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
@@ -485,6 +505,27 @@ void VR::SubmitVRTextures()
     else
     {
         vr::VROverlay()->HideOverlay(m_ScopeHandle);
+    }
+
+    if (m_RearMirrorTexture && m_RearMirrorEnabled)
+    {
+        applyRearMirrorTexture(m_RearMirrorHandle);
+        vr::VROverlay()->SetOverlayAlpha(m_RearMirrorHandle, std::clamp(m_RearMirrorAlpha, 0.0f, 1.0f));
+
+        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
+        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+        if (m_LeftHanded)
+            std::swap(leftControllerIndex, rightControllerIndex);
+        const vr::TrackedDeviceIndex_t offHandControllerIndex = leftControllerIndex;
+
+        if (ShouldRenderRearMirror() && offHandControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+            vr::VROverlay()->ShowOverlay(m_RearMirrorHandle);
+        else
+            vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+    }
+    else
+    {
+        vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
     }
 
     submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
@@ -737,6 +778,65 @@ void VR::RepositionOverlays(bool attachToControllers)
 
             vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_ScopeHandle, gunControllerIndex, &scopeRelative);
             vr::VROverlay()->SetOverlayWidthInMeters(m_ScopeHandle, std::max(0.01f, m_ScopeOverlayWidthMeters));
+        }
+    }
+
+    // Reposition rear mirror overlay relative to the off-hand controller.
+    {
+        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
+        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+        if (m_LeftHanded)
+            std::swap(leftControllerIndex, rightControllerIndex);
+
+        const vr::TrackedDeviceIndex_t offHandControllerIndex = leftControllerIndex;
+        if (offHandControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+        {
+            const float deg2rad = 3.14159265358979323846f / 180.0f;
+
+            auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
+                {
+                    for (int r = 0; r < 3; ++r)
+                        for (int c = 0; c < 3; ++c)
+                            out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
+                };
+
+            const float pitch = m_RearMirrorOverlayAngleOffset.x * deg2rad;
+            const float yaw = m_RearMirrorOverlayAngleOffset.y * deg2rad;
+            const float roll = m_RearMirrorOverlayAngleOffset.z * deg2rad;
+
+            const float cp = cosf(pitch), sp = sinf(pitch);
+            const float cy = cosf(yaw), sy = sinf(yaw);
+            const float cr = cosf(roll), sr = sinf(roll);
+
+            const float Rx[3][3] = {
+                {1.0f, 0.0f, 0.0f},
+                {0.0f, cp,   -sp},
+                {0.0f, sp,   cp}
+            };
+            const float Ry[3][3] = {
+                {cy,   0.0f, sy},
+                {0.0f, 1.0f, 0.0f},
+                {-sy,  0.0f, cy}
+            };
+            const float Rz[3][3] = {
+                {cr,   -sr,  0.0f},
+                {sr,   cr,   0.0f},
+                {0.0f, 0.0f, 1.0f}
+            };
+
+            float RyRx[3][3];
+            float R[3][3];
+            mul33(Ry, Rx, RyRx);
+            mul33(Rz, RyRx, R);
+
+            vr::HmdMatrix34_t mirrorRelative = {
+                R[0][0], R[0][1], R[0][2], m_RearMirrorOverlayXOffset,
+                R[1][0], R[1][1], R[1][2], m_RearMirrorOverlayYOffset,
+                R[2][0], R[2][1], R[2][2], m_RearMirrorOverlayZOffset
+            };
+
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RearMirrorHandle, offHandControllerIndex, &mirrorRelative);
+            vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, std::max(0.01f, m_RearMirrorOverlayWidthMeters));
         }
     }
 }
@@ -2411,6 +2511,21 @@ void VR::UpdateTracking()
     }
 
     UpdateScopeAimLineState();
+
+    if (m_RearMirrorEnabled)
+    {
+        m_RearMirrorCameraPosAbs =
+            m_HmdPosAbs
+            + m_HmdForward * m_RearMirrorCameraOffset.x
+            + m_HmdRight * m_RearMirrorCameraOffset.y
+            + m_HmdUp * m_RearMirrorCameraOffset.z;
+
+        QAngle mirrorAng = m_HmdAngAbs;
+        mirrorAng.y += 180.0f;
+        mirrorAng += m_RearMirrorCameraAngleOffset;
+        NormalizeAndClampViewAngles(mirrorAng);
+        m_RearMirrorCameraAngAbs = mirrorAng;
+    }
 
     // Non-VR servers only understand cmd->viewangles. When ForceNonVRServerMovement is enabled,
     // solve an eye-based aim hit point so rendered aim line and real hit point stay consistent.
@@ -4418,6 +4533,32 @@ void VR::ParseConfigFile()
     m_ScopeRequireLookThrough = getBool("ScopeRequireLookThrough", m_ScopeRequireLookThrough);
     m_ScopeLookThroughDistanceMeters = std::clamp(getFloat("ScopeLookThroughDistanceMeters", m_ScopeLookThroughDistanceMeters), 0.01f, 2.0f);
     m_ScopeLookThroughAngleDeg = std::clamp(getFloat("ScopeLookThroughAngleDeg", m_ScopeLookThroughAngleDeg), 1.0f, 89.0f);
+
+    // Rear mirror
+    m_RearMirrorEnabled = getBool("RearMirrorEnabled", m_RearMirrorEnabled);
+    m_RearMirrorRTTSize = std::clamp(getInt("RearMirrorRTTSize", m_RearMirrorRTTSize), 128, 4096);
+    m_RearMirrorFov = std::clamp(getFloat("RearMirrorFov", m_RearMirrorFov), 1.0f, 179.0f);
+    m_RearMirrorZNear = std::clamp(getFloat("RearMirrorZNear", m_RearMirrorZNear), 0.1f, 64.0f);
+
+    m_RearMirrorCameraOffset = getVector3("RearMirrorCameraOffset", m_RearMirrorCameraOffset);
+    {
+        Vector tmp = getVector3(
+            "RearMirrorCameraAngleOffset",
+            Vector{ m_RearMirrorCameraAngleOffset.x, m_RearMirrorCameraAngleOffset.y, m_RearMirrorCameraAngleOffset.z });
+        m_RearMirrorCameraAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
+    }
+
+    m_RearMirrorOverlayWidthMeters = std::max(0.01f, getFloat("RearMirrorOverlayWidthMeters", m_RearMirrorOverlayWidthMeters));
+    m_RearMirrorOverlayXOffset = getFloat("RearMirrorOverlayXOffset", m_RearMirrorOverlayXOffset);
+    m_RearMirrorOverlayYOffset = getFloat("RearMirrorOverlayYOffset", m_RearMirrorOverlayYOffset);
+    m_RearMirrorOverlayZOffset = getFloat("RearMirrorOverlayZOffset", m_RearMirrorOverlayZOffset);
+    {
+        Vector tmp = getVector3(
+            "RearMirrorOverlayAngleOffset",
+            Vector{ m_RearMirrorOverlayAngleOffset.x, m_RearMirrorOverlayAngleOffset.y, m_RearMirrorOverlayAngleOffset.z });
+        m_RearMirrorOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
+    }
+    m_RearMirrorAlpha = std::clamp(getFloat("RearMirrorAlpha", m_RearMirrorAlpha), 0.0f, 1.0f);
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 
