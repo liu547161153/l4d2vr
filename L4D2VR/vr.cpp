@@ -2165,6 +2165,17 @@ void VR::UpdateTracking()
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
     RefreshActiveViewmodelAdjustment(localPlayer);
 
+    if (!m_IsThirdPersonCamera)
+    {
+        Vector eyeOrigin = localPlayer->EyePosition();
+        if (!eyeOrigin.IsZero())
+        {
+            m_SetupOrigin = eyeOrigin;
+            if (m_SetupOriginPrev.IsZero())
+                m_SetupOriginPrev = eyeOrigin;
+        }
+    }
+
     // --- Fix: third-person camera shifts CViewSetup::origin behind the player.
     // In this codebase, controller world positions are anchored off m_CameraAnchor (NOT directly off m_SetupOrigin),
     // and m_CameraAnchor is advanced by (m_SetupOrigin - m_SetupOriginPrev). If third-person origin pollutes

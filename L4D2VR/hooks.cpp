@@ -365,18 +365,19 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
 	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
-	const int holdBefore = m_VR->m_ThirdPersonHoldFrames;
 	constexpr int kEngineThirdPersonHoldFrames = 2;
-	constexpr int kStateThirdPersonHoldFrames = 40;
+	constexpr int kStateThirdPersonHoldFrames = 12;
+	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool allowStateThirdPerson = stateWantsThirdPerson && (engineThirdPersonNow || hadThirdPerson);
 
 	// 先按“状态”锁定（优先级最高）
-	if (stateWantsThirdPerson)
+	if (allowStateThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
 
 	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
 	if (engineThirdPersonNow)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
-	else if (!stateWantsThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
+	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
 	const bool renderThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
