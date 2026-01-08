@@ -2659,6 +2659,31 @@ void VR::UpdateTracking()
         m_ScopeActive = false;
     }
 
+    // Update rear mirror camera pose
+    if (m_RearMirrorEnabled)
+    {
+        const bool useRight = m_LeftHanded;
+        const Vector& basePos = useRight ? m_RightControllerPosAbs : m_LeftControllerPosAbs;
+        const Vector& baseForward = useRight ? m_RightControllerForward : m_LeftControllerForward;
+        const Vector& baseRight = useRight ? m_RightControllerRight : m_LeftControllerRight;
+        const Vector& baseUp = useRight ? m_RightControllerUp : m_LeftControllerUp;
+
+        m_RearMirrorCameraPosAbs = basePos
+            + baseForward * m_RearMirrorCameraOffset.x
+            + baseRight * m_RearMirrorCameraOffset.y
+            + baseUp * m_RearMirrorCameraOffset.z;
+
+        QAngle mirrorAng;
+        QAngle::VectorAngles(baseForward, baseUp, mirrorAng);
+        mirrorAng.x += m_RearMirrorCameraAngleOffset.x;
+        mirrorAng.y += m_RearMirrorCameraAngleOffset.y;
+        mirrorAng.z += m_RearMirrorCameraAngleOffset.z;
+        mirrorAng.x = wrapAngle(mirrorAng.x);
+        mirrorAng.y = wrapAngle(mirrorAng.y);
+        mirrorAng.z = wrapAngle(mirrorAng.z);
+        m_RearMirrorCameraAngAbs = mirrorAng;
+    }
+
     UpdateScopeAimLineState();
 
     // Non-VR servers only understand cmd->viewangles. When ForceNonVRServerMovement is enabled,
@@ -4688,6 +4713,10 @@ void VR::ParseConfigFile()
     // Rear mirror
     m_RearMirrorEnabled = getBool("RearMirrorEnabled", m_RearMirrorEnabled);
     m_RearMirrorRTTSize = std::clamp(getInt("RearMirrorRTTSize", m_RearMirrorRTTSize), 128, 4096);
+    m_RearMirrorFov = std::clamp(getFloat("RearMirrorFov", m_RearMirrorFov), 1.0f, 179.0f);
+    m_RearMirrorZNear = std::clamp(getFloat("RearMirrorZNear", m_RearMirrorZNear), 0.1f, 64.0f);
+    m_RearMirrorCameraOffset = getVector3("RearMirrorCameraOffset", m_RearMirrorCameraOffset);
+    { Vector tmp = getVector3("RearMirrorCameraAngleOffset", Vector{ m_RearMirrorCameraAngleOffset.x, m_RearMirrorCameraAngleOffset.y, m_RearMirrorCameraAngleOffset.z }); m_RearMirrorCameraAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
     m_RearMirrorOverlayWidthMeters = std::max(0.001f, getFloat("RearMirrorOverlayWidthMeters", m_RearMirrorOverlayWidthMeters));
     m_RearMirrorOverlayXOffset = getFloat("RearMirrorOverlayXOffset", m_RearMirrorOverlayXOffset);
     m_RearMirrorOverlayYOffset = getFloat("RearMirrorOverlayYOffset", m_RearMirrorOverlayYOffset);

@@ -586,6 +586,10 @@ public:
 	// ----------------------------
 	bool  m_RearMirrorEnabled = false;
 	int   m_RearMirrorRTTSize = 512;           // square RTT size in pixels
+	float m_RearMirrorFov = 60.0f;
+	float m_RearMirrorZNear = 2.0f;            // game units
+	Vector m_RearMirrorCameraOffset = { 0.0f, 0.0f, 0.0f };
+	QAngle m_RearMirrorCameraAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float m_RearMirrorOverlayWidthMeters = 0.18f;
 	float m_RearMirrorOverlayXOffset = 0.00f;
 	float m_RearMirrorOverlayYOffset = 0.00f;
@@ -601,6 +605,13 @@ public:
 	int   m_RearMirrorBottomMaskColorG = 0;
 	int   m_RearMirrorBottomMaskColorB = 0;
 	int   m_RearMirrorBottomMaskColorA = 255;
+
+	// Runtime state
+	Vector m_RearMirrorCameraPosAbs = { 0.0f, 0.0f, 0.0f };
+	QAngle m_RearMirrorCameraAngAbs = { 0.0f, 0.0f, 0.0f };
+
+	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
+	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
 
 	VR() {};
 	VR(Game* game);
