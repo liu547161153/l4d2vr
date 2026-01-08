@@ -392,7 +392,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const bool changed = (engineThirdPersonNow != s_prevEngineTp) || (stateWantsThirdPerson != s_prevStateTp) ||
 			(renderThirdPerson != s_prevRenderTp) || (m_VR->m_ThirdPersonHoldFrames != s_prevHold);
 		const bool timeUp = (s_lastTpDbg.time_since_epoch().count() == 0) ||
-			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000)
+			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000);
 	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
@@ -543,6 +543,58 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			m_Game->m_EngineClient->SetViewAngles(scopeAngles);
 
 			hkRenderView.fOriginal(ecx, scopeView, hudScope, nClearFlags, whatToDraw);
+
+			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+			hkPopRenderTargetAndViewport.fOriginal(renderContext);
+		}
+
+		m_VR->m_SuppressHudCapture = false;
+	}
+
+	// ----------------------------
+	// Rear mirror RTT pass: render from HMD with 180 yaw into vrRearMirror RTT
+	// ----------------------------
+	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderRearMirror() && m_VR->m_RearMirrorTexture)
+	{
+		CViewSetup mirrorView = setup;
+		mirrorView.x = 0;
+		mirrorView.y = 0;
+		mirrorView.m_nUnscaledX = 0;
+		mirrorView.m_nUnscaledY = 0;
+		mirrorView.width = m_VR->m_RearMirrorRTTSize;
+		mirrorView.m_nUnscaledWidth = m_VR->m_RearMirrorRTTSize;
+		mirrorView.height = m_VR->m_RearMirrorRTTSize;
+		mirrorView.m_nUnscaledHeight = m_VR->m_RearMirrorRTTSize;
+		mirrorView.fov = m_VR->m_RearMirrorFov;
+		mirrorView.m_flAspectRatio = 1.0f;
+		mirrorView.fovViewmodel = mirrorView.fov;
+		mirrorView.zNear = m_VR->m_RearMirrorZNear;
+		mirrorView.zNearViewmodel = 99999.0f;
+
+		QAngle mirrorAngles = m_VR->GetRearMirrorCameraAbsAngle();
+		mirrorView.origin = m_VR->GetRearMirrorCameraAbsPos();
+		mirrorView.angles.x = mirrorAngles.x;
+		mirrorView.angles.y = mirrorAngles.y;
+		mirrorView.angles.z = mirrorAngles.z;
+
+		CViewSetup hudMirror = hudViewSetup;
+		hudMirror.origin = mirrorView.origin;
+		hudMirror.angles = mirrorView.angles;
+
+		m_VR->m_SuppressHudCapture = true;
+
+		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+		if (renderContext)
+		{
+			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_RearMirrorTexture, nullptr, 0, 0, m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize);
+			renderContext->ClearColor4ub(0, 0, 0, 255);
+			renderContext->ClearBuffers(true, true, true);
+
+			QAngle oldEngineAngles;
+			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+			m_Game->m_EngineClient->SetViewAngles(mirrorAngles);
+
+			hkRenderView.fOriginal(ecx, mirrorView, hudMirror, nClearFlags, whatToDraw);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 			hkPopRenderTargetAndViewport.fOriginal(renderContext);
