@@ -260,9 +260,9 @@ Option g_Options[] =
         { u8"World Scale", u8"世界缩放" },
         { u8"Adjusts overall world scale (distance and size perception).",
           u8"调整整体世界尺度（距离与大小感知）。" },
-        { u8"Keep close to real-world meter scale. 43~55 covers most play spaces.",
-          u8"尽量保持与真实世界接近。43~55 一般最合适。" },
-        30.0f, 70.0f,
+        { u8"Keep close to real-world meter scale. 43.2 covers most play spaces.",
+          u8"尽量保持与真实世界接近。43.2一般最合适。" },
+        30.0f, 55.0f,
         "43.2"
     },
     {
@@ -277,19 +277,6 @@ Option g_Options[] =
         0.8f, 1.2f,
         "1.0"
     },
-    {
-        "HeadSmoothing",
-        OptionType::Float,
-        { u8"View / Scale", u8"视角 / 尺度" },
-        { u8"Head Tracking Smoothing", u8"头部追踪平滑" },
-        { u8"Applies smoothing to head tracking to reduce jitter at the cost of a little latency.",
-          u8"为头部追踪添加平滑以减少抖动，但会增加少量延迟。" },
-        { u8"0 keeps latency lowest; 0.05~0.15 helps shaky tracking.",
-          u8"0 延迟最低，0.05~0.15 可缓解抖动。" },
-        0.0f, 0.3f,
-        "0.0"
-    },
-
     // Input / Turning
     {
         "LeftHanded",
@@ -359,7 +346,7 @@ Option g_Options[] =
         { u8"Converts VR movement/interaction to be more acceptable to standard servers.",
           u8"将VR移动与交互转换为更符合传统服务器的形式。" },
         { u8"Recommended for public multiplayer servers.",
-          u8"公共多人服务器建议开启。" },
+          u8"非自己建房多必须开启。" },
         0.0f, 0.0f,
         "false"
     },
@@ -401,44 +388,8 @@ Option g_Options[] =
         0.0f, 0.0f,
         "true"
     },
-    {
-        "FixedHudYOffset",
-        OptionType::Float,
-        { u8"HUD (Main)", u8"HUD（主界面）" },
-        { u8"HUD Vertical Offset", u8"HUD 垂直偏移" },
-        { u8"Moves the HUD up or down relative to the head.",
-          u8"相对头部上下移动HUD。" },
-        { u8"Fine-tune to keep HUD out of the weapon view.",
-          u8"微调避免挡住武器视线。" },
-        -0.5f, 0.5f,
-        "0.25"
-    },
-    {
-        "FixedHudDistanceOffset",
-        OptionType::Float,
-        { u8"HUD (Main)", u8"HUD（主界面）" },
-        { u8"HUD Distance Offset", u8"HUD 距离偏移" },
-        { u8"Adjusts HUD distance without changing size.",
-          u8"调整HUD距离但不改变大小。" },
-        { u8"Use small steps to avoid eyestrain.",
-          u8"小幅调整以避免眼疲劳。" },
-        -1.0f, 1.0f,
-        "0.25"
-    },
 
     // HUD (Controller)
-    {
-        "ControllerHudCut",
-        OptionType::Bool,
-        { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"Hide Controller HUD Near Camera", u8"近距离裁剪手柄HUD" },
-        { u8"Cuts the controller HUD when it would overlap the camera.",
-          u8"当手柄HUD靠近相机时自动隐藏。" },
-        { u8"Prevents UI from clipping into the face.",
-          u8"避免UI穿入视野。" },
-        0.0f, 0.0f,
-        "true"
-    },
     {
         "ControllerHudSize",
         OptionType::Float,
@@ -510,30 +461,6 @@ Option g_Options[] =
         0.0f, 0.0f,
         "false"
     },
-    {
-        "DebugHandsEnabled",
-        OptionType::Bool,
-        { u8"Hands / Debug", u8"手部 / 调试" },
-        { u8"Show Debug Hands", u8"显示调试手模型" },
-        { u8"Renders simplified debug hands for troubleshooting alignment.",
-          u8"渲染简化的调试手，用于校准和排查。" },
-        { u8"Disable for full immersion.",
-          u8"追求沉浸感可关闭。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "DebugHandColor",
-        OptionType::Color,
-        { u8"Hands / Debug", u8"手部 / 调试" },
-        { u8"Debug Hand Color", u8"调试手颜色" },
-        { u8"RGBA color for debug hand rendering (supports 0~1 or 0~255).",
-          u8"调试手渲染的RGBA颜色（支持 0~1 或 0~255）。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "0,200,255,255"
-    },
-
     // Interaction / Combos
     {
         "RequireSecondaryAttackForItemSwitch",
@@ -631,18 +558,6 @@ Option g_Options[] =
         "0.3"
     },
     {
-        "AimLineFrameDurationMultiplier",
-        OptionType::Float,
-        { u8"Aim Assist", u8"辅助瞄准" },
-        { u8"Aim Line Persistence", u8"瞄准线保留时间" },
-        { u8"Controls how long the aim line trail lingers.",
-          u8"控制瞄准线拖尾停留时间。" },
-        { u8"1.0~2.0 keeps a short trail; higher values look smeared.",
-          u8"1.0~2.0 拖尾较短，过高会显得糊。" },
-        0.2f, 3.0f,
-        "1.5"
-    },
-    {
         "AimLineColor",
         OptionType::Color,
         { u8"Aim Assist", u8"辅助瞄准" },
@@ -723,7 +638,6 @@ Option g_Options[] =
         0.0f, 1.0f,
         "0.2"
     },
-
     // Inventory Anchors
     {
         "InventoryGestureRange",
@@ -735,7 +649,7 @@ Option g_Options[] =
         { u8"0.15~0.35 works for most arm lengths.",
           u8"0.15~0.35 适合大多数身材。" },
         0.1f, 0.5f,
-        "0.23"
+        "0.16"
     },
     {
         "InventoryChestOffset",
@@ -786,24 +700,9 @@ Option g_Options[] =
         "ShowInventoryAnchors",
         OptionType::Bool,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Show Inventory Anchor Gizmos", u8"显示锚点辅助图" },
-        { u8"Draws visual anchors for debugging inventory positions.",
-          u8"绘制锚点辅助图以调试物品位置。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
+        { u8"Draw the item-switching grab zone.", u8"绘制道具切换区域" },
         "false"
-    },
-    {
-        "InventoryAnchorColor",
-        OptionType::Color,
-        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Inventory Anchor Color", u8"锚点颜色" },
-        { u8"RGBA color for anchor gizmos (supports 0~1 or 0~255).",
-          u8"锚点辅助图的RGBA颜色（支持 0~1 或 0~255）。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "0,255,255,150"
-    },
+   },
 
     // Custom Actions
     {
@@ -811,12 +710,12 @@ Option g_Options[] =
         OptionType::String,
         { u8"Custom Actions", u8"自定义动作" },
         { u8"Custom Action 1 Command", u8"自定义动作1指令" },
-        { u8"Console command or \"key:X\"/\"hold:key:X\" binding.",
-          u8"可填控制台指令，或 \"key:X\"/\"hold:key:X\" 键盘映射。" },
+        { u8"Console command",
+          u8"可填控制台指令" },
         { u8"Mapped to VR custom action slot 1.",
           u8"对应VR自定义动作槽1。" },
         0.0f, 0.0f,
-        "+l4n_lookat"
+        "thirdpersonshoulder"
     },
     {
         "CustomAction2Command",
@@ -826,7 +725,7 @@ Option g_Options[] =
         { u8"", u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "thirdpersonshoulder"
+        "say !buy"
     },
     {
         "CustomAction3Command",
@@ -836,7 +735,7 @@ Option g_Options[] =
         { u8"", u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "say /drop"
+        ""
     },
     {
         "CustomAction4Command",
@@ -846,7 +745,7 @@ Option g_Options[] =
         { u8"", u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "+alt2"
+        ""
     },
     {
         "CustomAction5Command",
@@ -859,168 +758,7 @@ Option g_Options[] =
         ""
     },
 
-    // Special Infected Indicators
-    {
-        "SpecialInfectedArrowEnabled",
-        OptionType::Bool,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Enable Overhead Arrow", u8"启用头顶箭头" },
-        { u8"Shows an arrow above special infected.",
-          u8"在特感头顶显示箭头。" },
-        { u8"Useful when visibility is low.",
-          u8"能见度低时有帮助。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "SpecialInfectedArrowSize",
-        OptionType::Float,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Size", u8"箭头大小" },
-        { u8"Base size of the overhead arrow.",
-          u8"头顶箭头的基础尺寸。" },
-        { u8"", u8"" },
-        5.0f, 60.0f,
-        "20.0"
-    },
-    {
-        "SpecialInfectedArrowHeight",
-        OptionType::Float,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Height", u8"箭头高度" },
-        { u8"Height above the infected head (world units).",
-          u8"箭头离特感头部的高度（游戏单位）。" },
-        { u8"", u8"" },
-        10.0f, 200.0f,
-        "90.0"
-    },
-    {
-        "SpecialInfectedArrowThickness",
-        OptionType::Float,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Line Thickness", u8"箭头线条粗细" },
-        { u8"Visual thickness of the arrow outline.",
-          u8"箭头轮廓的视觉粗细。" },
-        { u8"", u8"" },
-        0.0f, 2.0f,
-        "0.4"
-    },
-    {
-        "SpecialInfectedArrowColor",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Color (Global)", u8"箭头颜色（全局）" },
-        { u8"Default arrow color applied to all when per-type colors are unset.",
-          u8"未单独设置时应用于所有特感的默认颜色。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,64,0,255"
-    },
-    {
-        "SpecialInfectedArrowColorBoomer",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Boomer Arrow Color", u8"胖子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,222,173,255"
-    },
-    {
-        "SpecialInfectedArrowColorSmoker",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Smoker Arrow Color", u8"舌头箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "205,85,85,255"
-    },
-    {
-        "SpecialInfectedArrowColorHunter",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Hunter Arrow Color", u8"猎人箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "208,32,144,255"
-    },
-    {
-        "SpecialInfectedArrowColorSpitter",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Spitter Arrow Color", u8"喷子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "127,255,0,255"
-    },
-    {
-        "SpecialInfectedArrowColorJockey",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Jockey Arrow Color", u8"猴子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,140,20,255"
-    },
-    {
-        "SpecialInfectedArrowColorCharger",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Charger Arrow Color", u8"牛子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "0,200,200,255"
-    },
-    {
-        "SpecialInfectedArrowColorTank",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Tank Arrow Color", u8"坦克箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,0,0,255"
-    },
-    {
-        "SpecialInfectedArrowColorWitch",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Witch Arrow Color", u8"女巫箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,0,0,255"
-    },
-
     // Special Infected Assist
-    {
-        "SpecialInfectedAutoEvade",
-        OptionType::Bool,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Auto Evade / Warn", u8"自动规避 / 预警" },
-        { u8"Automatically issues evasion inputs when a special infected attacks.",
-          u8"特感攻击时自动执行规避输入。" },
-        { u8"Assist feature—use responsibly.",
-          u8"属于辅助功能，请合理使用。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "SpecialInfectedBlindSpotDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Blind Spot Warning Distance", u8"盲区预警距离" },
-        { u8"Distance for behind-the-back warning checks (units).",
-          u8"背后预警检查的距离（游戏单位）。" },
-        { u8"", u8"" },
-        30.0f, 200.0f,
-        "120.0"
-    },
     {
         "SpecialInfectedPreWarningDistance",
         OptionType::Float,
@@ -1106,62 +844,6 @@ Option g_Options[] =
         "28.0"
     },
     {
-        "SpecialInfectedPreWarningTargetUpdateInterval",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Target Update Interval", u8"目标更新间隔" },
-        { u8"Seconds between pre-warning target refreshes.",
-          u8"预警目标刷新间隔（秒）。" },
-        { u8"", u8"" },
-        0.05f, 0.5f,
-        "0.1"
-    },
-    {
-        "SpecialInfectedWarningSecondaryHoldDuration",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Secondary Hold Duration", u8"副攻击按住时间" },
-        { u8"Seconds to hold secondary attack during auto-evade.",
-          u8"自动规避时按住副攻击的秒数。" },
-        { u8"", u8"" },
-        0.0f, 0.5f,
-        "0.05"
-    },
-    {
-        "SpecialInfectedWarningPostAttackDelay",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Post-Attack Delay", u8"攻击后延迟" },
-        { u8"Delay after a special infected attack before controls resume (seconds).",
-          u8"特感攻击后恢复控制前的延迟（秒）。" },
-        { u8"", u8"" },
-        0.0f, 0.5f,
-        "0.1"
-    },
-    {
-        "SpecialInfectedWarningJumpHoldDuration",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Jump Hold Duration", u8"跳跃按住时间" },
-        { u8"Seconds jump is held during auto-evade.",
-          u8"自动规避时按住跳跃的秒数。" },
-        { u8"", u8"" },
-        0.0f, 1.0f,
-        "0.5"
-    },
-    {
-        "SpecialInfectedDebug",
-        OptionType::Bool,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Debug Mode", u8"调试模式" },
-        { u8"Disables safety clamps for tuning/diagnostics.",
-          u8"关闭安全限制，便于调试和极端设置。" },
-        { u8"Use only when testing.",
-          u8"仅用于测试。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
         "SpecialInfectedPreWarningAimOffsetBoomer",
         OptionType::Vec3,
         { u8"Special Infected Assist", u8"特感辅助" },
@@ -1176,7 +858,7 @@ Option g_Options[] =
         "SpecialInfectedPreWarningAimOffsetSmoker",
         OptionType::Vec3,
         { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Smoker Aim Offset (x,y,z)", u8"舌头瞄准偏移 (x,y,z)" },
+        { u8"Smoker Aim Offset (x,y,z)", u8"烟鬼瞄准偏移 (x,y,z)" },
         { u8"", u8"" },
         { u8"", u8"" },
         -60.0f, 60.0f,
@@ -1196,7 +878,7 @@ Option g_Options[] =
         "SpecialInfectedPreWarningAimOffsetSpitter",
         OptionType::Vec3,
         { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Spitter Aim Offset (x,y,z)", u8"喷子瞄准偏移 (x,y,z)" },
+        { u8"Spitter Aim Offset (x,y,z)", u8"口水瞄准偏移 (x,y,z)" },
         { u8"", u8"" },
         { u8"", u8"" },
         -60.0f, 60.0f,
@@ -1236,49 +918,11 @@ Option g_Options[] =
         "SpecialInfectedPreWarningAimOffsetWitch",
         OptionType::Vec3,
         { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Witch Aim Offset (x,y,z)", u8"女巫瞄准偏移 (x,y,z)" },
+        { u8"Witch Aim Offset (x,y,z)", u8"妹子瞄准偏移 (x,y,z)" },
         { u8"", u8"" },
         { u8"", u8"" },
         -60.0f, 60.0f,
         "5,0,25"
-    },
-
-    // Performance Limits
-    {
-        "ThrowArcMaxHz",
-        OptionType::Int,
-        { u8"Performance / Rates", u8"性能 / 频率" },
-        { u8"Throw Trajectory Update Rate", u8"投掷轨迹刷新率" },
-        { u8"Limits how frequently the throw trajectory is updated.",
-          u8"限制投掷轨迹的更新频率。" },
-        { u8"Match headset FPS for smooth arcs; reduce for performance.",
-          u8"与头显帧率一致更平滑，性能不足可降低。" },
-        30.f, 120.f,
-        "60"
-    },
-    {
-        "SpecialInfectedOverlayMaxHz",
-        OptionType::Int,
-        { u8"Performance / Rates", u8"性能 / 频率" },
-        { u8"Special Infected Overlay Rate", u8"特感叠加刷新率" },
-        { u8"Refresh rate cap for special infected overlays.",
-          u8"特感叠加效果的刷新率上限。" },
-        { u8"Lower on slower GPUs.",
-          u8"GPU 较弱时可调低。" },
-        10.f, 120.f,
-        "30"
-    },
-    {
-        "SpecialInfectedTraceMaxHz",
-        OptionType::Int,
-        { u8"Performance / Rates", u8"性能 / 频率" },
-        { u8"Special Infected Trace Rate", u8"特感检测刷新率" },
-        { u8"Limits detection traces per second to reduce CPU cost.",
-          u8"限制特感检测追踪的每秒次数以降低CPU开销。" },
-        { u8"60~120 is usually plenty.",
-          u8"60~120 通常足够。" },
-        30.f, 180.f,
-        "90"
     }
 };
 
