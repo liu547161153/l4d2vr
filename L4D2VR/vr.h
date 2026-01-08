@@ -69,6 +69,9 @@ public:
 	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
 	// Rear mirror overlay (off-hand)
 	vr::VROverlayHandle_t m_RearMirrorHandle = vr::k_ulOverlayHandleInvalid;
+	// Bottom mask overlays for scope + rear mirror
+	vr::VROverlayHandle_t m_ScopeMaskHandle = vr::k_ulOverlayHandleInvalid;
+	vr::VROverlayHandle_t m_RearMirrorMaskHandle = vr::k_ulOverlayHandleInvalid;
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
@@ -228,6 +231,7 @@ public:
 		Texture_HUD,
 		Texture_Scope,
 		Texture_RearMirror,
+		Texture_OverlayMask,
 		Texture_Blank
 	};
 
@@ -236,6 +240,7 @@ public:
 	ITexture* m_HUDTexture;
 	ITexture* m_ScopeTexture = nullptr;
 	ITexture* m_RearMirrorTexture = nullptr;
+	ITexture* m_OverlayMaskTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
 	IDirect3DSurface9* m_D9LeftEyeSurface;
@@ -243,6 +248,7 @@ public:
 	IDirect3DSurface9* m_D9HUDSurface;
 	IDirect3DSurface9* m_D9ScopeSurface;
 	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
+	IDirect3DSurface9* m_D9OverlayMaskSurface = nullptr;
 	IDirect3DSurface9* m_D9BlankSurface;
 
 	SharedTextureHolder m_VKLeftEye;
@@ -251,6 +257,7 @@ public:
 	SharedTextureHolder m_VKHUD;
 	SharedTextureHolder m_VKScope;
 	SharedTextureHolder m_VKRearMirror;
+	SharedTextureHolder m_VKOverlayMask;
 	SharedTextureHolder m_VKBlankTexture;
 
 	bool m_IsVREnabled = false;
@@ -549,6 +556,10 @@ public:
 	float m_ScopeLookThroughAngleDeg = 12.0f;
 	bool  m_ScopeOverlayAlwaysVisible = true;
 	float m_ScopeOverlayIdleAlpha = 0.35f;
+	int   m_ScopeMaskColorR = 0;
+	int   m_ScopeMaskColorG = 0;
+	int   m_ScopeMaskColorB = 0;
+	int   m_ScopeMaskColorA = 200;
 
 	// Runtime state
 	Vector m_ScopeCameraPosAbs = { 0.0f, 0.0f, 0.0f };
@@ -579,6 +590,10 @@ public:
 	float  m_RearMirrorOverlayZOffset = 0.08f;
 	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float  m_RearMirrorAlpha = 1.0f;
+	int    m_RearMirrorMaskColorR = 0;
+	int    m_RearMirrorMaskColorG = 0;
+	int    m_RearMirrorMaskColorB = 0;
+	int    m_RearMirrorMaskColorA = 200;
 
 	Vector m_RearMirrorCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_RearMirrorCameraAngAbs = { 0.0f, 0.0f, 0.0f };

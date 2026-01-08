@@ -133,3 +133,5 @@ ScopeLookThroughDistanceMeters=0.6
 ScopeLookThroughAngleDeg=60
 ScopeOverlayAlwaysVisible=false
 ScopeOverlayIdleAlpha=0.5
+ScopeMaskColor=0,0,0,200
+RearMirrorMaskColor=0,0,0,200
