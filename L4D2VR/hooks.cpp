@@ -500,7 +500,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Helper: render an extra offscreen pass using the same basic path as the eye renders.
 	// This keeps scope/mirror rendering closer to the HMD path.
-	auto renderToTextureLikeEye = [&](ITexture* target, int texW, int texH, const QAngle& passAngles, CViewSetup& view, CViewSetup& hud)
+	auto renderToTextureLikeEye = [&](ITexture* target, int texW, int texH, QAngle passAngles, CViewSetup& view, CViewSetup& hud)
 	{
 		IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
 		if (!rc)
