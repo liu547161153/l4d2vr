@@ -521,7 +521,7 @@ namespace dxvk {
           vr::VRVulkanTextureData_t vulkanData;
           memset(&vulkanData, 0, sizeof(vr::VRVulkanTextureData_t));
 
-          SharedTextureHolder *textureTarget;
+          SharedTextureHolder* textureTarget = nullptr;
           D3D9_TEXTURE_VR_DESC texDesc;
           VR::TextureID texID = g_Game->m_VR->m_CreatingTextureID;
 
@@ -555,12 +555,27 @@ namespace dxvk {
               texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9RearMirrorSurface);
               g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RearMirrorSurface, &texDesc);
           }
+          else if (texID == VR::Texture_ScopeMask)
+          {
+              textureTarget = &g_Game->m_VR->m_VKScopeMask;
+              texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9ScopeMaskSurface);
+              g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9ScopeMaskSurface, &texDesc);
+          }
+          else if (texID == VR::Texture_RearMirrorMask)
+          {
+              textureTarget = &g_Game->m_VR->m_VKRearMirrorMask;
+              texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9RearMirrorMaskSurface);
+              g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RearMirrorMaskSurface, &texDesc);
+          }
           else if (texID == VR::Texture_Blank)
           {
               textureTarget = &g_Game->m_VR->m_VKBlankTexture;
               texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9BlankSurface);
               g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9BlankSurface, &texDesc);
           }
+
+          if (!textureTarget)
+              return D3D_OK;
 
           memcpy(&textureTarget->m_VulkanData, &texDesc, sizeof(vr::VRVulkanTextureData_t));
           textureTarget->m_VRTexture.handle = &textureTarget->m_VulkanData;

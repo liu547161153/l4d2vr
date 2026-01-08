@@ -148,6 +148,9 @@ VR::VR(Game* game)
 
     // Gun-mounted scope lens overlay (render-to-texture)
     m_Overlay->CreateOverlay("ScopeOverlayKey", "ScopeOverlay", &m_ScopeHandle);
+    m_Overlay->CreateOverlay("RearMirrorOverlayKey", "RearMirrorOverlay", &m_RearMirrorHandle);
+    m_Overlay->CreateOverlay("ScopeBottomMaskOverlayKey", "ScopeBottomMaskOverlay", &m_ScopeBottomMaskHandle);
+    m_Overlay->CreateOverlay("RearMirrorBottomMaskOverlayKey", "RearMirrorBottomMaskOverlay", &m_RearMirrorBottomMaskHandle);
 
     m_Overlay->SetOverlayInputMethod(m_MainMenuHandle, vr::VROverlayInputMethod_Mouse);
     m_Overlay->SetOverlayInputMethod(m_HUDTopHandle, vr::VROverlayInputMethod_Mouse);
@@ -158,6 +161,9 @@ VR::VR(Game* game)
 
     // Scope overlay is purely visual
     m_Overlay->SetOverlayInputMethod(m_ScopeHandle, vr::VROverlayInputMethod_None);
+    m_Overlay->SetOverlayInputMethod(m_RearMirrorHandle, vr::VROverlayInputMethod_None);
+    m_Overlay->SetOverlayInputMethod(m_ScopeBottomMaskHandle, vr::VROverlayInputMethod_None);
+    m_Overlay->SetOverlayInputMethod(m_RearMirrorBottomMaskHandle, vr::VROverlayInputMethod_None);
 
     m_Overlay->SetOverlayFlag(m_MainMenuHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
     m_Overlay->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
@@ -339,12 +345,74 @@ void VR::CreateVRTextures()
         MATERIAL_RT_DEPTH_SEPARATE,
         TEXTUREFLAGS_NOMIP);
 
+    m_CreatingTextureID = Texture_RearMirror;
+    m_RearMirrorTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+        "vrRearMirror",
+        static_cast<int>(m_RearMirrorRTTSize),
+        static_cast<int>(m_RearMirrorRTTSize),
+        RT_SIZE_NO_CHANGE,
+        m_Game->m_MaterialSystem->GetBackBufferFormat(),
+        MATERIAL_RT_DEPTH_SEPARATE,
+        TEXTUREFLAGS_NOMIP);
+
+    // Solid-color bottom mask strips (small RTTs cleared to white and tinted via OverlayColor)
+    const float scopeMaskRatio = std::clamp(m_ScopeBottomMaskHeightRatio, 0.0f, 1.0f);
+    const float mirrorMaskRatio = std::clamp(m_RearMirrorBottomMaskHeightRatio, 0.0f, 1.0f);
+    const int scopeMaskH = std::max(1, static_cast<int>(std::round(static_cast<float>(m_ScopeRTTSize) * scopeMaskRatio)));
+    const int mirrorMaskH = std::max(1, static_cast<int>(std::round(static_cast<float>(m_RearMirrorRTTSize) * mirrorMaskRatio)));
+
+    m_CreatingTextureID = Texture_ScopeMask;
+    m_ScopeMaskTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+        "vrScopeMask",
+        static_cast<int>(m_ScopeRTTSize),
+        scopeMaskH,
+        RT_SIZE_NO_CHANGE,
+        m_Game->m_MaterialSystem->GetBackBufferFormat(),
+        MATERIAL_RT_DEPTH_SHARED,
+        TEXTUREFLAGS_NOMIP);
+
+    m_CreatingTextureID = Texture_RearMirrorMask;
+    m_RearMirrorMaskTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+        "vrRearMirrorMask",
+        static_cast<int>(m_RearMirrorRTTSize),
+        mirrorMaskH,
+        RT_SIZE_NO_CHANGE,
+        m_Game->m_MaterialSystem->GetBackBufferFormat(),
+        MATERIAL_RT_DEPTH_SHARED,
+        TEXTUREFLAGS_NOMIP);
+
     m_CreatingTextureID = Texture_Blank;
     m_BlankTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("blankTexture", 512, 512, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
     m_CreatingTextureID = Texture_None;
 
     m_Game->m_MaterialSystem->EndRenderTargetAllocation();
+
+    // Clear mask RTTs to solid white once (we tint them via IVROverlay::SetOverlayColor).
+    if (m_ScopeMaskTexture || m_RearMirrorMaskTexture)
+    {
+        auto* ctx = m_Game->m_MaterialSystem->GetRenderContext();
+        if (ctx)
+        {
+            ctx->PushRenderTargetAndViewport();
+
+            if (m_ScopeMaskTexture)
+            {
+                ctx->SetRenderTarget(m_ScopeMaskTexture);
+                ctx->ClearColor4ub(255, 255, 255, 255);
+                ctx->ClearBuffers(true, true, true);
+            }
+
+            if (m_RearMirrorMaskTexture)
+            {
+                ctx->SetRenderTarget(m_RearMirrorMaskTexture);
+                ctx->ClearColor4ub(255, 255, 255, 255);
+                ctx->ClearBuffers(true, true, true);
+            }
+
+            ctx->PopRenderTargetAndViewport();
+        }
+    }
 
     m_CreatedVRTextures = true;
 }
@@ -414,6 +482,27 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKScope.m_VRTexture);
         };
 
+    auto applyRearMirrorTexture = [&](vr::VROverlayHandle_t overlay)
+        {
+            static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
+            vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
+            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
+        };
+
+    auto applyScopeMaskTexture = [&](vr::VROverlayHandle_t overlay)
+        {
+            static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
+            vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
+            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKScopeMask.m_VRTexture);
+        };
+
+    auto applyRearMirrorMaskTexture = [&](vr::VROverlayHandle_t overlay)
+        {
+            static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
+            vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
+            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirrorMask.m_VRTexture);
+        };
+
     //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
     {
@@ -427,6 +516,9 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
         hideHudOverlays();
         vr::VROverlay()->HideOverlay(m_ScopeHandle);
+        vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+        vr::VROverlay()->HideOverlay(m_ScopeBottomMaskHandle);
+        vr::VROverlay()->HideOverlay(m_RearMirrorBottomMaskHandle);
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
@@ -464,6 +556,13 @@ void VR::SubmitVRTextures()
         }
     }
 
+    vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
+    vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+    if (m_LeftHanded)
+        std::swap(leftControllerIndex, rightControllerIndex);
+    const vr::TrackedDeviceIndex_t gunControllerIndex = rightControllerIndex;
+    const vr::TrackedDeviceIndex_t offHandControllerIndex = leftControllerIndex;
+
     // Scope overlay independent of HUD cursor mode
     if (m_ScopeTexture && m_ScopeEnabled)
     {
@@ -471,20 +570,89 @@ void VR::SubmitVRTextures()
         const float alpha = IsScopeActive() ? 1.0f : std::clamp(m_ScopeOverlayIdleAlpha, 0.0f, 1.0f);
         vr::VROverlay()->SetOverlayAlpha(m_ScopeHandle, alpha);
 
-        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
-        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
-        if (m_LeftHanded)
-            std::swap(leftControllerIndex, rightControllerIndex);
-        const vr::TrackedDeviceIndex_t gunControllerIndex = rightControllerIndex;
-
         if (ShouldRenderScope() && gunControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
             vr::VROverlay()->ShowOverlay(m_ScopeHandle);
         else
             vr::VROverlay()->HideOverlay(m_ScopeHandle);
+
+        // Bottom mask strip (solid color) for scope
+        const bool scopeMaskVisible =
+            m_ScopeBottomMaskEnabled &&
+            ShouldRenderScope() &&
+            gunControllerIndex != vr::k_unTrackedDeviceIndexInvalid &&
+            m_ScopeMaskTexture &&
+            (m_ScopeBottomMaskColorA > 0) &&
+            (m_ScopeBottomMaskHeightRatio > 0.001f);
+
+        if (scopeMaskVisible)
+        {
+            applyScopeMaskTexture(m_ScopeBottomMaskHandle);
+            vr::VROverlay()->SetOverlayColor(
+                m_ScopeBottomMaskHandle,
+                std::clamp(m_ScopeBottomMaskColorR, 0, 255) / 255.0f,
+                std::clamp(m_ScopeBottomMaskColorG, 0, 255) / 255.0f,
+                std::clamp(m_ScopeBottomMaskColorB, 0, 255) / 255.0f);
+
+            const float maskAlpha = (std::clamp(m_ScopeBottomMaskColorA, 0, 255) / 255.0f) *
+                (IsScopeActive() ? 1.0f : std::clamp(m_ScopeOverlayIdleAlpha, 0.0f, 1.0f));
+            vr::VROverlay()->SetOverlayAlpha(m_ScopeBottomMaskHandle, std::clamp(maskAlpha, 0.0f, 1.0f));
+
+            vr::VROverlay()->ShowOverlay(m_ScopeBottomMaskHandle);
+        }
+        else
+        {
+            vr::VROverlay()->HideOverlay(m_ScopeBottomMaskHandle);
+        }
     }
     else
     {
         vr::VROverlay()->HideOverlay(m_ScopeHandle);
+        vr::VROverlay()->HideOverlay(m_ScopeBottomMaskHandle);
+    }
+
+    if (m_RearMirrorTexture && m_RearMirrorEnabled)
+    {
+        applyRearMirrorTexture(m_RearMirrorHandle);
+        vr::VROverlay()->SetOverlayAlpha(m_RearMirrorHandle, std::clamp(m_RearMirrorAlpha, 0.0f, 1.0f));
+
+        if (ShouldRenderRearMirror() && offHandControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+            vr::VROverlay()->ShowOverlay(m_RearMirrorHandle);
+        else
+            vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+
+        // Bottom mask strip (solid color) for rear mirror
+        const bool mirrorMaskVisible =
+            m_RearMirrorBottomMaskEnabled &&
+            ShouldRenderRearMirror() &&
+            offHandControllerIndex != vr::k_unTrackedDeviceIndexInvalid &&
+            m_RearMirrorMaskTexture &&
+            (m_RearMirrorBottomMaskColorA > 0) &&
+            (m_RearMirrorBottomMaskHeightRatio > 0.001f);
+
+        if (mirrorMaskVisible)
+        {
+            applyRearMirrorMaskTexture(m_RearMirrorBottomMaskHandle);
+            vr::VROverlay()->SetOverlayColor(
+                m_RearMirrorBottomMaskHandle,
+                std::clamp(m_RearMirrorBottomMaskColorR, 0, 255) / 255.0f,
+                std::clamp(m_RearMirrorBottomMaskColorG, 0, 255) / 255.0f,
+                std::clamp(m_RearMirrorBottomMaskColorB, 0, 255) / 255.0f);
+
+            const float maskAlpha = (std::clamp(m_RearMirrorBottomMaskColorA, 0, 255) / 255.0f) *
+                std::clamp(m_RearMirrorAlpha, 0.0f, 1.0f);
+            vr::VROverlay()->SetOverlayAlpha(m_RearMirrorBottomMaskHandle, std::clamp(maskAlpha, 0.0f, 1.0f));
+
+            vr::VROverlay()->ShowOverlay(m_RearMirrorBottomMaskHandle);
+        }
+        else
+        {
+            vr::VROverlay()->HideOverlay(m_RearMirrorBottomMaskHandle);
+        }
+    }
+    else
+    {
+        vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+        vr::VROverlay()->HideOverlay(m_RearMirrorBottomMaskHandle);
     }
 
     submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
@@ -737,6 +905,87 @@ void VR::RepositionOverlays(bool attachToControllers)
 
             vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_ScopeHandle, gunControllerIndex, &scopeRelative);
             vr::VROverlay()->SetOverlayWidthInMeters(m_ScopeHandle, std::max(0.01f, m_ScopeOverlayWidthMeters));
+            // Bottom mask strip: same orientation as scope overlay, positioned at its bottom edge.
+            if (m_ScopeBottomMaskHandle != vr::k_ulOverlayHandleInvalid)
+            {
+                vr::HmdMatrix34_t scopeMaskRelative = scopeRelative;
+                const float ratio = std::clamp(m_ScopeBottomMaskHeightRatio, 0.0f, 1.0f);
+                const float widthMeters = std::max(0.01f, m_ScopeOverlayWidthMeters);
+                const float offsetDown = widthMeters * (1.0f - ratio) * 0.5f;
+                scopeMaskRelative.m[1][3] = m_ScopeOverlayYOffset - offsetDown;
+                vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_ScopeBottomMaskHandle, gunControllerIndex, &scopeMaskRelative);
+                vr::VROverlay()->SetOverlayWidthInMeters(m_ScopeBottomMaskHandle, widthMeters);
+            }
+        }
+    }
+
+    // Reposition rear mirror overlay relative to the off-hand controller.
+    {
+        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
+        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+        if (m_LeftHanded)
+            std::swap(leftControllerIndex, rightControllerIndex);
+
+        const vr::TrackedDeviceIndex_t offHandControllerIndex = leftControllerIndex;
+        if (offHandControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+        {
+            const float deg2rad = 3.14159265358979323846f / 180.0f;
+
+            auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
+                {
+                    for (int r = 0; r < 3; ++r)
+                        for (int c = 0; c < 3; ++c)
+                            out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
+                };
+
+            const float pitch = m_RearMirrorOverlayAngleOffset.x * deg2rad;
+            const float yaw = m_RearMirrorOverlayAngleOffset.y * deg2rad;
+            const float roll = m_RearMirrorOverlayAngleOffset.z * deg2rad;
+
+            const float cp = cosf(pitch), sp = sinf(pitch);
+            const float cy = cosf(yaw), sy = sinf(yaw);
+            const float cr = cosf(roll), sr = sinf(roll);
+
+            const float Rx[3][3] = {
+                {1.0f, 0.0f, 0.0f},
+                {0.0f, cp,   -sp},
+                {0.0f, sp,   cp}
+            };
+            const float Ry[3][3] = {
+                {cy,   0.0f, sy},
+                {0.0f, 1.0f, 0.0f},
+                {-sy,  0.0f, cy}
+            };
+            const float Rz[3][3] = {
+                {cr,   -sr,  0.0f},
+                {sr,   cr,   0.0f},
+                {0.0f, 0.0f, 1.0f}
+            };
+
+            float RyRx[3][3];
+            float R[3][3];
+            mul33(Ry, Rx, RyRx);
+            mul33(Rz, RyRx, R);
+
+            vr::HmdMatrix34_t mirrorRelative = {
+                R[0][0], R[0][1], R[0][2], m_RearMirrorOverlayXOffset,
+                R[1][0], R[1][1], R[1][2], m_RearMirrorOverlayYOffset,
+                R[2][0], R[2][1], R[2][2], m_RearMirrorOverlayZOffset
+            };
+
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RearMirrorHandle, offHandControllerIndex, &mirrorRelative);
+            vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, std::max(0.01f, m_RearMirrorOverlayWidthMeters));
+            // Bottom mask strip: same orientation as rear mirror overlay, positioned at its bottom edge.
+            if (m_RearMirrorBottomMaskHandle != vr::k_ulOverlayHandleInvalid)
+            {
+                vr::HmdMatrix34_t mirrorMaskRelative = mirrorRelative;
+                const float ratio = std::clamp(m_RearMirrorBottomMaskHeightRatio, 0.0f, 1.0f);
+                const float widthMeters = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+                const float offsetDown = widthMeters * (1.0f - ratio) * 0.5f;
+                mirrorMaskRelative.m[1][3] = m_RearMirrorOverlayYOffset - offsetDown;
+                vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RearMirrorBottomMaskHandle, offHandControllerIndex, &mirrorMaskRelative);
+                vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorBottomMaskHandle, widthMeters);
+            }
         }
     }
 }
@@ -4372,6 +4621,12 @@ void VR::ParseConfigFile()
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
 
+    // Snapshot values that affect RTT allocation
+    const int prevScopeRTTSize = m_ScopeRTTSize;
+    const int prevRearMirrorRTTSize = m_RearMirrorRTTSize;
+    const float prevScopeMaskRatio = m_ScopeBottomMaskHeightRatio;
+    const float prevRearMirrorMaskRatio = m_RearMirrorBottomMaskHeightRatio;
+
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);
@@ -4418,6 +4673,47 @@ void VR::ParseConfigFile()
     m_ScopeRequireLookThrough = getBool("ScopeRequireLookThrough", m_ScopeRequireLookThrough);
     m_ScopeLookThroughDistanceMeters = std::clamp(getFloat("ScopeLookThroughDistanceMeters", m_ScopeLookThroughDistanceMeters), 0.01f, 2.0f);
     m_ScopeLookThroughAngleDeg = std::clamp(getFloat("ScopeLookThroughAngleDeg", m_ScopeLookThroughAngleDeg), 1.0f, 89.0f);
+
+    // Scope bottom mask strip
+    m_ScopeBottomMaskEnabled = getBool("ScopeBottomMaskEnabled", m_ScopeBottomMaskEnabled);
+    m_ScopeBottomMaskHeightRatio = std::clamp(getFloat("ScopeBottomMaskHeightRatio", m_ScopeBottomMaskHeightRatio), 0.0f, 1.0f);
+    {
+        auto c = getColor("ScopeBottomMaskColor", m_ScopeBottomMaskColorR, m_ScopeBottomMaskColorG, m_ScopeBottomMaskColorB, m_ScopeBottomMaskColorA);
+        m_ScopeBottomMaskColorR = c[0];
+        m_ScopeBottomMaskColorG = c[1];
+        m_ScopeBottomMaskColorB = c[2];
+        m_ScopeBottomMaskColorA = c[3];
+    }
+
+    // Rear mirror
+    m_RearMirrorEnabled = getBool("RearMirrorEnabled", m_RearMirrorEnabled);
+    m_RearMirrorRTTSize = std::clamp(getInt("RearMirrorRTTSize", m_RearMirrorRTTSize), 128, 4096);
+    m_RearMirrorOverlayWidthMeters = std::max(0.001f, getFloat("RearMirrorOverlayWidthMeters", m_RearMirrorOverlayWidthMeters));
+    m_RearMirrorOverlayXOffset = getFloat("RearMirrorOverlayXOffset", m_RearMirrorOverlayXOffset);
+    m_RearMirrorOverlayYOffset = getFloat("RearMirrorOverlayYOffset", m_RearMirrorOverlayYOffset);
+    m_RearMirrorOverlayZOffset = getFloat("RearMirrorOverlayZOffset", m_RearMirrorOverlayZOffset);
+    { Vector tmp = getVector3("RearMirrorOverlayAngleOffset", Vector{ m_RearMirrorOverlayAngleOffset.x, m_RearMirrorOverlayAngleOffset.y, m_RearMirrorOverlayAngleOffset.z }); m_RearMirrorOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
+    m_RearMirrorAlpha = std::clamp(getFloat("RearMirrorAlpha", m_RearMirrorAlpha), 0.0f, 1.0f);
+
+    // Rear mirror bottom mask strip
+    m_RearMirrorBottomMaskEnabled = getBool("RearMirrorBottomMaskEnabled", m_RearMirrorBottomMaskEnabled);
+    m_RearMirrorBottomMaskHeightRatio = std::clamp(getFloat("RearMirrorBottomMaskHeightRatio", m_RearMirrorBottomMaskHeightRatio), 0.0f, 1.0f);
+    {
+        auto c = getColor("RearMirrorBottomMaskColor", m_RearMirrorBottomMaskColorR, m_RearMirrorBottomMaskColorG, m_RearMirrorBottomMaskColorB, m_RearMirrorBottomMaskColorA);
+        m_RearMirrorBottomMaskColorR = c[0];
+        m_RearMirrorBottomMaskColorG = c[1];
+        m_RearMirrorBottomMaskColorB = c[2];
+        m_RearMirrorBottomMaskColorA = c[3];
+    }
+
+    // Recreate RTTs if sizes/ratios changed
+    if (m_ScopeRTTSize != prevScopeRTTSize ||
+        m_RearMirrorRTTSize != prevRearMirrorRTTSize ||
+        fabs(m_ScopeBottomMaskHeightRatio - prevScopeMaskRatio) > 0.0001f ||
+        fabs(m_RearMirrorBottomMaskHeightRatio - prevRearMirrorMaskRatio) > 0.0001f)
+    {
+        m_CreatedVRTextures = false;
+    }
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 

@@ -67,6 +67,11 @@ public:
 	std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
 	// Gun-mounted scope overlay (render-to-texture lens)
 	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
+	// Rear mirror overlay (off-hand)
+	vr::VROverlayHandle_t m_RearMirrorHandle = vr::k_ulOverlayHandleInvalid;
+	// Bottom mask overlays (solid color strips to hide incomplete RTT rendering)
+	vr::VROverlayHandle_t m_ScopeBottomMaskHandle = vr::k_ulOverlayHandleInvalid;
+	vr::VROverlayHandle_t m_RearMirrorBottomMaskHandle = vr::k_ulOverlayHandleInvalid;
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
@@ -225,6 +230,9 @@ public:
 		Texture_RightEye,
 		Texture_HUD,
 		Texture_Scope,
+		Texture_RearMirror,
+		Texture_ScopeMask,
+		Texture_RearMirrorMask,
 		Texture_Blank
 	};
 
@@ -232,12 +240,18 @@ public:
 	ITexture* m_RightEyeTexture;
 	ITexture* m_HUDTexture;
 	ITexture* m_ScopeTexture = nullptr;
+	ITexture* m_RearMirrorTexture = nullptr;
+	ITexture* m_ScopeMaskTexture = nullptr;
+	ITexture* m_RearMirrorMaskTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
 	IDirect3DSurface9* m_D9LeftEyeSurface;
 	IDirect3DSurface9* m_D9RightEyeSurface;
 	IDirect3DSurface9* m_D9HUDSurface;
 	IDirect3DSurface9* m_D9ScopeSurface;
+	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
+	IDirect3DSurface9* m_D9ScopeMaskSurface = nullptr;
+	IDirect3DSurface9* m_D9RearMirrorMaskSurface = nullptr;
 	IDirect3DSurface9* m_D9BlankSurface;
 
 	SharedTextureHolder m_VKLeftEye;
@@ -245,6 +259,9 @@ public:
 	SharedTextureHolder m_VKBackBuffer;
 	SharedTextureHolder m_VKHUD;
 	SharedTextureHolder m_VKScope;
+	SharedTextureHolder m_VKRearMirror;
+	SharedTextureHolder m_VKScopeMask;
+	SharedTextureHolder m_VKRearMirrorMask;
 	SharedTextureHolder m_VKBlankTexture;
 
 	bool m_IsVREnabled = false;
@@ -544,6 +561,14 @@ public:
 	bool  m_ScopeOverlayAlwaysVisible = true;
 	float m_ScopeOverlayIdleAlpha = 0.35f;
 
+	// Bottom mask strip (helps hide incomplete scope RTT rendering / transparency artifacts)
+	bool  m_ScopeBottomMaskEnabled = true;
+	float m_ScopeBottomMaskHeightRatio = 0.18f; // 0..1 of overlay height
+	int   m_ScopeBottomMaskColorR = 0;
+	int   m_ScopeBottomMaskColorG = 0;
+	int   m_ScopeBottomMaskColorB = 0;
+	int   m_ScopeBottomMaskColorA = 255;
+
 	// Runtime state
 	Vector m_ScopeCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_ScopeCameraAngAbs = { 0.0f, 0.0f, 0.0f };
@@ -555,6 +580,27 @@ public:
 	bool   ShouldRenderScope() const { return m_ScopeEnabled && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
+
+	// ----------------------------
+	// Rear mirror (RTT overlay)
+	// ----------------------------
+	bool  m_RearMirrorEnabled = false;
+	int   m_RearMirrorRTTSize = 512;           // square RTT size in pixels
+	float m_RearMirrorOverlayWidthMeters = 0.18f;
+	float m_RearMirrorOverlayXOffset = 0.00f;
+	float m_RearMirrorOverlayYOffset = 0.00f;
+	float m_RearMirrorOverlayZOffset = 0.10f;
+	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
+	float  m_RearMirrorAlpha = 1.0f;
+	bool   ShouldRenderRearMirror() const { return m_RearMirrorEnabled; }
+
+	// Bottom mask strip (helps hide incomplete rear mirror RTT rendering / transparency artifacts)
+	bool  m_RearMirrorBottomMaskEnabled = true;
+	float m_RearMirrorBottomMaskHeightRatio = 0.18f; // 0..1 of overlay height
+	int   m_RearMirrorBottomMaskColorR = 0;
+	int   m_RearMirrorBottomMaskColorG = 0;
+	int   m_RearMirrorBottomMaskColorB = 0;
+	int   m_RearMirrorBottomMaskColorA = 255;
 
 	VR() {};
 	VR(Game* game);
