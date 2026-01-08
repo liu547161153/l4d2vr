@@ -394,7 +394,13 @@ void VR::CreateVRTextures()
         auto* ctx = m_Game->m_MaterialSystem->GetRenderContext();
         if (ctx)
         {
-            ctx->PushRenderTargetAndViewport();
+            ITexture* initialTarget = m_ScopeMaskTexture ? m_ScopeMaskTexture : m_RearMirrorMaskTexture;
+            if (initialTarget)
+            {
+                const int width = std::max(1, initialTarget->GetActualWidth());
+                const int height = std::max(1, initialTarget->GetActualHeight());
+                Hooks::hkPushRenderTargetAndViewport.fOriginal(ctx, initialTarget, nullptr, 0, 0, width, height);
+            }
 
             if (m_ScopeMaskTexture)
             {
@@ -410,7 +416,8 @@ void VR::CreateVRTextures()
                 ctx->ClearBuffers(true, true, true);
             }
 
-            Hooks::hkPopRenderTargetAndViewport.fOriginal(ctx);
+            if (initialTarget)
+                Hooks::hkPopRenderTargetAndViewport.fOriginal(ctx);
         }
     }
 
