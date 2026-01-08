@@ -410,7 +410,7 @@ void VR::CreateVRTextures()
                 ctx->ClearBuffers(true, true, true);
             }
 
-            ctx->PopRenderTargetAndViewport();
+            Hooks::hkPopRenderTargetAndViewport.fOriginal(ctx);
         }
     }
 
