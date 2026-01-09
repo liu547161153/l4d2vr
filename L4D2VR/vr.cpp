@@ -1193,6 +1193,9 @@ void VR::ProcessInput()
     if (!m_IsVREnabled)
         return;
 
+    // Recomputed every frame from CustomAction bindings.
+    m_CustomWalkHeld = false;
+
     vr::VROverlay()->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, false);
     for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
         vr::VROverlay()->SetOverlayFlag(overlay, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, false);
@@ -1907,11 +1910,31 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
+    auto isWalkPressCommand = [](const std::string& cmd) -> bool
+        {
+            // Match the first token only (allow "+walk;..." or "+walk ...").
+            size_t start = cmd.find_first_not_of(" \t\r\n");
+            if (start == std::string::npos)
+                return false;
+            size_t end = cmd.find_first_of(" \t\r\n;\"", start);
+            std::string token = cmd.substr(start, (end == std::string::npos) ? std::string::npos : (end - start));
+            std::transform(token.begin(), token.end(), token.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return token == "+walk";
+        };
+
     auto handleCustomAction = [&](vr::VRActionHandle_t& actionHandle, const CustomActionBinding& binding)
         {
             vr::InputDigitalActionData_t actionData{};
             if (!GetDigitalActionData(actionHandle, actionData))
                 return;
+
+            // If a CustomAction is mapped to +walk (press/release), optionally use it as a
+            // hint to force third-person *rendering* while held. This is useful for slide
+            // mods that switch the gameplay camera to third-person when +walk is active.
+            if (m_ThirdPersonRenderOnCustomWalk && binding.usePressReleaseCommands && isWalkPressCommand(binding.command))
+            {
+                m_CustomWalkHeld = m_CustomWalkHeld || actionData.bState;
+            }
 
             if (binding.virtualKey.has_value())
             {
@@ -4646,6 +4669,7 @@ void VR::ParseConfigFile()
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
+    m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);

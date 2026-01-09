@@ -355,6 +355,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	constexpr float kThirdPersonXY = 18.0f;  // was 30.0f
 	constexpr float kThirdPerson3D = 90.0f;
 	const bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
@@ -370,11 +371,16 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	constexpr int kEngineThirdPersonHoldFrames = 2;
 	constexpr int kStateThirdPersonHoldFrames = 8;
 	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
-	const bool allowStateThirdPerson = stateWantsThirdPerson && (engineThirdPersonNow || hadThirdPerson);
+	const bool allowStateThirdPerson = stateWantsThirdPerson && (engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
 
 	// 先按“状态”锁定（优先级最高）
 	if (allowStateThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
+
+	// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
+	constexpr int kWalkThirdPersonHoldFrames = 3;
+	if (customWalkThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kWalkThirdPersonHoldFrames);
 
 	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
 	if (engineThirdPersonNow)
@@ -382,7 +388,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
-	const bool renderThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
 		static std::chrono::steady_clock::time_point s_lastTpDbg{};
@@ -446,7 +452,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (stateWantsThirdPerson)
 			baseCenter = m_VR->m_HmdPosAbs;
 		else
-			baseCenter = engineThirdPersonNow ? setup.origin : m_VR->m_HmdPosAbs;
+			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? setup.origin : m_VR->m_HmdPosAbs;
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
