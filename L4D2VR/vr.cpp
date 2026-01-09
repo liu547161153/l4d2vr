@@ -4407,6 +4407,13 @@ void VR::ParseConfigFile()
         return value.empty() ? defVal : value;
         };
 
+    const std::string injectedCmd = getString("cmd", getString("Cmd", ""));
+    if (!injectedCmd.empty())
+    {
+        m_Game->ClientCmd_Unrestricted(injectedCmd.c_str());
+        Game::logMsg("[VR] Executed config cmd: %s", injectedCmd.c_str());
+    }
+
     auto parseVirtualKey = [&](const std::string& rawValue)->std::optional<WORD>
         {
             std::string value = rawValue;
