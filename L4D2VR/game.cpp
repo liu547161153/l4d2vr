@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdint>
 #include <chrono>
 #include <ctime>
 #include <mutex>
@@ -195,44 +196,34 @@ C_BaseEntity* Game::GetClientEntity(int entityIndex)
 // === Network Name Utility ===
 char* Game::getNetworkName(uintptr_t* entity)
 {
-    if (!entity)
-        return nullptr;
-
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
-    if (!vtable)
-        return nullptr;
-
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return nullptr;
-
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
-    if (!clientClass)
-        return nullptr;
-
-    char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
-    int classID = static_cast<int>(*(clientClass + 0x10));
-    return name;
+    // Keep the legacy helper for older call sites.
+    // NOTE: This returns a pointer owned by the engine; do not free it.
+    return const_cast<char*>(GetNetworkClassName(entity));
 }
 
 const char* Game::GetNetworkClassName(uintptr_t* entity) const
 {
+    // The previous implementation tried to "decode" GetClientClass by reading machine code.
+    // That is extremely brittle and can silently break after any client.dll update.
+    //
+    // We already have a virtual in our SDK stub that corresponds to GetClientClass.
+    // Use the vtable call and then read the network name from the returned ClientClass.
     if (!entity)
         return nullptr;
 
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
-    if (!vtable)
+    C_BaseEntity* ent = reinterpret_cast<C_BaseEntity*>(entity);
+    if (!ent)
         return nullptr;
 
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return nullptr;
-
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
+    void* clientClass = ent->YouForgotToImplementOrDeclareClientClass();
     if (!clientClass)
         return nullptr;
 
-    return reinterpret_cast<const char*>(*(clientClass + 0x8));
+    // Source ClientClass layout (L4D2):
+    // 0x08 -> const char* network name
+    const char* name = *reinterpret_cast<const char* const*>(
+        reinterpret_cast<const std::uint8_t*>(clientClass) + 0x8);
+    return name;
 }
 
 // === Commands ===

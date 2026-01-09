@@ -3240,7 +3240,8 @@ void VR::UpdateRearMirrorThreatState(C_BasePlayer* localPlayer)
     {
         m_RearMirrorCurrentAlpha = baseAlpha;
         // Fail-open so the user still has a mirror if entity list isn't available.
-        m_RearMirrorRenderActive = !m_RearMirrorRenderOnThreat;
+        // (Otherwise RearMirrorRenderOnThreat would make the mirror disappear forever.)
+        m_RearMirrorRenderActive = true;
         return;
     }
 
