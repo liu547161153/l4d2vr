@@ -1,3 +1,4 @@
+
 #include "hooks.h"
 #include "game.h"
 #include "texture.h"
@@ -365,18 +366,20 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
 	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
-	const int holdBefore = m_VR->m_ThirdPersonHoldFrames;
+
 	constexpr int kEngineThirdPersonHoldFrames = 2;
-	constexpr int kStateThirdPersonHoldFrames = 40;
+	constexpr int kStateThirdPersonHoldFrames = 8;
+	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool allowStateThirdPerson = stateWantsThirdPerson && (engineThirdPersonNow || hadThirdPerson);
 
 	// 先按“状态”锁定（优先级最高）
-	if (stateWantsThirdPerson)
+	if (allowStateThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
 
 	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
 	if (engineThirdPersonNow)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
-	else if (!stateWantsThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
+	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
 	const bool renderThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
@@ -498,6 +501,59 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
+	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
+		CViewSetup& view, CViewSetup& hud)
+		{
+			IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
+			if (!rc)
+			{
+				m_VR->HandleMissingRenderContext("Hooks::dRenderView(offscreen)");
+				return;
+			}
+
+			// If viewport hooks aren't available, fall back (less ideal).
+			if (!hkGetViewport.fOriginal || !hkViewport.fOriginal)
+			{
+				hkPushRenderTargetAndViewport.fOriginal(rc, target, nullptr, 0, 0, texW, texH);
+
+				QAngle oldEngineAngles;
+				m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+				m_Game->m_EngineClient->SetViewAngles(passAngles);
+
+				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+				hkPopRenderTargetAndViewport.fOriginal(rc);
+				return;
+			}
+
+			const bool prevSuppress = m_VR->m_SuppressHudCapture;
+			m_VR->m_SuppressHudCapture = true;
+
+			int oldX = 0, oldY = 0, oldW = 0, oldH = 0;
+			hkGetViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+			ITexture* oldRT = rc->GetRenderTarget();
+
+			rc->SetRenderTarget(target);
+			hkViewport.fOriginal(rc, 0, 0, texW, texH);
+
+			rc->ClearColor4ub(0, 0, 0, 255);
+			rc->ClearBuffers(true, true, true);
+
+			QAngle oldEngineAngles;
+			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+			m_Game->m_EngineClient->SetViewAngles(passAngles);
+
+			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+
+			rc->SetRenderTarget(oldRT);
+			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+
+			m_VR->m_SuppressHudCapture = prevSuppress;
+		};
+
 	// ----------------------------
 	// Scope RTT pass: render from scope camera into vrScope RTT
 	// ----------------------------
@@ -528,29 +584,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		hudScope.origin = scopeView.origin;
 		hudScope.angles = scopeView.angles;
 
-		// prevent HUD capture hooks during this pass
-		m_VR->m_SuppressHudCapture = true;
-
-		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
-		if (renderContext)
-		{
-			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, nullptr, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
-			renderContext->OverrideAlphaWriteEnable(true, false);
-			renderContext->ClearColor4ub(0, 0, 0, 255);
-			renderContext->ClearBuffers(true, true, true);
-
-			QAngle oldEngineAngles;
-			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
-			m_Game->m_EngineClient->SetViewAngles(scopeAngles);
-
-			hkRenderView.fOriginal(ecx, scopeView, hudScope, nClearFlags, whatToDraw);
-
-			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
-			renderContext->OverrideAlphaWriteEnable(false, true);
-			hkPopRenderTargetAndViewport.fOriginal(renderContext);
-		}
-
-		m_VR->m_SuppressHudCapture = false;
+		renderToTexture_SetRT(m_VR->m_ScopeTexture,
+			m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,
+			scopeAngles, scopeView, hudScope);
 	}
 
 	// ----------------------------
@@ -583,28 +619,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		hudMirror.origin = mirrorView.origin;
 		hudMirror.angles = mirrorView.angles;
 
-		m_VR->m_SuppressHudCapture = true;
-
-		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
-		if (renderContext)
-		{
-			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_RearMirrorTexture, nullptr, 0, 0, m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize);
-			renderContext->OverrideAlphaWriteEnable(true, false);
-			renderContext->ClearColor4ub(0, 0, 0, 255);
-			renderContext->ClearBuffers(true, true, true);
-
-			QAngle oldEngineAngles;
-			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
-			m_Game->m_EngineClient->SetViewAngles(mirrorAngles);
-
-			hkRenderView.fOriginal(ecx, mirrorView, hudMirror, nClearFlags, whatToDraw);
-
-			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
-			renderContext->OverrideAlphaWriteEnable(false, true);
-			hkPopRenderTargetAndViewport.fOriginal(renderContext);
-		}
-
-		m_VR->m_SuppressHudCapture = false;
+		renderToTexture_SetRT(m_VR->m_RearMirrorTexture,
+			m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize,
+			mirrorAngles, mirrorView, hudMirror);
 	}
 
 	// Restore engine angles immediately after our stereo render.
