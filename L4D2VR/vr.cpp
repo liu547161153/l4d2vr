@@ -1907,11 +1907,31 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
+    // Track whether any CustomAction is currently holding +walk (useful for slide mods that flip the engine camera to 3rd person).
+    bool customWalkDown = false;
+    auto normalizeCmd = [](std::string cmd) -> std::string
+        {
+            auto is_space = [](unsigned char ch) { return std::isspace(ch) != 0; };
+            while (!cmd.empty() && is_space((unsigned char)cmd.front())) cmd.erase(cmd.begin());
+            while (!cmd.empty() && is_space((unsigned char)cmd.back())) cmd.pop_back();
+            std::transform(cmd.begin(), cmd.end(), cmd.begin(), [](unsigned char c) { return (unsigned char)std::tolower(c); });
+            return cmd;
+        };
+
     auto handleCustomAction = [&](vr::VRActionHandle_t& actionHandle, const CustomActionBinding& binding)
         {
             vr::InputDigitalActionData_t actionData{};
             if (!GetDigitalActionData(actionHandle, actionData))
                 return;
+
+            // Detect CustomAction bound to +walk so we can optionally force first-person rendering (see Hooks::dRenderView).
+            // Note: CustomAction press/release mapping auto-generates "-walk" on release for "+walk" commands.
+            if (m_ForceFirstPersonRenderOnWalk && binding.usePressReleaseCommands)
+            {
+                const std::string cmdNorm = normalizeCmd(binding.command);
+                if (cmdNorm == "+walk")
+                    customWalkDown = customWalkDown || actionData.bState;
+            }
 
             if (binding.virtualKey.has_value())
             {
@@ -1955,6 +1975,8 @@ void VR::ProcessInput()
     handleCustomAction(m_CustomAction3, m_CustomAction3Binding);
     handleCustomAction(m_CustomAction4, m_CustomAction4Binding);
     handleCustomAction(m_CustomAction5, m_CustomAction5Binding);
+
+    m_CustomWalkActive = customWalkDown;
 
     auto showTopHud = [&]()
         {
@@ -4641,6 +4663,8 @@ void VR::ParseConfigFile()
     parseCustomActionBinding("CustomAction3Command", m_CustomAction3Binding);
     parseCustomActionBinding("CustomAction4Command", m_CustomAction4Binding);
     parseCustomActionBinding("CustomAction5Command", m_CustomAction5Binding);
+
+    m_ForceFirstPersonRenderOnWalk = getBool("ForceFirstPersonRenderOnWalk", m_ForceFirstPersonRenderOnWalk);
 
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
     m_VRScale = getFloat("VRScale", m_VRScale);

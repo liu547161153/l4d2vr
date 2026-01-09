@@ -133,6 +133,11 @@ public:
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.5f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;
+
+	// If true, holding a CustomAction bound to +walk will force first-person rendering.
+	// Useful for slide mods that temporarily switch the engine camera to third-person on +walk.
+	bool m_ForceFirstPersonRenderOnWalk = false;
+	bool m_CustomWalkActive = false;
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
 	Vector m_RightControllerPosAbs;

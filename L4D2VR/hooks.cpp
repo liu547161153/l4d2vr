@@ -354,7 +354,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// - 3D is a fallback for edge cases.
 	constexpr float kThirdPersonXY = 18.0f;  // was 30.0f
 	constexpr float kThirdPerson3D = 90.0f;
-	const bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	const bool engineThirdPersonNowRaw = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	const bool forceFirstPersonOnWalk = (m_VR->m_ForceFirstPersonRenderOnWalk && m_VR->m_CustomWalkActive);
+	bool engineThirdPersonNow = engineThirdPersonNowRaw && !forceFirstPersonOnWalk;
+	if (forceFirstPersonOnWalk)
+	{
+		// Ensure we don't "stick" in third-person due to hysteresis when a slide mod briefly flips the engine camera.
+		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
 	m_VR->m_ThirdPersonViewOrigin = setup.origin;
@@ -415,7 +422,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.zNearViewmodel = 6;
 	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
 	m_VR->m_SetupOrigin = eyeOrigin;
-	if (!renderThirdPerson)
+	if (!renderThirdPerson && !engineThirdPersonNowRaw)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
