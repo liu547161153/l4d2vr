@@ -510,7 +510,7 @@ void VR::SubmitVRTextures()
     if (m_RearMirrorTexture && m_RearMirrorEnabled)
     {
         applyRearMirrorTexture(m_RearMirrorHandle);
-        vr::VROverlay()->SetOverlayAlpha(m_RearMirrorHandle, std::clamp(m_RearMirrorAlpha, 0.0f, 1.0f));
+        vr::VROverlay()->SetOverlayAlpha(m_RearMirrorHandle, std::clamp(m_RearMirrorCurrentAlpha, 0.0f, 1.0f));
 
         vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
         vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
@@ -2328,6 +2328,8 @@ void VR::UpdateTracking()
 
     m_HmdAngAbs = hmdAngSmoothed;
 
+    UpdateRearMirrorThreatState(localPlayer);
+
     m_HmdPosAbsPrev = m_HmdPosAbs;
     m_SetupOriginPrev = m_SetupOrigin;
 
@@ -3006,6 +3008,211 @@ void VR::UpdateScopeAimLineState()
         m_AimLineEnabled = false;
         m_HasAimLine = false;
         m_ScopeForcingAimLine = false;
+    }
+}
+
+static bool IsRearMirrorCommonInfectedClass(const char* cls)
+{
+    if (!cls)
+        return false;
+    return strcmp(cls, "Infected") == 0 || strcmp(cls, "CInfected") == 0 || strcmp(cls, "C_Infected") == 0;
+}
+
+static bool IsRearMirrorPlayerClass(const char* cls)
+{
+    if (!cls)
+        return false;
+    return strcmp(cls, "CTerrorPlayer") == 0 || strcmp(cls, "C_TerrorPlayer") == 0;
+}
+
+void VR::UpdateRearMirrorThreatState(C_BasePlayer* localPlayer)
+{
+    const float baseAlpha = std::clamp(m_RearMirrorAlpha, 0.0f, 1.0f);
+
+    if (!m_RearMirrorEnabled)
+    {
+        m_RearMirrorCurrentAlpha = 0.0f;
+        m_RearMirrorThreatActive = false;
+        m_RearMirrorRenderActive = false;
+        return;
+    }
+
+    // If neither auto-alpha nor render-on-threat needs threat detection, keep the old always-on behavior.
+    const bool needThreatDetection = (m_RearMirrorAutoAlpha || m_RearMirrorRenderOnThreat);
+    if (!needThreatDetection)
+    {
+        m_RearMirrorCurrentAlpha = baseAlpha;
+        m_RearMirrorRenderActive = true;
+        return;
+    }
+
+    if (!m_Game || !m_Game->m_ClientEntityList)
+    {
+        m_RearMirrorCurrentAlpha = baseAlpha;
+        // Fail-open so the user still has a mirror if entity list isn't available.
+        m_RearMirrorRenderActive = !m_RearMirrorRenderOnThreat;
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+
+    // Throttle entity scans. Alpha smoothing keeps it stable between scans.
+    const float scanHz = std::max(0.0f, m_RearMirrorThreatScanHz);
+    const float minInterval = (scanHz > 0.0f) ? (1.0f / scanHz) : 0.0f;
+
+    bool foundThreatThisScan = false;
+
+    const bool shouldScan = (minInterval <= 0.0f)
+        || (m_LastRearMirrorThreatScanTime.time_since_epoch().count() == 0)
+        || (std::chrono::duration<float>(now - m_LastRearMirrorThreatScanTime).count() >= minInterval);
+
+    if (shouldScan)
+    {
+        m_LastRearMirrorThreatScanTime = now;
+
+        Vector forward = m_HmdForward;
+        forward.z = 0.0f;
+        if (forward.IsZero())
+            forward = Vector(1.0f, 0.0f, 0.0f);
+        VectorNormalize(forward);
+        const Vector back = forward * -1.0f;
+
+        const float range = std::max(0.0f, m_RearMirrorThreatRange);
+        const float rangeSq = range * range;
+
+        const float angleDeg = std::clamp(m_RearMirrorThreatAngleDeg, 1.0f, 179.0f);
+        const float cosLimit = std::cos(angleDeg * (3.14159265358979323846f / 180.0f));
+
+        const int maxEnt = m_Game->m_ClientEntityList->GetHighestEntityIndex();
+        for (int i = 1; i <= maxEnt; ++i)
+        {
+            C_BaseEntity* ent = (C_BaseEntity*)m_Game->m_ClientEntityList->GetClientEntity(i);
+            if (!ent || ent == localPlayer)
+                continue;
+
+            const char* cls = m_Game->GetNetworkClassName((uintptr_t*)ent);
+            if (!cls)
+                continue;
+
+            bool isThreat = false;
+
+            if (m_RearMirrorThreatIncludeCommons && IsRearMirrorCommonInfectedClass(cls))
+            {
+                isThreat = true;
+            }
+            else if (m_RearMirrorThreatIncludeSpecials && IsRearMirrorPlayerClass(cls))
+            {
+                const SpecialInfectedType t = GetSpecialInfectedType(ent);
+                if (t != SpecialInfectedType::None)
+                    isThreat = true;
+            }
+
+            if (!isThreat)
+                continue;
+
+            if (!IsEntityAlive(ent))
+                continue;
+
+            Vector delta = ent->GetAbsOrigin() - m_HmdPosAbs;
+            delta.z = 0.0f;
+            const float distSq = delta.LengthSqr();
+            if (distSq <= 0.0001f || distSq > rangeSq)
+                continue;
+
+            VectorNormalize(delta);
+            const float dotBack = DotProduct(back, delta);
+            if (dotBack < cosLimit)
+                continue;
+
+            foundThreatThisScan = true;
+            m_LastRearMirrorThreatTime = now;
+            m_RearMirrorThreatActive = true;
+            break; // any threat is enough
+        }
+
+        if (!foundThreatThisScan)
+        {
+            // Leave active for a short hold duration to prevent flicker.
+            const float hold = std::max(0.0f, m_RearMirrorThreatHoldSeconds);
+            if (hold <= 0.0f)
+            {
+                m_RearMirrorThreatActive = false;
+            }
+            else if (m_LastRearMirrorThreatTime.time_since_epoch().count() != 0)
+            {
+                const float since = std::chrono::duration<float>(now - m_LastRearMirrorThreatTime).count();
+                if (since >= hold)
+                    m_RearMirrorThreatActive = false;
+            }
+            else
+            {
+                m_RearMirrorThreatActive = false;
+            }
+        }
+    }
+    else
+    {
+        // No scan: keep threat state based on hold timer.
+        if (m_RearMirrorThreatActive)
+        {
+            const float hold = std::max(0.0f, m_RearMirrorThreatHoldSeconds);
+            if (hold <= 0.0f)
+            {
+                m_RearMirrorThreatActive = false;
+            }
+            else if (m_LastRearMirrorThreatTime.time_since_epoch().count() != 0)
+            {
+                const float since = std::chrono::duration<float>(now - m_LastRearMirrorThreatTime).count();
+                if (since >= hold)
+                    m_RearMirrorThreatActive = false;
+            }
+        }
+    }
+
+    // Auto alpha (optional)
+    if (!m_RearMirrorAutoAlpha)
+    {
+        m_RearMirrorCurrentAlpha = baseAlpha;
+    }
+    else
+    {
+        const float targetAlpha = (m_RearMirrorThreatActive
+            ? std::clamp(m_RearMirrorAlertAlpha, 0.0f, 1.0f)
+            : std::clamp(m_RearMirrorIdleAlpha, 0.0f, 1.0f)) * baseAlpha;
+
+        // Smooth alpha (avoid strobing when threats pop in/out).
+        const float speed = std::max(0.0f, m_RearMirrorAlphaFadeSpeed);
+        const float dt = std::max(0.0f, m_LastFrameDuration);
+        const float t = (speed <= 0.0f) ? 1.0f : std::clamp(dt * speed, 0.0f, 1.0f);
+
+        if (!std::isfinite(m_RearMirrorCurrentAlpha))
+            m_RearMirrorCurrentAlpha = targetAlpha;
+
+        m_RearMirrorCurrentAlpha += (targetAlpha - m_RearMirrorCurrentAlpha) * t;
+    }
+
+    // Render gating: when enabled, only run the RTT pass / show overlay while threats are behind you.
+    if (!m_RearMirrorRenderOnThreat)
+    {
+        m_RearMirrorRenderActive = true;
+    }
+    else
+    {
+        bool active = m_RearMirrorThreatActive;
+
+        // Keep rendering briefly after threat disappears to prevent flicker.
+        if (!active)
+        {
+            const float extra = std::max(0.0f, m_RearMirrorRenderStopDelaySeconds);
+            if (extra > 0.0f && m_LastRearMirrorThreatTime.time_since_epoch().count() != 0)
+            {
+                const float since = std::chrono::duration<float>(now - m_LastRearMirrorThreatTime).count();
+                if (since < extra)
+                    active = true;
+            }
+        }
+
+        m_RearMirrorRenderActive = active;
     }
 }
 
@@ -4570,6 +4777,26 @@ void VR::ParseConfigFile()
         m_RearMirrorOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
     }
     m_RearMirrorAlpha = std::clamp(getFloat("RearMirrorAlpha", m_RearMirrorAlpha), 0.0f, 1.0f);
+
+    // Rear mirror: render only when threats are behind you (skip RTT pass when idle)
+    m_RearMirrorRenderOnThreat = getBool("RearMirrorRenderOnThreat", m_RearMirrorRenderOnThreat);
+    m_RearMirrorRenderStopDelaySeconds = std::max(0.0f, getFloat("RearMirrorRenderStopDelaySeconds", m_RearMirrorRenderStopDelaySeconds));
+
+    // Rear mirror: auto alpha (idle transparent, fade in when threats are behind)
+    m_RearMirrorAutoAlpha = getBool("RearMirrorAutoAlpha", m_RearMirrorAutoAlpha);
+    m_RearMirrorIdleAlpha = std::clamp(getFloat("RearMirrorIdleAlpha", m_RearMirrorIdleAlpha), 0.0f, 1.0f);
+    m_RearMirrorAlertAlpha = std::clamp(getFloat("RearMirrorAlertAlpha", m_RearMirrorAlertAlpha), 0.0f, 1.0f);
+    m_RearMirrorThreatRange = std::max(0.0f, getFloat("RearMirrorThreatRange", m_RearMirrorThreatRange));
+    m_RearMirrorThreatAngleDeg = std::clamp(getFloat("RearMirrorThreatAngleDeg", m_RearMirrorThreatAngleDeg), 1.0f, 179.0f);
+    m_RearMirrorThreatHoldSeconds = std::max(0.0f, getFloat("RearMirrorThreatHoldSeconds", m_RearMirrorThreatHoldSeconds));
+    m_RearMirrorThreatScanHz = std::max(0.0f, getFloat("RearMirrorThreatScanHz", m_RearMirrorThreatScanHz));
+    m_RearMirrorAlphaFadeSpeed = std::max(0.0f, getFloat("RearMirrorAlphaFadeSpeed", m_RearMirrorAlphaFadeSpeed));
+    m_RearMirrorThreatIncludeCommons = getBool("RearMirrorThreatIncludeCommons", m_RearMirrorThreatIncludeCommons);
+    m_RearMirrorThreatIncludeSpecials = getBool("RearMirrorThreatIncludeSpecials", m_RearMirrorThreatIncludeSpecials);
+
+    // Keep current alpha consistent when auto alpha is disabled (so old configs behave identically).
+    if (!m_RearMirrorAutoAlpha)
+        m_RearMirrorCurrentAlpha = m_RearMirrorAlpha;
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 
