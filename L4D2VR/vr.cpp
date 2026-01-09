@@ -63,6 +63,41 @@ namespace
         if (a.x > 89.f) a.x = 89.f;
         if (a.x < -89.f) a.x = -89.f;
     }
+
+    inline bool IsFirearmWeaponId(C_WeaponCSBase::WeaponID id)
+    {
+        switch (id)
+        {
+        case C_WeaponCSBase::WeaponID::PISTOL:
+        case C_WeaponCSBase::WeaponID::MAGNUM:
+        case C_WeaponCSBase::WeaponID::UZI:
+        case C_WeaponCSBase::WeaponID::MAC10:
+        case C_WeaponCSBase::WeaponID::MP5:
+
+        case C_WeaponCSBase::WeaponID::PUMPSHOTGUN:
+        case C_WeaponCSBase::WeaponID::SHOTGUN_CHROME:
+        case C_WeaponCSBase::WeaponID::AUTOSHOTGUN:
+        case C_WeaponCSBase::WeaponID::SPAS:
+
+        case C_WeaponCSBase::WeaponID::M16A1:
+        case C_WeaponCSBase::WeaponID::AK47:
+        case C_WeaponCSBase::WeaponID::SCAR:
+        case C_WeaponCSBase::WeaponID::SG552:
+
+        case C_WeaponCSBase::WeaponID::HUNTING_RIFLE:
+        case C_WeaponCSBase::WeaponID::SNIPER_MILITARY:
+        case C_WeaponCSBase::WeaponID::AWP:
+        case C_WeaponCSBase::WeaponID::SCOUT:
+
+        case C_WeaponCSBase::WeaponID::GRENADE_LAUNCHER:
+        case C_WeaponCSBase::WeaponID::M60:
+        case C_WeaponCSBase::WeaponID::MACHINEGUN:
+            return true;
+
+        default:
+            return false;
+        }
+    }
 }
 
 VR::VR(Game* game)
@@ -2160,9 +2195,18 @@ void VR::UpdateTracking()
     int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
     if (!localPlayer)
+    {
+        m_ScopeWeaponIsFirearm = false;
         return;
+    }
 
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
+    m_ScopeWeaponIsFirearm = false;
+    if (C_BaseCombatWeapon* active = localPlayer->GetActiveWeapon())
+    {
+        if (C_WeaponCSBase* weapon = (C_WeaponCSBase*)active)
+            m_ScopeWeaponIsFirearm = IsFirearmWeaponId(weapon->GetWeaponID());
+    }
     RefreshActiveViewmodelAdjustment(localPlayer);
 
     if (!m_IsThirdPersonCamera)
@@ -2472,7 +2516,7 @@ void VR::UpdateTracking()
     }
 
     // Update scope camera pose + look-through activation
-    if (m_ScopeEnabled)
+    if (m_ScopeEnabled && m_ScopeWeaponIsFirearm)
     {
         m_ScopeCameraPosAbs = m_RightControllerPosAbs
             + m_RightControllerForward * m_ScopeCameraOffset.x

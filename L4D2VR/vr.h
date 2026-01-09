@@ -554,11 +554,17 @@ public:
 	Vector m_ScopeCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_ScopeCameraAngAbs = { 0.0f, 0.0f, 0.0f };
 	bool   m_ScopeActive = false;
+	bool   m_ScopeWeaponIsFirearm = false;
 
 	Vector GetScopeCameraAbsPos() const { return m_ScopeCameraPosAbs; }
 	QAngle GetScopeCameraAbsAngle() const { return m_ScopeCameraAngAbs; }
 	bool   IsScopeActive() const { return m_ScopeEnabled && m_ScopeActive; }
-	bool   ShouldRenderScope() const { return m_ScopeEnabled && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
+	bool   ShouldRenderScope() const
+	{
+		return m_ScopeEnabled
+			&& m_ScopeWeaponIsFirearm
+			&& (m_ScopeOverlayAlwaysVisible || IsScopeActive());
+	}
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
 
