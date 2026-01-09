@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
-#include <algorithm>
+#include <algorithm> // std::clamp
 #include <chrono>
 #include <cmath>
 
@@ -27,6 +27,121 @@ static inline void NormalizeAndClampViewAngles(QAngle& a)
 	if (a.x > 89.f) a.x = 89.f;
 	if (a.x < -89.f) a.x = -89.f;
 }
+
+// ------------------------------------------------------------
+// Engine third-person camera smoothing
+//
+// Some camera mods (e.g. slide) switch to an engine-controlled third-person camera
+// that updates at tick rate (30/60Hz) while we still render at HMD rate (90Hz+).
+// That produces a "feels like 30fps" stutter even when frametime is stable.
+//
+// We blend from prev tick camera to curr tick camera over an estimated tick interval.
+// Only enabled when tick interval > ~16ms (~<60Hz) to avoid adding lag to 90Hz paths.
+// ------------------------------------------------------------
+static inline float AngleDeltaDeg(float to, float from)
+{
+	float delta = std::fmod(to - from, 360.0f);
+	if (delta > 180.0f) delta -= 360.0f;
+	if (delta < -180.0f) delta += 360.0f;
+	return delta;
+}
+
+static inline float AngleLerpDeg(float a, float b, float t)
+{
+	return a + AngleDeltaDeg(b, a) * t;
+}
+
+static inline float SmoothStep01(float t)
+{
+	t = std::clamp(t, 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+struct EngineThirdPersonCamSmoother
+{
+	bool valid = false;
+	Vector prevOrigin{ 0,0,0 };
+	Vector currOrigin{ 0,0,0 };
+	QAngle prevAngles{ 0,0,0 };
+	QAngle currAngles{ 0,0,0 };
+	std::chrono::steady_clock::time_point lastRawUpdate{};
+	std::chrono::steady_clock::time_point blendStart{};
+	float tickIntervalSec = (1.0f / 30.0f); // pessimistic default
+
+	void Reset()
+	{
+		valid = false;
+	}
+
+	void PushRaw(const Vector& rawOrigin, const QAngle& rawAngles)
+	{
+		const auto now = std::chrono::steady_clock::now();
+
+		if (!valid)
+		{
+			valid = true;
+			prevOrigin = currOrigin = rawOrigin;
+			prevAngles = currAngles = rawAngles;
+			lastRawUpdate = now;
+			blendStart = now;
+			return;
+		}
+
+		// Detect a new tick camera sample.
+		const float posDeltaSqr = (rawOrigin - currOrigin).LengthSqr();
+		const float angDelta =
+			std::fabs(AngleDeltaDeg(rawAngles.x, currAngles.x)) +
+			std::fabs(AngleDeltaDeg(rawAngles.y, currAngles.y)) +
+			std::fabs(AngleDeltaDeg(rawAngles.z, currAngles.z));
+		const bool changed = (posDeltaSqr > (0.25f * 0.25f)) || (angDelta > 0.25f);
+
+		if (changed)
+		{
+			const float dt = std::chrono::duration<float>(now - lastRawUpdate).count();
+			const float clamped = std::clamp(dt, 0.008f, 0.100f);
+			tickIntervalSec = (tickIntervalSec * 0.8f) + (clamped * 0.2f);
+
+			prevOrigin = currOrigin;
+			prevAngles = currAngles;
+			currOrigin = rawOrigin;
+			currAngles = rawAngles;
+			lastRawUpdate = now;
+			blendStart = now;
+		}
+	}
+
+	bool ShouldSmooth() const
+	{
+		// Only smooth when camera updates are slower than ~60Hz.
+		return valid && (tickIntervalSec > 0.016f);
+	}
+
+	void GetSmoothed(Vector& outOrigin, QAngle& outAngles) const
+	{
+		if (!valid)
+		{
+			outOrigin = { 0,0,0 };
+			outAngles = { 0,0,0 };
+			return;
+		}
+
+		if (!ShouldSmooth())
+		{
+			outOrigin = currOrigin;
+			outAngles = currAngles;
+			return;
+		}
+
+		const auto now = std::chrono::steady_clock::now();
+		const float tRaw = std::chrono::duration<float>(now - blendStart).count() / std::max(0.001f, tickIntervalSec);
+		const float t = SmoothStep01(tRaw);
+
+		outOrigin = prevOrigin + (currOrigin - prevOrigin) * t;
+		outAngles.x = AngleLerpDeg(prevAngles.x, currAngles.x, t);
+		outAngles.y = AngleLerpDeg(prevAngles.y, currAngles.y, t);
+		outAngles.z = AngleLerpDeg(prevAngles.z, currAngles.z, t);
+	}
+};
 
 
 // ------------------------------------------------------------
@@ -71,6 +186,8 @@ static inline bool IsPlayerControlledBySI(const C_BasePlayer* player)
 
 struct ThirdPersonStateDebug
 {
+	bool dead = false;
+	int lifeState = 0;
 	bool incap = false;
 	bool ledge = false;
 	bool hangingTongue = false;
@@ -98,6 +215,11 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 		return false;
 
 	ThirdPersonStateDebug dbg{};
+
+	// When dead / dying / observer transitions happen, the engine camera can flicker
+	// between views for a few frames. Force third-person rendering to avoid VR flicker.
+	dbg.lifeState = (int)ReadNetvar<uint8_t>(player, 0x147); // m_lifeState
+	dbg.dead = (dbg.lifeState != 0);
 
 	// Offsets are client netvars (see offsets.txt)
 	dbg.incap = ReadNetvar<uint8_t>(player, 0x1ea9) != 0;          // m_isIncapacitated
@@ -127,7 +249,7 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 	// NOTE: user request:
 	// - "倒地" (incapacitated) 不强制第三人称
 	// Keep other pinned/use/revive/tongue states.
-	return dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
+	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -317,6 +439,8 @@ ITexture* __fastcall Hooks::dGetRenderTarget(void* ecx, void* edx)
 
 void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CViewSetup& hudViewSetup, int nClearFlags, int whatToDraw)
 {
+	static EngineThirdPersonCamSmoother s_engineTpCam;
+
 	if (!m_VR->m_CreatedVRTextures)
 		m_VR->CreateVRTextures();
 
@@ -355,10 +479,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	constexpr float kThirdPersonXY = 18.0f;  // was 30.0f
 	constexpr float kThirdPerson3D = 90.0f;
 	const bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
+	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
+	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
+	if (engineThirdPersonNow)
+		s_engineTpCam.PushRaw(setup.origin, rawSetupAngles);
+	else
+		s_engineTpCam.Reset();
+
+	Vector engineCamOrigin = setup.origin;
+	QAngle engineCamAngles = rawSetupAngles;
+	if (s_engineTpCam.ShouldSmooth())
+		s_engineTpCam.GetSmoothed(engineCamOrigin, engineCamAngles);
+
 	// Always capture the view the engine is rendering this frame.
 	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
-	m_VR->m_ThirdPersonViewOrigin = setup.origin;
-	m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+	m_VR->m_ThirdPersonViewOrigin = engineCamOrigin; 
+	m_VR->m_ThirdPersonViewAngles.Init(engineCamAngles.x, engineCamAngles.y, engineCamAngles.z);
 
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
@@ -366,15 +503,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
 	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
+	const bool stateIsDead = tpStateDbg.dead;
 
 	constexpr int kEngineThirdPersonHoldFrames = 2;
-	constexpr int kStateThirdPersonHoldFrames = 8;
+	constexpr int kStateThirdPersonHoldFrames = 2;
 	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
-	const bool allowStateThirdPerson = stateWantsThirdPerson && (engineThirdPersonNow || hadThirdPerson);
+	// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
+	const bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDead || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
 
 	// 先按“状态”锁定（优先级最高）
 	if (allowStateThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
+
+	// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
+	constexpr int kWalkThirdPersonHoldFrames = 3;
+	if (customWalkThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kWalkThirdPersonHoldFrames);
 
 	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
 	if (engineThirdPersonNow)
@@ -382,7 +526,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
-	const bool renderThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
 		static std::chrono::steady_clock::time_point s_lastTpDbg{};
@@ -428,7 +572,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// but aim the camera with the HMD so head look still works in third-person.
 		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
 		if (m_VR->m_HmdForward.IsZero())
-			camAng = QAngle(setup.angles.x, setup.angles.y, setup.angles.z);
+			camAng = engineCamAngles;
 
 		Vector fwd, right, up;
 		QAngle::AngleVectors(camAng, &fwd, &right, &up);
@@ -444,9 +588,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// between setup.origin and HmdPosAbs.
 		Vector baseCenter;
 		if (stateWantsThirdPerson)
-			baseCenter = m_VR->m_HmdPosAbs;
+		{
+			// Dead/observer camera must follow engine view, not HMD position.
+			baseCenter = stateIsDead ? engineCamOrigin : m_VR->m_HmdPosAbs;
+		}
 		else
-			baseCenter = engineThirdPersonNow ? setup.origin : m_VR->m_HmdPosAbs;
+		{
+			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->m_HmdPosAbs;
+		}
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
