@@ -126,6 +126,11 @@ public:
 	float m_HeightOffset = 0.0;
 	bool m_RoomscaleActive = false;
 	bool m_IsThirdPersonCamera = false;
+	// When a CustomAction is bound to +walk (press/release), we can optionally treat it
+	// as a signal that the gameplay camera has been forced into a third-person mode
+	// (e.g. slide mods that switch to 3P while +walk is held).
+	bool m_CustomWalkHeld = false;
+	bool m_ThirdPersonRenderOnCustomWalk = false;
 	bool m_ObserverThirdPerson = false;
 	int m_ThirdPersonHoldFrames = 0;
 	Vector m_ThirdPersonViewOrigin = { 0,0,0 };
@@ -574,7 +579,7 @@ public:
 	Vector GetScopeCameraAbsPos() const { return m_ScopeCameraPosAbs; }
 	QAngle GetScopeCameraAbsAngle() const { return m_ScopeCameraAngAbs; }
 	bool   IsScopeActive() const { return m_ScopeEnabled && m_ScopeActive; }
-	bool   ShouldRenderScope() const{return m_ScopeEnabled && m_ScopeWeaponIsFirearm&& (m_ScopeOverlayAlwaysVisible || IsScopeActive());}
+	bool   ShouldRenderScope() const { return m_ScopeEnabled && m_ScopeWeaponIsFirearm && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
 
