@@ -3,6 +3,7 @@
 #pragma once
 
 #include <math.h>
+#include <cstdint>
 #include "game.h"
 #include "offsets.h"
 #include "usercmd.h"
@@ -40,6 +41,26 @@ public:
 	// Sizes entity list to specified size
 	virtual void				SetMaxEntities(int maxents) = 0;
 	virtual int					GetMaxEntities() = 0;
+};
+
+// Minimal Source engine ClientClass definition.
+// We only need the network name for entity classification.
+struct ClientClass
+{
+	void* m_pCreateFn;
+	void* m_pCreateEventFn;
+	const char* m_pNetworkName;
+	void* m_pRecvTable;
+	ClientClass* m_pNext;
+	int m_ClassID;
+};
+
+// Minimal IClientNetworkable definition.
+// In Source, the first virtual is GetClientClass().
+class IClientNetworkable
+{
+public:
+	virtual ClientClass* GetClientClass() = 0;
 };
 
 

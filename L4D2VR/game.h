@@ -98,6 +98,10 @@ public:
     // === Interface Utilities ===
     void* GetInterface(const char* dllname, const char* interfacename);
     C_BaseEntity* GetClientEntity(int entityIndex);
+
+    // Returns the engine network class name (e.g. "CTerrorPlayer", "CInfected").
+    // Prefer this version when you have an entity index.
+    const char* GetNetworkClassNameByIndex(int entityIndex) const;
     char* getNetworkName(uintptr_t* entity);
     const char* GetNetworkClassName(uintptr_t* entity) const;
 

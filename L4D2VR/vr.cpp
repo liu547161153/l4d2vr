@@ -3205,7 +3205,17 @@ static bool IsRearMirrorCommonInfectedClass(const char* cls)
 {
     if (!cls)
         return false;
-    return strcmp(cls, "Infected") == 0 || strcmp(cls, "CInfected") == 0 || strcmp(cls, "C_Infected") == 0;
+
+    // Exact known names
+    if (strcmp(cls, "Infected") == 0 || strcmp(cls, "CInfected") == 0 || strcmp(cls, "C_Infected") == 0)
+        return true;
+
+    // Fuzzy fallback: some builds/tools report variants like "CCommonInfected".
+    // We intentionally exclude player classes.
+    if (strstr(cls, "Infected") && !strstr(cls, "TerrorPlayer"))
+        return true;
+
+    return false;
 }
 
 static bool IsRearMirrorPlayerClass(const char* cls)
@@ -3213,6 +3223,13 @@ static bool IsRearMirrorPlayerClass(const char* cls)
     if (!cls)
         return false;
     return strcmp(cls, "CTerrorPlayer") == 0 || strcmp(cls, "C_TerrorPlayer") == 0;
+}
+
+static bool IsRearMirrorWitchClass(const char* cls)
+{
+    if (!cls)
+        return false;
+    return strcmp(cls, "Witch") == 0 || strcmp(cls, "CWitch") == 0 || strcmp(cls, "C_Witch") == 0;
 }
 
 void VR::UpdateRearMirrorThreatState(C_BasePlayer* localPlayer)
@@ -3281,7 +3298,11 @@ void VR::UpdateRearMirrorThreatState(C_BasePlayer* localPlayer)
             if (!ent || ent == localPlayer)
                 continue;
 
-            const char* cls = m_Game->GetNetworkClassName((uintptr_t*)ent);
+            // Prefer index-based network name lookup; it avoids relying on any single
+            // entity interface/vtable layout and tends to survive client.dll updates.
+            const char* cls = m_Game->GetNetworkClassNameByIndex(i);
+            if (!cls)
+                cls = m_Game->GetNetworkClassName((uintptr_t*)ent);
             if (!cls)
                 continue;
 
@@ -3291,11 +3312,19 @@ void VR::UpdateRearMirrorThreatState(C_BasePlayer* localPlayer)
             {
                 isThreat = true;
             }
-            else if (m_RearMirrorThreatIncludeSpecials && IsRearMirrorPlayerClass(cls))
+            else if (m_RearMirrorThreatIncludeSpecials)
             {
-                const SpecialInfectedType t = GetSpecialInfectedType(ent);
-                if (t != SpecialInfectedType::None)
+                // Witch is an NPC (not a player), so it won't have a zombie class.
+                if (IsRearMirrorWitchClass(cls))
+                {
                     isThreat = true;
+                }
+                else if (IsRearMirrorPlayerClass(cls))
+                {
+                    const SpecialInfectedType t = GetSpecialInfectedType(ent);
+                    if (t != SpecialInfectedType::None)
+                        isThreat = true;
+                }
             }
 
             if (!isThreat)

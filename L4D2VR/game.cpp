@@ -4,7 +4,6 @@
 #include <unordered_map>
 #include <cstdarg>
 #include <cstdio>
-#include <cstdint>
 #include <chrono>
 #include <ctime>
 #include <mutex>
@@ -193,6 +192,22 @@ C_BaseEntity* Game::GetClientEntity(int entityIndex)
     return static_cast<C_BaseEntity*>(m_ClientEntityList->GetClientEntity(entityIndex));
 }
 
+const char* Game::GetNetworkClassNameByIndex(int entityIndex) const
+{
+    if (!m_ClientEntityList || entityIndex <= 0)
+        return nullptr;
+
+    void* networkable = m_ClientEntityList->GetClientNetworkable(entityIndex);
+    if (!networkable)
+        return nullptr;
+
+    ClientClass* cc = reinterpret_cast<IClientNetworkable*>(networkable)->GetClientClass();
+    if (!cc)
+        return nullptr;
+
+    return cc->m_pNetworkName;
+}
+
 // === Network Name Utility ===
 char* Game::getNetworkName(uintptr_t* entity)
 {
@@ -203,27 +218,23 @@ char* Game::getNetworkName(uintptr_t* entity)
 
 const char* Game::GetNetworkClassName(uintptr_t* entity) const
 {
-    // The previous implementation tried to "decode" GetClientClass by reading machine code.
-    // That is extremely brittle and can silently break after any client.dll update.
-    //
-    // We already have a virtual in our SDK stub that corresponds to GetClientClass.
-    // Use the vtable call and then read the network name from the returned ClientClass.
+    // Prefer real IClientNetworkable::GetClientClass() over brittle code/offset decoding.
     if (!entity)
         return nullptr;
 
-    C_BaseEntity* ent = reinterpret_cast<C_BaseEntity*>(entity);
-    if (!ent)
+    IClientUnknown* unk = reinterpret_cast<IClientUnknown*>(entity);
+    if (!unk)
         return nullptr;
 
-    void* clientClass = ent->YouForgotToImplementOrDeclareClientClass();
-    if (!clientClass)
+    void* networkable = unk->GetClientNetworkable();
+    if (!networkable)
         return nullptr;
 
-    // Source ClientClass layout (L4D2):
-    // 0x08 -> const char* network name
-    const char* name = *reinterpret_cast<const char* const*>(
-        reinterpret_cast<const std::uint8_t*>(clientClass) + 0x8);
-    return name;
+    ClientClass* cc = reinterpret_cast<IClientNetworkable*>(networkable)->GetClientClass();
+    if (!cc)
+        return nullptr;
+
+    return cc->m_pNetworkName;
 }
 
 // === Commands ===
