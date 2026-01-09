@@ -549,7 +549,6 @@ public:
 	float m_ScopeLookThroughAngleDeg = 12.0f;
 	bool  m_ScopeOverlayAlwaysVisible = true;
 	float m_ScopeOverlayIdleAlpha = 0.35f;
-
 	// Scope stabilization (visual only): smooth the scope RTT camera pose when scoped-in.
 	// This reduces high-magnification jitter without changing shooting / aim direction.
 	bool  m_ScopeStabilizationEnabled = true;
@@ -562,6 +561,8 @@ public:
 	QAngle m_ScopeCameraAngAbs = { 0.0f, 0.0f, 0.0f };
 	bool   m_ScopeActive = false;
 
+	bool   m_ScopeWeaponIsFirearm = false;
+
 	// Scope stabilization filter state (One Euro filter)
 	bool   m_ScopeStabilizationInit = false;
 	Vector m_ScopeStabPos = { 0.0f, 0.0f, 0.0f };
@@ -569,17 +570,11 @@ public:
 	QAngle m_ScopeStabAng = { 0.0f, 0.0f, 0.0f };
 	QAngle m_ScopeStabAngDeriv = { 0.0f, 0.0f, 0.0f };
 	std::chrono::steady_clock::time_point m_ScopeStabilizationLastTime{};
-	bool   m_ScopeWeaponIsFirearm = false;
 
 	Vector GetScopeCameraAbsPos() const { return m_ScopeCameraPosAbs; }
 	QAngle GetScopeCameraAbsAngle() const { return m_ScopeCameraAngAbs; }
 	bool   IsScopeActive() const { return m_ScopeEnabled && m_ScopeActive; }
-	bool   ShouldRenderScope() const
-	{
-		return m_ScopeEnabled
-			&& m_ScopeWeaponIsFirearm
-			&& (m_ScopeOverlayAlwaysVisible || IsScopeActive());
-	}
+	bool   ShouldRenderScope() const{return m_ScopeEnabled && m_ScopeWeaponIsFirearm&& (m_ScopeOverlayAlwaysVisible || IsScopeActive());}
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
 
@@ -601,45 +596,12 @@ public:
 	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float  m_RearMirrorAlpha = 1.0f;
 
-	// If enabled, only render/show the rear mirror when a threat is detected behind the player.
-	// This saves GPU time by skipping the rear-mirror RTT pass when idle.
-	bool  m_RearMirrorRenderOnThreat = false;
-	float m_RearMirrorRenderStopDelaySeconds = 0.50f; // keep rendering briefly after threat disappears
-
-	// Auto alpha: keep the mirror visible (very transparent) and fade in when threats are behind you.
-	bool  m_RearMirrorAutoAlpha = false;
-	float m_RearMirrorIdleAlpha = 0.03f;
-	float m_RearMirrorAlertAlpha = 1.0f;
-	float m_RearMirrorThreatRange = 220.0f;
-	float m_RearMirrorThreatAngleDeg = 70.0f;
-	float m_RearMirrorThreatHoldSeconds = 0.35f;
-	float m_RearMirrorThreatScanHz = 12.0f;
-	float m_RearMirrorAlphaFadeSpeed = 12.0f;
-	bool  m_RearMirrorThreatIncludeCommons = true;
-	bool  m_RearMirrorThreatIncludeSpecials = true;
-
-	// Runtime state
-	float m_RearMirrorCurrentAlpha = 1.0f;
-	bool  m_RearMirrorThreatActive = false;
-	std::chrono::steady_clock::time_point m_LastRearMirrorThreatTime{};
-	std::chrono::steady_clock::time_point m_LastRearMirrorThreatScanTime{};
-	bool  m_RearMirrorRenderActive = false;
-
 	Vector m_RearMirrorCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_RearMirrorCameraAngAbs = { 0.0f, 0.0f, 0.0f };
 
 	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
 	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
-	bool   ShouldRenderRearMirror() const
-	{
-		if (!m_RearMirrorEnabled)
-			return false;
-		if (!m_RearMirrorRenderOnThreat)
-			return true;
-		return m_RearMirrorRenderActive;
-	}
-
-	void   UpdateRearMirrorThreatState(C_BasePlayer* localPlayer);
+	bool   ShouldRenderRearMirror() const { return m_RearMirrorEnabled; }
 
 	VR() {};
 	VR(Game* game);
