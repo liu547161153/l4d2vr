@@ -550,15 +550,36 @@ public:
 	bool  m_ScopeOverlayAlwaysVisible = true;
 	float m_ScopeOverlayIdleAlpha = 0.35f;
 
+	// Scope stabilization (visual only): smooth the scope RTT camera pose when scoped-in.
+	// This reduces high-magnification jitter without changing shooting / aim direction.
+	bool  m_ScopeStabilizationEnabled = true;
+	float m_ScopeStabilizationMinCutoff = 1.0f;  // Hz (lower = smoother, more latency)
+	float m_ScopeStabilizationBeta = 0.08f;      // responsiveness to fast motion
+	float m_ScopeStabilizationDCutoff = 1.0f;    // Hz (derivative low-pass cutoff)
+
 	// Runtime state
 	Vector m_ScopeCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_ScopeCameraAngAbs = { 0.0f, 0.0f, 0.0f };
 	bool   m_ScopeActive = false;
 
+	// Scope stabilization filter state (One Euro filter)
+	bool   m_ScopeStabilizationInit = false;
+	Vector m_ScopeStabPos = { 0.0f, 0.0f, 0.0f };
+	Vector m_ScopeStabPosDeriv = { 0.0f, 0.0f, 0.0f };
+	QAngle m_ScopeStabAng = { 0.0f, 0.0f, 0.0f };
+	QAngle m_ScopeStabAngDeriv = { 0.0f, 0.0f, 0.0f };
+	std::chrono::steady_clock::time_point m_ScopeStabilizationLastTime{};
+	bool   m_ScopeWeaponIsFirearm = false;
+
 	Vector GetScopeCameraAbsPos() const { return m_ScopeCameraPosAbs; }
 	QAngle GetScopeCameraAbsAngle() const { return m_ScopeCameraAngAbs; }
 	bool   IsScopeActive() const { return m_ScopeEnabled && m_ScopeActive; }
-	bool   ShouldRenderScope() const { return m_ScopeEnabled && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
+	bool   ShouldRenderScope() const
+	{
+		return m_ScopeEnabled
+			&& m_ScopeWeaponIsFirearm
+			&& (m_ScopeOverlayAlwaysVisible || IsScopeActive());
+	}
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
 
