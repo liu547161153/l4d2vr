@@ -580,12 +580,45 @@ public:
 	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float  m_RearMirrorAlpha = 1.0f;
 
+	// If enabled, only render/show the rear mirror when a threat is detected behind the player.
+	// This saves GPU time by skipping the rear-mirror RTT pass when idle.
+	bool  m_RearMirrorRenderOnThreat = false;
+	float m_RearMirrorRenderStopDelaySeconds = 0.50f; // keep rendering briefly after threat disappears
+
+	// Auto alpha: keep the mirror visible (very transparent) and fade in when threats are behind you.
+	bool  m_RearMirrorAutoAlpha = false;
+	float m_RearMirrorIdleAlpha = 0.03f;
+	float m_RearMirrorAlertAlpha = 1.0f;
+	float m_RearMirrorThreatRange = 220.0f;
+	float m_RearMirrorThreatAngleDeg = 70.0f;
+	float m_RearMirrorThreatHoldSeconds = 0.35f;
+	float m_RearMirrorThreatScanHz = 12.0f;
+	float m_RearMirrorAlphaFadeSpeed = 12.0f;
+	bool  m_RearMirrorThreatIncludeCommons = true;
+	bool  m_RearMirrorThreatIncludeSpecials = true;
+
+	// Runtime state
+	float m_RearMirrorCurrentAlpha = 1.0f;
+	bool  m_RearMirrorThreatActive = false;
+	std::chrono::steady_clock::time_point m_LastRearMirrorThreatTime{};
+	std::chrono::steady_clock::time_point m_LastRearMirrorThreatScanTime{};
+	bool  m_RearMirrorRenderActive = false;
+
 	Vector m_RearMirrorCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_RearMirrorCameraAngAbs = { 0.0f, 0.0f, 0.0f };
 
 	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
 	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
-	bool   ShouldRenderRearMirror() const { return m_RearMirrorEnabled; }
+	bool   ShouldRenderRearMirror() const
+	{
+		if (!m_RearMirrorEnabled)
+			return false;
+		if (!m_RearMirrorRenderOnThreat)
+			return true;
+		return m_RearMirrorRenderActive;
+	}
+
+	void   UpdateRearMirrorThreatState(C_BasePlayer* localPlayer);
 
 	VR() {};
 	VR(Game* game);
