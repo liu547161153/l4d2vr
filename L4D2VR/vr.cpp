@@ -160,6 +160,9 @@ VR::VR(Game* game)
     // Scope overlay is purely visual
     m_Overlay->SetOverlayInputMethod(m_ScopeHandle, vr::VROverlayInputMethod_None);
     m_Overlay->SetOverlayInputMethod(m_RearMirrorHandle, vr::VROverlayInputMethod_None);
+    m_Overlay->SetOverlayFlag(m_ScopeHandle, vr::VROverlayFlags_IgnoreTextureAlpha, true);
+    m_Overlay->SetOverlayFlag(m_RearMirrorHandle, vr::VROverlayFlags_IgnoreTextureAlpha, true);
+
 
     m_Overlay->SetOverlayFlag(m_MainMenuHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
     m_Overlay->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
@@ -335,9 +338,6 @@ void VR::CreateVRTextures()
         static_cast<int>(m_ScopeRTTSize),
         RT_SIZE_NO_CHANGE,
         m_Game->m_MaterialSystem->GetBackBufferFormat(),
-        // IMPORTANT: scope RTT needs its own depth buffer.
-        // Sharing depth with the main view/HUD can cause certain opaque models (notably common infected)
-        // to fail depth/culling in this offscreen pass, showing up as a faint/transparent silhouette.
         MATERIAL_RT_DEPTH_SEPARATE,
         TEXTUREFLAGS_NOMIP);
 
@@ -2164,6 +2164,17 @@ void VR::UpdateTracking()
 
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
     RefreshActiveViewmodelAdjustment(localPlayer);
+
+    if (!m_IsThirdPersonCamera)
+    {
+        Vector eyeOrigin = localPlayer->EyePosition();
+        if (!eyeOrigin.IsZero())
+        {
+            m_SetupOrigin = eyeOrigin;
+            if (m_SetupOriginPrev.IsZero())
+                m_SetupOriginPrev = eyeOrigin;
+        }
+    }
 
     // --- Fix: third-person camera shifts CViewSetup::origin behind the player.
     // In this codebase, controller world positions are anchored off m_CameraAnchor (NOT directly off m_SetupOrigin),
