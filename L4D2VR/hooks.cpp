@@ -71,6 +71,8 @@ static inline bool IsPlayerControlledBySI(const C_BasePlayer* player)
 
 struct ThirdPersonStateDebug
 {
+	bool dead = false;
+	int lifeState = 0;
 	bool incap = false;
 	bool ledge = false;
 	bool hangingTongue = false;
@@ -98,6 +100,11 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 		return false;
 
 	ThirdPersonStateDebug dbg{};
+
+	// When dead / dying / observer transitions happen, the engine camera can flicker
+	// between views for a few frames. Force third-person rendering to avoid VR flicker.
+	dbg.lifeState = (int)ReadNetvar<uint8_t>(player, 0x147); // m_lifeState
+	dbg.dead = (dbg.lifeState != 0);
 
 	// Offsets are client netvars (see offsets.txt)
 	dbg.incap = ReadNetvar<uint8_t>(player, 0x1ea9) != 0;          // m_isIncapacitated
@@ -127,7 +134,7 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 	// NOTE: user request:
 	// - "倒地" (incapacitated) 不强制第三人称
 	// Keep other pinned/use/revive/tongue states.
-	return dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
+	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -367,11 +374,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
 	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
+	const bool stateIsDead = tpStateDbg.dead;
 
 	constexpr int kEngineThirdPersonHoldFrames = 2;
 	constexpr int kStateThirdPersonHoldFrames = 8;
 	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
-	const bool allowStateThirdPerson = stateWantsThirdPerson && (engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
+	// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
+	const bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDead || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
 
 	// 先按“状态”锁定（优先级最高）
 	if (allowStateThirdPerson)
@@ -450,9 +459,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// between setup.origin and HmdPosAbs.
 		Vector baseCenter;
 		if (stateWantsThirdPerson)
-			baseCenter = m_VR->m_HmdPosAbs;
+		{
+			// Dead/observer camera must follow engine view, not HMD position.
+			baseCenter = stateIsDead ? setup.origin : m_VR->m_HmdPosAbs;
+		}
 		else
+		{
 			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? setup.origin : m_VR->m_HmdPosAbs;
+		}
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
