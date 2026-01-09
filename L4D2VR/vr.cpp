@@ -63,6 +63,104 @@ namespace
         if (a.x > 89.f) a.x = 89.f;
         if (a.x < -89.f) a.x = -89.f;
     }
+
+    // ----------------------------
+    // One Euro filter helpers (for scope stabilization)
+    // ----------------------------
+    constexpr float kPi = 3.14159265358979323846f;
+
+    inline float OneEuroAlpha(float cutoffHz, float dt)
+    {
+        cutoffHz = std::max(0.0001f, cutoffHz);
+        dt = std::max(0.000001f, dt);
+        const float tau = 1.0f / (2.0f * kPi * cutoffHz);
+        return 1.0f / (1.0f + tau / dt);
+    }
+
+    inline float AngleDeltaDeg(float a, float b)
+    {
+        float d = a - b;
+        while (d > 180.f) d -= 360.f;
+        while (d < -180.f) d += 360.f;
+        return d;
+    }
+
+    inline Vector OneEuroFilterVec3(
+        const Vector& x,
+        Vector& xHat,
+        Vector& dxHat,
+        bool& initialized,
+        float dt,
+        float minCutoff,
+        float beta,
+        float dCutoff)
+    {
+        if (!initialized)
+        {
+            initialized = true;
+            xHat = x;
+            dxHat = { 0.0f, 0.0f, 0.0f };
+            return xHat;
+        }
+
+        const Vector dx = (x - xHat) * (1.0f / std::max(0.000001f, dt));
+        const float aD = OneEuroAlpha(dCutoff, dt);
+        dxHat = dxHat + (dx - dxHat) * aD;
+
+        const float speed = VectorLength(dxHat);
+        const float cutoff = std::max(0.0001f, minCutoff + beta * speed);
+        const float a = OneEuroAlpha(cutoff, dt);
+        xHat = xHat + (x - xHat) * a;
+        return xHat;
+    }
+
+    inline QAngle OneEuroFilterAngles(
+        const QAngle& x,
+        QAngle& xHat,
+        QAngle& dxHat,
+        bool& initialized,
+        float dt,
+        float minCutoff,
+        float beta,
+        float dCutoff)
+    {
+        if (!initialized)
+        {
+            initialized = true;
+            xHat = x;
+            dxHat = { 0.0f, 0.0f, 0.0f };
+            return xHat;
+        }
+
+        const float invDt = 1.0f / std::max(0.000001f, dt);
+        const QAngle dx = {
+            AngleDeltaDeg(x.x, xHat.x) * invDt,
+            AngleDeltaDeg(x.y, xHat.y) * invDt,
+            AngleDeltaDeg(x.z, xHat.z) * invDt
+        };
+
+        const float aD = OneEuroAlpha(dCutoff, dt);
+        dxHat.x = dxHat.x + (dx.x - dxHat.x) * aD;
+        dxHat.y = dxHat.y + (dx.y - dxHat.y) * aD;
+        dxHat.z = dxHat.z + (dx.z - dxHat.z) * aD;
+
+        const float speed = std::sqrt(dxHat.x * dxHat.x + dxHat.y * dxHat.y + dxHat.z * dxHat.z);
+        const float cutoff = std::max(0.0001f, minCutoff + beta * speed);
+        const float a = OneEuroAlpha(cutoff, dt);
+
+        xHat.x = xHat.x + AngleDeltaDeg(x.x, xHat.x) * a;
+        xHat.y = xHat.y + AngleDeltaDeg(x.y, xHat.y) * a;
+        xHat.z = xHat.z + AngleDeltaDeg(x.z, xHat.z) * a;
+
+        // Keep angles in a sane range.
+        while (xHat.x > 180.f) xHat.x -= 360.f;
+        while (xHat.x < -180.f) xHat.x += 360.f;
+        while (xHat.y > 180.f) xHat.y -= 360.f;
+        while (xHat.y < -180.f) xHat.y += 360.f;
+        while (xHat.z > 180.f) xHat.z -= 360.f;
+        while (xHat.z < -180.f) xHat.z += 360.f;
+        return xHat;
+    }
 }
 
 VR::VR(Game* game)
@@ -2472,33 +2570,37 @@ void VR::UpdateTracking()
     }
 
     // Update scope camera pose + look-through activation
-    if (m_ScopeEnabled)
+    if (m_ScopeEnabled && m_ScopeWeaponIsFirearm)
     {
-        m_ScopeCameraPosAbs = m_RightControllerPosAbs
+        // Raw scope camera pose from controller (used for activation tests).
+        const Vector scopePosRaw = m_RightControllerPosAbs
             + m_RightControllerForward * m_ScopeCameraOffset.x
             + m_RightControllerRight * m_ScopeCameraOffset.y
             + m_RightControllerUp * m_ScopeCameraOffset.z;
 
-        QAngle scopeAng;
-        QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAng);
-        scopeAng.x += m_ScopeCameraAngleOffset.x;
-        scopeAng.y += m_ScopeCameraAngleOffset.y;
-        scopeAng.z += m_ScopeCameraAngleOffset.z;
-        scopeAng.x = wrapAngle(scopeAng.x);
-        scopeAng.y = wrapAngle(scopeAng.y);
-        scopeAng.z = wrapAngle(scopeAng.z);
-        m_ScopeCameraAngAbs = scopeAng;
+        QAngle scopeAngRaw;
+        QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAngRaw);
+        scopeAngRaw.x += m_ScopeCameraAngleOffset.x;
+        scopeAngRaw.y += m_ScopeCameraAngleOffset.y;
+        scopeAngRaw.z += m_ScopeCameraAngleOffset.z;
+        scopeAngRaw.x = wrapAngle(scopeAngRaw.x);
+        scopeAngRaw.y = wrapAngle(scopeAngRaw.y);
+        scopeAngRaw.z = wrapAngle(scopeAngRaw.z);
+
+        // Default: render pose == raw pose.
+        m_ScopeCameraPosAbs = scopePosRaw;
+        m_ScopeCameraAngAbs = scopeAngRaw;
 
         if (m_ScopeRequireLookThrough)
         {
             const float maxDist = std::max(0.0f, m_ScopeLookThroughDistanceMeters) * m_VRScale;
-            Vector toScope = m_ScopeCameraPosAbs - m_HmdPosAbs;
+            Vector toScope = scopePosRaw - m_HmdPosAbs;
             const float dist = VectorLength(toScope);
             if (dist > 0.0f && dist <= maxDist)
             {
                 toScope /= dist;
                 Vector scopeForward;
-                QAngle::AngleVectors(m_ScopeCameraAngAbs, &scopeForward, nullptr, nullptr);
+                QAngle::AngleVectors(scopeAngRaw, &scopeForward, nullptr, nullptr);
                 if (!scopeForward.IsZero()) VectorNormalize(scopeForward);
 
                 const float maxAngleRad = std::clamp(m_ScopeLookThroughAngleDeg, 0.0f, 89.0f) * (3.14159265358979323846f / 180.0f);
@@ -2517,10 +2619,54 @@ void VR::UpdateTracking()
         {
             m_ScopeActive = true;
         }
+
+        // Visual stabilization: smooth the scope RTT camera pose ONLY when scoped-in.
+        // This does NOT affect shooting direction (bullets still use controller aim).
+        if (m_ScopeStabilizationEnabled && m_ScopeActive)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            float dt = 1.0f / 90.0f;
+            if (m_ScopeStabilizationInit && m_ScopeStabilizationLastTime.time_since_epoch().count() != 0)
+                dt = std::chrono::duration<float>(now - m_ScopeStabilizationLastTime).count();
+
+            // Clamp dt to avoid spikes (alt-tab, loading, etc.)
+            dt = std::clamp(dt, 1.0f / 240.0f, 1.0f / 20.0f);
+
+            // Initialize filter state on first scoped-in frame.
+            if (!m_ScopeStabilizationInit)
+            {
+                m_ScopeStabilizationInit = true;
+                m_ScopeStabPos = scopePosRaw;
+                m_ScopeStabPosDeriv = { 0.0f, 0.0f, 0.0f };
+                m_ScopeStabAng = scopeAngRaw;
+                m_ScopeStabAngDeriv = { 0.0f, 0.0f, 0.0f };
+            }
+            m_ScopeStabilizationLastTime = now;
+
+            // Slightly increase smoothing at very low FOV (high magnification).
+            const float fovScale = std::clamp(m_ScopeFov / 20.0f, 0.35f, 1.25f);
+            const float minCutoff = std::max(0.0001f, m_ScopeStabilizationMinCutoff * fovScale);
+
+            OneEuroFilterVec3(scopePosRaw, m_ScopeStabPos, m_ScopeStabPosDeriv, m_ScopeStabilizationInit,
+                dt, minCutoff, m_ScopeStabilizationBeta, m_ScopeStabilizationDCutoff);
+
+            OneEuroFilterAngles(scopeAngRaw, m_ScopeStabAng, m_ScopeStabAngDeriv, m_ScopeStabilizationInit,
+                dt, minCutoff, m_ScopeStabilizationBeta, m_ScopeStabilizationDCutoff);
+
+            m_ScopeCameraPosAbs = m_ScopeStabPos;
+            m_ScopeCameraAngAbs = m_ScopeStabAng;
+        }
+        else
+        {
+            m_ScopeStabilizationInit = false;
+            m_ScopeStabilizationLastTime = {};
+        }
     }
     else
     {
         m_ScopeActive = false;
+        m_ScopeStabilizationInit = false;
+        m_ScopeStabilizationLastTime = {};
     }
 
     UpdateScopeAimLineState();
@@ -4751,6 +4897,17 @@ void VR::ParseConfigFile()
     m_ScopeRequireLookThrough = getBool("ScopeRequireLookThrough", m_ScopeRequireLookThrough);
     m_ScopeLookThroughDistanceMeters = std::clamp(getFloat("ScopeLookThroughDistanceMeters", m_ScopeLookThroughDistanceMeters), 0.01f, 2.0f);
     m_ScopeLookThroughAngleDeg = std::clamp(getFloat("ScopeLookThroughAngleDeg", m_ScopeLookThroughAngleDeg), 1.0f, 89.0f);
+
+    // Scope stabilization (visual only)
+    m_ScopeStabilizationEnabled = getBool("ScopeStabilizationEnabled", m_ScopeStabilizationEnabled);
+    m_ScopeStabilizationMinCutoff = std::clamp(getFloat("ScopeStabilizationMinCutoff", m_ScopeStabilizationMinCutoff), 0.05f, 30.0f);
+    m_ScopeStabilizationBeta = std::clamp(getFloat("ScopeStabilizationBeta", m_ScopeStabilizationBeta), 0.0f, 5.0f);
+    m_ScopeStabilizationDCutoff = std::clamp(getFloat("ScopeStabilizationDCutoff", m_ScopeStabilizationDCutoff), 0.05f, 30.0f);
+    if (!m_ScopeStabilizationEnabled)
+    {
+        m_ScopeStabilizationInit = false;
+        m_ScopeStabilizationLastTime = {};
+    }
 
     // Rear mirror
     m_RearMirrorEnabled = getBool("RearMirrorEnabled", m_RearMirrorEnabled);
