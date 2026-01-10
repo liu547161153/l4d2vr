@@ -786,6 +786,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	static QAngle s_nonvrMeleeLockedAngles = { 0,0,0 };
 	static std::chrono::steady_clock::time_point s_nonvrMeleeLockUntil{};
 	static std::chrono::steady_clock::time_point s_nonvrMeleeCooldownUntil{};
+	static bool s_nonvrMeleePending = false;
+	static std::chrono::steady_clock::time_point s_nonvrMeleeFireAt{};
+	static QAngle s_nonvrMeleePendingAngles = { 0,0,0 };
+	static int s_nonvrMeleePendingHoldTicks = 0;
 	static bool s_nonvrMeleeHasPrev = false;
 	static Vector s_nonvrMeleePrevCtrlPos = { 0,0,0 };
 	static Vector s_nonvrMeleePrevHmdPos = { 0,0,0 };
@@ -897,6 +901,22 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 					cmd->viewangles = s_nonvrMeleeLockedAngles;
 				}
 
+				// Pending fire: after a short delay, start IN_ATTACK and begin aim lock.
+				// This makes melee feel more like a "wind-up -> hit" instead of an instant click.
+				if (s_nonvrMeleePending && now >= s_nonvrMeleeFireAt)
+				{
+					s_nonvrMeleePending = false;
+
+					s_nonvrMeleeLockedAngles = s_nonvrMeleePendingAngles;
+
+					const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
+					s_nonvrMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
+
+					s_nonvrMeleeHoldTicks = std::max(s_nonvrMeleeHoldTicks, s_nonvrMeleePendingHoldTicks);
+
+					cmd->viewangles = s_nonvrMeleeLockedAngles;
+				}
+
 				// Hold/queue: keep IN_ATTACK pressed for a few ticks to reduce "dropped" swings.
 				if (s_nonvrMeleeHoldTicks > 0)
 				{
@@ -948,19 +968,17 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				if (below)
 					s_nonvrMeleeArmed = true;
 
-				if (above && s_nonvrMeleeArmed && now >= s_nonvrMeleeCooldownUntil)
+				if (above && s_nonvrMeleeArmed && !s_nonvrMeleePending && now >= s_nonvrMeleeCooldownUntil)
 				{
 					s_nonvrMeleeArmed = false;
-
 
 					// Hold IN_ATTACK for a few ticks so we don't miss the server-side melee window.
 					const float holdTime = std::max(0.0f, m_VR->m_NonVRMeleeHoldTime);
 					int holdTicks = (int)ceilf(holdTime / dt);
 					holdTicks = std::clamp(holdTicks, 1, 8);
-					s_nonvrMeleeHoldTicks = std::max(s_nonvrMeleeHoldTicks, holdTicks);
 
-					// Lock current aim direction, optionally blend toward swing velocity direction.
-					s_nonvrMeleeLockedAngles = cmd->viewangles;
+					// Capture current aim direction, optionally blend toward swing velocity direction.
+					QAngle lockedAngles = cmd->viewangles;
 
 					const float blend = std::clamp(m_VR->m_NonVRMeleeSwingDirBlend, 0.0f, 1.0f);
 					if (blend > 0.0f)
@@ -973,25 +991,51 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 							QAngle::VectorAngles(velDir, velAng);
 							NormalizeAndClampViewAngles(velAng);
 
-							s_nonvrMeleeLockedAngles.x = lerpAngle(s_nonvrMeleeLockedAngles.x, velAng.x, blend);
-							s_nonvrMeleeLockedAngles.y = lerpAngle(s_nonvrMeleeLockedAngles.y, velAng.y, blend);
-							s_nonvrMeleeLockedAngles.z = 0.f;
-							NormalizeAndClampViewAngles(s_nonvrMeleeLockedAngles);
+							lockedAngles.x = lerpAngle(lockedAngles.x, velAng.x, blend);
+							lockedAngles.y = lerpAngle(lockedAngles.y, velAng.y, blend);
+							lockedAngles.z = 0.f;
+							NormalizeAndClampViewAngles(lockedAngles);
 						}
 					}
 
-					// Apply lock window
-					const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
-					s_nonvrMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
-
-					// Apply cooldown window
+					// Apply cooldown window immediately so one gesture maps to one swing.
 					const float cd = std::max(0.05f, m_VR->m_NonVRMeleeSwingCooldown);
 					s_nonvrMeleeCooldownUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(cd));
 
-					// Fire now (this frame)
-					cmd->viewangles = s_nonvrMeleeLockedAngles;
-					cmd->buttons |= (1 << 0); // IN_ATTACK
+					// Delay before attacking, then lock angles during the hit window.
+					const float delayT = std::max(0.0f, m_VR->m_NonVRMeleeAttackDelay);
+					if (delayT > 0.0f)
+					{
+						s_nonvrMeleePending = true;
+						s_nonvrMeleeFireAt = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(delayT));
+						s_nonvrMeleePendingAngles = lockedAngles;
+						s_nonvrMeleePendingHoldTicks = holdTicks;
+					}
+					else
+					{
+						// Fire immediately (legacy behavior)
+						s_nonvrMeleeLockedAngles = lockedAngles;
+
+						const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
+						s_nonvrMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
+
+						s_nonvrMeleeHoldTicks = std::max(s_nonvrMeleeHoldTicks, holdTicks);
+
+						cmd->viewangles = s_nonvrMeleeLockedAngles;
+						cmd->buttons |= (1 << 0); // IN_ATTACK
+					}
 				}
+			}
+			else
+			{
+				// Leaving melee state: clear any queued swings/locks so we don't "ghost swing" later.
+				s_nonvrMeleePending = false;
+				s_nonvrMeleePendingHoldTicks = 0;
+				s_nonvrMeleeHoldTicks = 0;
+				s_nonvrMeleeLockUntil = {};
+				s_nonvrMeleeCooldownUntil = {};
+				s_nonvrMeleeArmed = true;
+				s_nonvrMeleeHasPrev = false;
 			}
 
 			// Re-base movement for non-VR servers:

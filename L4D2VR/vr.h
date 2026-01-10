@@ -408,6 +408,7 @@ public:
 	float m_NonVRMeleeSwingThreshold = 1.1f;     // controller linear speed threshold (m/s-ish in tracking space)
 	float m_NonVRMeleeSwingCooldown = 0.30f;     // seconds between synthetic swings
 	float m_NonVRMeleeHoldTime = 0.06f;          // seconds to hold IN_ATTACK after trigger (reduces "dropped swings")
+	float m_NonVRMeleeAttackDelay = 0.04f;     // seconds to wait after gesture before starting IN_ATTACK (adds "wind-up")
 	float m_NonVRMeleeAimLockTime = 0.12f;       // seconds to lock viewangles after trigger (stabilizes swing direction)
 	float m_NonVRMeleeHysteresis = 0.60f;        // re-arm threshold = threshold * hysteresis
 	float m_NonVRMeleeAngVelThreshold = 0.0f;    // deg/s, 0 = disabled (optional wrist-flick trigger)
