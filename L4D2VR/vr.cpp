@@ -3085,9 +3085,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
 
-    // ForceNonVRServerMovement: keep the rendered aim line consistent with what the
-    // server will actually trace (eye -> cmd->viewangles).
-    if (m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+
+    if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
     {
         m_AimConvergePoint = m_NonVRAimHitPoint;
         m_HasAimConvergePoint = true;
