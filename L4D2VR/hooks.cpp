@@ -798,6 +798,27 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	if (m_VR->m_IsVREnabled) {
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
 		const QAngle originalViewAngles = cmd->viewangles;
+
+		// Ladder detection (client-side):
+		// On ladders, Source movement relies heavily on view pitch. In ForceNonVRServerMovement mode,
+		// pitch comes from controller aim, which makes climbing feel like you must raise/lower the controller.
+		// We detect ladder state and remap stick Y to cmd->upmove instead.
+		auto isLocalOnLadder = [&]() -> bool
+			{
+				if (!m_Game || !m_Game->m_EngineClient) return false;
+				const int lp = m_Game->m_EngineClient->GetLocalPlayer();
+				if (lp <= 0) return false;
+				C_BaseEntity* ent = m_Game->GetClientEntity(lp);
+				if (!ent) return false;
+
+				// CTerrorPlayer::m_vecLadderNormal (from offsets.txt)
+				constexpr ptrdiff_t kOff_m_vecLadderNormal = 0x13c8;
+				const Vector ln = *reinterpret_cast<const Vector*>((uintptr_t)ent + kOff_m_vecLadderNormal);
+				return VectorLength(ln) > 0.001f;
+			};
+
+		const bool localOnLadder = treatServerAsNonVR ? isLocalOnLadder() : false;
+
 		bool hadWalkAxis = false;
 		float walkNx = 0.f, walkNy = 0.f;
 		float walkMaxSpeed = 0.f;
@@ -992,7 +1013,18 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 					QAngle bodyYawOnly(0.f, hmdAng.y, 0.f);
 					Vector bodyForward, bodyRight, bodyUp;
 					QAngle::AngleVectors(bodyYawOnly, &bodyForward, &bodyRight, &bodyUp);
-					worldMove += bodyForward * (walkNy * walkMaxSpeed) + bodyRight * (walkNx * walkMaxSpeed);
+					if (localOnLadder)
+					{
+						// On ladders: map stick Y to upmove so climbing doesn't depend on controller pitch.
+						cmd->upmove += (walkNy * walkMaxSpeed);
+						// Allow some sideways drift on the ladder (optional)
+						worldMove += bodyRight * (walkNx * walkMaxSpeed);
+					}
+					else
+					{
+						worldMove += bodyForward * (walkNy * walkMaxSpeed) + bodyRight * (walkNx * walkMaxSpeed);
+					}
+
 				}
 
 				// Project into the final cmd basis (after aim/melee lock)
@@ -1001,6 +1033,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				QAngle::AngleVectors(cmdYawOnly, &cmdForward, &cmdRight, &cmdUp);
 				cmd->forwardmove = DotProduct(worldMove, cmdForward);
 				cmd->sidemove = DotProduct(worldMove, cmdRight);
+				// Safety clamp (avoid sending crazy upmove if tracking hiccups)
+				if (localOnLadder)
+					cmd->upmove = std::clamp(cmd->upmove, -walkMaxSpeed, walkMaxSpeed);
 			}
 
 		}
