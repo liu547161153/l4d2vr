@@ -829,8 +829,22 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			// Non-VR servers: we will re-base movement later after overriding cmd->viewangles.
 			if (!treatServerAsNonVR)
 			{
-				cmd->forwardmove += ny * maxSpeed;
-				cmd->sidemove += nx * maxSpeed;
+				// Final cmd basis will be HMD yaw (see below). Convert walk input from the chosen
+				// movement basis (HMD or controller) into that cmd basis.
+				Vector hmdAng = m_VR->GetViewAngle();
+				const float viewYaw = hmdAng.y;
+				const float moveYaw = m_VR->GetMovementYawDeg();
+
+				QAngle viewYawOnly(0.f, viewYaw, 0.f);
+				QAngle moveYawOnly(0.f, moveYaw, 0.f);
+				Vector viewForward, viewRight, viewUp;
+				Vector moveForward, moveRight, moveUp;
+				QAngle::AngleVectors(viewYawOnly, &viewForward, &viewRight, &viewUp);
+				QAngle::AngleVectors(moveYawOnly, &moveForward, &moveRight, &moveUp);
+
+				Vector worldMove = moveForward * (ny * maxSpeed) + moveRight * (nx * maxSpeed);
+				cmd->forwardmove += DotProduct(worldMove, viewForward);
+				cmd->sidemove += DotProduct(worldMove, viewRight);
 			}
 
 			// 可选：也把方向按钮位设置一下，增加兼容性
@@ -1019,9 +1033,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 			// Re-base movement for non-VR servers:
 			// - The server interprets forwardmove/sidemove in the basis of cmd->viewangles (aim).
-			// - We want movement to follow the HMD yaw (body direction), not the hand aim yaw.
+			// - We want movement to follow a separate "movement yaw" (HMD yaw by default; optional controller yaw),
+			//   not necessarily the hand aim yaw.
 			// So we convert existing movement (built under originalViewAngles) into world space,
-			// add VR stick movement in HMD space, then project back into the final cmd basis.
+			// add VR stick movement in movement-yaw space, then project back into the final cmd basis.
 			{
 				// Existing movement (keyboard etc.) in world space
 				QAngle origYawOnly(0.f, originalViewAngles.y, 0.f);
@@ -1029,11 +1044,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				QAngle::AngleVectors(origYawOnly, &origForward, &origRight, &origUp);
 				Vector worldMove = origForward * cmd->forwardmove + origRight * cmd->sidemove;
 
-				// VR stick movement (body = HMD yaw)
+				// VR stick movement (movement basis = HMD yaw or controller yaw)
 				if (hadWalkAxis)
 				{
-					Vector hmdAng = m_VR->GetViewAngle();
-					QAngle bodyYawOnly(0.f, hmdAng.y, 0.f);
+					const float moveYaw = m_VR->GetMovementYawDeg();
+					QAngle bodyYawOnly(0.f, moveYaw, 0.f);
 					Vector bodyForward, bodyRight, bodyUp;
 					QAngle::AngleVectors(bodyYawOnly, &bodyForward, &bodyRight, &bodyUp);
 					worldMove += bodyForward * (walkNy * walkMaxSpeed) + bodyRight * (walkNx * walkMaxSpeed);

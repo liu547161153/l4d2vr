@@ -3995,6 +3995,20 @@ Vector VR::GetViewAngle()
     return Vector(m_HmdAngAbs.x, m_HmdAngAbs.y, m_HmdAngAbs.z);
 }
 
+float VR::GetMovementYawDeg()
+{
+    if (!m_MoveDirectionFromController)
+    {
+        Vector hmdAng = GetViewAngle();
+        return hmdAng.y;
+    }
+
+    // Use the dominant (right) controller yaw as the movement basis.
+    // This is intentionally yaw-only; pitch/roll should not affect locomotion.
+    QAngle ctrlAng = GetRightControllerAbsAngle();
+    return ctrlAng.y;
+}
+
 Vector VR::GetViewOriginLeft()
 {
     Vector viewOriginLeft;
@@ -4609,6 +4623,9 @@ void VR::ParseConfigFile()
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
+    // Locomotion direction: default is HMD-yaw-based. Optional hand-yaw-based.
+    m_MoveDirectionFromController = getBool("MoveDirectionFromController", m_MoveDirectionFromController);
+    m_MoveDirectionFromController = getBool("MovementDirectionFromController", m_MoveDirectionFromController);
     m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
     m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
     m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
