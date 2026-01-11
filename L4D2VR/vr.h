@@ -614,6 +614,11 @@ public:
 	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float  m_RearMirrorAlpha = 1.0f;
 
+	// When the aim line/ray intersects the rear-mirror overlay in view, hide the mirror to avoid blocking aim.
+	bool  m_RearMirrorHideWhenAimLineHits = true;
+	float m_RearMirrorAimLineHideHoldSeconds = 0.08f;
+	std::chrono::steady_clock::time_point m_RearMirrorAimLineHideUntil{};
+
 	// Rear mirror hint: when special-infected arrows are visible in the mirror pass,
 	// temporarily enlarge the rear-mirror overlay (2x width).
 	// Distance is in Source units (same as SpecialInfected* distances). <= 0 disables this hint.

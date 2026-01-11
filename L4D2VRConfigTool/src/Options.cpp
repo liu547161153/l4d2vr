@@ -940,6 +940,30 @@ Option g_Options[] =
 
     // Rear mirror
     {
+        "RearMirrorHideWhenAimLineHits",
+        OptionType::Bool,
+        { u8"Rear Mirror", u8"后视镜" },
+        { u8"Hide When Aim Line Hits", u8"瞄准线碰到时隐藏" },
+        { u8"Auto-hides the rear mirror when your aim line would pass through it.",
+          u8"当瞄准线会穿过后视镜时自动隐藏，避免遮挡瞄准视线。" },
+        { u8"Useful if you keep the mirror near the weapon/center view.",
+          u8"后视镜靠近枪口/视线中心时很有用。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "RearMirrorAimLineHideHoldSeconds",
+        OptionType::Float,
+        { u8"Rear Mirror", u8"后视镜" },
+        { u8"Aim-Line Hide Hold (sec)", u8"隐藏保持时间(秒)" },
+        { u8"How long to keep the mirror hidden after a hit, to reduce flicker.",
+          u8"命中后视镜后保持隐藏的时间，用于减少边缘抖动/闪烁。" },
+        { u8"0.05~0.15 is usually enough.",
+          u8"通常 0.05~0.15 就够了。" },
+        0.0f, 1.0f,
+        "0.08"
+    },
+    {
         "RearMirrorSpecialWarningDistance",
         OptionType::Float,
         { u8"Rear Mirror", u8"后视镜" },
