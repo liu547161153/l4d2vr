@@ -814,7 +814,10 @@ void VR::UpdateRearMirrorOverlayTransform()
 
     const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
     vr::VROverlay()->SetOverlayTransformAbsolute(m_RearMirrorHandle, trackingOrigin, &mirrorAbs);
-    vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, std::max(0.01f, m_RearMirrorOverlayWidthMeters));
+    float mirrorWidth = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+    if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
+        mirrorWidth *= 2.0f;
+    vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, mirrorWidth);
 }
 
 void VR::RepositionOverlays(bool attachToControllers)
@@ -5003,6 +5006,11 @@ void VR::ParseConfigFile()
         m_RearMirrorOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
     }
     m_RearMirrorAlpha = std::clamp(getFloat("RearMirrorAlpha", m_RearMirrorAlpha), 0.0f, 1.0f);
+
+    // Rear mirror hint: enlarge overlay when special-infected arrows are visible in the mirror render pass
+    m_RearMirrorSpecialWarningDistance = std::max(0.0f, getFloat("RearMirrorSpecialWarningDistance", m_RearMirrorSpecialWarningDistance));
+    if (m_RearMirrorSpecialWarningDistance <= 0.0f)
+        m_RearMirrorSpecialEnlargeActive = false;
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 

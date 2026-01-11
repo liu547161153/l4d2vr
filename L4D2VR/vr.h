@@ -614,6 +614,16 @@ public:
 	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float  m_RearMirrorAlpha = 1.0f;
 
+	// Rear mirror hint: when special-infected arrows are visible in the mirror pass,
+	// temporarily enlarge the rear-mirror overlay (2x width).
+	// Distance is in Source units (same as SpecialInfected* distances). <= 0 disables this hint.
+	float  m_RearMirrorSpecialWarningDistance = 180.0f;
+	float  m_RearMirrorSpecialEnlargeHoldSeconds = 0.35f;
+	bool   m_RearMirrorRenderingPass = false;
+	bool   m_RearMirrorSawSpecialThisPass = false;	// set from DrawModelExecute during mirror RTT pass
+	bool   m_RearMirrorSpecialEnlargeActive = false;
+	std::chrono::steady_clock::time_point m_LastRearMirrorSpecialSeenTime{};
+
 	Vector m_RearMirrorCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_RearMirrorCameraAngAbs = { 0.0f, 0.0f, 0.0f };
 
