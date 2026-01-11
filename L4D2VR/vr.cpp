@@ -645,13 +645,10 @@ void VR::SubmitVRTextures()
         applyRearMirrorTexture(m_RearMirrorHandle);
         vr::VROverlay()->SetOverlayAlpha(m_RearMirrorHandle, std::clamp(m_RearMirrorAlpha, 0.0f, 1.0f));
 
-        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
-        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
-        if (m_LeftHanded)
-            std::swap(leftControllerIndex, rightControllerIndex);
-        const vr::TrackedDeviceIndex_t offHandControllerIndex = leftControllerIndex;
+        // Body-anchored rear mirror: update absolute transform every frame.
+        UpdateRearMirrorOverlayTransform();
 
-        if (ShouldRenderRearMirror() && offHandControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+        if (ShouldRenderRearMirror())
             vr::VROverlay()->ShowOverlay(m_RearMirrorHandle);
         else
             vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
@@ -717,6 +714,108 @@ void VR::GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& po
         poseOut.TrackedDeviceAng = ang;
         poseOut.TrackedDeviceAngVel = angvel;
     }
+}
+
+void VR::UpdateRearMirrorOverlayTransform()
+{
+    if (!m_RearMirrorEnabled || m_RearMirrorHandle == vr::k_ulOverlayHandleInvalid)
+        return;
+
+    // We place the rear mirror in tracking space (meters), anchored to the same "body origin"
+    // used by the inventory system: InventoryBodyOriginOffset is (forward,right,up) in body space.
+    const vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
+    if (!hmdPose.bPoseIsValid)
+        return;
+
+    const vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
+    const Vector hmdPos = { hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3] };
+
+    const Vector up = { 0.0f, 1.0f, 0.0f }; // OpenVR tracking space: +Y is up
+
+    // Yaw-only forward (flattened to the floor plane).
+    Vector fwd = { -hmdMat.m[0][2], 0.0f, -hmdMat.m[2][2] };
+    if (VectorNormalize(fwd) == 0.0f)
+        fwd = { 0.0f, 0.0f, -1.0f };
+
+    Vector right = CrossProduct(fwd, up);
+    if (VectorNormalize(right) == 0.0f)
+        right = { 1.0f, 0.0f, 0.0f };
+
+    // "Back" axis for a right-handed basis (OpenVR commonly treats +Z as "back").
+    const Vector back = { -fwd.x, -fwd.y, -fwd.z };
+
+    // Body origin in tracking space (meters)
+    const Vector bodyOrigin =
+        hmdPos
+        + (fwd * m_InventoryBodyOriginOffset.x)
+        + (right * m_InventoryBodyOriginOffset.y)
+        + (up * m_InventoryBodyOriginOffset.z);
+
+    // Rear mirror overlay position relative to that body origin (meters)
+    const Vector mirrorPos =
+        bodyOrigin
+        + (fwd * m_RearMirrorOverlayXOffset)
+        + (right * m_RearMirrorOverlayYOffset)
+        + (up * m_RearMirrorOverlayZOffset);
+
+    // Build a yaw-only parent rotation from (right, up, back) and then apply the user angle offset.
+    const float deg2rad = 3.14159265358979323846f / 180.0f;
+
+    const float pitch = m_RearMirrorOverlayAngleOffset.x * deg2rad;
+    const float yaw = m_RearMirrorOverlayAngleOffset.y * deg2rad;
+    const float roll = m_RearMirrorOverlayAngleOffset.z * deg2rad;
+
+    const float cp = cosf(pitch), sp = sinf(pitch);
+    const float cy = cosf(yaw), sy = sinf(yaw);
+    const float cr = cosf(roll), sr = sinf(roll);
+
+    const float Rx[3][3] = {
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, cp,   -sp},
+        {0.0f, sp,   cp}
+    };
+    const float Ry[3][3] = {
+        {cy,   0.0f, sy},
+        {0.0f, 1.0f, 0.0f},
+        {-sy,  0.0f, cy}
+    };
+    const float Rz[3][3] = {
+        {cr,   -sr,  0.0f},
+        {sr,   cr,   0.0f},
+        {0.0f, 0.0f, 1.0f}
+    };
+
+    auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
+        {
+            for (int r = 0; r < 3; ++r)
+                for (int c = 0; c < 3; ++c)
+                    out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
+        };
+
+    float RyRx[3][3];
+    float Roff[3][3];
+    mul33(Ry, Rx, RyRx);
+    mul33(Rz, RyRx, Roff);
+
+    // Parent yaw-only basis (columns: right, up, back)
+    const float B[3][3] = {
+        { right.x, up.x, back.x },
+        { right.y, up.y, back.y },
+        { right.z, up.z, back.z }
+    };
+
+    float Rworld[3][3];
+    mul33(B, Roff, Rworld);
+
+    vr::HmdMatrix34_t mirrorAbs = {
+        Rworld[0][0], Rworld[0][1], Rworld[0][2], mirrorPos.x,
+        Rworld[1][0], Rworld[1][1], Rworld[1][2], mirrorPos.y,
+        Rworld[2][0], Rworld[2][1], Rworld[2][2], mirrorPos.z
+    };
+
+    const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
+    vr::VROverlay()->SetOverlayTransformAbsolute(m_RearMirrorHandle, trackingOrigin, &mirrorAbs);
+    vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, std::max(0.01f, m_RearMirrorOverlayWidthMeters));
 }
 
 void VR::RepositionOverlays(bool attachToControllers)
@@ -914,63 +1013,10 @@ void VR::RepositionOverlays(bool attachToControllers)
         }
     }
 
-    // Reposition rear mirror overlay relative to the off-hand controller.
+    // Rear mirror overlay is now body-anchored (InventoryBodyOriginOffset); keep it updated per-frame.
+    if (m_RearMirrorEnabled)
     {
-        vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
-        vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
-        if (m_LeftHanded)
-            std::swap(leftControllerIndex, rightControllerIndex);
-
-        const vr::TrackedDeviceIndex_t offHandControllerIndex = leftControllerIndex;
-        if (offHandControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
-        {
-            const float deg2rad = 3.14159265358979323846f / 180.0f;
-
-            auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
-                {
-                    for (int r = 0; r < 3; ++r)
-                        for (int c = 0; c < 3; ++c)
-                            out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
-                };
-
-            const float pitch = m_RearMirrorOverlayAngleOffset.x * deg2rad;
-            const float yaw = m_RearMirrorOverlayAngleOffset.y * deg2rad;
-            const float roll = m_RearMirrorOverlayAngleOffset.z * deg2rad;
-
-            const float cp = cosf(pitch), sp = sinf(pitch);
-            const float cy = cosf(yaw), sy = sinf(yaw);
-            const float cr = cosf(roll), sr = sinf(roll);
-
-            const float Rx[3][3] = {
-                {1.0f, 0.0f, 0.0f},
-                {0.0f, cp,   -sp},
-                {0.0f, sp,   cp}
-            };
-            const float Ry[3][3] = {
-                {cy,   0.0f, sy},
-                {0.0f, 1.0f, 0.0f},
-                {-sy,  0.0f, cy}
-            };
-            const float Rz[3][3] = {
-                {cr,   -sr,  0.0f},
-                {sr,   cr,   0.0f},
-                {0.0f, 0.0f, 1.0f}
-            };
-
-            float RyRx[3][3];
-            float R[3][3];
-            mul33(Ry, Rx, RyRx);
-            mul33(Rz, RyRx, R);
-
-            vr::HmdMatrix34_t mirrorRelative = {
-                R[0][0], R[0][1], R[0][2], m_RearMirrorOverlayXOffset,
-                R[1][0], R[1][1], R[1][2], m_RearMirrorOverlayYOffset,
-                R[2][0], R[2][1], R[2][2], m_RearMirrorOverlayZOffset
-            };
-
-            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RearMirrorHandle, offHandControllerIndex, &mirrorRelative);
-            vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, std::max(0.01f, m_RearMirrorOverlayWidthMeters));
-        }
+        UpdateRearMirrorOverlayTransform();
     }
 }
 
