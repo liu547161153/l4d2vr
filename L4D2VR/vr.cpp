@@ -438,8 +438,8 @@ void VR::Update()
 
 bool VR::GetWalkAxis(float& x, float& y) {
     vr::InputAnalogActionData_t d;
-    const vr::VRActionHandle_t action = m_SingleHandedMode ? m_ActionTurn : m_ActionWalk;
-    if (GetAnalogActionData(action, d)) {  // m_ActionWalk        д     ʹ  
+    vr::VRActionHandle_t* action = m_SingleHandedMode ? &m_ActionTurn : &m_ActionWalk;
+    if (GetAnalogActionData(*action, d)) {  // m_ActionWalk        д     ʹ  
         x = d.x; y = d.y;
         return true;
     }
