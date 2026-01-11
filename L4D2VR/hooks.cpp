@@ -768,9 +768,36 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		hudMirror.origin = mirrorView.origin;
 		hudMirror.angles = mirrorView.angles;
 
+		// Mark mirror RTT pass so DrawModelExecute can tag special-infected arrows seen in this pass.
+		m_VR->m_RearMirrorRenderingPass = true;
+		m_VR->m_RearMirrorSawSpecialThisPass = false;
+
 		renderToTexture_SetRT(m_VR->m_RearMirrorTexture,
 			m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize,
 			mirrorAngles, mirrorView, hudMirror);
+
+		m_VR->m_RearMirrorRenderingPass = false;
+		const auto rmNow = std::chrono::steady_clock::now();
+		if (m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
+		{
+			if (m_VR->m_RearMirrorSawSpecialThisPass)
+			{
+				m_VR->m_LastRearMirrorSpecialSeenTime = rmNow;
+				m_VR->m_RearMirrorSpecialEnlargeActive = true;
+			}
+
+			if (m_VR->m_RearMirrorSpecialEnlargeActive)
+			{
+				const float elapsed = std::chrono::duration<float>(rmNow - m_VR->m_LastRearMirrorSpecialSeenTime).count();
+				if (elapsed > m_VR->m_RearMirrorSpecialEnlargeHoldSeconds)
+					m_VR->m_RearMirrorSpecialEnlargeActive = false;
+			}
+		}
+		else
+		{
+			// Disabled
+			m_VR->m_RearMirrorSpecialEnlargeActive = false;
+		}
 	}
 
 	// Restore engine angles immediately after our stereo render.
@@ -1630,6 +1657,16 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 
 				if (doOverlay)
 				{
+					// Rear-mirror hint: if this special-infected arrow is being rendered during the rear-mirror RTT pass
+					// and within the configured distance, enlarge the mirror overlay.
+					if (m_VR->m_RearMirrorRenderingPass && m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
+					{
+						Vector to = info.origin - m_VR->m_HmdPosAbs;
+						to.z = 0.0f;
+						const float maxD = m_VR->m_RearMirrorSpecialWarningDistance;
+						if (!to.IsZero() && to.LengthSqr() <= (maxD * maxD))
+							m_VR->m_RearMirrorSawSpecialThisPass = true;
+					}
 					if (infectedType != VR::SpecialInfectedType::Tank
 						&& infectedType != VR::SpecialInfectedType::Witch
 						&& infectedType != VR::SpecialInfectedType::Charger)

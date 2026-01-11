@@ -936,6 +936,19 @@ Option g_Options[] =
         { u8"", u8"" },
         -60.0f, 60.0f,
         "5,0,25"
+    },
+
+    // Rear mirror
+    {
+        "RearMirrorSpecialWarningDistance",
+        OptionType::Float,
+        { u8"Rear Mirror", u8"后视镜" },
+        { u8"Special Warning Distance", u8"特感警示距离" },
+        { u8"Enlarge the rear mirror when special-infected arrows are visible within this distance.",
+          u8"当后视镜中可见特感箭头且距离在此范围内时放大后视镜。" },
+        { u8"Set <= 0 to disable.", u8"设为 <= 0 以禁用。" },
+        0.0f, 2000.0f,
+        "180.0"
     }
 };
 
