@@ -614,12 +614,23 @@ public:
 	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float  m_RearMirrorAlpha = 1.0f;
 
+	// Rear mirror UX tweaks
+	bool  m_RearMirrorHideWhenAimLineCrosses = false;
+	float m_RearMirrorAimLineHideHoldSeconds = 0.10f;
+	float m_RearMirrorAimLineHidePaddingMeters = 0.0f;
+	bool  m_RearMirrorScaleOnThreat = false;
+	float m_RearMirrorThreatScale = 2.0f;
+
+	std::chrono::steady_clock::time_point m_RearMirrorAimLineHideUntil{};
+	bool m_RearMirrorAbsTransformValid = false;
+	vr::HmdMatrix34_t m_RearMirrorAbsTransform{};
+
 	Vector m_RearMirrorCameraPosAbs = { 0.0f, 0.0f, 0.0f };
 	QAngle m_RearMirrorCameraAngAbs = { 0.0f, 0.0f, 0.0f };
 
 	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
 	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
-	bool   ShouldRenderRearMirror() const { return m_RearMirrorEnabled; }
+	bool   ShouldRenderRearMirror();
 
 	VR() {};
 	VR(Game* game);

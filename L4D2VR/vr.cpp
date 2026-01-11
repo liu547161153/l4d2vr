@@ -718,7 +718,10 @@ void VR::GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& po
 void VR::UpdateRearMirrorOverlayTransform()
 {
     if (!m_RearMirrorEnabled || m_RearMirrorHandle == vr::k_ulOverlayHandleInvalid)
+    {
+        m_RearMirrorAbsTransformValid = false;
         return;
+    }
 
     // We place the rear mirror in tracking space (meters), anchored to the same "body origin"
     // used by the inventory system: InventoryBodyOriginOffset is (forward,right,up) in body space.
@@ -814,7 +817,107 @@ void VR::UpdateRearMirrorOverlayTransform()
 
     const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
     vr::VROverlay()->SetOverlayTransformAbsolute(m_RearMirrorHandle, trackingOrigin, &mirrorAbs);
-    vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, std::max(0.01f, m_RearMirrorOverlayWidthMeters));
+
+    // Optional threat-based scaling: use a larger mirror as a "new hint" when special-infected indicators are active.
+    float mirrorWidthMeters = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+    if (m_RearMirrorScaleOnThreat)
+    {
+        const bool threatActive = (m_SpecialInfectedBlindSpotWarningActive || m_SpecialInfectedPreWarningActive || m_SpecialInfectedPreWarningInRange);
+        if (threatActive)
+            mirrorWidthMeters *= std::clamp(m_RearMirrorThreatScale, 1.0f, 4.0f);
+    }
+    vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, mirrorWidthMeters);
+
+    // Cache absolute transform for fast intersection tests (e.g. hiding the mirror when the aim line crosses it).
+    m_RearMirrorAbsTransform = mirrorAbs;
+    m_RearMirrorAbsTransformValid = true;
+}
+
+bool VR::ShouldRenderRearMirror()
+{
+    if (!m_RearMirrorEnabled)
+        return false;
+
+    if (!m_RearMirrorHideWhenAimLineCrosses)
+        return true;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (m_RearMirrorAimLineHideUntil > now)
+        return false;
+
+    if (!m_RearMirrorAbsTransformValid || !m_HasAimLine)
+        return true;
+
+    if (!m_HmdPose.bPoseIsValid)
+        return true;
+
+    const Vector mirrorOriginTracking = {
+        m_RearMirrorAbsTransform.m[0][3],
+        m_RearMirrorAbsTransform.m[1][3],
+        m_RearMirrorAbsTransform.m[2][3]
+    };
+
+    Vector mirrorRight = {
+        m_RearMirrorAbsTransform.m[0][0],
+        m_RearMirrorAbsTransform.m[1][0],
+        m_RearMirrorAbsTransform.m[2][0]
+    };
+    Vector mirrorUp = {
+        m_RearMirrorAbsTransform.m[0][1],
+        m_RearMirrorAbsTransform.m[1][1],
+        m_RearMirrorAbsTransform.m[2][1]
+    };
+    Vector mirrorNormal = {
+        m_RearMirrorAbsTransform.m[0][2],
+        m_RearMirrorAbsTransform.m[1][2],
+        m_RearMirrorAbsTransform.m[2][2]
+    };
+
+    if (VectorNormalize(mirrorRight) == 0.0f || VectorNormalize(mirrorUp) == 0.0f || VectorNormalize(mirrorNormal) == 0.0f)
+        return true;
+
+    const Vector trackingOriginWorld = m_HmdPosAbs - (m_HmdPose.TrackedDevicePos * m_VRScale);
+    const Vector mirrorOriginWorld = trackingOriginWorld + (mirrorOriginTracking * m_VRScale);
+
+    const Vector lineStart = m_AimLineStart;
+    const Vector lineEnd = m_AimLineEnd;
+    const Vector lineDir = lineEnd - lineStart;
+
+    const float denom = DotProduct(lineDir, mirrorNormal);
+    if (fabsf(denom) < 0.0001f)
+        return true;
+
+    const float t = DotProduct(mirrorOriginWorld - lineStart, mirrorNormal) / denom;
+    if (t < 0.0f || t > 1.0f)
+        return true;
+
+    const Vector hitPoint = lineStart + (lineDir * t);
+    const Vector hitOffset = hitPoint - mirrorOriginWorld;
+
+    const float padding = std::max(0.0f, m_RearMirrorAimLineHidePaddingMeters) * m_VRScale;
+    float mirrorWidthMeters = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+    if (m_RearMirrorScaleOnThreat)
+    {
+        const bool threatActive = (m_SpecialInfectedBlindSpotWarningActive || m_SpecialInfectedPreWarningActive || m_SpecialInfectedPreWarningInRange);
+        if (threatActive)
+            mirrorWidthMeters *= std::clamp(m_RearMirrorThreatScale, 1.0f, 4.0f);
+    }
+
+    const float halfExtent = (mirrorWidthMeters * 0.5f * m_VRScale) + padding;
+    const float rightDistance = DotProduct(hitOffset, mirrorRight);
+    const float upDistance = DotProduct(hitOffset, mirrorUp);
+
+    if (fabsf(rightDistance) <= halfExtent && fabsf(upDistance) <= halfExtent)
+    {
+        if (m_RearMirrorAimLineHideHoldSeconds > 0.0f)
+        {
+            m_RearMirrorAimLineHideUntil = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(m_RearMirrorAimLineHideHoldSeconds));
+        }
+        return false;
+    }
+
+    return true;
 }
 
 void VR::RepositionOverlays(bool attachToControllers)
@@ -5003,6 +5106,15 @@ void VR::ParseConfigFile()
         m_RearMirrorOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
     }
     m_RearMirrorAlpha = std::clamp(getFloat("RearMirrorAlpha", m_RearMirrorAlpha), 0.0f, 1.0f);
+
+    // Rear mirror UX tweaks
+    m_RearMirrorHideWhenAimLineCrosses = getBool("RearMirrorHideWhenAimLineCrosses", m_RearMirrorHideWhenAimLineCrosses);
+    m_RearMirrorAimLineHideHoldSeconds = std::max(0.0f, getFloat("RearMirrorAimLineHideHoldSeconds", m_RearMirrorAimLineHideHoldSeconds));
+    m_RearMirrorAimLineHidePaddingMeters = std::max(0.0f, getFloat("RearMirrorAimLineHidePaddingMeters", m_RearMirrorAimLineHidePaddingMeters));
+    m_RearMirrorScaleOnThreat = getBool("RearMirrorScaleOnThreat", m_RearMirrorScaleOnThreat);
+    m_RearMirrorThreatScale = std::clamp(getFloat("RearMirrorThreatScale", m_RearMirrorThreatScale), 1.0f, 4.0f);
+    if (!m_RearMirrorHideWhenAimLineCrosses)
+        m_RearMirrorAimLineHideUntil = {};
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 
