@@ -335,6 +335,7 @@ public:
 	bool m_SnapTurning = false;
 	float m_SnapTurnAngle = 45.0;
 	bool m_LeftHanded = false;
+	bool m_SingleHandedMode = false;
 	// If false: movement (walk axis) follows HMD yaw ("head-oriented locomotion").
 	// If true:  movement follows the right-hand controller yaw ("hand-oriented locomotion").
 	bool m_MoveDirectionFromController = false;
@@ -378,6 +379,17 @@ public:
 	Vector m_PrevHmdLocalPos = { 0,0,0 };
 	std::chrono::steady_clock::time_point m_SecondaryAttackGestureHoldUntil{};
 	std::chrono::steady_clock::time_point m_ReloadGestureHoldUntil{};
+	enum class StickTapDirection
+	{
+		None,
+		Left,
+		Right,
+		Down
+	};
+	StickTapDirection m_RightStickTapDirection = StickTapDirection::None;
+	int m_RightStickTapCount = 0;
+	bool m_RightStickTapReady = true;
+	std::chrono::steady_clock::time_point m_RightStickLastTapTime{};
 	std::chrono::steady_clock::time_point m_JumpGestureHoldUntil{};
 	std::chrono::steady_clock::time_point m_SecondaryGestureCooldownEnd{};
 	std::chrono::steady_clock::time_point m_ReloadGestureCooldownEnd{};

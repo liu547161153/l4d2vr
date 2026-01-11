@@ -1,9 +1,10 @@
 VRScale=43.2
 IPDScale=1.0
 TurnSpeed=0.2
-SnapTurning=false
+SnapTurning=true
 SnapTurnAngle=45.0
 LeftHanded=false
+SingleHandedMode=false
 AntiAliasing=0
 ThirdPersonVRCameraOffset=50
 ForceNonVRServerMovement=false
