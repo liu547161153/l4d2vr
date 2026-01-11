@@ -335,6 +335,9 @@ public:
 	bool m_SnapTurning = false;
 	float m_SnapTurnAngle = 45.0;
 	bool m_LeftHanded = false;
+	// If false: movement (walk axis) follows HMD yaw ("head-oriented locomotion").
+	// If true:  movement follows the right-hand controller yaw ("hand-oriented locomotion").
+	bool m_MoveDirectionFromController = false;
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
@@ -642,6 +645,9 @@ public:
 	void UpdateMotionGestures(C_BasePlayer* localPlayer);
 	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
 	Vector GetViewAngle();
+	// Yaw (degrees) used as the movement basis for the walk axis.
+	// Default: HMD yaw. Optional: right-controller yaw (hand-oriented locomotion).
+	float GetMovementYawDeg();
 	Vector GetViewOriginLeft();
 	Vector GetViewOriginRight();
 	Vector GetThirdPersonViewOrigin() const { return m_ThirdPersonViewOrigin; }
