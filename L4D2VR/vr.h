@@ -619,6 +619,7 @@ public:
 	void SubmitVRTextures();
 	void LogCompositorError(const char* action, vr::EVRCompositorError error);
 	void RepositionOverlays(bool attachToControllers = true);
+	void UpdateRearMirrorOverlayTransform();
 	void GetPoses();
 	bool UpdatePosesAndActions();
 	void GetViewParameters();
