@@ -2732,7 +2732,83 @@ void VR::UpdateTracking()
             m_ScopeActive = true;
         }
 
-        // Visual stabilization: smooth the scope RTT camera pose ONLY when scoped-in.
+		// Keep a working copy of the pose used for rendering. Look-through activation above is based on raw pose.
+		Vector scopePosFinal = scopePosRaw;
+		QAngle scopeAngFinal = scopeAngRaw;
+
+		// Scoped aim sensitivity scaling: apply to controller aim so scope camera, aim line and bullets stay in sync.
+		if (m_ScopeActive)
+		{
+			QAngle aimAngRaw;
+			QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, aimAngRaw);
+
+			if (!m_ScopeAimSensitivityInit)
+			{
+				m_ScopeAimSensitivityInit = true;
+				m_ScopeAimSensitivityBaseAng = aimAngRaw;
+			}
+
+			float gain = 1.0f;
+			if (!m_ScopeAimSensitivityScales.empty())
+			{
+				const size_t idx = std::min(m_ScopeMagnificationIndex, m_ScopeAimSensitivityScales.size() - 1);
+				gain = std::clamp(m_ScopeAimSensitivityScales[idx], 0.05f, 1.0f);
+			}
+
+			if (gain < 0.999f)
+			{
+				auto wrapDelta = [](float d) -> float
+				{
+					d -= 360.0f * std::floor((d + 180.0f) / 360.0f);
+					return d;
+				};
+
+				QAngle aimAngScaled =
+				{
+					wrapAngle(m_ScopeAimSensitivityBaseAng.x + wrapDelta(aimAngRaw.x - m_ScopeAimSensitivityBaseAng.x) * gain),
+					wrapAngle(m_ScopeAimSensitivityBaseAng.y + wrapDelta(aimAngRaw.y - m_ScopeAimSensitivityBaseAng.y) * gain),
+					wrapAngle(m_ScopeAimSensitivityBaseAng.z + wrapDelta(aimAngRaw.z - m_ScopeAimSensitivityBaseAng.z) * gain)
+				};
+
+				Vector f, r, u;
+				QAngle::AngleVectors(aimAngScaled, &f, &r, &u);
+				if (!f.IsZero()) VectorNormalize(f);
+				if (!r.IsZero()) VectorNormalize(r);
+				if (!u.IsZero()) VectorNormalize(u);
+
+				m_RightControllerForward = f;
+				m_RightControllerRight = r;
+				m_RightControllerUp = u;
+
+				// While scoped-in, keep the "unforced" aim direction consistent too (used by aim line in 3P).
+				m_RightControllerForwardUnforced = m_RightControllerForward;
+				if (!m_RightControllerForwardUnforced.IsZero())
+					m_LastUnforcedAimDirection = m_RightControllerForwardUnforced;
+
+				// Recompute scope render pose from the scaled controller basis.
+				scopePosFinal = m_RightControllerPosAbs
+					+ m_RightControllerForward * m_ScopeCameraOffset.x
+					+ m_RightControllerRight * m_ScopeCameraOffset.y
+					+ m_RightControllerUp * m_ScopeCameraOffset.z;
+
+				QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAngFinal);
+				scopeAngFinal.x += m_ScopeCameraAngleOffset.x;
+				scopeAngFinal.y += m_ScopeCameraAngleOffset.y;
+				scopeAngFinal.z += m_ScopeCameraAngleOffset.z;
+				scopeAngFinal.x = wrapAngle(scopeAngFinal.x);
+				scopeAngFinal.y = wrapAngle(scopeAngFinal.y);
+				scopeAngFinal.z = wrapAngle(scopeAngFinal.z);
+
+				m_ScopeCameraPosAbs = scopePosFinal;
+				m_ScopeCameraAngAbs = scopeAngFinal;
+			}
+		}
+		else
+		{
+			m_ScopeAimSensitivityInit = false;
+		}
+
+		// Visual stabilization: smooth the scope RTT camera pose ONLY when scoped-in.
         // This does NOT affect shooting direction (bullets still use controller aim).
         if (m_ScopeStabilizationEnabled && m_ScopeActive)
         {
@@ -2748,9 +2824,9 @@ void VR::UpdateTracking()
             if (!m_ScopeStabilizationInit)
             {
                 m_ScopeStabilizationInit = true;
-                m_ScopeStabPos = scopePosRaw;
+                m_ScopeStabPos = scopePosFinal;
                 m_ScopeStabPosDeriv = { 0.0f, 0.0f, 0.0f };
-                m_ScopeStabAng = scopeAngRaw;
+                m_ScopeStabAng = scopeAngFinal;
                 m_ScopeStabAngDeriv = { 0.0f, 0.0f, 0.0f };
             }
             m_ScopeStabilizationLastTime = now;
@@ -2759,10 +2835,10 @@ void VR::UpdateTracking()
             const float fovScale = std::clamp(m_ScopeFov / 20.0f, 0.35f, 1.25f);
             const float minCutoff = std::max(0.0001f, m_ScopeStabilizationMinCutoff * fovScale);
 
-            OneEuroFilterVec3(scopePosRaw, m_ScopeStabPos, m_ScopeStabPosDeriv, m_ScopeStabilizationInit,
+            OneEuroFilterVec3(scopePosFinal, m_ScopeStabPos, m_ScopeStabPosDeriv, m_ScopeStabilizationInit,
                 dt, minCutoff, m_ScopeStabilizationBeta, m_ScopeStabilizationDCutoff);
 
-            OneEuroFilterAngles(scopeAngRaw, m_ScopeStabAng, m_ScopeStabAngDeriv, m_ScopeStabilizationInit,
+            OneEuroFilterAngles(scopeAngFinal, m_ScopeStabAng, m_ScopeStabAngDeriv, m_ScopeStabilizationInit,
                 dt, minCutoff, m_ScopeStabilizationBeta, m_ScopeStabilizationDCutoff);
 
             m_ScopeCameraPosAbs = m_ScopeStabPos;
@@ -2772,6 +2848,26 @@ void VR::UpdateTracking()
         {
             m_ScopeStabilizationInit = false;
             m_ScopeStabilizationLastTime = {};
+        }
+
+
+        // Final sync: while scoped-in, force the gameplay aim basis to match the scope camera.
+        // This keeps aim line, bullets, and scope RTT perfectly consistent (including stabilization + angle offsets).
+        if (m_ScopeActive)
+        {
+            Vector f, r, u;
+            QAngle::AngleVectors(m_ScopeCameraAngAbs, &f, &r, &u);
+            if (!f.IsZero()) VectorNormalize(f);
+            if (!r.IsZero()) VectorNormalize(r);
+            if (!u.IsZero()) VectorNormalize(u);
+            m_RightControllerForward = f;
+            m_RightControllerRight = r;
+            m_RightControllerUp = u;
+
+            // Keep the unforced direction consistent for 3P aim line code.
+            m_RightControllerForwardUnforced = m_RightControllerForward;
+            if (!m_RightControllerForwardUnforced.IsZero())
+                m_LastUnforcedAimDirection = m_RightControllerForwardUnforced;
         }
     }
     else
@@ -3232,6 +3328,9 @@ void VR::CycleScopeMagnification()
     m_ScopeMagnificationIndex = (m_ScopeMagnificationIndex + 1) % m_ScopeMagnificationOptions.size();
     m_ScopeFov = std::clamp(m_ScopeMagnificationOptions[m_ScopeMagnificationIndex], 1.0f, 179.0f);
 
+    // Changing magnification changes the sensitivity scale. Rebase on next frame to avoid a sudden jump.
+    if (m_ScopeActive)
+        m_ScopeAimSensitivityInit = false;
     Game::logMsg("[VR] Scope magnification set to %.2f", m_ScopeFov);
 }
 
@@ -4814,6 +4913,45 @@ void VR::ParseConfigFile()
         }
         m_ScopeFov = std::clamp(m_ScopeMagnificationOptions[m_ScopeMagnificationIndex], 1.0f, 179.0f);
     }
+
+
+    // Scoped aim sensitivity scaling (mouse-style ADS / zoom sensitivity).
+    // Accepts either:
+    //   ScopeAimSensitivityScale=80            (80% for all magnifications)
+    //   ScopeAimSensitivityScale=100,85,70,55  (per ScopeMagnification index)
+    {
+        const auto scalesRaw = getFloatList("ScopeAimSensitivityScale");
+        if (!scalesRaw.empty())
+        {
+            m_ScopeAimSensitivityScales.clear();
+            for (float s : scalesRaw)
+            {
+                if (!std::isfinite(s))
+                    continue;
+
+                // Allow both [0..1] and [0..100] styles.
+                if (s > 1.5f)
+                    s *= 0.01f;
+
+                m_ScopeAimSensitivityScales.push_back(std::clamp(s, 0.05f, 1.0f));
+            }
+        }
+
+        // Ensure the table matches magnification count.
+        const size_t n = m_ScopeMagnificationOptions.size();
+        if (n > 0)
+        {
+            if (m_ScopeAimSensitivityScales.empty())
+                m_ScopeAimSensitivityScales.assign(n, 1.0f);
+            else if (m_ScopeAimSensitivityScales.size() < n)
+                m_ScopeAimSensitivityScales.resize(n, m_ScopeAimSensitivityScales.back());
+            else if (m_ScopeAimSensitivityScales.size() > n)
+                m_ScopeAimSensitivityScales.resize(n);
+        }
+    }
+
+    // Changing config values should not cause a sudden jump mid-scope.
+    m_ScopeAimSensitivityInit = false;
     m_ScopeCameraOffset = getVector3("ScopeCameraOffset", m_ScopeCameraOffset);
     { Vector tmp = getVector3("ScopeCameraAngleOffset", Vector{ m_ScopeCameraAngleOffset.x, m_ScopeCameraAngleOffset.y, m_ScopeCameraAngleOffset.z }); m_ScopeCameraAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
 
