@@ -581,6 +581,20 @@ Option g_Options[] =
         "90"
     },
 
+    // Gun-mounted scope
+    {
+        "ScopeAimSensitivityScale",
+        OptionType::String,
+        { u8"Scope", u8"瞄准镜" },
+        { u8"Scoped Aim Sensitivity Scale", u8"开镜灵敏度缩放" },
+        { u8"Scales controller aim delta when scope is active (ADS / zoom sensitivity).",
+          u8"瞄准镜触发时按比例降低手柄瞄准灵敏度（类似开镜灵敏度）。" },
+        { u8"Accepts 0~1 or 0~100; supports comma list matching ScopeMagnification.",
+          u8"支持 0~1 或 0~100；也支持逗号列表，对应 ScopeMagnification 的档位顺序。" },
+        0.0f, 0.0f,
+        "100,100,100,100"
+    },
+
     // Motion Gestures
     {
         "MotionGestureSwingThreshold",

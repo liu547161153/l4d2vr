@@ -559,11 +559,20 @@ public:
 	bool  m_ScopeOverlayAlwaysVisible = true;
 	float m_ScopeOverlayIdleAlpha = 0.35f;
 	// Scope stabilization (visual only): smooth the scope RTT camera pose when scoped-in.
-	// This reduces high-magnification jitter without changing shooting / aim direction.
+	// This reduces high-magnification jitter.
 	bool  m_ScopeStabilizationEnabled = true;
 	float m_ScopeStabilizationMinCutoff = 1.0f;  // Hz (lower = smoother, more latency)
 	float m_ScopeStabilizationBeta = 0.08f;      // responsiveness to fast motion
 	float m_ScopeStabilizationDCutoff = 1.0f;    // Hz (derivative low-pass cutoff)
+
+	// Scoped aim sensitivity scaling (mouse-style zoom sensitivity).
+	// Value is a multiplier for controller aim delta when scoped-in:
+	//  - 1.0 = unchanged
+	//  - 0.8 = 80% sensitivity (slower)
+	// Supports per-magnification values via config (ScopeAimSensitivityScale=...)
+	std::vector<float> m_ScopeAimSensitivityScales{ 1.0f, 1.0f, 1.0f, 1.0f };
+	bool   m_ScopeAimSensitivityInit = false;
+	QAngle m_ScopeAimSensitivityBaseAng = { 0.0f, 0.0f, 0.0f };
 
 	// Runtime state
 	Vector m_ScopeCameraPosAbs = { 0.0f, 0.0f, 0.0f };

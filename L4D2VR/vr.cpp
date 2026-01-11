@@ -2684,6 +2684,8 @@ void VR::UpdateTracking()
     // Update scope camera pose + look-through activation
     if (m_ScopeEnabled && m_ScopeWeaponIsFirearm)
     {
+        const bool prevScopeActive = m_ScopeActive;
+
         // Raw scope camera pose from controller (used for activation tests).
         const Vector scopePosRaw = m_RightControllerPosAbs
             + m_RightControllerForward * m_ScopeCameraOffset.x
@@ -2699,9 +2701,8 @@ void VR::UpdateTracking()
         scopeAngRaw.y = wrapAngle(scopeAngRaw.y);
         scopeAngRaw.z = wrapAngle(scopeAngRaw.z);
 
-        // Default: render pose == raw pose.
+        // Default: camera position == raw position.
         m_ScopeCameraPosAbs = scopePosRaw;
-        m_ScopeCameraAngAbs = scopeAngRaw;
 
         if (m_ScopeRequireLookThrough)
         {
@@ -2732,8 +2733,46 @@ void VR::UpdateTracking()
             m_ScopeActive = true;
         }
 
+        // Apply scoped aim sensitivity scaling (gain) *only* when scoped-in.
+        // This is the VR equivalent of "ADS / zoom sensitivity".
+        QAngle scopeAngForCamera = scopeAngRaw;
+        if (m_ScopeActive)
+        {
+            if (!prevScopeActive)
+            {
+                m_ScopeAimSensitivityInit = true;
+                m_ScopeAimSensitivityBaseAng = scopeAngRaw;
+            }
+
+            float gain = 1.0f;
+            if (!m_ScopeAimSensitivityScales.empty())
+            {
+                const size_t idx = std::min(m_ScopeMagnificationIndex, m_ScopeAimSensitivityScales.size() - 1);
+                gain = std::clamp(m_ScopeAimSensitivityScales[idx], 0.05f, 1.0f);
+            }
+
+            if (m_ScopeAimSensitivityInit && gain < 0.999f)
+            {
+                auto scaleAxis = [&](float base, float raw) -> float
+                    {
+                        const float d = wrapAngle(raw - base);
+                        return wrapAngle(base + d * gain);
+                    };
+                scopeAngForCamera.x = scaleAxis(m_ScopeAimSensitivityBaseAng.x, scopeAngRaw.x);
+                scopeAngForCamera.y = scaleAxis(m_ScopeAimSensitivityBaseAng.y, scopeAngRaw.y);
+                scopeAngForCamera.z = scaleAxis(m_ScopeAimSensitivityBaseAng.z, scopeAngRaw.z);
+            }
+        }
+        else
+        {
+            m_ScopeAimSensitivityInit = false;
+        }
+
+        // Default camera angle (pre-stabilization)
+        m_ScopeCameraAngAbs = scopeAngForCamera;
+
         // Visual stabilization: smooth the scope RTT camera pose ONLY when scoped-in.
-        // This does NOT affect shooting direction (bullets still use controller aim).
+        // (If you want purely visual stabilization, keep ScopeAimSensitivityScale at 100%.)
         if (m_ScopeStabilizationEnabled && m_ScopeActive)
         {
             const auto now = std::chrono::steady_clock::now();
@@ -2750,7 +2789,7 @@ void VR::UpdateTracking()
                 m_ScopeStabilizationInit = true;
                 m_ScopeStabPos = scopePosRaw;
                 m_ScopeStabPosDeriv = { 0.0f, 0.0f, 0.0f };
-                m_ScopeStabAng = scopeAngRaw;
+                m_ScopeStabAng = scopeAngForCamera;
                 m_ScopeStabAngDeriv = { 0.0f, 0.0f, 0.0f };
             }
             m_ScopeStabilizationLastTime = now;
@@ -2762,7 +2801,7 @@ void VR::UpdateTracking()
             OneEuroFilterVec3(scopePosRaw, m_ScopeStabPos, m_ScopeStabPosDeriv, m_ScopeStabilizationInit,
                 dt, minCutoff, m_ScopeStabilizationBeta, m_ScopeStabilizationDCutoff);
 
-            OneEuroFilterAngles(scopeAngRaw, m_ScopeStabAng, m_ScopeStabAngDeriv, m_ScopeStabilizationInit,
+            OneEuroFilterAngles(scopeAngForCamera, m_ScopeStabAng, m_ScopeStabAngDeriv, m_ScopeStabilizationInit,
                 dt, minCutoff, m_ScopeStabilizationBeta, m_ScopeStabilizationDCutoff);
 
             m_ScopeCameraPosAbs = m_ScopeStabPos;
@@ -2777,6 +2816,7 @@ void VR::UpdateTracking()
     else
     {
         m_ScopeActive = false;
+        m_ScopeAimSensitivityInit = false;
         m_ScopeStabilizationInit = false;
         m_ScopeStabilizationLastTime = {};
     }
@@ -3231,6 +3271,10 @@ void VR::CycleScopeMagnification()
 
     m_ScopeMagnificationIndex = (m_ScopeMagnificationIndex + 1) % m_ScopeMagnificationOptions.size();
     m_ScopeFov = std::clamp(m_ScopeMagnificationOptions[m_ScopeMagnificationIndex], 1.0f, 179.0f);
+
+    // Avoid a sudden "jump" when changing gain while already scoped-in.
+    if (IsScopeActive())
+        m_ScopeAimSensitivityBaseAng = m_ScopeCameraAngAbs;
 
     Game::logMsg("[VR] Scope magnification set to %.2f", m_ScopeFov);
 }
@@ -4813,6 +4857,41 @@ void VR::ParseConfigFile()
             }
         }
         m_ScopeFov = std::clamp(m_ScopeMagnificationOptions[m_ScopeMagnificationIndex], 1.0f, 179.0f);
+    }
+
+    // Scoped aim sensitivity scaling (mouse-like zoom sensitivity).
+    // Supports either:
+    //   ScopeAimSensitivityScale=80            (80% for all magnifications)
+    //   ScopeAimSensitivityScale=100,85,70,55  (per ScopeMagnification index)
+    {
+        const auto scalesRaw = getFloatList("ScopeAimSensitivityScale");
+        if (!scalesRaw.empty())
+        {
+            m_ScopeAimSensitivityScales.clear();
+            for (float s : scalesRaw)
+            {
+                if (!std::isfinite(s))
+                    continue;
+
+                // Allow both [0..1] and [0..100] styles.
+                if (s > 1.5f)
+                    s *= 0.01f;
+
+                m_ScopeAimSensitivityScales.push_back(std::clamp(s, 0.05f, 1.0f));
+            }
+        }
+
+        // Ensure the table matches magnification count.
+        const size_t n = m_ScopeMagnificationOptions.size();
+        if (n > 0)
+        {
+            if (m_ScopeAimSensitivityScales.empty())
+                m_ScopeAimSensitivityScales.assign(n, 1.0f);
+            else if (m_ScopeAimSensitivityScales.size() < n)
+                m_ScopeAimSensitivityScales.resize(n, m_ScopeAimSensitivityScales.back());
+            else if (m_ScopeAimSensitivityScales.size() > n)
+                m_ScopeAimSensitivityScales.resize(n);
+        }
     }
     m_ScopeCameraOffset = getVector3("ScopeCameraOffset", m_ScopeCameraOffset);
     { Vector tmp = getVector3("ScopeCameraAngleOffset", Vector{ m_ScopeCameraAngleOffset.x, m_ScopeCameraAngleOffset.y, m_ScopeCameraAngleOffset.z }); m_ScopeCameraAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
