@@ -600,6 +600,12 @@ public:
 	// Rear mirror (off-hand)
 	// ----------------------------
 	bool  m_RearMirrorEnabled = false;
+	// If enabled, the rear mirror overlay/RTT stays hidden most of the time,
+	// and only pops up briefly when a special infected is detected behind you.
+	bool  m_RearMirrorShowOnlyOnSpecialWarning = false;
+	// Seconds to keep the mirror visible after a special infected warning.
+	float m_RearMirrorSpecialShowHoldSeconds = 0.50f;
+	std::chrono::steady_clock::time_point m_LastRearMirrorAlertTime{};
 	int   m_RearMirrorRTTSize = 512;
 	float m_RearMirrorFov = 85.0f;
 	float m_RearMirrorZNear = 6.0f;
@@ -634,7 +640,8 @@ public:
 
 	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
 	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
-	bool   ShouldRenderRearMirror() const { return m_RearMirrorEnabled; }
+	bool   ShouldRenderRearMirror() const;
+	void   NotifyRearMirrorSpecialWarning();
 
 	VR() {};
 	VR(Game* game);

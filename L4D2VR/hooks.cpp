@@ -1638,8 +1638,30 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 				// RefreshSpecialInfectedPreWarning 内部会用到 Trace 缓存（TraceMaxHz），所以这里高频调用不会把 CPU 打爆。
 				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
 
-				// 2) 低优先级：视觉 Overlay（箭头/盲区提示）继续按实体节流，避免 dDrawModelExecute 多次调用导致尖峰
-				bool doOverlay = true;
+				// Rear mirror pop-up: if enabled, show the mirror briefly when a special infected is behind you
+				// within the configured warning distance. This detection runs on the main render pass so the
+				// mirror can wake up without relying on the mirror RTT pass.
+				if (m_VR->m_RearMirrorEnabled && m_VR->m_RearMirrorShowOnlyOnSpecialWarning
+					&& m_VR->m_RearMirrorSpecialShowHoldSeconds > 0.0f && m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
+				{
+					Vector to = info.origin - m_VR->m_HmdPosAbs;
+					to.z = 0.0f;
+					const float maxD = m_VR->m_RearMirrorSpecialWarningDistance;
+					if (!to.IsZero() && to.LengthSqr() <= (maxD * maxD))
+					{
+						Vector fwd = m_VR->m_HmdForward;
+						fwd.z = 0.0f;
+						if (VectorNormalize(fwd) == 0.0f)
+							fwd = { 1.0f, 0.0f, 0.0f };
+						VectorNormalize(to);
+						// Behind = more likely you want the rear mirror.
+						if (DotProduct(to, fwd) < 0.0f)
+							m_VR->NotifyRearMirrorSpecialWarning();
+					}
+				}
+
+                // 2) 低优先级：视觉 Overlay（箭头/盲区提示）继续按实体节流，避免 dDrawModelExecute 多次调用导致尖峰
+                bool doOverlay = true;
 				if (info.entity_index > 0 && m_VR->m_SpecialInfectedOverlayMaxHz > 0.0f)
 				{
 					auto& last = m_VR->m_LastSpecialInfectedOverlayTime[info.entity_index];

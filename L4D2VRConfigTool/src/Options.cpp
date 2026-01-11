@@ -964,6 +964,30 @@ Option g_Options[] =
         "0.08"
     },
     {
+        "RearMirrorShowOnlyOnSpecialWarning",
+        OptionType::Bool,
+        { u8"Rear Mirror", u8"后视镜" },
+        { u8"Hide Mirror When Idle", u8"闲置时隐藏后视镜" },
+        { u8"When enabled, the rear mirror stays hidden and only pops up briefly when a special infected is detected behind you.",
+          u8"开启后，后视镜平时隐藏，仅当检测到身后的特感时短暂显示。" },
+        { u8"Uses the same distance as RearMirrorSpecialWarningDistance.",
+          u8"使用 RearMirrorSpecialWarningDistance 作为触发距离。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "RearMirrorSpecialShowHoldSeconds",
+        OptionType::Float,
+        { u8"Rear Mirror", u8"后视镜" },
+        { u8"Mirror Pop-up Time", u8"后视镜显示时长" },
+        { u8"How long (seconds) to keep the rear mirror visible after a special-infected trigger.",
+          u8"特感触发后，后视镜保持可见的时间（秒）。" },
+        { u8"Increase if the mirror disappears too quickly.",
+          u8"如果消失太快就调大。" },
+        0.0f, 3.0f,
+        "0.50"
+    },
+    {
         "RearMirrorSpecialWarningDistance",
         OptionType::Float,
         { u8"Rear Mirror", u8"后视镜" },
