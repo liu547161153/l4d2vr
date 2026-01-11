@@ -438,7 +438,8 @@ void VR::Update()
 
 bool VR::GetWalkAxis(float& x, float& y) {
     vr::InputAnalogActionData_t d;
-    if (GetAnalogActionData(m_ActionWalk, d)) {  // m_ActionWalk        д     ʹ  
+    const vr::VRActionHandle_t action = m_SingleHandedMode ? m_ActionTurn : m_ActionWalk;
+    if (GetAnalogActionData(action, d)) {  // m_ActionWalk        д     ʹ  
         x = d.x; y = d.y;
         return true;
     }
@@ -1410,37 +1411,98 @@ void VR::ProcessInput()
     }
 
     vr::InputAnalogActionData_t analogActionData;
+    bool quickTurnTapTriggered = false;
 
     if (GetAnalogActionData(m_ActionTurn, analogActionData))
     {
-        if (m_SnapTurning)
+        if (m_SingleHandedMode)
         {
-            if (!m_PressedTurn && analogActionData.x > 0.5)
+            const float tapThreshold = 0.8f;
+            const float neutralThreshold = 0.3f;
+            const auto tapWindow = std::chrono::duration<float>(0.35f);
+
+            auto registerTap = [&](StickTapDirection direction)
+                {
+                    const bool withinWindow = (m_RightStickTapDirection == direction) &&
+                        (currentTime - m_RightStickLastTapTime <= tapWindow);
+
+                    m_RightStickTapCount = withinWindow ? (m_RightStickTapCount + 1) : 1;
+                    m_RightStickTapDirection = direction;
+                    m_RightStickLastTapTime = currentTime;
+                    m_RightStickTapReady = false;
+
+                    if (m_RightStickTapCount >= 2)
+                    {
+                        m_RightStickTapCount = 0;
+                        m_RightStickTapDirection = StickTapDirection::None;
+                        return true;
+                    }
+
+                    return false;
+                };
+
+            if (std::abs(analogActionData.x) < neutralThreshold && std::abs(analogActionData.y) < neutralThreshold)
             {
-                m_RotationOffset -= m_SnapTurnAngle;
-                m_PressedTurn = true;
+                m_RightStickTapReady = true;
             }
-            else if (!m_PressedTurn && analogActionData.x < -0.5)
+
+            if (m_RightStickTapReady)
             {
-                m_RotationOffset += m_SnapTurnAngle;
-                m_PressedTurn = true;
+                if (analogActionData.x >= tapThreshold)
+                {
+                    if (registerTap(StickTapDirection::Right))
+                        m_RotationOffset -= m_SnapTurnAngle;
+                }
+                else if (analogActionData.x <= -tapThreshold)
+                {
+                    if (registerTap(StickTapDirection::Left))
+                        m_RotationOffset += m_SnapTurnAngle;
+                }
+                else if (analogActionData.y <= -tapThreshold)
+                {
+                    if (registerTap(StickTapDirection::Down))
+                        quickTurnTapTriggered = true;
+                }
             }
-            else if (analogActionData.x < 0.3 && analogActionData.x > -0.3)
-                m_PressedTurn = false;
+
+            if (m_RightStickTapDirection != StickTapDirection::None &&
+                currentTime - m_RightStickLastTapTime > tapWindow)
+            {
+                m_RightStickTapDirection = StickTapDirection::None;
+                m_RightStickTapCount = 0;
+            }
         }
-        // Smooth turning
         else
         {
-            float deadzone = 0.2;
-            // smoother turning
-            float xNormalized = (abs(analogActionData.x) - deadzone) / (1 - deadzone);
-            if (analogActionData.x > deadzone)
+            if (m_SnapTurning)
             {
-                m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
+                if (!m_PressedTurn && analogActionData.x > 0.5)
+                {
+                    m_RotationOffset -= m_SnapTurnAngle;
+                    m_PressedTurn = true;
+                }
+                else if (!m_PressedTurn && analogActionData.x < -0.5)
+                {
+                    m_RotationOffset += m_SnapTurnAngle;
+                    m_PressedTurn = true;
+                }
+                else if (analogActionData.x < 0.3 && analogActionData.x > -0.3)
+                    m_PressedTurn = false;
             }
-            if (analogActionData.x < -deadzone)
+            // Smooth turning
+            else
             {
-                m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
+                float deadzone = 0.2;
+                // smoother turning
+                float xNormalized = (abs(analogActionData.x) - deadzone) / (1 - deadzone);
+                if (analogActionData.x > deadzone)
+                {
+                    m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
+                }
+                if (analogActionData.x < -deadzone)
+                {
+                    m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
+                }
             }
         }
 
@@ -1968,6 +2030,8 @@ void VR::ProcessInput()
     bool quickTurnComboValid = getComboStates(m_QuickTurnCombo, quickTurnPrimaryData, quickTurnSecondaryData,
         quickTurnPrimaryDown, quickTurnSecondaryDown, quickTurnPrimaryJustPressed, quickTurnSecondaryJustPressed);
     bool quickTurnComboPressed = quickTurnComboValid && quickTurnPrimaryDown && quickTurnSecondaryDown;
+    if (m_SingleHandedMode && quickTurnTapTriggered)
+        quickTurnComboPressed = true;
 
     vr::InputDigitalActionData_t viewmodelPrimaryData{};
     vr::InputDigitalActionData_t viewmodelSecondaryData{};
@@ -2016,7 +2080,8 @@ void VR::ProcessInput()
         }
         else
         {
-            m_CrouchToggleActive = !m_CrouchToggleActive;
+            if (!m_SingleHandedMode)
+                m_CrouchToggleActive = !m_CrouchToggleActive;
             ResetPosition();
         }
     }
@@ -2089,7 +2154,11 @@ void VR::ProcessInput()
 
     if (flashlightJustPressed)
     {
-        if (crouchButtonDown)
+        if (m_SingleHandedMode)
+        {
+            m_CrouchToggleActive = !m_CrouchToggleActive;
+        }
+        else if (crouchButtonDown)
             SendFunctionKey(VK_F1);
         else
             m_Game->ClientCmd_Unrestricted("impulse 100");
@@ -4862,6 +4931,7 @@ void VR::ParseConfigFile()
         };
 
     //  õ ǰ  Ա  ֵ  ΪĬ  ֵ      ʱ ѳ ʼ    
+    const bool snapTurningConfigured = userConfig.find("SnapTurning") != userConfig.end();
     m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
@@ -4971,6 +5041,9 @@ void VR::ParseConfigFile()
     parseCustomActionBinding("CustomAction5Command", m_CustomAction5Binding);
 
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
+    m_SingleHandedMode = getBool("SingleHandedMode", m_SingleHandedMode);
+    if (m_SingleHandedMode && !snapTurningConfigured)
+        m_SnapTurning = true;
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
