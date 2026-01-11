@@ -647,7 +647,148 @@ void VR::SubmitVRTextures()
         // Body-anchored rear mirror: update absolute transform every frame.
         UpdateRearMirrorOverlayTransform();
 
-        if (ShouldRenderRearMirror())
+        const auto shouldHideRearMirrorDueToAimLine = [&]() -> bool
+        {
+            if (!m_RearMirrorHideWhenAimLineHits)
+                return false;
+
+            const auto now = std::chrono::steady_clock::now();
+            if (now < m_RearMirrorAimLineHideUntil)
+                return true;
+
+            // Build an aim ray consistent with UpdateAimingLaser(), even if the aim line isn't rendered this frame.
+            Vector dir = m_RightControllerForward;
+            if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+                dir = m_RightControllerForwardUnforced;
+            if (dir.IsZero())
+                dir = m_LastAimDirection;
+            if (dir.IsZero())
+                return false;
+            VectorNormalize(dir);
+
+            Vector rayStart = m_RightControllerPosAbs;
+            Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+            if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+                rayStart += camDelta;
+
+            rayStart = rayStart + dir * 2.0f;
+            Vector rayEnd = rayStart + dir * 8192.0f;
+
+            // Mirror quad in world space (Source units), matching UpdateRearMirrorOverlayTransform().
+            Vector fwd = m_HmdForward;
+            fwd.z = 0.0f;
+            if (VectorNormalize(fwd) == 0.0f)
+                fwd = { 1.0f, 0.0f, 0.0f };
+
+            const Vector up = { 0.0f, 0.0f, 1.0f };
+            Vector right = CrossProduct(fwd, up);
+            if (VectorNormalize(right) == 0.0f)
+                right = { 0.0f, -1.0f, 0.0f };
+
+            const Vector back = { -fwd.x, -fwd.y, -fwd.z };
+
+            const Vector bodyOrigin =
+                m_HmdPosAbs
+                + (fwd * (m_InventoryBodyOriginOffset.x * m_VRScale))
+                + (right * (m_InventoryBodyOriginOffset.y * m_VRScale))
+                + (up * (m_InventoryBodyOriginOffset.z * m_VRScale));
+
+            const Vector mirrorCenter =
+                bodyOrigin
+                + (fwd * (m_RearMirrorOverlayXOffset * m_VRScale))
+                + (right * (m_RearMirrorOverlayYOffset * m_VRScale))
+                + (up * (m_RearMirrorOverlayZOffset * m_VRScale));
+
+            const float deg2rad = 3.14159265358979323846f / 180.0f;
+            const float pitch = m_RearMirrorOverlayAngleOffset.x * deg2rad;
+            const float yaw = m_RearMirrorOverlayAngleOffset.y * deg2rad;
+            const float roll = m_RearMirrorOverlayAngleOffset.z * deg2rad;
+
+            const float cp = cosf(pitch), sp = sinf(pitch);
+            const float cy = cosf(yaw), sy = sinf(yaw);
+            const float cr = cosf(roll), sr = sinf(roll);
+
+            const float Rx[3][3] = {
+                {1.0f, 0.0f, 0.0f},
+                {0.0f, cp,   -sp},
+                {0.0f, sp,   cp}
+            };
+            const float Ry[3][3] = {
+                {cy,   0.0f, sy},
+                {0.0f, 1.0f, 0.0f},
+                {-sy,  0.0f, cy}
+            };
+            const float Rz[3][3] = {
+                {cr,   -sr,  0.0f},
+                {sr,   cr,   0.0f},
+                {0.0f, 0.0f, 1.0f}
+            };
+
+            auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
+            {
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 3; ++c)
+                        out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
+            };
+
+            float RyRx[3][3];
+            float Roff[3][3];
+            mul33(Ry, Rx, RyRx);
+            mul33(Rz, RyRx, Roff);
+
+            // Parent yaw-only basis (columns: right, up, back)
+            const float B[3][3] = {
+                { right.x, up.x, back.x },
+                { right.y, up.y, back.y },
+                { right.z, up.z, back.z }
+            };
+
+            float Rworld[3][3];
+            mul33(B, Roff, Rworld);
+
+            Vector axisX = { Rworld[0][0], Rworld[1][0], Rworld[2][0] };
+            Vector axisY = { Rworld[0][1], Rworld[1][1], Rworld[2][1] };
+            Vector axisZ = { Rworld[0][2], Rworld[1][2], Rworld[2][2] };
+            if (axisX.IsZero() || axisY.IsZero() || axisZ.IsZero())
+                return false;
+            VectorNormalize(axisX);
+            VectorNormalize(axisY);
+            VectorNormalize(axisZ);
+
+            float mirrorWidthMeters = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+            if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
+                mirrorWidthMeters *= 2.0f;
+
+            const float halfExtent = 0.5f * mirrorWidthMeters * m_VRScale;
+            const float pad = 0.01f * m_VRScale; // ~1cm padding to reduce flicker on edges
+            const float halfX = halfExtent + pad;
+            const float halfY = halfExtent + pad;
+
+            const Vector seg = rayEnd - rayStart;
+            const float denom = DotProduct(seg, axisZ);
+            if (fabsf(denom) < 1e-6f)
+                return false;
+
+            const float t = DotProduct(mirrorCenter - rayStart, axisZ) / denom;
+            if (t < 0.0f || t > 1.0f)
+                return false;
+
+            const Vector hit = rayStart + seg * t;
+            const Vector d = hit - mirrorCenter;
+            const float lx = DotProduct(d, axisX);
+            const float ly = DotProduct(d, axisY);
+
+            if (fabsf(lx) <= halfX && fabsf(ly) <= halfY)
+            {
+                m_RearMirrorAimLineHideUntil = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                    std::chrono::duration<float>(m_RearMirrorAimLineHideHoldSeconds));
+                return true;
+            }
+
+            return false;
+        };
+
+        if (ShouldRenderRearMirror() && !shouldHideRearMirrorDueToAimLine())
             vr::VROverlay()->ShowOverlay(m_RearMirrorHandle);
         else
             vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
@@ -5006,6 +5147,12 @@ void VR::ParseConfigFile()
         m_RearMirrorOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
     }
     m_RearMirrorAlpha = std::clamp(getFloat("RearMirrorAlpha", m_RearMirrorAlpha), 0.0f, 1.0f);
+
+    // Hide the rear mirror when the aim line/ray intersects it (prevents blocking your view while aiming).
+    m_RearMirrorHideWhenAimLineHits = getBool("RearMirrorHideWhenAimLineHits", m_RearMirrorHideWhenAimLineHits);
+    m_RearMirrorAimLineHideHoldSeconds = std::clamp(getFloat("RearMirrorAimLineHideHoldSeconds", m_RearMirrorAimLineHideHoldSeconds), 0.0f, 1.0f);
+    if (!m_RearMirrorHideWhenAimLineHits)
+        m_RearMirrorAimLineHideUntil = {};
 
     // Rear mirror hint: enlarge overlay when special-infected arrows are visible in the mirror render pass
     m_RearMirrorSpecialWarningDistance = std::max(0.0f, getFloat("RearMirrorSpecialWarningDistance", m_RearMirrorSpecialWarningDistance));
