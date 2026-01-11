@@ -876,7 +876,7 @@ bool VR::ShouldRenderRearMirror()
     if (VectorNormalize(mirrorRight) == 0.0f || VectorNormalize(mirrorUp) == 0.0f || VectorNormalize(mirrorNormal) == 0.0f)
         return true;
 
-    const Vector trackingOriginWorld = m_HmdPosAbs - (m_Poses[vr::k_unTrackedDeviceIndex_Hmd].TrackedDevicePos * m_VRScale);
+    const Vector trackingOriginWorld = m_HmdPosAbs - (m_HmdPose.TrackedDevicePos * m_VRScale);
     const Vector mirrorOriginWorld = trackingOriginWorld + (mirrorOriginTracking * m_VRScale);
 
     const Vector lineStart = m_AimLineStart;
