@@ -359,6 +359,8 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/ResetPosition", &m_ActionResetPosition);
     m_Input->GetActionHandle("/actions/main/in/Crouch", &m_ActionCrouch);
     m_Input->GetActionHandle("/actions/main/in/Flashlight", &m_ActionFlashlight);
+    m_Input->GetActionHandle("/actions/main/in/InventoryGripLeft", &m_ActionInventoryGripLeft);
+    m_Input->GetActionHandle("/actions/main/in/InventoryGripRight", &m_ActionInventoryGripRight);
     m_Input->GetActionHandle("/actions/main/in/SpecialInfectedAutoAimToggle", &m_ActionSpecialInfectedAutoAimToggle);
     m_Input->GetActionHandle("/actions/main/in/MenuSelect", &m_MenuSelect);
     m_Input->GetActionHandle("/actions/main/in/MenuBack", &m_MenuBack);
@@ -440,12 +442,42 @@ bool VR::GetWalkAxis(float& x, float& y) {
     vr::InputAnalogActionData_t d;
     vr::VRActionHandle_t* action = m_SingleHandedMode ? &m_ActionTurn : &m_ActionWalk;
     // m_ActionWalk        д     ʹ  
-    if (GetAnalogActionData(*action, d)) { 
-        x = d.x; y = d.y;
-        return true;
+    bool hasAxis = false;
+    if (GetAnalogActionData(*action, d)) {
+        x = d.x;
+        y = d.y;
+        hasAxis = true;
     }
-    x = y = 0.0f;
-    return false;
+    else
+    {
+        x = y = 0.0f;
+    }
+
+    if (m_SingleHandedMode)
+    {
+        x = 0.0f;
+    }
+
+    float tiltStrafe = 0.0f;
+    if (m_HmdTiltStrafeSpeed > 0.0f && m_HmdTiltStrafeSensitivity > 0.0f)
+    {
+        const float roll = m_HmdAngAbs.z;
+        const float absRoll = std::fabs(roll);
+        const float threshold = std::max(0.0f, m_HmdTiltStrafeAngle);
+        if (absRoll > threshold)
+        {
+            const float scaled = (absRoll - threshold) * m_HmdTiltStrafeSensitivity;
+            const float maxAxis = std::max(0.0f, m_HmdTiltStrafeSpeed);
+            const float magnitude = std::min(scaled, maxAxis);
+            tiltStrafe = (roll >= 0.0f ? 1.0f : -1.0f) * magnitude;
+        }
+    }
+
+    if (tiltStrafe != 0.0f)
+        hasAxis = true;
+
+    x = std::clamp(x + tiltStrafe, -1.0f, 1.0f);
+    return hasAxis;
 }
 
 void VR::CreateVRTextures()
@@ -669,143 +701,143 @@ void VR::SubmitVRTextures()
         const auto shouldHideRearMirrorDueToAimLine = [&]() -> bool
             {
                 if (!m_RearMirrorHideWhenAimLineHits)
+                    return false;
+
+                const auto now = std::chrono::steady_clock::now();
+                if (now < m_RearMirrorAimLineHideUntil)
+                    return true;
+
+                // Build an aim ray consistent with UpdateAimingLaser(), even if the aim line isn't rendered this frame.
+                Vector dir = m_RightControllerForward;
+                if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+                    dir = m_RightControllerForwardUnforced;
+                if (dir.IsZero())
+                    dir = m_LastAimDirection;
+                if (dir.IsZero())
+                    return false;
+                VectorNormalize(dir);
+
+                Vector rayStart = m_RightControllerPosAbs;
+                Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+                if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+                    rayStart += camDelta;
+
+                rayStart = rayStart + dir * 2.0f;
+                Vector rayEnd = rayStart + dir * 8192.0f;
+
+                // Mirror quad in world space (Source units), matching UpdateRearMirrorOverlayTransform().
+                Vector fwd = m_HmdForward;
+                fwd.z = 0.0f;
+                if (VectorNormalize(fwd) == 0.0f)
+                    fwd = { 1.0f, 0.0f, 0.0f };
+
+                const Vector up = { 0.0f, 0.0f, 1.0f };
+                Vector right = CrossProduct(fwd, up);
+                if (VectorNormalize(right) == 0.0f)
+                    right = { 0.0f, -1.0f, 0.0f };
+
+                const Vector back = { -fwd.x, -fwd.y, -fwd.z };
+
+                const Vector bodyOrigin =
+                    m_HmdPosAbs
+                    + (fwd * (m_InventoryBodyOriginOffset.x * m_VRScale))
+                    + (right * (m_InventoryBodyOriginOffset.y * m_VRScale))
+                    + (up * (m_InventoryBodyOriginOffset.z * m_VRScale));
+
+                const Vector mirrorCenter =
+                    bodyOrigin
+                    + (fwd * (m_RearMirrorOverlayXOffset * m_VRScale))
+                    + (right * (m_RearMirrorOverlayYOffset * m_VRScale))
+                    + (up * (m_RearMirrorOverlayZOffset * m_VRScale));
+
+                const float deg2rad = 3.14159265358979323846f / 180.0f;
+                const float pitch = m_RearMirrorOverlayAngleOffset.x * deg2rad;
+                const float yaw = m_RearMirrorOverlayAngleOffset.y * deg2rad;
+                const float roll = m_RearMirrorOverlayAngleOffset.z * deg2rad;
+
+                const float cp = cosf(pitch), sp = sinf(pitch);
+                const float cy = cosf(yaw), sy = sinf(yaw);
+                const float cr = cosf(roll), sr = sinf(roll);
+
+                const float Rx[3][3] = {
+                    {1.0f, 0.0f, 0.0f},
+                    {0.0f, cp,   -sp},
+                    {0.0f, sp,   cp}
+                };
+                const float Ry[3][3] = {
+                    {cy,   0.0f, sy},
+                    {0.0f, 1.0f, 0.0f},
+                    {-sy,  0.0f, cy}
+                };
+                const float Rz[3][3] = {
+                    {cr,   -sr,  0.0f},
+                    {sr,   cr,   0.0f},
+                    {0.0f, 0.0f, 1.0f}
+                };
+
+                auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
+                    {
+                        for (int r = 0; r < 3; ++r)
+                            for (int c = 0; c < 3; ++c)
+                                out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
+                    };
+
+                float RyRx[3][3];
+                float Roff[3][3];
+                mul33(Ry, Rx, RyRx);
+                mul33(Rz, RyRx, Roff);
+
+                // Parent yaw-only basis (columns: right, up, back)
+                const float B[3][3] = {
+                    { right.x, up.x, back.x },
+                    { right.y, up.y, back.y },
+                    { right.z, up.z, back.z }
+                };
+
+                float Rworld[3][3];
+                mul33(B, Roff, Rworld);
+
+                Vector axisX = { Rworld[0][0], Rworld[1][0], Rworld[2][0] };
+                Vector axisY = { Rworld[0][1], Rworld[1][1], Rworld[2][1] };
+                Vector axisZ = { Rworld[0][2], Rworld[1][2], Rworld[2][2] };
+                if (axisX.IsZero() || axisY.IsZero() || axisZ.IsZero())
+                    return false;
+                VectorNormalize(axisX);
+                VectorNormalize(axisY);
+                VectorNormalize(axisZ);
+
+                float mirrorWidthMeters = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+                if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
+                    mirrorWidthMeters *= 2.0f;
+
+                const float halfExtent = 0.5f * mirrorWidthMeters * m_VRScale;
+                const float pad = 0.01f * m_VRScale; // ~1cm padding to reduce flicker on edges
+                const float halfX = halfExtent + pad;
+                const float halfY = halfExtent + pad;
+
+                const Vector seg = rayEnd - rayStart;
+                const float denom = DotProduct(seg, axisZ);
+                if (fabsf(denom) < 1e-6f)
+                    return false;
+
+                const float t = DotProduct(mirrorCenter - rayStart, axisZ) / denom;
+                if (t < 0.0f || t > 1.0f)
+                    return false;
+
+                const Vector hit = rayStart + seg * t;
+                const Vector d = hit - mirrorCenter;
+                const float lx = DotProduct(d, axisX);
+                const float ly = DotProduct(d, axisY);
+
+                if (fabsf(lx) <= halfX && fabsf(ly) <= halfY)
+                {
+                    m_RearMirrorAimLineHideUntil = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                        std::chrono::duration<float>(m_RearMirrorAimLineHideHoldSeconds));
+                    return true;
+                }
+
                 return false;
-
-            const auto now = std::chrono::steady_clock::now();
-            if (now < m_RearMirrorAimLineHideUntil)
-                return true;
-
-            // Build an aim ray consistent with UpdateAimingLaser(), even if the aim line isn't rendered this frame.
-            Vector dir = m_RightControllerForward;
-            if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-                dir = m_RightControllerForwardUnforced;
-            if (dir.IsZero())
-                dir = m_LastAimDirection;
-            if (dir.IsZero())
-                return false;
-            VectorNormalize(dir);
-
-            Vector rayStart = m_RightControllerPosAbs;
-            Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-            if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-                rayStart += camDelta;
-
-            rayStart = rayStart + dir * 2.0f;
-            Vector rayEnd = rayStart + dir * 8192.0f;
-
-            // Mirror quad in world space (Source units), matching UpdateRearMirrorOverlayTransform().
-            Vector fwd = m_HmdForward;
-            fwd.z = 0.0f;
-            if (VectorNormalize(fwd) == 0.0f)
-                fwd = { 1.0f, 0.0f, 0.0f };
-
-            const Vector up = { 0.0f, 0.0f, 1.0f };
-            Vector right = CrossProduct(fwd, up);
-            if (VectorNormalize(right) == 0.0f)
-                right = { 0.0f, -1.0f, 0.0f };
-
-            const Vector back = { -fwd.x, -fwd.y, -fwd.z };
-
-            const Vector bodyOrigin =
-                m_HmdPosAbs
-                + (fwd * (m_InventoryBodyOriginOffset.x * m_VRScale))
-                + (right * (m_InventoryBodyOriginOffset.y * m_VRScale))
-                + (up * (m_InventoryBodyOriginOffset.z * m_VRScale));
-
-            const Vector mirrorCenter =
-                bodyOrigin
-                + (fwd * (m_RearMirrorOverlayXOffset * m_VRScale))
-                + (right * (m_RearMirrorOverlayYOffset * m_VRScale))
-                + (up * (m_RearMirrorOverlayZOffset * m_VRScale));
-
-            const float deg2rad = 3.14159265358979323846f / 180.0f;
-            const float pitch = m_RearMirrorOverlayAngleOffset.x * deg2rad;
-            const float yaw = m_RearMirrorOverlayAngleOffset.y * deg2rad;
-            const float roll = m_RearMirrorOverlayAngleOffset.z * deg2rad;
-
-            const float cp = cosf(pitch), sp = sinf(pitch);
-            const float cy = cosf(yaw), sy = sinf(yaw);
-            const float cr = cosf(roll), sr = sinf(roll);
-
-            const float Rx[3][3] = {
-                {1.0f, 0.0f, 0.0f},
-                {0.0f, cp,   -sp},
-                {0.0f, sp,   cp}
             };
-            const float Ry[3][3] = {
-                {cy,   0.0f, sy},
-                {0.0f, 1.0f, 0.0f},
-                {-sy,  0.0f, cy}
-            };
-            const float Rz[3][3] = {
-                {cr,   -sr,  0.0f},
-                {sr,   cr,   0.0f},
-                {0.0f, 0.0f, 1.0f}
-            };
-
-            auto mul33 = [](const float a[3][3], const float b[3][3], float out[3][3])
-            {
-                for (int r = 0; r < 3; ++r)
-                    for (int c = 0; c < 3; ++c)
-                        out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
-            };
-
-            float RyRx[3][3];
-            float Roff[3][3];
-            mul33(Ry, Rx, RyRx);
-            mul33(Rz, RyRx, Roff);
-
-            // Parent yaw-only basis (columns: right, up, back)
-            const float B[3][3] = {
-                { right.x, up.x, back.x },
-                { right.y, up.y, back.y },
-                { right.z, up.z, back.z }
-            };
-
-            float Rworld[3][3];
-            mul33(B, Roff, Rworld);
-
-            Vector axisX = { Rworld[0][0], Rworld[1][0], Rworld[2][0] };
-            Vector axisY = { Rworld[0][1], Rworld[1][1], Rworld[2][1] };
-            Vector axisZ = { Rworld[0][2], Rworld[1][2], Rworld[2][2] };
-            if (axisX.IsZero() || axisY.IsZero() || axisZ.IsZero())
-                return false;
-            VectorNormalize(axisX);
-            VectorNormalize(axisY);
-            VectorNormalize(axisZ);
-
-            float mirrorWidthMeters = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
-            if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
-                mirrorWidthMeters *= 2.0f;
-
-            const float halfExtent = 0.5f * mirrorWidthMeters * m_VRScale;
-            const float pad = 0.01f * m_VRScale; // ~1cm padding to reduce flicker on edges
-            const float halfX = halfExtent + pad;
-            const float halfY = halfExtent + pad;
-
-            const Vector seg = rayEnd - rayStart;
-            const float denom = DotProduct(seg, axisZ);
-            if (fabsf(denom) < 1e-6f)
-                return false;
-
-            const float t = DotProduct(mirrorCenter - rayStart, axisZ) / denom;
-            if (t < 0.0f || t > 1.0f)
-                return false;
-
-            const Vector hit = rayStart + seg * t;
-            const Vector d = hit - mirrorCenter;
-            const float lx = DotProduct(d, axisX);
-            const float ly = DotProduct(d, axisY);
-
-            if (fabsf(lx) <= halfX && fabsf(ly) <= halfY)
-            {
-                m_RearMirrorAimLineHideUntil = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                    std::chrono::duration<float>(m_RearMirrorAimLineHideHoldSeconds));
-                return true;
-            }
-
-            return false;
-        };
 
         if (ShouldRenderRearMirror() && !shouldHideRearMirrorDueToAimLine())
             vr::VROverlay()->ShowOverlay(m_RearMirrorHandle);
@@ -1471,6 +1503,41 @@ void VR::ProcessInput()
 
     if (GetAnalogActionData(m_ActionTurn, analogActionData))
     {
+        auto applyTurnFromStick = [&](float stickX)
+            {
+                if (m_SnapTurning)
+                {
+                    if (!m_PressedTurn && stickX > 0.5f)
+                    {
+                        m_RotationOffset -= m_SnapTurnAngle;
+                        m_PressedTurn = true;
+                    }
+                    else if (!m_PressedTurn && stickX < -0.5f)
+                    {
+                        m_RotationOffset += m_SnapTurnAngle;
+                        m_PressedTurn = true;
+                    }
+                    else if (stickX < 0.3f && stickX > -0.3f)
+                    {
+                        m_PressedTurn = false;
+                    }
+                }
+                // Smooth turning
+                else
+                {
+                    float deadzone = 0.2f;
+                    float xNormalized = (abs(stickX) - deadzone) / (1 - deadzone);
+                    if (stickX > deadzone)
+                    {
+                        m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
+                    }
+                    if (stickX < -deadzone)
+                    {
+                        m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
+                    }
+                }
+            };
+
         if (m_SingleHandedMode)
         {
             const float tapThreshold = 0.8f;
@@ -1503,17 +1570,7 @@ void VR::ProcessInput()
             }
             if (m_RightStickTapReady)
             {
-                if (analogActionData.x >= tapThreshold)
-                {
-                    if (registerTap(StickTapDirection::Right))
-                        m_RotationOffset -= m_SnapTurnAngle;
-                }
-                else if (analogActionData.x <= -tapThreshold)
-                {
-                    if (registerTap(StickTapDirection::Left))
-                        m_RotationOffset += m_SnapTurnAngle;
-                }
-                else if (analogActionData.y <= -tapThreshold)
+                if (analogActionData.y <= -tapThreshold)
                 {
                     if (registerTap(StickTapDirection::Down))
                         quickTurnTapTriggered = true;
@@ -1526,40 +1583,13 @@ void VR::ProcessInput()
                 m_RightStickTapDirection = StickTapDirection::None;
                 m_RightStickTapCount = 0;
             }
+
+            applyTurnFromStick(analogActionData.x);
         }
 
         else
         {
-            if (m_SnapTurning)
-            {
-                if (!m_PressedTurn && analogActionData.x > 0.5)
-                {
-                    m_RotationOffset -= m_SnapTurnAngle;
-                    m_PressedTurn = true;
-                }
-                else if (!m_PressedTurn && analogActionData.x < -0.5)
-                {
-                    m_RotationOffset += m_SnapTurnAngle;
-                    m_PressedTurn = true;
-                }
-                else if (analogActionData.x < 0.3 && analogActionData.x > -0.3)
-                    m_PressedTurn = false;
-            }
-            // Smooth turning
-            else
-            {
-                float deadzone = 0.2;
-                // smoother turning
-                float xNormalized = (abs(analogActionData.x) - deadzone) / (1 - deadzone);
-                if (analogActionData.x > deadzone)
-                {
-                    m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
-                }
-                if (analogActionData.x < -deadzone)
-                {
-                    m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
-                }
-            }
+            applyTurnFromStick(analogActionData.x);
         }
 
         // Wrap from 0 to 360
@@ -1700,6 +1730,28 @@ void VR::ProcessInput()
     bool flashlightButtonDown = false;
     bool flashlightJustPressed = false;
     bool flashlightDataValid = getActionState(&m_ActionFlashlight, flashlightActionData, flashlightButtonDown, flashlightJustPressed);
+
+    vr::InputDigitalActionData_t inventoryGripLeftActionData{};
+    bool inventoryGripLeftDown = false;
+    bool inventoryGripLeftJustPressed = false;
+    bool inventoryGripLeftValid = getActionState(&m_ActionInventoryGripLeft, inventoryGripLeftActionData, inventoryGripLeftDown, inventoryGripLeftJustPressed);
+
+    vr::InputDigitalActionData_t inventoryGripRightActionData{};
+    bool inventoryGripRightDown = false;
+    bool inventoryGripRightJustPressed = false;
+    bool inventoryGripRightValid = getActionState(&m_ActionInventoryGripRight, inventoryGripRightActionData, inventoryGripRightDown, inventoryGripRightJustPressed);
+
+    if (!inventoryGripLeftValid)
+    {
+        inventoryGripLeftDown = reloadButtonDown;
+        inventoryGripLeftJustPressed = reloadJustPressed;
+    }
+
+    if (!inventoryGripRightValid)
+    {
+        inventoryGripRightDown = crouchButtonDown;
+        inventoryGripRightJustPressed = crouchJustPressed;
+    }
 
     vr::InputDigitalActionData_t autoAimToggleActionData{};
     [[maybe_unused]] bool autoAimToggleDown = false;
@@ -2006,8 +2058,8 @@ void VR::ProcessInput()
             }
         };
 
-    handleGripInventoryGesture(m_LeftControllerPosAbs, reloadButtonDown, reloadJustPressed, false);
-    handleGripInventoryGesture(m_RightControllerPosAbs, crouchButtonDown, crouchJustPressed, true);
+    handleGripInventoryGesture(m_LeftControllerPosAbs, inventoryGripLeftDown, inventoryGripLeftJustPressed, false);
+    handleGripInventoryGesture(m_RightControllerPosAbs, inventoryGripRightDown, inventoryGripRightJustPressed, true);
 
     const bool suppressReload = inventoryGripActiveLeft;
     const bool suppressCrouch = inventoryGripActiveRight;
@@ -2020,6 +2072,13 @@ void VR::ProcessInput()
 
     if (suppressCrouch)
     {
+        crouchButtonDown = false;
+        crouchJustPressed = false;
+    }
+
+    if (m_SingleHandedMode && crouchJustPressed && !suppressCrouch)
+    {
+        m_CrouchToggleActive = !m_CrouchToggleActive;
         crouchButtonDown = false;
         crouchJustPressed = false;
     }
@@ -2209,11 +2268,7 @@ void VR::ProcessInput()
 
     if (flashlightJustPressed)
     {
-        if (m_SingleHandedMode)
-        {
-            m_CrouchToggleActive = !m_CrouchToggleActive;
-        }
-        else if (crouchButtonDown)
+        if (!m_SingleHandedMode && crouchButtonDown)
             SendFunctionKey(VK_F1);
         else
             m_Game->ClientCmd_Unrestricted("impulse 100");
@@ -3000,83 +3055,83 @@ void VR::UpdateTracking()
             m_ScopeActive = true;
         }
 
-		// Keep a working copy of the pose used for rendering. Look-through activation above is based on raw pose.
-		Vector scopePosFinal = scopePosRaw;
-		QAngle scopeAngFinal = scopeAngRaw;
+        // Keep a working copy of the pose used for rendering. Look-through activation above is based on raw pose.
+        Vector scopePosFinal = scopePosRaw;
+        QAngle scopeAngFinal = scopeAngRaw;
 
-		// Scoped aim sensitivity scaling: apply to controller aim so scope camera, aim line and bullets stay in sync.
-		if (m_ScopeActive)
-		{
-			QAngle aimAngRaw;
-			QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, aimAngRaw);
+        // Scoped aim sensitivity scaling: apply to controller aim so scope camera, aim line and bullets stay in sync.
+        if (m_ScopeActive)
+        {
+            QAngle aimAngRaw;
+            QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, aimAngRaw);
 
-			if (!m_ScopeAimSensitivityInit)
-			{
-				m_ScopeAimSensitivityInit = true;
-				m_ScopeAimSensitivityBaseAng = aimAngRaw;
-			}
+            if (!m_ScopeAimSensitivityInit)
+            {
+                m_ScopeAimSensitivityInit = true;
+                m_ScopeAimSensitivityBaseAng = aimAngRaw;
+            }
 
-			float gain = 1.0f;
-			if (!m_ScopeAimSensitivityScales.empty())
-			{
-				const size_t idx = std::min(m_ScopeMagnificationIndex, m_ScopeAimSensitivityScales.size() - 1);
-				gain = std::clamp(m_ScopeAimSensitivityScales[idx], 0.05f, 1.0f);
-			}
+            float gain = 1.0f;
+            if (!m_ScopeAimSensitivityScales.empty())
+            {
+                const size_t idx = std::min(m_ScopeMagnificationIndex, m_ScopeAimSensitivityScales.size() - 1);
+                gain = std::clamp(m_ScopeAimSensitivityScales[idx], 0.05f, 1.0f);
+            }
 
-			if (gain < 0.999f)
-			{
-				auto wrapDelta = [](float d) -> float
-				{
-					d -= 360.0f * std::floor((d + 180.0f) / 360.0f);
-					return d;
-				};
+            if (gain < 0.999f)
+            {
+                auto wrapDelta = [](float d) -> float
+                    {
+                        d -= 360.0f * std::floor((d + 180.0f) / 360.0f);
+                        return d;
+                    };
 
-				QAngle aimAngScaled =
-				{
-					wrapAngle(m_ScopeAimSensitivityBaseAng.x + wrapDelta(aimAngRaw.x - m_ScopeAimSensitivityBaseAng.x) * gain),
-					wrapAngle(m_ScopeAimSensitivityBaseAng.y + wrapDelta(aimAngRaw.y - m_ScopeAimSensitivityBaseAng.y) * gain),
-					wrapAngle(m_ScopeAimSensitivityBaseAng.z + wrapDelta(aimAngRaw.z - m_ScopeAimSensitivityBaseAng.z) * gain)
-				};
+                QAngle aimAngScaled =
+                {
+                    wrapAngle(m_ScopeAimSensitivityBaseAng.x + wrapDelta(aimAngRaw.x - m_ScopeAimSensitivityBaseAng.x) * gain),
+                    wrapAngle(m_ScopeAimSensitivityBaseAng.y + wrapDelta(aimAngRaw.y - m_ScopeAimSensitivityBaseAng.y) * gain),
+                    wrapAngle(m_ScopeAimSensitivityBaseAng.z + wrapDelta(aimAngRaw.z - m_ScopeAimSensitivityBaseAng.z) * gain)
+                };
 
-				Vector f, r, u;
-				QAngle::AngleVectors(aimAngScaled, &f, &r, &u);
-				if (!f.IsZero()) VectorNormalize(f);
-				if (!r.IsZero()) VectorNormalize(r);
-				if (!u.IsZero()) VectorNormalize(u);
+                Vector f, r, u;
+                QAngle::AngleVectors(aimAngScaled, &f, &r, &u);
+                if (!f.IsZero()) VectorNormalize(f);
+                if (!r.IsZero()) VectorNormalize(r);
+                if (!u.IsZero()) VectorNormalize(u);
 
-				m_RightControllerForward = f;
-				m_RightControllerRight = r;
-				m_RightControllerUp = u;
+                m_RightControllerForward = f;
+                m_RightControllerRight = r;
+                m_RightControllerUp = u;
 
-				// While scoped-in, keep the "unforced" aim direction consistent too (used by aim line in 3P).
-				m_RightControllerForwardUnforced = m_RightControllerForward;
-				if (!m_RightControllerForwardUnforced.IsZero())
-					m_LastUnforcedAimDirection = m_RightControllerForwardUnforced;
+                // While scoped-in, keep the "unforced" aim direction consistent too (used by aim line in 3P).
+                m_RightControllerForwardUnforced = m_RightControllerForward;
+                if (!m_RightControllerForwardUnforced.IsZero())
+                    m_LastUnforcedAimDirection = m_RightControllerForwardUnforced;
 
-				// Recompute scope render pose from the scaled controller basis.
-				scopePosFinal = m_RightControllerPosAbs
-					+ m_RightControllerForward * m_ScopeCameraOffset.x
-					+ m_RightControllerRight * m_ScopeCameraOffset.y
-					+ m_RightControllerUp * m_ScopeCameraOffset.z;
+                // Recompute scope render pose from the scaled controller basis.
+                scopePosFinal = m_RightControllerPosAbs
+                    + m_RightControllerForward * m_ScopeCameraOffset.x
+                    + m_RightControllerRight * m_ScopeCameraOffset.y
+                    + m_RightControllerUp * m_ScopeCameraOffset.z;
 
-				QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAngFinal);
-				scopeAngFinal.x += m_ScopeCameraAngleOffset.x;
-				scopeAngFinal.y += m_ScopeCameraAngleOffset.y;
-				scopeAngFinal.z += m_ScopeCameraAngleOffset.z;
-				scopeAngFinal.x = wrapAngle(scopeAngFinal.x);
-				scopeAngFinal.y = wrapAngle(scopeAngFinal.y);
-				scopeAngFinal.z = wrapAngle(scopeAngFinal.z);
+                QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAngFinal);
+                scopeAngFinal.x += m_ScopeCameraAngleOffset.x;
+                scopeAngFinal.y += m_ScopeCameraAngleOffset.y;
+                scopeAngFinal.z += m_ScopeCameraAngleOffset.z;
+                scopeAngFinal.x = wrapAngle(scopeAngFinal.x);
+                scopeAngFinal.y = wrapAngle(scopeAngFinal.y);
+                scopeAngFinal.z = wrapAngle(scopeAngFinal.z);
 
-				m_ScopeCameraPosAbs = scopePosFinal;
-				m_ScopeCameraAngAbs = scopeAngFinal;
-			}
-		}
-		else
-		{
-			m_ScopeAimSensitivityInit = false;
-		}
+                m_ScopeCameraPosAbs = scopePosFinal;
+                m_ScopeCameraAngAbs = scopeAngFinal;
+            }
+        }
+        else
+        {
+            m_ScopeAimSensitivityInit = false;
+        }
 
-		// Visual stabilization: smooth the scope RTT camera pose ONLY when scoped-in.
+        // Visual stabilization: smooth the scope RTT camera pose ONLY when scoped-in.
         // This does NOT affect shooting direction (bullets still use controller aim).
         if (m_ScopeStabilizationEnabled && m_ScopeActive)
         {
@@ -3269,15 +3324,6 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     const Vector rightDelta = m_RightControllerPose.TrackedDevicePos - m_PrevRightControllerLocalPos;
     const Vector hmdDelta = m_HmdPose.TrackedDevicePos - m_PrevHmdLocalPos;
 
-    const Vector leftForwardHorizontal{ m_LeftControllerForward.x, m_LeftControllerForward.y, 0.0f };
-    const float leftForwardHorizontalLength = VectorLength(leftForwardHorizontal);
-    const Vector leftForwardHorizontalNorm = leftForwardHorizontalLength > 0.0f
-        ? leftForwardHorizontal / leftForwardHorizontalLength
-        : Vector(0.0f, 0.0f, 0.0f);
-
-    const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
-    const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
-    const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
     const float rightDownSpeed = (-rightDelta.z) / deltaSeconds;
     const float hmdVerticalSpeed = hmdDelta.z / deltaSeconds;
 
@@ -3293,10 +3339,55 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
                 std::chrono::duration<float>(m_MotionGestureCooldown));
         };
 
-    if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
+    if (!m_SingleHandedMode)
     {
-        startHold(m_SecondaryAttackGestureHoldUntil);
-        startCooldown(m_SecondaryGestureCooldownEnd);
+        const Vector leftForwardHorizontal{ m_LeftControllerForward.x, m_LeftControllerForward.y, 0.0f };
+        const float leftForwardHorizontalLength = VectorLength(leftForwardHorizontal);
+        const Vector leftForwardHorizontalNorm = leftForwardHorizontalLength > 0.0f
+            ? leftForwardHorizontal / leftForwardHorizontalLength
+            : Vector(0.0f, 0.0f, 0.0f);
+
+        const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
+        const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
+        const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
+        if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
+        {
+            startHold(m_SecondaryAttackGestureHoldUntil);
+            startCooldown(m_SecondaryGestureCooldownEnd);
+        }
+    }
+    else
+    {
+        const float rightDeltaLength = VectorLength(rightDelta);
+        if (rightDeltaLength > 0.001f)
+        {
+            Vector hmdForward = m_HmdForward;
+            hmdForward.z = 0.0f;
+            const float hmdForwardLength = VectorLength(hmdForward);
+            const Vector rightDeltaHorizontal{ rightDelta.x, rightDelta.y, 0.0f };
+            const float rightDeltaHorizontalLength = VectorLength(rightDeltaHorizontal);
+            if (hmdForwardLength > 0.001f && rightDeltaHorizontalLength > 0.001f)
+            {
+                const Vector hmdForwardNorm = hmdForward / hmdForwardLength;
+                const Vector rightDeltaHorizontalNorm = rightDeltaHorizontal / rightDeltaHorizontalLength;
+                const float forwardDot = DotProduct(rightDeltaHorizontalNorm, hmdForwardNorm);
+                if (forwardDot > 0.0f)
+                {
+                    const float clampedDot = std::clamp(forwardDot, -1.0f, 1.0f);
+                    const float angleDeg = std::acos(clampedDot) * (180.0f / 3.14159265f);
+                    const float tolerance = std::max(0.0f, m_SingleHandPushAngleTolerance);
+                    const float pushThreshold = std::max(0.0f, m_MotionGesturePushThreshold);
+                    const float rightForwardSpeed = std::max(0.0f, DotProduct(rightDelta, hmdForwardNorm)) / deltaSeconds;
+                    if (angleDeg <= tolerance &&
+                        rightForwardSpeed >= pushThreshold &&
+                        now >= m_SecondaryGestureCooldownEnd)
+                    {
+                        startHold(m_SecondaryAttackGestureHoldUntil);
+                        startCooldown(m_SecondaryGestureCooldownEnd);
+                    }
+                }
+            }
+        }
     }
 
     if (rightDownSpeed >= m_MotionGestureDownSwingThreshold && now >= m_ReloadGestureCooldownEnd)
@@ -4985,13 +5076,16 @@ void VR::ParseConfigFile()
             }
         };
 
- 
+
     const bool snapTurningConfigured = userConfig.find("SnapTurning") != userConfig.end();
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
     // Locomotion direction: default is HMD-yaw-based. Optional hand-yaw-based.
     m_MoveDirectionFromController = getBool("MoveDirectionFromController", m_MoveDirectionFromController);
     m_MoveDirectionFromController = getBool("MovementDirectionFromController", m_MoveDirectionFromController);
+    m_HmdTiltStrafeSensitivity = getFloat("HmdTiltStrafeSensitivity", m_HmdTiltStrafeSensitivity);
+    m_HmdTiltStrafeAngle = getFloat("HmdTiltStrafeAngle", m_HmdTiltStrafeAngle);
+    m_HmdTiltStrafeSpeed = getFloat("HmdTiltStrafeSpeed", m_HmdTiltStrafeSpeed);
     m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
     m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
     m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
@@ -5132,10 +5226,12 @@ void VR::ParseConfigFile()
         headSmoothingValue = controllerSmoothingValue; // Match controller smoothing by default
     m_HeadSmoothing = std::clamp(headSmoothingValue, 0.0f, 0.99f);
     m_MotionGestureSwingThreshold = std::max(0.0f, getFloat("MotionGestureSwingThreshold", m_MotionGestureSwingThreshold));
+    m_MotionGesturePushThreshold = std::max(0.0f, getFloat("MotionGesturePushThreshold", m_MotionGesturePushThreshold));
     m_MotionGestureDownSwingThreshold = std::max(0.0f, getFloat("MotionGestureDownSwingThreshold", m_MotionGestureDownSwingThreshold));
     m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));
     m_MotionGestureCooldown = std::max(0.0f, getFloat("MotionGestureCooldown", m_MotionGestureCooldown));
     m_MotionGestureHoldDuration = std::max(0.0f, getFloat("MotionGestureHoldDuration", m_MotionGestureHoldDuration));
+    m_SingleHandPushAngleTolerance = std::clamp(getFloat("SingleHandPushAngleTolerance", m_SingleHandPushAngleTolerance), 0.0f, 90.0f);
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
