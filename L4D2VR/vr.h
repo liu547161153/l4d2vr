@@ -303,6 +303,8 @@ public:
 	vr::VRActionHandle_t m_ActionResetPosition;
 	vr::VRActionHandle_t m_ActionCrouch;
 	vr::VRActionHandle_t m_ActionFlashlight;
+	vr::VRActionHandle_t m_ActionInventoryGripLeft;
+	vr::VRActionHandle_t m_ActionInventoryGripRight;
 	vr::VRActionHandle_t m_ActionSpecialInfectedAutoAimToggle;
 	vr::VRActionHandle_t m_ActionActivateVR;
 	vr::VRActionHandle_t m_MenuSelect;
@@ -339,6 +341,10 @@ public:
 	// If false: movement (walk axis) follows HMD yaw ("head-oriented locomotion").
 	// If true:  movement follows the right-hand controller yaw ("hand-oriented locomotion").
 	bool m_MoveDirectionFromController = false;
+	// HMD roll-based strafe (tilt head left/right to strafe).
+	float m_HmdTiltStrafeSensitivity = 0.05f;
+	float m_HmdTiltStrafeAngle = 10.0f;
+	float m_HmdTiltStrafeSpeed = 1.0f;
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
@@ -379,10 +385,12 @@ public:
 	CustomActionBinding m_CustomAction5Binding{};
 
 	float m_MotionGestureSwingThreshold = 1.1f;
+	float m_MotionGesturePushThreshold = 1.8f;
 	float m_MotionGestureDownSwingThreshold = 1.0f;
 	float m_MotionGestureJumpThreshold = 1.0f;
 	float m_MotionGestureCooldown = 0.8f;
 	float m_MotionGestureHoldDuration = 0.2f;
+	float m_SingleHandPushAngleTolerance = 30.0f;
 	bool m_MotionGestureInitialized = false;
 	std::chrono::steady_clock::time_point m_LastGestureUpdateTime{};
 	Vector m_PrevLeftControllerLocalPos = { 0,0,0 };
