@@ -41,10 +41,12 @@ AimLineFrameDurationMultiplier=1.5
 AimLineColor=255,0,0,180
 
 MotionGestureSwingThreshold=2.1
+MotionGesturePushThreshold=2.4
 MotionGestureDownSwingThreshold=2.0
 MotionGestureJumpThreshold=2.0
 MotionGestureCooldown=0.8
 MotionGestureHoldDuration=0.2
+SingleHandPushAngleTolerance=30.0
 
 NonVRMeleeSwingThreshold=100
 NonVRMeleeSwingCooldown=1.2

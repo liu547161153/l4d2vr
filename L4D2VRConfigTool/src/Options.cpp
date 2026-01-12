@@ -644,6 +644,18 @@ Option g_Options[] =
         "2.1"
     },
     {
+        "MotionGesturePushThreshold",
+        OptionType::Float,
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Push Gesture Threshold", u8"推怪判定阈值" },
+        { u8"Velocity needed to detect a shove gesture in single-handed mode.",
+          u8"单手模式下判定推怪手势所需的速度阈值。" },
+        { u8"Increase to reduce false shoves.",
+          u8"提高可减少误判。" },
+        0.5f, 4.0f,
+        "2.4"
+    },
+    {
         "MotionGestureDownSwingThreshold",
         OptionType::Float,
         { u8"Motion Gestures", u8"动作手势" },
@@ -686,6 +698,18 @@ Option g_Options[] =
         { u8"", u8"" },
         0.0f, 1.0f,
         "0.2"
+    },
+    {
+        "SingleHandPushAngleTolerance",
+        OptionType::Float,
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Single-Hand Push Angle Tolerance", u8"单手推怪角度容差" },
+        { u8"Allowed angle deviation when detecting forward shove gestures.",
+          u8"判定向前推怪手势时允许的角度偏差。" },
+        { u8"Increase to allow more upward/downward pushes.",
+          u8"提高可容忍更多向上/向下的推动作。" },
+        0.0f, 90.0f,
+        "30"
     },
     // Inventory Anchors
     {

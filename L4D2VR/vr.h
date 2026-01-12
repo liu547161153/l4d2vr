@@ -385,10 +385,12 @@ public:
 	CustomActionBinding m_CustomAction5Binding{};
 
 	float m_MotionGestureSwingThreshold = 1.1f;
+	float m_MotionGesturePushThreshold = 1.8f;
 	float m_MotionGestureDownSwingThreshold = 1.0f;
 	float m_MotionGestureJumpThreshold = 1.0f;
 	float m_MotionGestureCooldown = 0.8f;
 	float m_MotionGestureHoldDuration = 0.2f;
+	float m_SingleHandPushAngleTolerance = 30.0f;
 	bool m_MotionGestureInitialized = false;
 	std::chrono::steady_clock::time_point m_LastGestureUpdateTime{};
 	Vector m_PrevLeftControllerLocalPos = { 0,0,0 };

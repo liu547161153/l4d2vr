@@ -3324,15 +3324,6 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     const Vector rightDelta = m_RightControllerPose.TrackedDevicePos - m_PrevRightControllerLocalPos;
     const Vector hmdDelta = m_HmdPose.TrackedDevicePos - m_PrevHmdLocalPos;
 
-    const Vector leftForwardHorizontal{ m_LeftControllerForward.x, m_LeftControllerForward.y, 0.0f };
-    const float leftForwardHorizontalLength = VectorLength(leftForwardHorizontal);
-    const Vector leftForwardHorizontalNorm = leftForwardHorizontalLength > 0.0f
-        ? leftForwardHorizontal / leftForwardHorizontalLength
-        : Vector(0.0f, 0.0f, 0.0f);
-
-    const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
-    const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
-    const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
     const float rightDownSpeed = (-rightDelta.z) / deltaSeconds;
     const float hmdVerticalSpeed = hmdDelta.z / deltaSeconds;
 
@@ -3348,10 +3339,55 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
                 std::chrono::duration<float>(m_MotionGestureCooldown));
         };
 
-    if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
+    if (!m_SingleHandedMode)
     {
-        startHold(m_SecondaryAttackGestureHoldUntil);
-        startCooldown(m_SecondaryGestureCooldownEnd);
+        const Vector leftForwardHorizontal{ m_LeftControllerForward.x, m_LeftControllerForward.y, 0.0f };
+        const float leftForwardHorizontalLength = VectorLength(leftForwardHorizontal);
+        const Vector leftForwardHorizontalNorm = leftForwardHorizontalLength > 0.0f
+            ? leftForwardHorizontal / leftForwardHorizontalLength
+            : Vector(0.0f, 0.0f, 0.0f);
+
+        const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
+        const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
+        const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
+        if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
+        {
+            startHold(m_SecondaryAttackGestureHoldUntil);
+            startCooldown(m_SecondaryGestureCooldownEnd);
+        }
+    }
+    else
+    {
+        const float rightDeltaLength = VectorLength(rightDelta);
+        if (rightDeltaLength > 0.001f)
+        {
+            Vector hmdForward = m_HmdForward;
+            hmdForward.z = 0.0f;
+            const float hmdForwardLength = VectorLength(hmdForward);
+            const Vector rightDeltaHorizontal{ rightDelta.x, rightDelta.y, 0.0f };
+            const float rightDeltaHorizontalLength = VectorLength(rightDeltaHorizontal);
+            if (hmdForwardLength > 0.001f && rightDeltaHorizontalLength > 0.001f)
+            {
+                const Vector hmdForwardNorm = hmdForward / hmdForwardLength;
+                const Vector rightDeltaHorizontalNorm = rightDeltaHorizontal / rightDeltaHorizontalLength;
+                const float forwardDot = DotProduct(rightDeltaHorizontalNorm, hmdForwardNorm);
+                if (forwardDot > 0.0f)
+                {
+                    const float clampedDot = std::clamp(forwardDot, -1.0f, 1.0f);
+                    const float angleDeg = std::acos(clampedDot) * (180.0f / 3.14159265f);
+                    const float tolerance = std::max(0.0f, m_SingleHandPushAngleTolerance);
+                    const float pushThreshold = std::max(0.0f, m_MotionGesturePushThreshold);
+                    const float rightForwardSpeed = std::max(0.0f, DotProduct(rightDelta, hmdForwardNorm)) / deltaSeconds;
+                    if (angleDeg <= tolerance &&
+                        rightForwardSpeed >= pushThreshold &&
+                        now >= m_SecondaryGestureCooldownEnd)
+                    {
+                        startHold(m_SecondaryAttackGestureHoldUntil);
+                        startCooldown(m_SecondaryGestureCooldownEnd);
+                    }
+                }
+            }
+        }
     }
 
     if (rightDownSpeed >= m_MotionGestureDownSwingThreshold && now >= m_ReloadGestureCooldownEnd)
@@ -5190,10 +5226,12 @@ void VR::ParseConfigFile()
         headSmoothingValue = controllerSmoothingValue; // Match controller smoothing by default
     m_HeadSmoothing = std::clamp(headSmoothingValue, 0.0f, 0.99f);
     m_MotionGestureSwingThreshold = std::max(0.0f, getFloat("MotionGestureSwingThreshold", m_MotionGestureSwingThreshold));
+    m_MotionGesturePushThreshold = std::max(0.0f, getFloat("MotionGesturePushThreshold", m_MotionGesturePushThreshold));
     m_MotionGestureDownSwingThreshold = std::max(0.0f, getFloat("MotionGestureDownSwingThreshold", m_MotionGestureDownSwingThreshold));
     m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));
     m_MotionGestureCooldown = std::max(0.0f, getFloat("MotionGestureCooldown", m_MotionGestureCooldown));
     m_MotionGestureHoldDuration = std::max(0.0f, getFloat("MotionGestureHoldDuration", m_MotionGestureHoldDuration));
+    m_SingleHandPushAngleTolerance = std::clamp(getFloat("SingleHandPushAngleTolerance", m_SingleHandPushAngleTolerance), 0.0f, 90.0f);
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
