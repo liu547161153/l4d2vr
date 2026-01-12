@@ -275,6 +275,8 @@ public:
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
 	bool m_PrimaryAttackDown = false;
+	bool m_LeftGripPressedPrev = false;
+	bool m_RightGripPressedPrev = false;
 
 	struct ActionCombo
 	{
