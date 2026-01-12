@@ -80,6 +80,15 @@
             {
                "inputs" : {
                   "click" : {
+                     "output" : "/actions/main/in/InventoryGripLeft"
+                  }
+               },
+               "mode" : "button",
+               "path" : "/user/hand/left/input/grip"
+            },
+            {
+               "inputs" : {
+                  "click" : {
                      "output" : "/actions/main/in/PrimaryAttack"
                   }
                },
@@ -208,6 +217,15 @@
                "inputs" : {
                   "click" : {
                      "output" : "/actions/main/in/Crouch"
+                  }
+               },
+               "mode" : "button",
+               "path" : "/user/hand/right/input/grip"
+            },
+            {
+               "inputs" : {
+                  "click" : {
+                     "output" : "/actions/main/in/InventoryGripRight"
                   }
                },
                "mode" : "button",

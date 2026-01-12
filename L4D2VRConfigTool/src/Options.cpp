@@ -327,6 +327,42 @@ Option g_Options[] =
         "45.0"
     },
     {
+        "HmdTiltStrafeSensitivity",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"HMD Tilt Strafe Sensitivity", u8"头显倾斜平移灵敏度" },
+        { u8"Scales how strongly head roll drives left/right strafe.",
+          u8"控制头显左右倾斜驱动平移的强度。" },
+        { u8"Set to 0 to disable tilt strafing.",
+          u8"设为 0 可关闭倾斜平移。" },
+        0.0f, 0.2f,
+        "0.05"
+    },
+    {
+        "HmdTiltStrafeAngle",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"HMD Tilt Strafe Angle", u8"头显倾斜平移角度" },
+        { u8"Minimum roll angle (degrees) before tilt strafing starts.",
+          u8"达到该倾斜角度（度）后才开始触发平移。" },
+        { u8"Increase if you trigger strafing by accident.",
+          u8"容易误触就调高一些。" },
+        0.0f, 45.0f,
+        "10.0"
+    },
+    {
+        "HmdTiltStrafeSpeed",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"HMD Tilt Strafe Speed", u8"头显倾斜平移速度" },
+        { u8"Maximum strafe strength from head tilt.",
+          u8"头显倾斜平移的最大速度强度。" },
+        { u8"1.0 matches full thumbstick strafe speed.",
+          u8"1.0 等同于摇杆平移的最大速度。" },
+        0.0f, 1.0f,
+        "1.0"
+    },
+    {
         "ControllerSmoothing",
         OptionType::Float,
         { u8"Input / Turning", u8"输入 / 转向" },

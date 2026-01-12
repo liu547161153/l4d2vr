@@ -90,6 +90,16 @@
 			"type": "boolean"
 		},
 		{
+			"name": "/actions/main/in/InventoryGripLeft",
+			"type": "boolean",
+			"requirement": "optional"
+		},
+		{
+			"name": "/actions/main/in/InventoryGripRight",
+			"type": "boolean",
+			"requirement": "optional"
+		},
+		{
 			"name": "/actions/main/in/SpecialInfectedAutoAimToggle",
 			"type": "boolean",
 			"requirement": "optional"
@@ -199,6 +209,8 @@
 			"/actions/main/in/ResetPosition" : "Reset Position",
 			"/actions/main/in/Crouch" : "Crouch",
 			"/actions/main/in/Flashlight" : "Flashlight",
+			"/actions/main/in/InventoryGripLeft" : "Inventory Grip Left",
+			"/actions/main/in/InventoryGripRight" : "Inventory Grip Right",
 			"/actions/main/in/SpecialInfectedAutoAimToggle" : "Special Infected Auto Aim Toggle",
 			"/actions/main/in/ActivateVR" : "Activate VR",
 			"/actions/main/in/MenuSelect" : "Menu Select",

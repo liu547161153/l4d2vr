@@ -359,6 +359,8 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/ResetPosition", &m_ActionResetPosition);
     m_Input->GetActionHandle("/actions/main/in/Crouch", &m_ActionCrouch);
     m_Input->GetActionHandle("/actions/main/in/Flashlight", &m_ActionFlashlight);
+    m_Input->GetActionHandle("/actions/main/in/InventoryGripLeft", &m_ActionInventoryGripLeft);
+    m_Input->GetActionHandle("/actions/main/in/InventoryGripRight", &m_ActionInventoryGripRight);
     m_Input->GetActionHandle("/actions/main/in/SpecialInfectedAutoAimToggle", &m_ActionSpecialInfectedAutoAimToggle);
     m_Input->GetActionHandle("/actions/main/in/MenuSelect", &m_MenuSelect);
     m_Input->GetActionHandle("/actions/main/in/MenuBack", &m_MenuBack);
@@ -440,12 +442,42 @@ bool VR::GetWalkAxis(float& x, float& y) {
     vr::InputAnalogActionData_t d;
     vr::VRActionHandle_t* action = m_SingleHandedMode ? &m_ActionTurn : &m_ActionWalk;
     // m_ActionWalk        д     ʹ  
-    if (GetAnalogActionData(*action, d)) { 
-        x = d.x; y = d.y;
-        return true;
+    bool hasAxis = false;
+    if (GetAnalogActionData(*action, d)) {
+        x = d.x;
+        y = d.y;
+        hasAxis = true;
     }
-    x = y = 0.0f;
-    return false;
+    else
+    {
+        x = y = 0.0f;
+    }
+
+    if (m_SingleHandedMode)
+    {
+        x = 0.0f;
+    }
+
+    float tiltStrafe = 0.0f;
+    if (m_HmdTiltStrafeSpeed > 0.0f && m_HmdTiltStrafeSensitivity > 0.0f)
+    {
+        const float roll = m_HmdAngAbs.z;
+        const float absRoll = std::fabs(roll);
+        const float threshold = std::max(0.0f, m_HmdTiltStrafeAngle);
+        if (absRoll > threshold)
+        {
+            const float scaled = (absRoll - threshold) * m_HmdTiltStrafeSensitivity;
+            const float maxAxis = std::max(0.0f, m_HmdTiltStrafeSpeed);
+            const float magnitude = std::min(scaled, maxAxis);
+            tiltStrafe = (roll >= 0.0f ? 1.0f : -1.0f) * magnitude;
+        }
+    }
+
+    if (tiltStrafe != 0.0f)
+        hasAxis = true;
+
+    x = std::clamp(x + tiltStrafe, -1.0f, 1.0f);
+    return hasAxis;
 }
 
 void VR::CreateVRTextures()
@@ -1471,6 +1503,41 @@ void VR::ProcessInput()
 
     if (GetAnalogActionData(m_ActionTurn, analogActionData))
     {
+        auto applyTurnFromStick = [&](float stickX)
+            {
+                if (m_SnapTurning)
+                {
+                    if (!m_PressedTurn && stickX > 0.5f)
+                    {
+                        m_RotationOffset -= m_SnapTurnAngle;
+                        m_PressedTurn = true;
+                    }
+                    else if (!m_PressedTurn && stickX < -0.5f)
+                    {
+                        m_RotationOffset += m_SnapTurnAngle;
+                        m_PressedTurn = true;
+                    }
+                    else if (stickX < 0.3f && stickX > -0.3f)
+                    {
+                        m_PressedTurn = false;
+                    }
+                }
+                // Smooth turning
+                else
+                {
+                    float deadzone = 0.2f;
+                    float xNormalized = (abs(stickX) - deadzone) / (1 - deadzone);
+                    if (stickX > deadzone)
+                    {
+                        m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
+                    }
+                    if (stickX < -deadzone)
+                    {
+                        m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
+                    }
+                }
+            };
+
         if (m_SingleHandedMode)
         {
             const float tapThreshold = 0.8f;
@@ -1503,17 +1570,7 @@ void VR::ProcessInput()
             }
             if (m_RightStickTapReady)
             {
-                if (analogActionData.x >= tapThreshold)
-                {
-                    if (registerTap(StickTapDirection::Right))
-                        m_RotationOffset -= m_SnapTurnAngle;
-                }
-                else if (analogActionData.x <= -tapThreshold)
-                {
-                    if (registerTap(StickTapDirection::Left))
-                        m_RotationOffset += m_SnapTurnAngle;
-                }
-                else if (analogActionData.y <= -tapThreshold)
+                if (analogActionData.y <= -tapThreshold)
                 {
                     if (registerTap(StickTapDirection::Down))
                         quickTurnTapTriggered = true;
@@ -1526,40 +1583,13 @@ void VR::ProcessInput()
                 m_RightStickTapDirection = StickTapDirection::None;
                 m_RightStickTapCount = 0;
             }
+
+            applyTurnFromStick(analogActionData.x);
         }
 
         else
         {
-            if (m_SnapTurning)
-            {
-                if (!m_PressedTurn && analogActionData.x > 0.5)
-                {
-                    m_RotationOffset -= m_SnapTurnAngle;
-                    m_PressedTurn = true;
-                }
-                else if (!m_PressedTurn && analogActionData.x < -0.5)
-                {
-                    m_RotationOffset += m_SnapTurnAngle;
-                    m_PressedTurn = true;
-                }
-                else if (analogActionData.x < 0.3 && analogActionData.x > -0.3)
-                    m_PressedTurn = false;
-            }
-            // Smooth turning
-            else
-            {
-                float deadzone = 0.2;
-                // smoother turning
-                float xNormalized = (abs(analogActionData.x) - deadzone) / (1 - deadzone);
-                if (analogActionData.x > deadzone)
-                {
-                    m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
-                }
-                if (analogActionData.x < -deadzone)
-                {
-                    m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
-                }
-            }
+            applyTurnFromStick(analogActionData.x);
         }
 
         // Wrap from 0 to 360
@@ -1700,6 +1730,28 @@ void VR::ProcessInput()
     bool flashlightButtonDown = false;
     bool flashlightJustPressed = false;
     bool flashlightDataValid = getActionState(&m_ActionFlashlight, flashlightActionData, flashlightButtonDown, flashlightJustPressed);
+
+    vr::InputDigitalActionData_t inventoryGripLeftActionData{};
+    bool inventoryGripLeftDown = false;
+    bool inventoryGripLeftJustPressed = false;
+    bool inventoryGripLeftValid = getActionState(&m_ActionInventoryGripLeft, inventoryGripLeftActionData, inventoryGripLeftDown, inventoryGripLeftJustPressed);
+
+    vr::InputDigitalActionData_t inventoryGripRightActionData{};
+    bool inventoryGripRightDown = false;
+    bool inventoryGripRightJustPressed = false;
+    bool inventoryGripRightValid = getActionState(&m_ActionInventoryGripRight, inventoryGripRightActionData, inventoryGripRightDown, inventoryGripRightJustPressed);
+
+    if (!inventoryGripLeftValid)
+    {
+        inventoryGripLeftDown = reloadButtonDown;
+        inventoryGripLeftJustPressed = reloadJustPressed;
+    }
+
+    if (!inventoryGripRightValid)
+    {
+        inventoryGripRightDown = crouchButtonDown;
+        inventoryGripRightJustPressed = crouchJustPressed;
+    }
 
     vr::InputDigitalActionData_t autoAimToggleActionData{};
     [[maybe_unused]] bool autoAimToggleDown = false;
@@ -2006,8 +2058,8 @@ void VR::ProcessInput()
             }
         };
 
-    handleGripInventoryGesture(m_LeftControllerPosAbs, reloadButtonDown, reloadJustPressed, false);
-    handleGripInventoryGesture(m_RightControllerPosAbs, crouchButtonDown, crouchJustPressed, true);
+    handleGripInventoryGesture(m_LeftControllerPosAbs, inventoryGripLeftDown, inventoryGripLeftJustPressed, false);
+    handleGripInventoryGesture(m_RightControllerPosAbs, inventoryGripRightDown, inventoryGripRightJustPressed, true);
 
     const bool suppressReload = inventoryGripActiveLeft;
     const bool suppressCrouch = inventoryGripActiveRight;
@@ -2020,6 +2072,13 @@ void VR::ProcessInput()
 
     if (suppressCrouch)
     {
+        crouchButtonDown = false;
+        crouchJustPressed = false;
+    }
+
+    if (m_SingleHandedMode && crouchJustPressed && !suppressCrouch)
+    {
+        m_CrouchToggleActive = !m_CrouchToggleActive;
         crouchButtonDown = false;
         crouchJustPressed = false;
     }
@@ -2209,11 +2268,7 @@ void VR::ProcessInput()
 
     if (flashlightJustPressed)
     {
-        if (m_SingleHandedMode)
-        {
-            m_CrouchToggleActive = !m_CrouchToggleActive;
-        }
-        else if (crouchButtonDown)
+        if (!m_SingleHandedMode && crouchButtonDown)
             SendFunctionKey(VK_F1);
         else
             m_Game->ClientCmd_Unrestricted("impulse 100");
@@ -4992,6 +5047,9 @@ void VR::ParseConfigFile()
     // Locomotion direction: default is HMD-yaw-based. Optional hand-yaw-based.
     m_MoveDirectionFromController = getBool("MoveDirectionFromController", m_MoveDirectionFromController);
     m_MoveDirectionFromController = getBool("MovementDirectionFromController", m_MoveDirectionFromController);
+    m_HmdTiltStrafeSensitivity = getFloat("HmdTiltStrafeSensitivity", m_HmdTiltStrafeSensitivity);
+    m_HmdTiltStrafeAngle = getFloat("HmdTiltStrafeAngle", m_HmdTiltStrafeAngle);
+    m_HmdTiltStrafeSpeed = getFloat("HmdTiltStrafeSpeed", m_HmdTiltStrafeSpeed);
     m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
     m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
     m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
