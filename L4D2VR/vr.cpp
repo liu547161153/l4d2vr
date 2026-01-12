@@ -4075,6 +4075,8 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
         return true;
 
     // Cache expensive TraceRay calls per-entity to avoid spikes when DrawModelExecute fires many times.
+    // Re-check LOS faster when the cached result is false to avoid "sticky" misses when an obstruction
+    // disappears between cache ticks.
     if (entityIndex > 0 && m_SpecialInfectedTraceMaxHz > 0.0f)
     {
         auto& last = m_LastSpecialInfectedTraceTime[entityIndex];
@@ -4087,7 +4089,14 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
             {
                 auto it = m_LastSpecialInfectedTraceResult.find(entityIndex);
                 if (it != m_LastSpecialInfectedTraceResult.end())
-                    return it->second;
+                {
+                    if (it->second)
+                        return true;
+
+                    const float falseRecheckInterval = minInterval * 0.25f;
+                    if (elapsed < falseRecheckInterval)
+                        return false;
+                }
             }
         }
         last = now;
@@ -4097,14 +4106,50 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
     if (entityIndex > 0)
         targetEntity = (IHandleEntity*)m_Game->GetClientEntity(entityIndex);
 
-    CGameTrace trace;
-    Ray_t ray;
     CTraceFilterSkipNPCsAndEntity tracefilter((IHandleEntity*)localPlayer, targetEntity, 0);
 
-    ray.Init(m_RightControllerPosAbs, infectedOrigin);
-    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+    auto traceLos = [&](const Vector& start, const Vector& end)
+    {
+        CGameTrace trace;
+        Ray_t ray;
+        ray.Init(start, end);
 
-    const bool hasLos = trace.fraction >= 1.0f;
+        // Use a bullet-style mask here so grates/monsterclip don't incorrectly block auto-aim.
+        m_Game->m_EngineTrace->TraceRay(ray, MASK_SHOT, &tracefilter, &trace);
+
+        if (trace.fraction >= 1.0f)
+            return true;
+
+        // If we didn't (or couldn't) skip the target entity, consider a direct hit as LOS.
+        if (targetEntity && trace.m_pEnt == targetEntity)
+            return true;
+
+        // If the controller is inside geometry (common near cover), fall back to a different start point.
+        if (trace.startsolid || trace.allsolid)
+            return false;
+
+        return false;
+    };
+
+    // 1) Primary: controller -> target (matches aim-line intuition).
+    bool hasLos = traceLos(m_RightControllerPosAbs, infectedOrigin);
+
+    // 2) If controller start was inside something, nudge forward a bit and retry.
+    if (!hasLos)
+    {
+        Vector dir = infectedOrigin - m_RightControllerPosAbs;
+        const float len = VectorLength(dir);
+        if (len > 0.001f)
+        {
+            dir /= len;
+            const Vector nudgedStart = m_RightControllerPosAbs + dir * 4.0f;
+            hasLos = traceLos(nudgedStart, infectedOrigin);
+        }
+    }
+
+    // 3) Final fallback: HMD -> target (avoids false negatives when the controller origin is clipped).
+    if (!hasLos)
+        hasLos = traceLos(m_HmdPosAbs, infectedOrigin);
 
     if (entityIndex > 0)
         m_LastSpecialInfectedTraceResult[entityIndex] = hasLos;
@@ -4187,7 +4232,17 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             }
         }
 
-        if (!HasLineOfSightToSpecialInfected(infectedOrigin, entityIndex))
+        // Use the same aim-offset target for LOS checks; tracing to raw origin (feet) can get
+        // spuriously blocked by small ledges/props even when the body is visible.
+        Vector adjustedTarget = infectedOrigin;
+        const size_t typeIndex = static_cast<size_t>(type);
+        if (typeIndex < m_SpecialInfectedPreWarningAimOffsets.size())
+        {
+            const Vector& offset = m_SpecialInfectedPreWarningAimOffsets[typeIndex];
+            adjustedTarget += (m_HmdRight * offset.x) + (m_HmdForward * offset.y) + (m_HmdUp * offset.z);
+        }
+
+        if (!HasLineOfSightToSpecialInfected(adjustedTarget, entityIndex))
             return;
 
         const bool isPounceType = type == SpecialInfectedType::Hunter || type == SpecialInfectedType::Jockey;
@@ -4214,14 +4269,6 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         const auto elapsedUpdate = std::chrono::duration<float>(now - m_LastSpecialInfectedPreWarningTargetUpdateTime).count();
         if (isCandidate && (isCloser || updateInterval <= 0.0f || elapsedUpdate >= updateInterval))
         {
-            Vector adjustedTarget = infectedOrigin;
-            const size_t typeIndex = static_cast<size_t>(type);
-            if (typeIndex < m_SpecialInfectedPreWarningAimOffsets.size())
-            {
-                const Vector& offset = m_SpecialInfectedPreWarningAimOffsets[typeIndex];
-                adjustedTarget += (m_HmdRight * offset.x) + (m_HmdForward * offset.y) + (m_HmdUp * offset.z);
-            }
-
             m_SpecialInfectedPreWarningTarget = adjustedTarget;
             m_LastSpecialInfectedPreWarningTargetUpdateTime = now;
             m_SpecialInfectedPreWarningTargetDistanceSq = distanceSq;
