@@ -438,7 +438,9 @@ void VR::Update()
 
 bool VR::GetWalkAxis(float& x, float& y) {
     vr::InputAnalogActionData_t d;
-    if (GetAnalogActionData(m_ActionWalk, d)) {  // m_ActionWalk        д     ʹ  
+    vr::VRActionHandle_t* action = m_SingleHandedMode ? &m_ActionTurn : &m_ActionWalk;
+    // m_ActionWalk        д     ʹ  
+    if (GetAnalogActionData(*action, d)) { 
         x = d.x; y = d.y;
         return true;
     }
@@ -647,9 +649,26 @@ void VR::SubmitVRTextures()
         // Body-anchored rear mirror: update absolute transform every frame.
         UpdateRearMirrorOverlayTransform();
 
-        const auto shouldHideRearMirrorDueToAimLine = [&]() -> bool
+        // Keep the "special warning" enlarge hint bounded even if the mirror RTT pass
+        // is temporarily not running (e.g., pop-up mode).
+        if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
         {
-            if (!m_RearMirrorHideWhenAimLineHits)
+            if (m_LastRearMirrorSpecialSeenTime.time_since_epoch().count() == 0)
+            {
+                m_RearMirrorSpecialEnlargeActive = false;
+            }
+            else
+            {
+                const auto now = std::chrono::steady_clock::now();
+                const float elapsed = std::chrono::duration<float>(now - m_LastRearMirrorSpecialSeenTime).count();
+                if (elapsed > m_RearMirrorSpecialEnlargeHoldSeconds)
+                    m_RearMirrorSpecialEnlargeActive = false;
+            }
+        }
+
+        const auto shouldHideRearMirrorDueToAimLine = [&]() -> bool
+            {
+                if (!m_RearMirrorHideWhenAimLineHits)
                 return false;
 
             const auto now = std::chrono::steady_clock::now();
@@ -959,6 +978,44 @@ void VR::UpdateRearMirrorOverlayTransform()
     if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
         mirrorWidth *= 2.0f;
     vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, mirrorWidth);
+}
+
+bool VR::ShouldRenderRearMirror() const
+{
+    if (!m_RearMirrorEnabled)
+        return false;
+
+    // Default behavior: always render/show when enabled.
+    if (!m_RearMirrorShowOnlyOnSpecialWarning)
+        return true;
+
+    // Pop-up mode: only render/show for a short time after a special-infected warning.
+    if (m_RearMirrorSpecialShowHoldSeconds <= 0.0f)
+        return false;
+
+    const auto now = std::chrono::steady_clock::now();
+
+    bool alertActive = false;
+    if (m_LastRearMirrorAlertTime.time_since_epoch().count() != 0)
+    {
+        const float elapsed = std::chrono::duration<float>(now - m_LastRearMirrorAlertTime).count();
+        alertActive = (elapsed <= m_RearMirrorSpecialShowHoldSeconds);
+    }
+
+    // Also keep it visible if the mirror pass recently saw special-infected arrows (enlarge hint).
+    bool hintActive = false;
+    if (m_LastRearMirrorSpecialSeenTime.time_since_epoch().count() != 0)
+    {
+        const float elapsed = std::chrono::duration<float>(now - m_LastRearMirrorSpecialSeenTime).count();
+        hintActive = (elapsed <= m_RearMirrorSpecialEnlargeHoldSeconds);
+    }
+
+    return alertActive || hintActive;
+}
+
+void VR::NotifyRearMirrorSpecialWarning()
+{
+    m_LastRearMirrorAlertTime = std::chrono::steady_clock::now();
 }
 
 void VR::RepositionOverlays(bool attachToControllers)
@@ -1410,37 +1467,98 @@ void VR::ProcessInput()
     }
 
     vr::InputAnalogActionData_t analogActionData;
+    bool quickTurnTapTriggered = false;
 
     if (GetAnalogActionData(m_ActionTurn, analogActionData))
     {
-        if (m_SnapTurning)
+        if (m_SingleHandedMode)
         {
-            if (!m_PressedTurn && analogActionData.x > 0.5)
+            const float tapThreshold = 0.8f;
+            const float neutralThreshold = 0.3f;
+            const auto tapWindow = std::chrono::duration<float>(0.35f);
+
+            auto registerTap = [&](StickTapDirection direction)
+                {
+                    const bool withinWindow = (m_RightStickTapDirection == direction) &&
+                        (currentTime - m_RightStickLastTapTime <= tapWindow);
+
+                    m_RightStickTapCount = withinWindow ? (m_RightStickTapCount + 1) : 1;
+                    m_RightStickTapDirection = direction;
+                    m_RightStickLastTapTime = currentTime;
+                    m_RightStickTapReady = false;
+
+                    if (m_RightStickTapCount >= 2)
+                    {
+                        m_RightStickTapCount = 0;
+                        m_RightStickTapDirection = StickTapDirection::None;
+                        return true;
+                    }
+
+                    return false;
+                };
+
+            if (std::abs(analogActionData.x) < neutralThreshold && std::abs(analogActionData.y) < neutralThreshold)
             {
-                m_RotationOffset -= m_SnapTurnAngle;
-                m_PressedTurn = true;
+                m_RightStickTapReady = true;
             }
-            else if (!m_PressedTurn && analogActionData.x < -0.5)
+            if (m_RightStickTapReady)
             {
-                m_RotationOffset += m_SnapTurnAngle;
-                m_PressedTurn = true;
+                if (analogActionData.x >= tapThreshold)
+                {
+                    if (registerTap(StickTapDirection::Right))
+                        m_RotationOffset -= m_SnapTurnAngle;
+                }
+                else if (analogActionData.x <= -tapThreshold)
+                {
+                    if (registerTap(StickTapDirection::Left))
+                        m_RotationOffset += m_SnapTurnAngle;
+                }
+                else if (analogActionData.y <= -tapThreshold)
+                {
+                    if (registerTap(StickTapDirection::Down))
+                        quickTurnTapTriggered = true;
+                }
             }
-            else if (analogActionData.x < 0.3 && analogActionData.x > -0.3)
-                m_PressedTurn = false;
+
+            if (m_RightStickTapDirection != StickTapDirection::None &&
+                currentTime - m_RightStickLastTapTime > tapWindow)
+            {
+                m_RightStickTapDirection = StickTapDirection::None;
+                m_RightStickTapCount = 0;
+            }
         }
-        // Smooth turning
+
         else
         {
-            float deadzone = 0.2;
-            // smoother turning
-            float xNormalized = (abs(analogActionData.x) - deadzone) / (1 - deadzone);
-            if (analogActionData.x > deadzone)
+            if (m_SnapTurning)
             {
-                m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
+                if (!m_PressedTurn && analogActionData.x > 0.5)
+                {
+                    m_RotationOffset -= m_SnapTurnAngle;
+                    m_PressedTurn = true;
+                }
+                else if (!m_PressedTurn && analogActionData.x < -0.5)
+                {
+                    m_RotationOffset += m_SnapTurnAngle;
+                    m_PressedTurn = true;
+                }
+                else if (analogActionData.x < 0.3 && analogActionData.x > -0.3)
+                    m_PressedTurn = false;
             }
-            if (analogActionData.x < -deadzone)
+            // Smooth turning
+            else
             {
-                m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
+                float deadzone = 0.2;
+                // smoother turning
+                float xNormalized = (abs(analogActionData.x) - deadzone) / (1 - deadzone);
+                if (analogActionData.x > deadzone)
+                {
+                    m_RotationOffset -= m_TurnSpeed * deltaTime * xNormalized;
+                }
+                if (analogActionData.x < -deadzone)
+                {
+                    m_RotationOffset += m_TurnSpeed * deltaTime * xNormalized;
+                }
             }
         }
 
@@ -1968,7 +2086,8 @@ void VR::ProcessInput()
     bool quickTurnComboValid = getComboStates(m_QuickTurnCombo, quickTurnPrimaryData, quickTurnSecondaryData,
         quickTurnPrimaryDown, quickTurnSecondaryDown, quickTurnPrimaryJustPressed, quickTurnSecondaryJustPressed);
     bool quickTurnComboPressed = quickTurnComboValid && quickTurnPrimaryDown && quickTurnSecondaryDown;
-
+    if (m_SingleHandedMode && quickTurnTapTriggered)
+        quickTurnComboPressed = true;
     vr::InputDigitalActionData_t viewmodelPrimaryData{};
     vr::InputDigitalActionData_t viewmodelSecondaryData{};
     bool viewmodelPrimaryDown = false;
@@ -2016,7 +2135,8 @@ void VR::ProcessInput()
         }
         else
         {
-            m_CrouchToggleActive = !m_CrouchToggleActive;
+            if (!m_SingleHandedMode)
+                m_CrouchToggleActive = !m_CrouchToggleActive;
             ResetPosition();
         }
     }
@@ -2089,7 +2209,11 @@ void VR::ProcessInput()
 
     if (flashlightJustPressed)
     {
-        if (crouchButtonDown)
+        if (m_SingleHandedMode)
+        {
+            m_CrouchToggleActive = !m_CrouchToggleActive;
+        }
+        else if (crouchButtonDown)
             SendFunctionKey(VK_F1);
         else
             m_Game->ClientCmd_Unrestricted("impulse 100");
@@ -4861,8 +4985,8 @@ void VR::ParseConfigFile()
             }
         };
 
-    //  õ ǰ  Ա  ֵ  ΪĬ  ֵ      ʱ ѳ ʼ    
-    m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
+ 
+    const bool snapTurningConfigured = userConfig.find("SnapTurning") != userConfig.end();
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
     // Locomotion direction: default is HMD-yaw-based. Optional hand-yaw-based.
@@ -4971,6 +5095,9 @@ void VR::ParseConfigFile()
     parseCustomActionBinding("CustomAction5Command", m_CustomAction5Binding);
 
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
+    m_SingleHandedMode = getBool("SingleHandedMode", m_SingleHandedMode);
+    if (m_SingleHandedMode && !snapTurningConfigured)
+        m_SnapTurning = true;
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
@@ -5124,6 +5251,8 @@ void VR::ParseConfigFile()
 
     // Rear mirror
     m_RearMirrorEnabled = getBool("RearMirrorEnabled", m_RearMirrorEnabled);
+    m_RearMirrorShowOnlyOnSpecialWarning = getBool("RearMirrorShowOnlyOnSpecialWarning", m_RearMirrorShowOnlyOnSpecialWarning);
+    m_RearMirrorSpecialShowHoldSeconds = std::max(0.0f, getFloat("RearMirrorSpecialShowHoldSeconds", m_RearMirrorSpecialShowHoldSeconds));
     m_RearMirrorRTTSize = std::clamp(getInt("RearMirrorRTTSize", m_RearMirrorRTTSize), 128, 4096);
     m_RearMirrorFov = std::clamp(getFloat("RearMirrorFov", m_RearMirrorFov), 1.0f, 179.0f);
     m_RearMirrorZNear = std::clamp(getFloat("RearMirrorZNear", m_RearMirrorZNear), 0.1f, 64.0f);
