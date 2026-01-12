@@ -335,6 +335,7 @@ public:
 	bool m_SnapTurning = false;
 	float m_SnapTurnAngle = 45.0;
 	bool m_LeftHanded = false;
+	bool m_SingleHandedMode = false;
 	// If false: movement (walk axis) follows HMD yaw ("head-oriented locomotion").
 	// If true:  movement follows the right-hand controller yaw ("hand-oriented locomotion").
 	bool m_MoveDirectionFromController = false;
@@ -354,6 +355,17 @@ public:
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
+	enum class StickTapDirection
+	{
+		None,
+		Left,
+		Right,
+		Down
+	};
+	StickTapDirection m_RightStickTapDirection = StickTapDirection::None;
+	int m_RightStickTapCount = 0;
+	bool m_RightStickTapReady = true;
+	std::chrono::steady_clock::time_point m_RightStickLastTapTime{};
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
 	float m_HeadSmoothing = 0.0f;
@@ -600,6 +612,12 @@ public:
 	// Rear mirror (off-hand)
 	// ----------------------------
 	bool  m_RearMirrorEnabled = false;
+	// If enabled, the rear mirror overlay/RTT stays hidden most of the time,
+	// and only pops up briefly when a special infected is detected behind you.
+	bool  m_RearMirrorShowOnlyOnSpecialWarning = false;
+	// Seconds to keep the mirror visible after a special infected warning.
+	float m_RearMirrorSpecialShowHoldSeconds = 0.50f;
+	std::chrono::steady_clock::time_point m_LastRearMirrorAlertTime{};
 	int   m_RearMirrorRTTSize = 512;
 	float m_RearMirrorFov = 85.0f;
 	float m_RearMirrorZNear = 6.0f;
@@ -634,7 +652,8 @@ public:
 
 	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
 	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
-	bool   ShouldRenderRearMirror() const { return m_RearMirrorEnabled; }
+	bool   ShouldRenderRearMirror() const;
+	void   NotifyRearMirrorSpecialWarning();
 
 	VR() {};
 	VR(Game* game);
