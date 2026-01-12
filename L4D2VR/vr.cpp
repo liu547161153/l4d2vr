@@ -4163,6 +4163,10 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
         return;
 
     const auto now = std::chrono::steady_clock::now();
+    const auto secondsToDuration = [](float seconds)
+        {
+            return std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
+        };
     if (m_SpecialInfectedAutoAimCooldown > 0.0f && now < m_SpecialInfectedAutoAimCooldownEnd)
         return;
 
@@ -4251,15 +4255,37 @@ void VR::RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialI
             const float evadeDistanceSq = m_SpecialInfectedPreWarningEvadeDistance * m_SpecialInfectedPreWarningEvadeDistance;
             if (distanceSq <= evadeDistanceSq)
             {
+                const bool sameTarget = m_LastSpecialInfectedEvadeEntityIndex == entityIndex;
+                if (!sameTarget)
+                {
+                    m_SpecialInfectedPreWarningEvadeArmed = true;
+                }
+                else if (!m_SpecialInfectedPreWarningEvadeArmed)
+                {
+                    const float rearmDistanceSq = evadeDistanceSq * 1.44f;
+                    if (distanceSq > rearmDistanceSq)
+                        m_SpecialInfectedPreWarningEvadeArmed = true;
+                }
+
+                const bool cooldownActive = sameTarget
+                    && m_SpecialInfectedPreWarningEvadeCooldown > 0.0f
+                    && now < m_SpecialInfectedPreWarningEvadeCooldownEnd;
+
                 m_SpecialInfectedWarningTarget = infectedOrigin;
                 m_SpecialInfectedWarningTargetActive = true;
                 m_LastSpecialInfectedWarningTime = now;
                 m_SpecialInfectedBlindSpotWarningActive = true;
 
-                if (!m_SpecialInfectedPreWarningEvadeTriggered)
+                if (!m_SpecialInfectedPreWarningEvadeTriggered
+                    && m_SpecialInfectedPreWarningEvadeArmed
+                    && !cooldownActive)
                 {
                     StartSpecialInfectedWarningAction();
                     m_SpecialInfectedPreWarningEvadeTriggered = true;
+                    m_SpecialInfectedPreWarningEvadeArmed = false;
+                    m_LastSpecialInfectedEvadeEntityIndex = entityIndex;
+                    if (m_SpecialInfectedPreWarningEvadeCooldown > 0.0f)
+                        m_SpecialInfectedPreWarningEvadeCooldownEnd = now + secondsToDuration(m_SpecialInfectedPreWarningEvadeCooldown);
                 }
             }
         }
@@ -4318,6 +4344,9 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimCooldownEnd = {};
         m_SpecialInfectedPreWarningEvadeTriggered = false;
+        m_SpecialInfectedPreWarningEvadeArmed = true;
+        m_LastSpecialInfectedEvadeEntityIndex = -1;
+        m_SpecialInfectedPreWarningEvadeCooldownEnd = {};
         return;
     }
 
@@ -4329,6 +4358,9 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningTargetIsPlayer = false;
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedPreWarningEvadeTriggered = false;
+        m_SpecialInfectedPreWarningEvadeArmed = true;
+        m_LastSpecialInfectedEvadeEntityIndex = -1;
+        m_SpecialInfectedPreWarningEvadeCooldownEnd = {};
         return;
     }
 
@@ -4381,7 +4413,12 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningActive = false;
 
     if (!m_SpecialInfectedPreWarningActive)
+    {
         m_SpecialInfectedPreWarningEvadeTriggered = false;
+        m_SpecialInfectedPreWarningEvadeArmed = true;
+        m_LastSpecialInfectedEvadeEntityIndex = -1;
+        m_SpecialInfectedPreWarningEvadeCooldownEnd = {};
+    }
 
     if (wasActive && !m_SpecialInfectedPreWarningActive && m_SpecialInfectedAutoAimCooldown > 0.0f)
     {
@@ -4446,8 +4483,7 @@ void VR::UpdateSpecialInfectedWarningAction()
         break;
     case SpecialInfectedWarningActionStep::ReleaseSecondaryAttack:
         m_Game->ClientCmd_Unrestricted("-attack2");
-        m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::PressJump;
-        m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningPostAttackDelay);
+        ResetSpecialInfectedWarningAction();
         break;
     case SpecialInfectedWarningActionStep::PressJump:
         m_Game->ClientCmd_Unrestricted("+jump");
@@ -4465,6 +4501,8 @@ void VR::UpdateSpecialInfectedWarningAction()
 
 void VR::ResetSpecialInfectedWarningAction()
 {
+    m_Game->ClientCmd_Unrestricted("-attack2");
+    m_Game->ClientCmd_Unrestricted("-jump");
     m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
     m_SpecialInfectedWarningNextActionTime = {};
     m_SuppressPlayerInput = false;
@@ -5452,6 +5490,7 @@ void VR::ParseConfigFile()
     m_SpecialInfectedBlindSpotDistance = std::max(0.0f, getFloat("SpecialInfectedBlindSpotDistance", m_SpecialInfectedBlindSpotDistance));
     m_SpecialInfectedPreWarningAutoAimConfigEnabled = getBool("SpecialInfectedPreWarningAutoAimEnabled", m_SpecialInfectedPreWarningAutoAimConfigEnabled);
     m_SpecialInfectedPreWarningEvadeDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningEvadeDistance", m_SpecialInfectedPreWarningEvadeDistance));
+    m_SpecialInfectedPreWarningEvadeCooldown = std::max(0.0f, getFloat("SpecialInfectedPreWarningEvadeCooldown", m_SpecialInfectedPreWarningEvadeCooldown));
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
