@@ -278,6 +278,10 @@ public:
 	bool m_LeftGripPressedPrev = false;
 	bool m_RightGripPressedPrev = false;
 
+	// Raw GRIP input-source handles (used to detect GRIP-bound SteamVR actions via activeOrigin).
+	vr::VRInputValueHandle_t m_GripSourceLeft = vr::k_ulInvalidInputValueHandle;
+	vr::VRInputValueHandle_t m_GripSourceRight = vr::k_ulInvalidInputValueHandle;
+
 	struct ActionCombo
 	{
 		vr::VRActionHandle_t* primary = nullptr;

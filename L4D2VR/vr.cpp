@@ -1,5 +1,7 @@
 
 #include "vr.h"
+// NOTE: OpenVR headers in this project don't expose VRInputStringBits_InputSource/Origin,
+// so we detect GRIP-bound actions by comparing activeOrigin with GRIP input-source handles.
 #include <Windows.h>
 #include "sdk.h"
 #include "game.h"
@@ -229,6 +231,11 @@ VR::VR(Game* game)
 
     m_Input = vr::VRInput();
     m_System = vr::OpenVRInternal_ModuleContext().VRSystem();
+    if (m_Input)
+    {
+        m_Input->GetInputSourceHandle("/user/hand/left/input/grip", &m_GripSourceLeft);
+        m_Input->GetInputSourceHandle("/user/hand/right/input/grip", &m_GripSourceRight);
+    }
 
     m_System->GetRecommendedRenderTargetSize(&m_RenderWidth, &m_RenderHeight);
     m_AntiAliasing = 0;
@@ -2111,23 +2118,9 @@ void VR::ProcessInput()
 
     auto originIsGrip = [&](vr::VRInputValueHandle_t origin) -> bool
     {
-        if (!m_Input)
-            return false;
         if (origin == vr::k_ulInvalidInputValueHandle)
             return false;
-
-        char buf[256]{};
-        vr::EVRInputError err = m_Input->GetOriginLocalizedName(origin, buf, sizeof(buf), vr::VRInputStringBits_InputSource);
-        if (err != vr::VRInputError_None)
-            err = m_Input->GetOriginLocalizedName(origin, buf, sizeof(buf), vr::VRInputStringBits_Origin);
-        if (err != vr::VRInputError_None)
-            return false;
-
-        std::string s(buf);
-        std::transform(s.begin(), s.end(), s.begin(),
-            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-        return (s.find("/input/grip") != std::string::npos) || (s.find("grip") != std::string::npos);
+        return (origin == m_GripSourceLeft) || (origin == m_GripSourceRight);
     };
 
     auto shouldSuppressAction = [&](const vr::InputDigitalActionData_t& data) -> bool
@@ -2158,13 +2151,15 @@ void VR::ProcessInput()
         useJustPressed = false;
     }
 
-    if (reloadDataValid && shouldSuppressAction(reloadActionData))
+    const bool suppressReload = reloadDataValid && shouldSuppressAction(reloadActionData);
+    if (suppressReload)
     {
         reloadButtonDown = false;
         reloadJustPressed = false;
     }
 
-    if (crouchDataValid && shouldSuppressAction(crouchActionData))
+    const bool suppressCrouch = crouchDataValid && shouldSuppressAction(crouchActionData);
+    if (suppressCrouch)
     {
         crouchButtonDown = false;
         crouchJustPressed = false;
