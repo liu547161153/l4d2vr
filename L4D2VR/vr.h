@@ -500,6 +500,10 @@ public:
 	bool m_SpecialInfectedBlindSpotWarningActive = false;
 	std::chrono::steady_clock::time_point m_LastSpecialInfectedWarningTime{};
 	float m_SpecialInfectedPreWarningEvadeDistance = 260.0f;
+	float m_SpecialInfectedPreWarningEvadeCooldown = 0.85f;
+	int m_LastSpecialInfectedEvadeEntityIndex = -1;
+	bool m_SpecialInfectedPreWarningEvadeArmed = true;
+	std::chrono::steady_clock::time_point m_SpecialInfectedPreWarningEvadeCooldownEnd{};
 	bool m_SpecialInfectedPreWarningEvadeTriggered = false;
 	float m_SpecialInfectedWarningSecondaryHoldDuration = 0.15f;
 	float m_SpecialInfectedWarningPostAttackDelay = 0.1f;
