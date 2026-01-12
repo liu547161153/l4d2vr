@@ -1,7 +1,5 @@
 
 #include "vr.h"
-// NOTE: OpenVR headers in this project don't expose VRInputStringBits_InputSource/Origin,
-// so we detect GRIP-bound actions by comparing activeOrigin with GRIP input-source handles.
 #include <Windows.h>
 #include "sdk.h"
 #include "game.h"
@@ -231,11 +229,6 @@ VR::VR(Game* game)
 
     m_Input = vr::VRInput();
     m_System = vr::OpenVRInternal_ModuleContext().VRSystem();
-    if (m_Input)
-    {
-        m_Input->GetInputSourceHandle("/user/hand/left/input/grip", &m_GripSourceLeft);
-        m_Input->GetInputSourceHandle("/user/hand/right/input/grip", &m_GripSourceRight);
-    }
 
     m_System->GetRecommendedRenderTargetSize(&m_RenderWidth, &m_RenderHeight);
     m_AntiAliasing = 0;
@@ -2049,7 +2042,7 @@ void VR::ProcessInput()
     auto handleGripInventoryGesture = [&](const Vector& controllerPos, bool gripDown, bool gripJustPressed, bool isRightHand)
         {
             if (!gripDown)
-                return;
+                return false;
 
             const bool nearBack = isControllerNear(controllerPos, backAnchor, gestureRange);
             const bool nearChest = isControllerNear(controllerPos, chestAnchor, chestGestureRange);
@@ -2057,7 +2050,7 @@ void VR::ProcessInput()
             const bool nearRightWaist = isControllerNear(controllerPos, rightWaistAnchor, gestureRange);
 
             if (!(nearBack || nearChest || nearLeftWaist || nearRightWaist))
-                return;
+                return false;
 
             if (isRightHand)
                 inventoryGripActiveRight = true;
@@ -2065,38 +2058,47 @@ void VR::ProcessInput()
                 inventoryGripActiveLeft = true;
 
             if (!gripJustPressed)
-                return;
+                return true;
 
             if (nearBack)
             {
                 togglePrimarySecondary();
-                return;
+                return true;
             }
 
             if (nearLeftWaist)
             {
                 m_Game->ClientCmd_Unrestricted("slot3");
-                return;
+                return true;
             }
 
             if (nearChest)
             {
                 m_Game->ClientCmd_Unrestricted("slot4");
-                return;
+                return true;
             }
 
             if (nearRightWaist)
             {
                 m_Game->ClientCmd_Unrestricted("slot5");
             }
+
+            return true;
         };
 
-    handleGripInventoryGesture(m_LeftControllerPosAbs, inventoryGripLeftDown, inventoryGripLeftJustPressed, false);
-    handleGripInventoryGesture(m_RightControllerPosAbs, inventoryGripRightDown, inventoryGripRightJustPressed, true);
+    const bool consumedLeft = handleGripInventoryGesture(m_LeftControllerPosAbs, inventoryGripLeftDown, inventoryGripLeftJustPressed, false);
+    const bool consumedRight = handleGripInventoryGesture(m_RightControllerPosAbs, inventoryGripRightDown, inventoryGripRightJustPressed, true);
 
     // --- Suppress GRIP-bound SteamVR actions while inventory switching is happening ---
-    const bool suppressFromLeftGrip = inventoryGripActiveLeft;
-    const bool suppressFromRightGrip = inventoryGripActiveRight;
+    if (consumedLeft)
+        m_SuppressActionsUntilGripReleaseLeft = true;
+    if (consumedRight)
+        m_SuppressActionsUntilGripReleaseRight = true;
+
+    if (!inventoryGripLeftDown)
+        m_SuppressActionsUntilGripReleaseLeft = false;
+    if (!inventoryGripRightDown)
+        m_SuppressActionsUntilGripReleaseRight = false;
 
     auto originMatchesRole = [&](vr::VRInputValueHandle_t origin, vr::ETrackedControllerRole role) -> bool
     {
@@ -2116,65 +2118,54 @@ void VR::ProcessInput()
         return info.trackedDeviceIndex == roleIndex;
     };
 
-    auto originIsGrip = [&](vr::VRInputValueHandle_t origin) -> bool
+    auto suppressIfNeeded = [&](const vr::InputDigitalActionData_t& data,
+        vr::ETrackedControllerRole role,
+        bool suppressEnabled,
+        bool& down,
+        bool& justPressed)
     {
-        if (origin == vr::k_ulInvalidInputValueHandle)
-            return false;
-        return (origin == m_GripSourceLeft) || (origin == m_GripSourceRight);
+        if (!suppressEnabled)
+            return;
+        if (!data.bActive)
+            return;
+        if (!down && !justPressed)
+            return;
+
+        if (originMatchesRole(data.activeOrigin, role))
+        {
+            down = false;
+            justPressed = false;
+        }
     };
 
-    auto shouldSuppressAction = [&](const vr::InputDigitalActionData_t& data) -> bool
+    suppressIfNeeded(jumpActionData, vr::TrackedControllerRole_LeftHand, m_SuppressActionsUntilGripReleaseLeft, jumpButtonDown, jumpJustPressed);
+    suppressIfNeeded(jumpActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, jumpButtonDown, jumpJustPressed);
+
+    suppressIfNeeded(useActionData, vr::TrackedControllerRole_LeftHand, m_SuppressActionsUntilGripReleaseLeft, useButtonDown, useJustPressed);
+    suppressIfNeeded(useActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, useButtonDown, useJustPressed);
+
+    if (reloadDataValid)
     {
-        if (!data.bActive || !data.bState)
-            return false;
-
-        // Only suppress actions that are really coming from GRIP.
-        if (!originIsGrip(data.activeOrigin))
-            return false;
-
-        if (suppressFromLeftGrip && originMatchesRole(data.activeOrigin, vr::TrackedControllerRole_LeftHand))
-            return true;
-        if (suppressFromRightGrip && originMatchesRole(data.activeOrigin, vr::TrackedControllerRole_RightHand))
-            return true;
-        return false;
-    };
-
-    if (shouldSuppressAction(jumpActionData))
-    {
-        jumpButtonDown = false;
-        jumpJustPressed = false;
+        suppressIfNeeded(reloadActionData, vr::TrackedControllerRole_LeftHand, m_SuppressActionsUntilGripReleaseLeft, reloadButtonDown, reloadJustPressed);
+        suppressIfNeeded(reloadActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, reloadButtonDown, reloadJustPressed);
     }
 
-    if (shouldSuppressAction(useActionData))
+    if (crouchDataValid)
     {
-        useButtonDown = false;
-        useJustPressed = false;
+        suppressIfNeeded(crouchActionData, vr::TrackedControllerRole_LeftHand, m_SuppressActionsUntilGripReleaseLeft, crouchButtonDown, crouchJustPressed);
+        suppressIfNeeded(crouchActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, crouchButtonDown, crouchJustPressed);
     }
 
-    const bool suppressReload = reloadDataValid && shouldSuppressAction(reloadActionData);
-    if (suppressReload)
+    if (flashlightDataValid)
     {
-        reloadButtonDown = false;
-        reloadJustPressed = false;
+        suppressIfNeeded(flashlightActionData, vr::TrackedControllerRole_LeftHand, m_SuppressActionsUntilGripReleaseLeft, flashlightButtonDown, flashlightJustPressed);
+        suppressIfNeeded(flashlightActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, flashlightButtonDown, flashlightJustPressed);
     }
 
-    const bool suppressCrouch = crouchDataValid && shouldSuppressAction(crouchActionData);
-    if (suppressCrouch)
+    if (resetDataValid)
     {
-        crouchButtonDown = false;
-        crouchJustPressed = false;
-    }
-
-    if (flashlightDataValid && shouldSuppressAction(flashlightActionData))
-    {
-        flashlightButtonDown = false;
-        flashlightJustPressed = false;
-    }
-
-    if (resetDataValid && shouldSuppressAction(resetActionData))
-    {
-        resetButtonDown = false;
-        resetJustPressed = false;
+        suppressIfNeeded(resetActionData, vr::TrackedControllerRole_LeftHand, m_SuppressActionsUntilGripReleaseLeft, resetButtonDown, resetJustPressed);
+        suppressIfNeeded(resetActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, resetButtonDown, resetJustPressed);
     }
 
     if (m_SingleHandedMode && crouchJustPressed)
