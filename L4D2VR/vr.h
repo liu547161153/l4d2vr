@@ -275,6 +275,13 @@ public:
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
 	bool m_PrimaryAttackDown = false;
+	bool m_LeftGripPressedPrev = false;
+	bool m_RightGripPressedPrev = false;
+
+	// When GRIP is consumed for inventory switching, suppress SteamVR digital actions from that hand
+	// until GRIP is released (prevents GRIP-bound Jump etc).
+	bool m_SuppressActionsUntilGripReleaseLeft = false;
+	bool m_SuppressActionsUntilGripReleaseRight = false;
 
 	struct ActionCombo
 	{
