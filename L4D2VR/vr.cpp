@@ -594,8 +594,10 @@ void VR::SubmitVRTextures()
         };
     auto applyRearMirrorTexture = [&](vr::VROverlayHandle_t overlay)
         {
-            static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
-            vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
+            vr::VRTextureBounds_t bounds{ 0.0f, 0.0f, 1.0f, 1.0f };
+            if (m_RearMirrorFlipHorizontal)
+                std::swap(bounds.uMin, bounds.uMax);
+            vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
         };
 
@@ -5550,6 +5552,7 @@ void VR::ParseConfigFile()
         m_RearMirrorOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
     }
     m_RearMirrorAlpha = std::clamp(getFloat("RearMirrorAlpha", m_RearMirrorAlpha), 0.0f, 1.0f);
+    m_RearMirrorFlipHorizontal = getBool("RearMirrorFlipHorizontal", m_RearMirrorFlipHorizontal);
 
     // Hide the rear mirror when the aim line/ray intersects it (prevents blocking your view while aiming).
     m_RearMirrorHideWhenAimLineHits = getBool("RearMirrorHideWhenAimLineHits", m_RearMirrorHideWhenAimLineHits);
