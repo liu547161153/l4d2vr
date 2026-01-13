@@ -1741,44 +1741,6 @@ void VR::ProcessInput()
     bool flashlightJustPressed = false;
     bool flashlightDataValid = getActionState(&m_ActionFlashlight, flashlightActionData, flashlightButtonDown, flashlightJustPressed);
 
-    // --- Inventory switching: use RAW physical GRIP (works even if GRIP isn't bound to any SteamVR action) ---
-    bool inventoryGripLeftDown = false;
-    bool inventoryGripLeftJustPressed = false;
-    bool inventoryGripRightDown = false;
-    bool inventoryGripRightJustPressed = false;
-
-    auto pollRawGrip = [&](vr::ETrackedControllerRole role, bool& down, bool& justPressed, bool& prevState)
-        {
-            down = false;
-            justPressed = false;
-
-            if (!m_System)
-                return false;
-
-            vr::TrackedDeviceIndex_t deviceIndex = m_System->GetTrackedDeviceIndexForControllerRole(role);
-            if (deviceIndex == vr::k_unTrackedDeviceIndexInvalid)
-            {
-                prevState = false;
-                return false;
-            }
-
-            vr::VRControllerState_t state{};
-            if (!m_System->GetControllerState(deviceIndex, &state, sizeof(state)))
-            {
-                prevState = false;
-                return false;
-            }
-
-            const bool pressed = (state.ulButtonPressed & vr::ButtonMaskFromId(vr::k_EButton_Grip)) != 0;
-            down = pressed;
-            justPressed = pressed && !prevState;
-            prevState = pressed;
-            return true;
-        };
-
-    pollRawGrip(vr::TrackedControllerRole_LeftHand, inventoryGripLeftDown, inventoryGripLeftJustPressed, m_LeftGripPressedPrev);
-    pollRawGrip(vr::TrackedControllerRole_RightHand, inventoryGripRightDown, inventoryGripRightJustPressed, m_RightGripPressedPrev);
-
     vr::InputDigitalActionData_t autoAimToggleActionData{};
     [[maybe_unused]] bool autoAimToggleDown = false;
     bool autoAimToggleJustPressed = false;
@@ -1990,9 +1952,6 @@ void VR::ProcessInput()
         drawHudMarker(hudBase + (invRight * (1.5f * hudSep)), rightWaistAnchor, rightWaistActive);
     }
 
-    bool inventoryGripActiveLeft = false;
-    bool inventoryGripActiveRight = false;
-
     auto togglePrimarySecondary = [&]()
         {
             if (!localPlayer)
@@ -2039,67 +1998,6 @@ void VR::ProcessInput()
                 m_Game->ClientCmd_Unrestricted(targetSlotCmd);
         };
 
-    auto handleGripInventoryGesture = [&](const Vector& controllerPos, bool gripDown, bool gripJustPressed, bool isRightHand)
-        {
-            if (!gripDown)
-                return false;
-
-            const bool nearBack = isControllerNear(controllerPos, backAnchor, gestureRange);
-            const bool nearChest = isControllerNear(controllerPos, chestAnchor, chestGestureRange);
-            const bool nearLeftWaist = isControllerNear(controllerPos, leftWaistAnchor, gestureRange);
-            const bool nearRightWaist = isControllerNear(controllerPos, rightWaistAnchor, gestureRange);
-
-            if (!(nearBack || nearChest || nearLeftWaist || nearRightWaist))
-                return false;
-
-            if (isRightHand)
-                inventoryGripActiveRight = true;
-            else
-                inventoryGripActiveLeft = true;
-
-            if (!gripJustPressed)
-                return true;
-
-            if (nearBack)
-            {
-                togglePrimarySecondary();
-                return true;
-            }
-
-            if (nearLeftWaist)
-            {
-                m_Game->ClientCmd_Unrestricted("slot3");
-                return true;
-            }
-
-            if (nearChest)
-            {
-                m_Game->ClientCmd_Unrestricted("slot4");
-                return true;
-            }
-
-            if (nearRightWaist)
-            {
-                m_Game->ClientCmd_Unrestricted("slot5");
-            }
-
-            return true;
-        };
-
-    const bool consumedLeft = handleGripInventoryGesture(m_LeftControllerPosAbs, inventoryGripLeftDown, inventoryGripLeftJustPressed, false);
-    const bool consumedRight = handleGripInventoryGesture(m_RightControllerPosAbs, inventoryGripRightDown, inventoryGripRightJustPressed, true);
-
-    // --- Suppress GRIP-bound SteamVR actions while inventory switching is happening ---
-    if (consumedLeft)
-        m_SuppressActionsUntilGripReleaseLeft = true;
-    if (consumedRight)
-        m_SuppressActionsUntilGripReleaseRight = true;
-
-    if (!inventoryGripLeftDown)
-        m_SuppressActionsUntilGripReleaseLeft = false;
-    if (!inventoryGripRightDown)
-        m_SuppressActionsUntilGripReleaseRight = false;
-
     bool suppressReload = false;
     bool suppressCrouch = false;
 
@@ -2120,6 +2018,104 @@ void VR::ProcessInput()
 
             return info.trackedDeviceIndex == roleIndex;
         };
+
+    // --- Inventory switching: use SteamVR-bound buttons (Reload / Crouch) instead of RAW physical GRIP ---
+    // Press reload/crouch while your controller is near an inventory anchor to switch items.
+    // When consumed, we also swallow the button until release so it won't also reload/duck.
+    auto triggerInventoryAtPos = [&](const Vector& controllerPos) -> bool
+        {
+            const bool nearBack = isControllerNear(controllerPos, backAnchor, gestureRange);
+            const bool nearChest = isControllerNear(controllerPos, chestAnchor, chestGestureRange);
+            const bool nearLeftWaist = isControllerNear(controllerPos, leftWaistAnchor, gestureRange);
+            const bool nearRightWaist = isControllerNear(controllerPos, rightWaistAnchor, gestureRange);
+
+            if (!(nearBack || nearChest || nearLeftWaist || nearRightWaist))
+                return false;
+
+            if (nearBack)
+            {
+                togglePrimarySecondary();
+                return true;
+            }
+            if (nearLeftWaist)
+            {
+                m_Game->ClientCmd_Unrestricted("slot3");
+                return true;
+            }
+            if (nearChest)
+            {
+                m_Game->ClientCmd_Unrestricted("slot4");
+                return true;
+            }
+            if (nearRightWaist)
+            {
+                m_Game->ClientCmd_Unrestricted("slot5");
+                return true;
+            }
+            return false;
+        };
+
+    auto triggerInventoryFromOrigin = [&](vr::VRInputValueHandle_t origin) -> bool
+        {
+            if (originMatchesRole(origin, vr::TrackedControllerRole_RightHand))
+                return triggerInventoryAtPos(m_RightControllerPosAbs);
+            if (originMatchesRole(origin, vr::TrackedControllerRole_LeftHand))
+                return triggerInventoryAtPos(m_LeftControllerPosAbs);
+
+            // If origin can't be resolved, check both hands (prefer right).
+            if (triggerInventoryAtPos(m_RightControllerPosAbs))
+                return true;
+            return triggerInventoryAtPos(m_LeftControllerPosAbs);
+        };
+
+    static bool s_BlockReloadUntilRelease = false;
+    static bool s_BlockCrouchUntilRelease = false;
+
+    if (reloadDataValid && s_BlockReloadUntilRelease)
+    {
+        if (reloadActionData.bState)
+        {
+            reloadButtonDown = false;
+            reloadJustPressed = false;
+        }
+        else
+        {
+            s_BlockReloadUntilRelease = false;
+        }
+    }
+
+    if (crouchDataValid && s_BlockCrouchUntilRelease)
+    {
+        if (crouchActionData.bState)
+        {
+            crouchButtonDown = false;
+            crouchJustPressed = false;
+        }
+        else
+        {
+            s_BlockCrouchUntilRelease = false;
+        }
+    }
+
+    if (reloadDataValid && reloadJustPressed)
+    {
+        if (triggerInventoryFromOrigin(reloadActionData.activeOrigin))
+        {
+            reloadButtonDown = false;
+            reloadJustPressed = false;
+            s_BlockReloadUntilRelease = true;
+        }
+    }
+
+    if (crouchDataValid && crouchJustPressed)
+    {
+        if (triggerInventoryFromOrigin(crouchActionData.activeOrigin))
+        {
+            crouchButtonDown = false;
+            crouchJustPressed = false;
+            s_BlockCrouchUntilRelease = true;
+        }
+    }
 
     auto suppressIfNeeded = [&](const vr::InputDigitalActionData_t& data,
         vr::ETrackedControllerRole role,
