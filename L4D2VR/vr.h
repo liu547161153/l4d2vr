@@ -651,6 +651,9 @@ public:
 	QAngle m_RearMirrorOverlayAngleOffset = { 0.0f, 180.0f, 0.0f };
 	float  m_RearMirrorAlpha = 1.0f;
 
+	// If true, mirror the rear-mirror texture horizontally (left/right).
+	bool  m_RearMirrorFlipHorizontal = false;
+
 	// When the aim line/ray intersects the rear-mirror overlay in view, hide the mirror to avoid blocking aim.
 	bool  m_RearMirrorHideWhenAimLineHits = true;
 	float m_RearMirrorAimLineHideHoldSeconds = 0.08f;

@@ -940,6 +940,18 @@ Option g_Options[] =
 
     // Rear mirror
     {
+        "RearMirrorFlipHorizontal",
+        OptionType::Bool,
+        { u8"Rear Mirror", u8"后视镜" },
+        { u8"Flip Rear Mirror Horizontally", u8"后视镜左右翻转" },
+        { u8"Mirrors the rear-mirror texture left/right.",
+          u8"将后视镜画面做左右镜像翻转。" },
+        { u8"Useful if the mirror feels backward.",
+          u8"觉得画面方向别扭时开启。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
         "RearMirrorHideWhenAimLineHits",
         OptionType::Bool,
         { u8"Rear Mirror", u8"后视镜" },
