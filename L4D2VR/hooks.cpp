@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
-#include <algorithm> // std::clamp
+#include <algorithm> // std::clamp, std::max
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -56,43 +56,100 @@ static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pRetu
 	return iface;
 }
 
+static float Clamp01(float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); }
+
 static float OrthoScore3(const Vector& a, const Vector& b, const Vector& c)
 {
 	const float la = fabsf(a.Length() - 1.0f);
-    const float lb = fabsf(b.Length() - 1.0f);
-    const float lc = fabsf(c.Length() - 1.0f);
-    const float dab = fabsf(DotProduct(a, b));
-    const float dac = fabsf(DotProduct(a, c));
-    const float dbc = fabsf(DotProduct(b, c));
-    return la + lb + lc + dab + dac + dbc;
+	const float lb = fabsf(b.Length() - 1.0f);
+	const float lc = fabsf(c.Length() - 1.0f);
+	const float dab = fabsf(DotProduct(a, b));
+	const float dac = fabsf(DotProduct(a, c));
+	const float dbc = fabsf(DotProduct(b, c));
+	return la + lb + lc + dab + dac + dbc;
+}
+
+static void ExtractAxes3x3(const float* m, Vector& a0, Vector& a1, Vector& a2)
+{
+	// Try both common layouts and pick the one that looks more orthonormal.
+	Vector c0(m[0], m[1], m[2]);
+	Vector c1(m[4], m[5], m[6]);
+	Vector c2(m[8], m[9], m[10]);
+	const float scoreCols = OrthoScore3(c0, c1, c2);
+
+	Vector r0(m[0], m[4], m[8]);
+	Vector r1(m[1], m[5], m[9]);
+	Vector r2(m[2], m[6], m[10]);
+	const float scoreRows = OrthoScore3(r0, r1, r2);
+
+	if (scoreCols <= scoreRows)
+	{
+		a0 = c0; a1 = c1; a2 = c2;
+	}
+	else
+	{
+		a0 = r0; a1 = r1; a2 = r2;
+	}
+}
+
+static float TranslationMagnitudeGuess(const float* m)
+{
+	// View matrix translation could be in last column or last row depending on convention.
+	const float t1 = m[12] * m[12] + m[13] * m[13] + m[14] * m[14];
+	const float t2 = m[3] * m[3] + m[7] * m[7] + m[11] * m[11];
+	return sqrtf(std::max(t1, t2));
+}
+
+static float BestAxisMatchScore(const Vector& rr, const Vector& ru, const Vector& rf,
+	const Vector& a0, const Vector& a1, const Vector& a2)
+{
+	// We don't trust axis order/sign in the incoming matrix.
+	// Compute best score across 6 permutations, and allow forward sign flip.
+	const Vector axes[3] = { a0, a1, a2 };
+	const int perm[6][3] = {
+		{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}
+	};
+
+	float best = -1.0f;
+	for (int p = 0; p < 6; ++p)
+	{
+		const Vector& ar = axes[perm[p][0]];
+		const Vector& au = axes[perm[p][1]];
+		const Vector& af = axes[perm[p][2]];
+
+		const float sPos = fabsf(DotProduct(rr, ar)) + fabsf(DotProduct(ru, au)) + fabsf(DotProduct(rf, af));
+		const float sNeg = fabsf(DotProduct(rr, ar)) + fabsf(DotProduct(ru, au)) + fabsf(DotProduct(rf, Vector(-af.x, -af.y, -af.z)));
+		best = std::max(best, std::max(sPos, sNeg));
+	}
+	return best; // theoretical max = 3.0
 }
 
 static void PatchViewMatrixRotation(float out16[16], const float* in16, const QAngle& desiredAngles)
 {
-    // Copy input as base (keep translation untouched).
-    memcpy(out16, in16, sizeof(float) * 16);
+	// Copy input as base (keep translation untouched).
+	memcpy(out16, in16, sizeof(float) * 16);
 
-    // Determine whether the basis is stored column-major-ish (0,1,2 / 4,5,6 / 8,9,10)
-    // or transposed (0,4,8 / 1,5,9 / 2,6,10). Pick the interpretation that looks most orthonormal.
-    Vector c0(in16[0], in16[1], in16[2]);
-    Vector c1(in16[4], in16[5], in16[6]);
-    Vector c2(in16[8], in16[9], in16[10]);
-    const float scoreCols = OrthoScore3(c0, c1, c2);
+	// Determine whether the basis is stored column-major-ish (0,1,2 / 4,5,6 / 8,9,10)
+	// or transposed (0,4,8 / 1,5,9 / 2,6,10). Pick the interpretation that looks most orthonormal.
+	Vector c0(in16[0], in16[1], in16[2]);
+	Vector c1(in16[4], in16[5], in16[6]);
+	Vector c2(in16[8], in16[9], in16[10]);
+	const float scoreCols = OrthoScore3(c0, c1, c2);
 
-    Vector r0(in16[0], in16[4], in16[8]);
-    Vector r1(in16[1], in16[5], in16[9]);
-    Vector r2(in16[2], in16[6], in16[10]);
-    const float scoreRows = OrthoScore3(r0, r1, r2);
+	Vector r0(in16[0], in16[4], in16[8]);
+	Vector r1(in16[1], in16[5], in16[9]);
+	Vector r2(in16[2], in16[6], in16[10]);
+	const float scoreRows = OrthoScore3(r0, r1, r2);
 
-    const bool useCols = (scoreCols <= scoreRows);
+	const bool useCols = (scoreCols <= scoreRows);
 
-    // Preserve handedness from original basis:
-    Vector b0 = useCols ? c0 : r0;
-    Vector b1 = useCols ? c1 : r1;
-    Vector b2 = useCols ? c2 : r2;
-    Vector cross01;
-    CrossProduct(b0, b1, cross01);
-    const float handed = DotProduct(cross01, b2); // >0 => b2 ~ cross(b0,b1); <0 => b2 ~ -cross
+	// Preserve handedness from original basis:
+	Vector b0 = useCols ? c0 : r0;
+	Vector b1 = useCols ? c1 : r1;
+	Vector b2 = useCols ? c2 : r2;
+	Vector cross01;
+	CrossProduct(b0, b1, cross01);
+	const float handed = DotProduct(cross01, b2); // >0 => b2 ~ cross(b0,b1); <0 => b2 ~ -cross
 
 	// Build new basis from angles (use right/up, then derive b2 via cross to match handedness)
 	Vector forward, right, up;
@@ -104,27 +161,27 @@ static void PatchViewMatrixRotation(float out16[16], const float* in16, const QA
 	const float ul = up.Length();
 	if (ul > 1e-6f) { up.x /= ul; up.y /= ul; up.z /= ul; }
 
-    Vector newB2;
-    CrossProduct(right, up, newB2);
-    if (handed < 0.0f)
-    {
-        newB2.x = -newB2.x;
-        newB2.y = -newB2.y;
-        newB2.z = -newB2.z;
-    }
+	Vector newB2;
+	CrossProduct(right, up, newB2);
+	if (handed < 0.0f)
+	{
+		newB2.x = -newB2.x;
+		newB2.y = -newB2.y;
+		newB2.z = -newB2.z;
+	}
 
-    if (useCols)
-    {
-        out16[0] = right.x; out16[1] = right.y; out16[2] = right.z;
-        out16[4] = up.x;    out16[5] = up.y;    out16[6] = up.z;
-        out16[8] = newB2.x; out16[9] = newB2.y; out16[10] = newB2.z;
-    }
-    else
-    {
-        out16[0] = right.x; out16[4] = right.y; out16[8]  = right.z;
-        out16[1] = up.x;    out16[5] = up.y;    out16[9]  = up.z;
-        out16[2] = newB2.x; out16[6] = newB2.y; out16[10] = newB2.z;
-    }
+	if (useCols)
+	{
+		out16[0] = right.x; out16[1] = right.y; out16[2] = right.z;
+		out16[4] = up.x;    out16[5] = up.y;    out16[6] = up.z;
+		out16[8] = newB2.x; out16[9] = newB2.y; out16[10] = newB2.z;
+	}
+	else
+	{
+		out16[0] = right.x; out16[4] = right.y; out16[8]  = right.z;
+		out16[1] = up.x;    out16[5] = up.y;    out16[9]  = up.z;
+		out16[2] = newB2.x; out16[6] = newB2.y; out16[10] = newB2.z;
+	}
 }
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
@@ -669,8 +726,11 @@ void Hooks::InitRenderThreadCameraFixHooks()
 
 void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMode_t mode)
 {
+    // Source may call MatrixMode(MATERIAL_VIEW) many times per frame.
+    // Only reset the latch when transitioning INTO view mode, otherwise we can patch/pop repeatedly.
+    const MaterialMatrixMode_t prev = g_TlsMatrixMode;
     g_TlsMatrixMode = mode;
-    if (mode == MATERIAL_VIEW)
+    if (mode == MATERIAL_VIEW && prev != MATERIAL_VIEW)
         g_TlsUsedFirstViewLoad = false;
 
     if (g_OrigShader_MatrixMode)
@@ -682,25 +742,57 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
     // Only apply once per view (first LoadMatrix while in MATERIAL_VIEW).
     if (matrix && g_TlsMatrixMode == MATERIAL_VIEW && !g_TlsUsedFirstViewLoad && m_VR && m_VR->m_RenderThreadViewMatrixFixEnabled)
     {
-        QAngle nextAngles{};
-        bool haveAngles = false;
+        // Filter 1: skip matrices that look like HUD/2D (near-zero translation).
+        // This avoids rotating HUD view matrices and causing flicker.
+        const float tmag = TranslationMagnitudeGuess(matrix);
+        if (tmag > 0.01f)
         {
-            std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
-            if (!g_RenderThreadViewAnglesQueue.empty())
+            // Peek queue front WITHOUT popping; only consume if it matches this view.
+            QAngle cand{};
+            bool haveCand = false;
             {
-                nextAngles = g_RenderThreadViewAnglesQueue.front();
-                g_RenderThreadViewAnglesQueue.pop_front();
-                haveAngles = true;
+                std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
+                if (!g_RenderThreadViewAnglesQueue.empty())
+                {
+                    cand = g_RenderThreadViewAnglesQueue.front();
+                    haveCand = true;
+                }
             }
-        }
 
-        if (haveAngles)
-        {
-            float patched[16];
-            PatchViewMatrixRotation(patched, matrix, nextAngles);
-            g_TlsUsedFirstViewLoad = true;
-            g_OrigShader_LoadMatrix(ecx, patched);
-            return;
+            if (haveCand)
+            {
+                Vector fwd, rr, ru;
+                QAngle::AngleVectors(cand, &fwd, &rr, &ru);
+
+                Vector a0, a1, a2;
+                ExtractAxes3x3(matrix, a0, a1, a2);
+
+                const float score = BestAxisMatchScore(rr, ru, fwd, a0, a1, a2);
+
+                // Heuristic threshold:
+                // - 3.0 means perfect match
+                // - ~2.7 is already very close
+                // Too low => shadow/reflection cameras may consume queue.
+                if (score >= 2.70f)
+                {
+                    // Now we can safely pop+patch
+                    QAngle nextAngles{};
+                    {
+                        std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
+                        if (!g_RenderThreadViewAnglesQueue.empty())
+                        {
+                            nextAngles = g_RenderThreadViewAnglesQueue.front();
+                            g_RenderThreadViewAnglesQueue.pop_front();
+                        }
+                    }
+
+                    float patched[16];
+                    PatchViewMatrixRotation(patched, matrix, nextAngles);
+                    g_TlsUsedFirstViewLoad = true;
+                    g_OrigShader_LoadMatrix(ecx, patched);
+                    return;
+                }
+            }
         }
     }
 
