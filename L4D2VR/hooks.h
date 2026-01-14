@@ -184,6 +184,8 @@ public:
 
 	// --- Render thread camera fix (mat_queue_mode 2) ---
 	static void InitRenderThreadCameraFixHooks();
+	static bool IsRenderThreadCameraFixInstalled();
+	static bool IsRenderThreadCameraFixHealthy();
 	static void QueueRenderThreadViewAngles(const QAngle& angles);
 
 	// Try install shaderapi vtable hooks from a CreateInterface result.
