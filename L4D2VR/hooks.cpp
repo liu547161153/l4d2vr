@@ -14,6 +14,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <deque>
+#include <mutex>
 #include <atomic>
 
 // ------------------------------------------------------------
@@ -36,6 +38,21 @@ static std::mutex g_RenderThreadViewAnglesMutex;
 static Hooks::tShaderMatrixMode g_OrigShader_MatrixMode = nullptr;
 static Hooks::tShaderLoadMatrix g_OrigShader_LoadMatrix = nullptr;
 static bool g_RenderThreadCameraFixHooksInstalled = false;
+static void* g_ShaderMatrixModeTarget = nullptr;
+static void* g_ShaderLoadMatrixTarget = nullptr;
+static int g_ShaderMatrixModeIndex = -1;
+static int g_ShaderLoadMatrixIndex = -1;
+static void* g_CachedShaderApiIface = nullptr;
+static int g_ShaderVtableCandidateCursor = 0;
+static const int g_ShaderApiVtableCandidates[][2] = {
+	{15, 18},
+	{16, 19},
+	{14, 17},
+	{17, 20},
+	{13, 16}
+};
+static const int g_ShaderApiVtableCandidateCount =
+	static_cast<int>(sizeof(g_ShaderApiVtableCandidates) / sizeof(g_ShaderApiVtableCandidates[0]));
 
 // Hook shaderapidx9!CreateInterface so we can discover real interface names in this branch.
 typedef void* (*CreateInterfaceFn)(const char* pName, int* pReturnCode);
@@ -53,6 +70,71 @@ static thread_local uint32_t g_TlsMatrixRingIndex = 0;
 
 static std::atomic<bool> g_RenderThreadPatchDisabled{ false };
 static std::atomic<bool> g_RenderThreadPatchDisabledLogged{ false };
+static std::atomic<int> g_RtFixMatrixModeValidCalls{ 0 };
+static std::atomic<int> g_RtFixLoadMatrixPlausibleCalls{ 0 };
+static std::atomic<unsigned int> g_RtFixMatrixModeMask{ 0 };
+static std::atomic<bool> g_RtFixValidated{ false };
+static std::atomic<bool> g_RtFixUnhookRequested{ false };
+
+static void RtFix_ResetValidation()
+{
+	g_RtFixMatrixModeValidCalls.store(0);
+	g_RtFixLoadMatrixPlausibleCalls.store(0);
+	g_RtFixMatrixModeMask.store(0);
+	g_RtFixValidated.store(false);
+	g_RenderThreadPatchDisabled.store(false);
+	g_RenderThreadPatchDisabledLogged.store(false);
+}
+
+static void RtFix_MaybeMarkValidated()
+{
+	if (g_RtFixValidated.load() || g_RenderThreadPatchDisabled.load())
+		return;
+
+	const unsigned int mask = g_RtFixMatrixModeMask.load();
+	const bool sawCoreModes =
+		(mask & (1u << MATERIAL_VIEW)) &&
+		(mask & (1u << MATERIAL_PROJECTION)) &&
+		(mask & (1u << MATERIAL_MODEL));
+
+	if (sawCoreModes &&
+		g_RtFixMatrixModeValidCalls.load() >= 200 &&
+		g_RtFixLoadMatrixPlausibleCalls.load() >= 80)
+	{
+		if (!g_RtFixValidated.exchange(true))
+			Game::logMsg("RenderThreadViewMatrixFix: validated (MatrixMode=%d LoadMatrix=%d) - mat_queue_mode 2 can be enabled",
+				g_ShaderMatrixModeIndex, g_ShaderLoadMatrixIndex);
+	}
+}
+
+static void RtFix_RequestUnhook()
+{
+	g_RtFixUnhookRequested.store(true);
+	g_RenderThreadPatchDisabled.store(true);
+}
+
+static void RtFix_UnhookNow()
+{
+	if (g_ShaderMatrixModeTarget)
+	{
+		MH_DisableHook(g_ShaderMatrixModeTarget);
+		MH_RemoveHook(g_ShaderMatrixModeTarget);
+	}
+	if (g_ShaderLoadMatrixTarget)
+	{
+		MH_DisableHook(g_ShaderLoadMatrixTarget);
+		MH_RemoveHook(g_ShaderLoadMatrixTarget);
+	}
+
+	g_ShaderMatrixModeTarget = nullptr;
+	g_ShaderLoadMatrixTarget = nullptr;
+	g_OrigShader_MatrixMode = nullptr;
+	g_OrigShader_LoadMatrix = nullptr;
+	g_RenderThreadCameraFixHooksInstalled = false;
+	g_ShaderMatrixModeIndex = -1;
+	g_ShaderLoadMatrixIndex = -1;
+	RtFix_ResetValidation();
+}
 
 static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pReturnCode)
 {
@@ -60,6 +142,7 @@ static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pRetu
 	if (iface && !g_RenderThreadCameraFixHooksInstalled && Hooks::m_VR && Hooks::m_VR->m_RenderThreadViewMatrixFixEnabled)
 	{
 		Game::logMsg("shaderapidx9 CreateInterface: %s -> %p", pName ? pName : "(null)", iface);
+		g_CachedShaderApiIface = iface;
 		Hooks::TryInstallShaderApiHooks(iface);
 	}
 	return iface;
@@ -617,10 +700,20 @@ bool Hooks::TryInstallShaderApiHooks(void* shaderApiIface)
 	if (!vtable)
 		return false;
 
-	// Most Source1 branches put IShaderDynamicAPI::MatrixMode / LoadMatrix roughly here.
-	// If your branch differs, we'll log and you can adjust by code later.
-	const int kMatrixModeIndex = 15;
-	const int kLoadMatrixIndex = 18;
+	g_CachedShaderApiIface = shaderApiIface;
+
+	const int kConfigMatrixIndex = (m_VR ? m_VR->m_RenderThreadViewMatrixFixMatrixModeIndex : -1);
+	const int kConfigLoadIndex = (m_VR ? m_VR->m_RenderThreadViewMatrixFixLoadMatrixIndex : -1);
+
+	const bool useAutoProbe = (kConfigMatrixIndex < 0 || kConfigLoadIndex < 0);
+	if (useAutoProbe && g_ShaderVtableCandidateCursor >= g_ShaderApiVtableCandidateCount)
+		return false;
+
+	const int kMatrixModeIndex = useAutoProbe ? g_ShaderApiVtableCandidates[g_ShaderVtableCandidateCursor][0] : kConfigMatrixIndex;
+	const int kLoadMatrixIndex = useAutoProbe ? g_ShaderApiVtableCandidates[g_ShaderVtableCandidateCursor][1] : kConfigLoadIndex;
+
+	if (useAutoProbe)
+		Game::logMsg("RenderThreadViewMatrixFix: auto-probe trying vtable indices MatrixMode=%d LoadMatrix=%d", kMatrixModeIndex, kLoadMatrixIndex);
 
 	auto targetMatrixMode = reinterpret_cast<tShaderMatrixMode>(vtable[kMatrixModeIndex]);
 	auto targetLoadMatrix = reinterpret_cast<tShaderLoadMatrix>(vtable[kLoadMatrixIndex]);
@@ -647,6 +740,11 @@ bool Hooks::TryInstallShaderApiHooks(void* shaderApiIface)
 	MH_EnableHook(reinterpret_cast<LPVOID>(targetLoadMatrix));
 
 	g_RenderThreadCameraFixHooksInstalled = true;
+	g_ShaderMatrixModeTarget = reinterpret_cast<void*>(targetMatrixMode);
+	g_ShaderLoadMatrixTarget = reinterpret_cast<void*>(targetLoadMatrix);
+	g_ShaderMatrixModeIndex = kMatrixModeIndex;
+	g_ShaderLoadMatrixIndex = kLoadMatrixIndex;
+	RtFix_ResetValidation();
 	Game::logMsg("RenderThreadViewMatrixFixEnabled: shaderapi vtable hooks installed (MatrixMode=%d LoadMatrix=%d)", kMatrixModeIndex, kLoadMatrixIndex);
 	return true;
 }
@@ -664,10 +762,28 @@ void Hooks::QueueRenderThreadViewAngles(const QAngle& angles)
 
 void Hooks::InitRenderThreadCameraFixHooks()
 {
-	if (g_RenderThreadCameraFixHooksInstalled)
-		return;
 	if (!m_VR || !m_VR->m_RenderThreadViewMatrixFixEnabled)
 		return;
+
+	if (g_RtFixUnhookRequested.exchange(false))
+	{
+		const bool useAutoProbe = (m_VR->m_RenderThreadViewMatrixFixMatrixModeIndex < 0 ||
+			m_VR->m_RenderThreadViewMatrixFixLoadMatrixIndex < 0);
+		RtFix_UnhookNow();
+		if (useAutoProbe)
+			++g_ShaderVtableCandidateCursor;
+	}
+
+	if (g_RenderThreadCameraFixHooksInstalled)
+		return;
+
+	const bool useAutoProbe = (m_VR->m_RenderThreadViewMatrixFixMatrixModeIndex < 0 ||
+		m_VR->m_RenderThreadViewMatrixFixLoadMatrixIndex < 0);
+	if (useAutoProbe && g_ShaderVtableCandidateCursor >= g_ShaderApiVtableCandidateCount)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: exhausted shaderapi vtable candidates (camera fix disabled)");
+		return;
+	}
 
 	// Ensure module loaded
 	g_hShaderapidx9 = GetModuleHandleA("shaderapidx9.dll");
@@ -701,6 +817,22 @@ void Hooks::InitRenderThreadCameraFixHooks()
 
 	// Brute force interface discovery (do NOT guess one name).
 	// Try common Source naming schemes until we find something.
+	if (g_CachedShaderApiIface)
+	{
+		for (int attempt = 0; attempt < g_ShaderApiVtableCandidateCount && !g_RenderThreadCameraFixHooksInstalled; ++attempt)
+		{
+			if (!TryInstallShaderApiHooks(g_CachedShaderApiIface))
+			{
+				if (useAutoProbe)
+					++g_ShaderVtableCandidateCursor;
+				continue;
+			}
+		}
+	}
+
+	if (!useAutoProbe && g_RenderThreadCameraFixHooksInstalled)
+		return;
+
 	char name[64];
 	for (int i = 0; i <= 99 && !g_RenderThreadCameraFixHooksInstalled; ++i)
 	{
@@ -708,10 +840,15 @@ void Hooks::InitRenderThreadCameraFixHooks()
 		std::snprintf(name, sizeof(name), "ShaderApi%03d", i);
 		if (void* iface = ci(name, nullptr))
 		{
-			if (TryInstallShaderApiHooks(iface))
+			for (int attempt = 0; attempt < g_ShaderApiVtableCandidateCount && !g_RenderThreadCameraFixHooksInstalled; ++attempt)
 			{
+				if (!TryInstallShaderApiHooks(iface))
+				{
+					if (useAutoProbe)
+						++g_ShaderVtableCandidateCursor;
+					continue;
+				}
 				Game::logMsg("RenderThreadViewMatrixFixEnabled: found interface %s", name);
-				break;
 			}
 		}
 
@@ -719,10 +856,15 @@ void Hooks::InitRenderThreadCameraFixHooks()
 		std::snprintf(name, sizeof(name), "ShaderAPI%03d", i);
 		if (void* iface = ci(name, nullptr))
 		{
-			if (TryInstallShaderApiHooks(iface))
+			for (int attempt = 0; attempt < g_ShaderApiVtableCandidateCount && !g_RenderThreadCameraFixHooksInstalled; ++attempt)
 			{
+				if (!TryInstallShaderApiHooks(iface))
+				{
+					if (useAutoProbe)
+						++g_ShaderVtableCandidateCursor;
+					continue;
+				}
 				Game::logMsg("RenderThreadViewMatrixFixEnabled: found interface %s", name);
-				break;
 			}
 		}
 	}
@@ -740,7 +882,7 @@ bool Hooks::IsRenderThreadCameraFixInstalled()
 
 bool Hooks::IsRenderThreadCameraFixHealthy()
 {
-	return g_RenderThreadCameraFixHooksInstalled && !g_RenderThreadPatchDisabled.load();
+	return g_RenderThreadCameraFixHooksInstalled && g_RtFixValidated.load() && !g_RenderThreadPatchDisabled.load();
 }
 
 void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMode_t mode)
@@ -749,10 +891,16 @@ void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMo
 	// Disable patching rather than corrupting matrices.
 	if ((int)mode < (int)MATERIAL_VIEW || (int)mode > (int)MATERIAL_TEXTURE7)
 	{
-		g_RenderThreadPatchDisabled.store(true);
 		if (!g_RenderThreadPatchDisabledLogged.exchange(true))
-			Game::logMsg("[ERROR] RenderThreadViewMatrixFix: MatrixMode got invalid mode=%d, disabling patch", (int)mode);
+			Game::logMsg("[ERROR] RenderThreadViewMatrixFix: MatrixMode got invalid mode=%d, scheduling hook retry", (int)mode);
+		RtFix_RequestUnhook();
+		if (g_OrigShader_MatrixMode)
+			g_OrigShader_MatrixMode(ecx, mode);
+		return;
 	}
+
+	g_RtFixMatrixModeValidCalls.fetch_add(1);
+	g_RtFixMatrixModeMask.fetch_or(1u << mode);
 
 	// Source may call MatrixMode(MATERIAL_VIEW) many times per frame.
 	// Only reset the latch when transitioning INTO view mode, otherwise we can patch/pop repeatedly.
@@ -763,6 +911,8 @@ void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMo
 
 	if (g_OrigShader_MatrixMode)
 		g_OrigShader_MatrixMode(ecx, mode);
+
+	RtFix_MaybeMarkValidated();
 }
 
 void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* matrix)
@@ -777,12 +927,15 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
 		if (!std::isfinite(matrix[0]) || !std::isfinite(matrix[5]) || !std::isfinite(matrix[10]) || !std::isfinite(matrix[15]) ||
 			fabsf(matrix[15]) < 0.5f || fabsf(matrix[15]) > 1.5f)
 		{
-			g_RenderThreadPatchDisabled.store(true);
 			if (!g_RenderThreadPatchDisabledLogged.exchange(true))
-				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got non-plausible matrix (m15=%f), disabling patch", matrix[15]);
+				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got non-plausible matrix (m15=%f), scheduling hook retry", matrix[15]);
+			RtFix_RequestUnhook();
 		}
 		if (g_RenderThreadPatchDisabled.load())
 			goto passthrough;
+
+		++g_RtFixLoadMatrixPlausibleCalls;
+		RtFix_MaybeMarkValidated();
 
 		// Filter 1: skip matrices that look like HUD/2D (near-zero translation).
 		// This avoids rotating HUD view matrices and causing flicker.

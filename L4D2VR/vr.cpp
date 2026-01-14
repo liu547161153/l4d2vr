@@ -5466,9 +5466,19 @@ void VR::ParseConfigFile()
     // temporarily changing engine view angles on the main thread.
     const bool prevRTFix = m_RenderThreadViewMatrixFixEnabled;
     m_RenderThreadViewMatrixFixEnabled = getBool("RenderThreadViewMatrixFixEnabled", m_RenderThreadViewMatrixFixEnabled);
+    const int prevMM = m_RenderThreadViewMatrixFixMatrixModeIndex;
+    const int prevLM = m_RenderThreadViewMatrixFixLoadMatrixIndex;
+    m_RenderThreadViewMatrixFixMatrixModeIndex = getInt("RenderThreadViewMatrixFixMatrixModeIndex", m_RenderThreadViewMatrixFixMatrixModeIndex);
+    m_RenderThreadViewMatrixFixLoadMatrixIndex = getInt("RenderThreadViewMatrixFixLoadMatrixIndex", m_RenderThreadViewMatrixFixLoadMatrixIndex);
     if (m_RenderThreadViewMatrixFixEnabled && !prevRTFix)
     {
         // One-shot request; Update() will do the actual ClientCmd on the main thread.
+        m_ForceMatQueueMode2Pending = true;
+        m_ForceMatQueueMode2Done = false;
+    }
+    if (m_RenderThreadViewMatrixFixEnabled &&
+        (prevMM != m_RenderThreadViewMatrixFixMatrixModeIndex || prevLM != m_RenderThreadViewMatrixFixLoadMatrixIndex))
+    {
         m_ForceMatQueueMode2Pending = true;
         m_ForceMatQueueMode2Done = false;
     }
