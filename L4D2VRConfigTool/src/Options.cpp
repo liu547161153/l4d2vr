@@ -277,17 +277,42 @@ Option g_Options[] =
         0.8f, 1.2f,
         "1.0"
     },
-    // Performance / Rates
+    // Performance / Threading
     {
         "RenderThreadViewMatrixFixEnabled",
         OptionType::Bool,
-        { u8"Performance / Rates", u8"性能 / 频率" },
-        { u8"Render Thread Camera Fix (mat_queue_mode 2)", u8"渲染线程相机修复 (mat_queue_mode 2)" },
-        { u8"Allows using Source's render thread path (mat_queue_mode 2) without breaking VR view angles.",
-          u8"允许启用 Source 的渲染线程路径 (mat_queue_mode 2)，同时避免 VR 视角在渲染线程执行时错乱。" },
-        { u8"", u8"" },
+        { u8"Performance / Threading", u8"性能 / 多核渲染" },
+        { u8"Queued Rendering Camera Fix", u8"多核渲染相机修复" },
+        { u8"Enables a render-thread view-matrix fix so mat_queue_mode 2 (queued rendering) can be used safely.",
+          u8"启用渲染线程视图矩阵修复，使 mat_queue_mode 2（队列/多核渲染）可以更安全地使用。" },
+        { u8"If disabled, the mod will not force mat_queue_mode 2.",
+          u8"关闭后，模组不会强制开启 mat_queue_mode 2。" },
         0.0f, 0.0f,
         "true"
+    },
+    {
+        "RenderThreadViewMatrixFixMatrixModeIndex",
+        OptionType::Int,
+        { u8"Performance / Threading", u8"性能 / 多核渲染" },
+        { u8"ShaderApi MatrixMode VTable Index", u8"ShaderApi MatrixMode 虚表索引" },
+        { u8"Advanced override: vtable index for IShaderDynamicAPI::MatrixMode in shaderapidx9.",
+          u8"高级选项：shaderapidx9 中 IShaderDynamicAPI::MatrixMode 的虚表索引。" },
+        { u8"Set -1 for auto-probe. Only change if you know your engine branch indices.",
+          u8"设为 -1 表示自动探测。仅在你确定引擎分支索引时再改。" },
+        -1.0f, 80.0f,
+        "-1"
+    },
+    {
+        "RenderThreadViewMatrixFixLoadMatrixIndex",
+        OptionType::Int,
+        { u8"Performance / Threading", u8"性能 / 多核渲染" },
+        { u8"ShaderApi LoadMatrix VTable Index", u8"ShaderApi LoadMatrix 虚表索引" },
+        { u8"Advanced override: vtable index for IShaderDynamicAPI::LoadMatrix in shaderapidx9.",
+          u8"高级选项：shaderapidx9 中 IShaderDynamicAPI::LoadMatrix 的虚表索引。" },
+        { u8"Set -1 for auto-probe. Only change if you know your engine branch indices.",
+          u8"设为 -1 表示自动探测。仅在你确定引擎分支索引时再改。" },
+        -1.0f, 80.0f,
+        "-1"
     },
     // Input / Turning
     {

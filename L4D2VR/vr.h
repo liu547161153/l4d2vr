@@ -218,6 +218,10 @@ public:
 	// Enable render-thread camera fix so mat_queue_mode 2 can be used.
 	// Main thread no longer needs to temporarily SetViewAngles() around RenderView.
 	bool m_RenderThreadViewMatrixFixEnabled = true;
+	// Advanced: shaderapidx9 IShaderDynamicAPI vtable indices for MatrixMode / LoadMatrix.
+	// -1 means auto-probe. Only change if auto-probe fails on your engine branch.
+	int m_RenderThreadViewMatrixFixMatrixModeIndex = -1;
+	int m_RenderThreadViewMatrixFixLoadMatrixIndex = -1;
 
 	// When RenderThreadViewMatrixFixEnabled is enabled, we try to force mat_queue_mode 2
 	// on the main thread (EngineClient is not thread-safe on worker threads).
