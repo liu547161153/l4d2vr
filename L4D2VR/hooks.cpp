@@ -17,6 +17,9 @@
 #include <deque>
 #include <mutex>
 #include <atomic>
+#include <psapi.h>
+
+#pragma comment(lib, "psapi.lib")
 
 // ------------------------------------------------------------
 // Render-thread camera fix (mat_queue_mode 2)
@@ -44,12 +47,15 @@ static int g_ShaderMatrixModeIndex = -1;
 static int g_ShaderLoadMatrixIndex = -1;
 static void* g_CachedShaderApiIface = nullptr;
 static int g_ShaderVtableCandidateCursor = 0;
+// Broader candidate set for different engine branches.
+// Pair = (MatrixModeIndex, LoadMatrixIndex)
 static const int g_ShaderApiVtableCandidates[][2] = {
-	{15, 18},
-	{16, 19},
-	{14, 17},
-	{17, 20},
-	{13, 16}
+	// delta=3 (most common)
+	{10, 13}, {11, 14}, {12, 15}, {13, 16}, {14, 17}, {15, 18}, {16, 19}, {17, 20}, {18, 21}, {19, 22}, {20, 23}, {21, 24}, {22, 25},
+	// delta=2 variants
+	{10, 12}, {11, 13}, {12, 14}, {13, 15}, {14, 16}, {15, 17}, {16, 18}, {17, 19}, {18, 20}, {19, 21},
+	// delta=4 variants
+	{10, 14}, {11, 15}, {12, 16}, {13, 17}, {14, 18}, {15, 19}, {16, 20}, {17, 21},
 };
 static const int g_ShaderApiVtableCandidateCount =
 	static_cast<int>(sizeof(g_ShaderApiVtableCandidates) / sizeof(g_ShaderApiVtableCandidates[0]));
@@ -75,6 +81,10 @@ static std::atomic<int> g_RtFixLoadMatrixPlausibleCalls{ 0 };
 static std::atomic<unsigned int> g_RtFixMatrixModeMask{ 0 };
 static std::atomic<bool> g_RtFixValidated{ false };
 static std::atomic<bool> g_RtFixUnhookRequested{ false };
+
+static float OrthoScore3(const Vector& a, const Vector& b, const Vector& c);
+static void ExtractAxes3x3(const float* m, Vector& a0, Vector& a1, Vector& a2);
+static float TranslationMagnitudeGuess(const float* m);
 
 static void RtFix_ResetValidation()
 {
@@ -134,6 +144,76 @@ static void RtFix_UnhookNow()
 	g_ShaderMatrixModeIndex = -1;
 	g_ShaderLoadMatrixIndex = -1;
 	RtFix_ResetValidation();
+}
+
+static bool RtFix_IsExecutablePtr(const void* p)
+{
+	if (!p) return false;
+	MEMORY_BASIC_INFORMATION mbi{};
+	if (!VirtualQuery(p, &mbi, sizeof(mbi))) return false;
+	if (mbi.State != MEM_COMMIT) return false;
+	const DWORD prot = (mbi.Protect & 0xFF);
+	return prot == PAGE_EXECUTE || prot == PAGE_EXECUTE_READ || prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY;
+}
+
+static bool RtFix_GetModuleRange(HMODULE hMod, uintptr_t& outBase, uintptr_t& outEnd)
+{
+	outBase = 0; outEnd = 0;
+	if (!hMod) return false;
+	MODULEINFO mi{};
+	if (!GetModuleInformation(GetCurrentProcess(), hMod, &mi, sizeof(mi)))
+		return false;
+	outBase = reinterpret_cast<uintptr_t>(mi.lpBaseOfDll);
+	outEnd = outBase + static_cast<uintptr_t>(mi.SizeOfImage);
+	return true;
+}
+
+static bool RtFix_IsAddrInModule(const void* p, HMODULE hMod)
+{
+	uintptr_t base = 0, end = 0;
+	if (!RtFix_GetModuleRange(hMod, base, end)) return false;
+	const uintptr_t a = reinterpret_cast<uintptr_t>(p);
+	return a >= base && a < end;
+}
+
+static bool RtFix_SafeCopy16(const float* src, float out[16])
+{
+	__try
+	{
+		// copy as floats; SEH will catch unreadable pointers
+		for (int i = 0; i < 16; ++i)
+			out[i] = src[i];
+		return true;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return false;
+	}
+}
+
+static bool RtFix_IsPlausibleViewMatrix16(const float m[16])
+{
+	// All finite + reasonable magnitude (hook-wrong often produces INF/NaN or huge junk)
+	for (int i = 0; i < 16; ++i)
+	{
+		if (!std::isfinite(m[i])) return false;
+		if (fabsf(m[i]) > 10000.0f) return false;
+	}
+
+	// Affine-ish last element should be ~1 (or -1 in some conventions, but Source view matrices are usually +1)
+	if (fabsf(m[15]) < 0.5f || fabsf(m[15]) > 1.5f) return false;
+
+	// Translation should not be astronomically large
+	const float tmag = TranslationMagnitudeGuess(m);
+	if (!std::isfinite(tmag) || tmag > 200000.0f) return false;
+
+	// Rotation part should be close to orthonormal
+	Vector a0, a1, a2;
+	ExtractAxes3x3(m, a0, a1, a2);
+	const float orthoScore = OrthoScore3(a0, a1, a2);
+	if (!std::isfinite(orthoScore) || orthoScore > 1.5f) return false;
+
+	return true;
 }
 
 static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pReturnCode)
@@ -720,6 +800,20 @@ bool Hooks::TryInstallShaderApiHooks(void* shaderApiIface)
 	if (!targetMatrixMode || !targetLoadMatrix)
 		return false;
 
+	// Sanity: both functions should be executable and belong to shaderapidx9.dll.
+	HMODULE hShader = g_hShaderapidx9 ? g_hShaderapidx9 : GetModuleHandleA("shaderapidx9.dll");
+	if (!RtFix_IsExecutablePtr(reinterpret_cast<void*>(targetMatrixMode)) ||
+		!RtFix_IsExecutablePtr(reinterpret_cast<void*>(targetLoadMatrix)))
+	{
+		return false;
+	}
+	if (hShader &&
+		(!RtFix_IsAddrInModule(reinterpret_cast<void*>(targetMatrixMode), hShader) ||
+		 !RtFix_IsAddrInModule(reinterpret_cast<void*>(targetLoadMatrix), hShader)))
+	{
+		return false;
+	}
+
 	if (MH_CreateHook(reinterpret_cast<LPVOID>(targetMatrixMode),
 		reinterpret_cast<LPVOID>(&Hooks::dShader_MatrixMode),
 		reinterpret_cast<LPVOID*>(&g_OrigShader_MatrixMode)) != MH_OK)
@@ -894,8 +988,7 @@ void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMo
 		if (!g_RenderThreadPatchDisabledLogged.exchange(true))
 			Game::logMsg("[ERROR] RenderThreadViewMatrixFix: MatrixMode got invalid mode=%d, scheduling hook retry", (int)mode);
 		RtFix_RequestUnhook();
-		if (g_OrigShader_MatrixMode)
-			g_OrigShader_MatrixMode(ecx, mode);
+		// If vtable indices are wrong, calling "original" with mismatched expectations can worsen corruption.
 		return;
 	}
 
@@ -922,24 +1015,32 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
 		g_TlsMatrixMode == MATERIAL_VIEW && !g_TlsUsedFirstViewLoad &&
 		m_VR && m_VR->m_RenderThreadViewMatrixFixEnabled)
 	{
-		// Extra sanity check: if this isn't a plausible 4x4 view matrix, we likely hooked wrong vtable indices.
-		// In that case disable patching to avoid corrupting rendering.
-		if (!std::isfinite(matrix[0]) || !std::isfinite(matrix[5]) || !std::isfinite(matrix[10]) || !std::isfinite(matrix[15]) ||
-			fabsf(matrix[15]) < 0.5f || fabsf(matrix[15]) > 1.5f)
+		// Copy matrix safely first; never trust the pointer while probing.
+		float m[16];
+		if (!RtFix_SafeCopy16(matrix, m))
 		{
 			if (!g_RenderThreadPatchDisabledLogged.exchange(true))
-				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got non-plausible matrix (m15=%f), scheduling hook retry", matrix[15]);
+				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got unreadable pointer=%p, scheduling hook retry", matrix);
 			RtFix_RequestUnhook();
+			return;
 		}
-		if (g_RenderThreadPatchDisabled.load())
-			goto passthrough;
+
+		// Strict plausibility check: wrong hook frequently produces absurd values like your m15=3e23
+		if (!RtFix_IsPlausibleViewMatrix16(m))
+		{
+			if (!g_RenderThreadPatchDisabledLogged.exchange(true))
+				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got non-plausible matrix (ptr=%p m15=%f m0=%f m5=%f m10=%f), scheduling hook retry",
+					matrix, m[15], m[0], m[5], m[10]);
+			RtFix_RequestUnhook();
+			return;
+		}
 
 		++g_RtFixLoadMatrixPlausibleCalls;
 		RtFix_MaybeMarkValidated();
 
 		// Filter 1: skip matrices that look like HUD/2D (near-zero translation).
 		// This avoids rotating HUD view matrices and causing flicker.
-		const float tmag = TranslationMagnitudeGuess(matrix);
+		const float tmag = TranslationMagnitudeGuess(m);
 		if (tmag > 0.01f)
 		{
 			// Peek queue front WITHOUT popping; only consume if it matches this view.
@@ -960,7 +1061,7 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
 				QAngle::AngleVectors(cand, &fwd, &rr, &ru);
 
 				Vector a0, a1, a2;
-				ExtractAxes3x3(matrix, a0, a1, a2);
+				ExtractAxes3x3(m, a0, a1, a2);
 
 				const float score = BestAxisMatchScore(rr, ru, fwd, a0, a1, a2);
 
@@ -983,7 +1084,7 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
 
 					// IMPORTANT: do NOT pass stack memory into LoadMatrix in queued mode.
 					float* stable = g_TlsMatrixRing[g_TlsMatrixRingIndex++ & 511];
-					PatchViewMatrixRotation(stable, matrix, nextAngles);
+					PatchViewMatrixRotation(stable, m, nextAngles);
 					g_TlsUsedFirstViewLoad = true;
 					g_OrigShader_LoadMatrix(ecx, stable);
 					return;
