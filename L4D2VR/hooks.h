@@ -1,5 +1,9 @@
 #pragma once
 #include <iostream>
+#include <deque>
+#include <mutex>
+#include <cstdint>
+#include <windows.h>
 #include "MinHook.h"
 
 class Game;
@@ -11,6 +15,23 @@ class QAngle;
 class Vector;
 class edict_t;
 class ModelRenderInfo_t;
+
+// Minimal materialsystem matrix-mode enum (matches Source SDK).
+// We only care about MATERIAL_VIEW for the render-thread camera fix.
+enum MaterialMatrixMode_t
+{
+    MATERIAL_VIEW = 0,
+    MATERIAL_PROJECTION,
+    MATERIAL_MODEL,
+    MATERIAL_TEXTURE0,
+    MATERIAL_TEXTURE1,
+    MATERIAL_TEXTURE2,
+    MATERIAL_TEXTURE3,
+    MATERIAL_TEXTURE4,
+    MATERIAL_TEXTURE5,
+    MATERIAL_TEXTURE6,
+    MATERIAL_TEXTURE7
+};
 
 
 template <typename T>
@@ -160,4 +181,19 @@ public:
 
 	static inline int m_PushHUDStep;
 	static inline bool m_PushedHud;
+
+	// --- Render thread camera fix (mat_queue_mode 2) ---
+	static void InitRenderThreadCameraFixHooks();
+	static void QueueRenderThreadViewAngles(const QAngle& angles);
+
+	// Try install shaderapi vtable hooks from a CreateInterface result.
+	// Returns true if hooks are installed.
+	static bool TryInstallShaderApiHooks(void* shaderApiIface);
+
+	// shaderapidx9 IShaderDynamicAPI vtable hooks
+	typedef void(__thiscall* tShaderMatrixMode)(void* thisptr, MaterialMatrixMode_t mode);
+	typedef void(__thiscall* tShaderLoadMatrix)(void* thisptr, const float* matrix);
+
+	static void __fastcall dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMode_t mode);
+	static void __fastcall dShader_LoadMatrix(void* ecx, void* edx, const float* matrix);
 };

@@ -403,6 +403,20 @@ void VR::Update()
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
 
+    // Enable Source's render thread path when requested.
+    // Must run on the main thread (EngineClient is not thread-safe).
+    if (m_RenderThreadViewMatrixFixEnabled && m_ForceMatQueueMode2Pending && !m_ForceMatQueueMode2Done)
+    {
+        // mat_queue_mode 2 = queued, render thread active.
+        // Note: some servers / configs may override this later; we only do a one-shot.
+        m_Game->m_EngineClient->ClientCmd_Unrestricted("mat_queue_mode 2\n");
+        m_ForceMatQueueMode2Done = true;
+        m_ForceMatQueueMode2Pending = false;
+        Game::logMsg("RenderThreadViewMatrixFixEnabled: forced mat_queue_mode 2");
+    }
+    if (m_RenderThreadViewMatrixFixEnabled && m_Game->m_Hooks)
+        Hooks::InitRenderThreadCameraFixHooks();
+
     if (m_IsVREnabled && g_D3DVR9)
     {
         // Prevents crashing at menu
@@ -5427,6 +5441,18 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
+
+    // Render thread / multi-core rendering (mat_queue_mode 2).
+    // This is a render-path fix: we patch the view matrix on the render thread instead of
+    // temporarily changing engine view angles on the main thread.
+    const bool prevRTFix = m_RenderThreadViewMatrixFixEnabled;
+    m_RenderThreadViewMatrixFixEnabled = getBool("RenderThreadViewMatrixFixEnabled", m_RenderThreadViewMatrixFixEnabled);
+    if (m_RenderThreadViewMatrixFixEnabled && !prevRTFix)
+    {
+        // One-shot request; Update() will do the actual ClientCmd on the main thread.
+        m_ForceMatQueueMode2Pending = true;
+        m_ForceMatQueueMode2Done = false;
+    }
 
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);

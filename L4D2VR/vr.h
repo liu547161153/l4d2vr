@@ -214,6 +214,16 @@ public:
 	float m_SpecialInfectedOverlayMaxHz = 20.0f; // caps arrow drawing + prewarning refresh per entity
 	float m_SpecialInfectedTraceMaxHz = 15.0f;   // caps TraceRay per entity
 
+	// --- Performance / threading ---
+	// Enable render-thread camera fix so mat_queue_mode 2 can be used.
+	// Main thread no longer needs to temporarily SetViewAngles() around RenderView.
+	bool m_RenderThreadViewMatrixFixEnabled = true;
+
+	// When RenderThreadViewMatrixFixEnabled is enabled, we try to force mat_queue_mode 2
+	// on the main thread (EngineClient is not thread-safe on worker threads).
+	bool m_ForceMatQueueMode2Pending = true;
+	bool m_ForceMatQueueMode2Done = false;
+
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};

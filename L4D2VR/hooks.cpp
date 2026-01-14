@@ -10,10 +10,179 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
-#include <algorithm> // std::clamp
+#include <algorithm> // std::clamp, std::max
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 
+// ------------------------------------------------------------
+// Render-thread camera fix (mat_queue_mode 2)
+//
+// Problem:
+// - With Source's queued rendering enabled (mat_queue_mode 2), the render thread may
+//   consume camera state after the main thread has already restored view angles.
+// - The old workaround was to temporarily call engine->SetViewAngles(...) around each
+//   RenderView call, but this is fragile when work is queued.
+//
+// Fix (B-route):
+// - Main thread: queue desired view angles for each RenderView() we submit.
+// - Render thread (shaderapidx9): hook MatrixMode / LoadMatrix, and when MATERIAL_VIEW is
+//   loaded for the first time in a view, patch the rotation portion with queued angles.
+// ------------------------------------------------------------
+
+static std::deque<QAngle> g_RenderThreadViewAnglesQueue;
+static std::mutex g_RenderThreadViewAnglesMutex;
+static Hooks::tShaderMatrixMode g_OrigShader_MatrixMode = nullptr;
+static Hooks::tShaderLoadMatrix g_OrigShader_LoadMatrix = nullptr;
+static bool g_RenderThreadCameraFixHooksInstalled = false;
+
+// Hook shaderapidx9!CreateInterface so we can discover real interface names in this branch.
+typedef void* (*CreateInterfaceFn)(const char* pName, int* pReturnCode);
+static CreateInterfaceFn g_OrigShaderapidx9_CreateInterface = nullptr;
+static HMODULE g_hShaderapidx9 = nullptr;
+
+// Render-thread TLS state
+static thread_local MaterialMatrixMode_t g_TlsMatrixMode = MATERIAL_MODEL;
+static thread_local bool g_TlsUsedFirstViewLoad = false;
+
+static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pReturnCode)
+{
+	void* iface = g_OrigShaderapidx9_CreateInterface ? g_OrigShaderapidx9_CreateInterface(pName, pReturnCode) : nullptr;
+	if (iface && !g_RenderThreadCameraFixHooksInstalled && Hooks::m_VR && Hooks::m_VR->m_RenderThreadViewMatrixFixEnabled)
+	{
+		Game::logMsg("shaderapidx9 CreateInterface: %s -> %p", pName ? pName : "(null)", iface);
+		Hooks::TryInstallShaderApiHooks(iface);
+	}
+	return iface;
+}
+
+static float Clamp01(float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); }
+
+static float OrthoScore3(const Vector& a, const Vector& b, const Vector& c)
+{
+	const float la = fabsf(a.Length() - 1.0f);
+	const float lb = fabsf(b.Length() - 1.0f);
+	const float lc = fabsf(c.Length() - 1.0f);
+	const float dab = fabsf(DotProduct(a, b));
+	const float dac = fabsf(DotProduct(a, c));
+	const float dbc = fabsf(DotProduct(b, c));
+	return la + lb + lc + dab + dac + dbc;
+}
+
+static void ExtractAxes3x3(const float* m, Vector& a0, Vector& a1, Vector& a2)
+{
+	// Try both common layouts and pick the one that looks more orthonormal.
+	Vector c0(m[0], m[1], m[2]);
+	Vector c1(m[4], m[5], m[6]);
+	Vector c2(m[8], m[9], m[10]);
+	const float scoreCols = OrthoScore3(c0, c1, c2);
+
+	Vector r0(m[0], m[4], m[8]);
+	Vector r1(m[1], m[5], m[9]);
+	Vector r2(m[2], m[6], m[10]);
+	const float scoreRows = OrthoScore3(r0, r1, r2);
+
+	if (scoreCols <= scoreRows)
+	{
+		a0 = c0; a1 = c1; a2 = c2;
+	}
+	else
+	{
+		a0 = r0; a1 = r1; a2 = r2;
+	}
+}
+
+static float TranslationMagnitudeGuess(const float* m)
+{
+	// View matrix translation could be in last column or last row depending on convention.
+	const float t1 = m[12] * m[12] + m[13] * m[13] + m[14] * m[14];
+	const float t2 = m[3] * m[3] + m[7] * m[7] + m[11] * m[11];
+	return sqrtf(std::max(t1, t2));
+}
+
+static float BestAxisMatchScore(const Vector& rr, const Vector& ru, const Vector& rf,
+	const Vector& a0, const Vector& a1, const Vector& a2)
+{
+	// We don't trust axis order/sign in the incoming matrix.
+	// Compute best score across 6 permutations, and allow forward sign flip.
+	const Vector axes[3] = { a0, a1, a2 };
+	const int perm[6][3] = {
+		{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}
+	};
+
+	float best = -1.0f;
+	for (int p = 0; p < 6; ++p)
+	{
+		const Vector& ar = axes[perm[p][0]];
+		const Vector& au = axes[perm[p][1]];
+		const Vector& af = axes[perm[p][2]];
+
+		const float sPos = fabsf(DotProduct(rr, ar)) + fabsf(DotProduct(ru, au)) + fabsf(DotProduct(rf, af));
+		const float sNeg = fabsf(DotProduct(rr, ar)) + fabsf(DotProduct(ru, au)) + fabsf(DotProduct(rf, Vector(-af.x, -af.y, -af.z)));
+		best = std::max(best, std::max(sPos, sNeg));
+	}
+	return best; // theoretical max = 3.0
+}
+
+static void PatchViewMatrixRotation(float out16[16], const float* in16, const QAngle& desiredAngles)
+{
+	// Copy input as base (keep translation untouched).
+	memcpy(out16, in16, sizeof(float) * 16);
+
+	// Determine whether the basis is stored column-major-ish (0,1,2 / 4,5,6 / 8,9,10)
+	// or transposed (0,4,8 / 1,5,9 / 2,6,10). Pick the interpretation that looks most orthonormal.
+	Vector c0(in16[0], in16[1], in16[2]);
+	Vector c1(in16[4], in16[5], in16[6]);
+	Vector c2(in16[8], in16[9], in16[10]);
+	const float scoreCols = OrthoScore3(c0, c1, c2);
+
+	Vector r0(in16[0], in16[4], in16[8]);
+	Vector r1(in16[1], in16[5], in16[9]);
+	Vector r2(in16[2], in16[6], in16[10]);
+	const float scoreRows = OrthoScore3(r0, r1, r2);
+
+	const bool useCols = (scoreCols <= scoreRows);
+
+	// Preserve handedness from original basis:
+	Vector b0 = useCols ? c0 : r0;
+	Vector b1 = useCols ? c1 : r1;
+	Vector b2 = useCols ? c2 : r2;
+	Vector cross01;
+	CrossProduct(b0, b1, cross01);
+	const float handed = DotProduct(cross01, b2); // >0 => b2 ~ cross(b0,b1); <0 => b2 ~ -cross
+
+	// Build new basis from angles (use right/up, then derive b2 via cross to match handedness)
+	Vector forward, right, up;
+	QAngle::AngleVectors(desiredAngles, &forward, &right, &up);
+
+	// Normalize just in case
+	const float rl = right.Length();
+	if (rl > 1e-6f) { right.x /= rl; right.y /= rl; right.z /= rl; }
+	const float ul = up.Length();
+	if (ul > 1e-6f) { up.x /= ul; up.y /= ul; up.z /= ul; }
+
+	Vector newB2;
+	CrossProduct(right, up, newB2);
+	if (handed < 0.0f)
+	{
+		newB2.x = -newB2.x;
+		newB2.y = -newB2.y;
+		newB2.z = -newB2.z;
+	}
+
+	if (useCols)
+	{
+		out16[0] = right.x; out16[1] = right.y; out16[2] = right.z;
+		out16[4] = up.x;    out16[5] = up.y;    out16[6] = up.z;
+		out16[8] = newB2.x; out16[9] = newB2.y; out16[10] = newB2.z;
+	}
+	else
+	{
+		out16[0] = right.x; out16[4] = right.y; out16[8]  = right.z;
+		out16[1] = up.x;    out16[5] = up.y;    out16[9]  = up.z;
+		out16[2] = newB2.x; out16[6] = newB2.y; out16[10] = newB2.z;
+	}
+}
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
 // - Then clamp pitch to [-89, 89].
@@ -308,8 +477,8 @@ Hooks::~Hooks()
 
 int Hooks::initSourceHooks()
 {
-	LPVOID pGetRenderTargetVFunc = (LPVOID)(m_Game->m_Offsets->GetRenderTarget.address);
-	hkGetRenderTarget.createHook(pGetRenderTargetVFunc, &dGetRenderTarget);
+    LPVOID pGetRenderTargetVFunc = (LPVOID)(m_Game->m_Offsets->GetRenderTarget.address);
+    hkGetRenderTarget.createHook(pGetRenderTargetVFunc, &dGetRenderTarget);
 
 	LPVOID pRenderViewVFunc = (LPVOID)(m_Game->m_Offsets->RenderView.address);
 	hkRenderView.createHook(pRenderViewVFunc, &dRenderView);
@@ -425,9 +594,210 @@ int Hooks::initSourceHooks()
 		return 0;
 	}
 
-	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
+    hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
 
 	return 1;
+}
+
+bool Hooks::TryInstallShaderApiHooks(void* shaderApiIface)
+{
+	if (!shaderApiIface || g_RenderThreadCameraFixHooksInstalled)
+		return false;
+
+	void** vtable = *reinterpret_cast<void***>(shaderApiIface);
+	if (!vtable)
+		return false;
+
+	// Most Source1 branches put IShaderDynamicAPI::MatrixMode / LoadMatrix roughly here.
+	// If your branch differs, we'll log and you can adjust by code later.
+	const int kMatrixModeIndex = 15;
+	const int kLoadMatrixIndex = 18;
+
+	auto targetMatrixMode = reinterpret_cast<tShaderMatrixMode>(vtable[kMatrixModeIndex]);
+	auto targetLoadMatrix = reinterpret_cast<tShaderLoadMatrix>(vtable[kLoadMatrixIndex]);
+	if (!targetMatrixMode || !targetLoadMatrix)
+		return false;
+
+	if (MH_CreateHook(reinterpret_cast<LPVOID>(targetMatrixMode),
+		reinterpret_cast<LPVOID>(&Hooks::dShader_MatrixMode),
+		reinterpret_cast<LPVOID*>(&g_OrigShader_MatrixMode)) != MH_OK)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFix: failed to hook MatrixMode vtable[%d]=%p", kMatrixModeIndex, targetMatrixMode);
+		return false;
+	}
+
+	if (MH_CreateHook(reinterpret_cast<LPVOID>(targetLoadMatrix),
+		reinterpret_cast<LPVOID>(&Hooks::dShader_LoadMatrix),
+		reinterpret_cast<LPVOID*>(&g_OrigShader_LoadMatrix)) != MH_OK)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFix: failed to hook LoadMatrix vtable[%d]=%p", kLoadMatrixIndex, targetLoadMatrix);
+		return false;
+	}
+
+	MH_EnableHook(reinterpret_cast<LPVOID>(targetMatrixMode));
+	MH_EnableHook(reinterpret_cast<LPVOID>(targetLoadMatrix));
+
+	g_RenderThreadCameraFixHooksInstalled = true;
+	Game::logMsg("RenderThreadViewMatrixFixEnabled: shaderapi vtable hooks installed (MatrixMode=%d LoadMatrix=%d)", kMatrixModeIndex, kLoadMatrixIndex);
+	return true;
+}
+
+void Hooks::QueueRenderThreadViewAngles(const QAngle& angles)
+{
+	// Called on the main thread during RenderView; keep it simple and safe.
+	std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
+    g_RenderThreadViewAnglesQueue.push_back(angles);
+
+    // If something goes off the rails (mismatch between push/pop), don't let it grow unbounded.
+    if (g_RenderThreadViewAnglesQueue.size() > 64)
+        g_RenderThreadViewAnglesQueue.pop_front();
+}
+
+void Hooks::InitRenderThreadCameraFixHooks()
+{
+	if (g_RenderThreadCameraFixHooksInstalled)
+		return;
+	if (!m_VR || !m_VR->m_RenderThreadViewMatrixFixEnabled)
+		return;
+
+	// Ensure module loaded
+	g_hShaderapidx9 = GetModuleHandleA("shaderapidx9.dll");
+	if (!g_hShaderapidx9)
+		g_hShaderapidx9 = LoadLibraryA("shaderapidx9.dll");
+
+	if (!g_hShaderapidx9)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: shaderapidx9.dll not loaded");
+		return;
+	}
+
+	auto ci = reinterpret_cast<CreateInterfaceFn>(GetProcAddress(g_hShaderapidx9, "CreateInterface"));
+	if (!ci)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: shaderapidx9 CreateInterface export not found");
+		return;
+	}
+
+	// Hook CreateInterface so we can see which name is actually used on this engine branch.
+	if (!g_OrigShaderapidx9_CreateInterface)
+	{
+		if (MH_CreateHook(reinterpret_cast<LPVOID>(ci),
+			reinterpret_cast<LPVOID>(&dShaderapidx9_CreateInterface),
+			reinterpret_cast<LPVOID*>(&g_OrigShaderapidx9_CreateInterface)) == MH_OK)
+		{
+			MH_EnableHook(reinterpret_cast<LPVOID>(ci));
+			Game::logMsg("RenderThreadViewMatrixFixEnabled: hooked shaderapidx9 CreateInterface");
+		}
+	}
+
+	// Brute force interface discovery (do NOT guess one name).
+	// Try common Source naming schemes until we find something.
+	char name[64];
+	for (int i = 0; i <= 99 && !g_RenderThreadCameraFixHooksInstalled; ++i)
+	{
+		// ShaderApi%03d
+		std::snprintf(name, sizeof(name), "ShaderApi%03d", i);
+		if (void* iface = ci(name, nullptr))
+		{
+			if (TryInstallShaderApiHooks(iface))
+			{
+				Game::logMsg("RenderThreadViewMatrixFixEnabled: found interface %s", name);
+				break;
+			}
+		}
+
+		// ShaderAPI%03d
+		std::snprintf(name, sizeof(name), "ShaderAPI%03d", i);
+		if (void* iface = ci(name, nullptr))
+		{
+			if (TryInstallShaderApiHooks(iface))
+			{
+				Game::logMsg("RenderThreadViewMatrixFixEnabled: found interface %s", name);
+				break;
+			}
+		}
+	}
+
+	if (!g_RenderThreadCameraFixHooksInstalled)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: no suitable shaderapi interface found (camera fix disabled)");
+	}
+}
+
+void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMode_t mode)
+{
+    // Source may call MatrixMode(MATERIAL_VIEW) many times per frame.
+    // Only reset the latch when transitioning INTO view mode, otherwise we can patch/pop repeatedly.
+    const MaterialMatrixMode_t prev = g_TlsMatrixMode;
+    g_TlsMatrixMode = mode;
+    if (mode == MATERIAL_VIEW && prev != MATERIAL_VIEW)
+        g_TlsUsedFirstViewLoad = false;
+
+    if (g_OrigShader_MatrixMode)
+        g_OrigShader_MatrixMode(ecx, mode);
+}
+
+void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* matrix)
+{
+    // Only apply once per view (first LoadMatrix while in MATERIAL_VIEW).
+    if (matrix && g_TlsMatrixMode == MATERIAL_VIEW && !g_TlsUsedFirstViewLoad && m_VR && m_VR->m_RenderThreadViewMatrixFixEnabled)
+    {
+        // Filter 1: skip matrices that look like HUD/2D (near-zero translation).
+        // This avoids rotating HUD view matrices and causing flicker.
+        const float tmag = TranslationMagnitudeGuess(matrix);
+        if (tmag > 0.01f)
+        {
+            // Peek queue front WITHOUT popping; only consume if it matches this view.
+            QAngle cand{};
+            bool haveCand = false;
+            {
+                std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
+                if (!g_RenderThreadViewAnglesQueue.empty())
+                {
+                    cand = g_RenderThreadViewAnglesQueue.front();
+                    haveCand = true;
+                }
+            }
+
+            if (haveCand)
+            {
+                Vector fwd, rr, ru;
+                QAngle::AngleVectors(cand, &fwd, &rr, &ru);
+
+                Vector a0, a1, a2;
+                ExtractAxes3x3(matrix, a0, a1, a2);
+
+                const float score = BestAxisMatchScore(rr, ru, fwd, a0, a1, a2);
+
+                // Heuristic threshold:
+                // - 3.0 means perfect match
+                // - ~2.7 is already very close
+                // Too low => shadow/reflection cameras may consume queue.
+                if (score >= 2.70f)
+                {
+                    // Now we can safely pop+patch
+                    QAngle nextAngles{};
+                    {
+                        std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
+                        if (!g_RenderThreadViewAnglesQueue.empty())
+                        {
+                            nextAngles = g_RenderThreadViewAnglesQueue.front();
+                            g_RenderThreadViewAnglesQueue.pop_front();
+                        }
+                    }
+
+                    float patched[16];
+                    PatchViewMatrixRotation(patched, matrix, nextAngles);
+                    g_TlsUsedFirstViewLoad = true;
+                    g_OrigShader_LoadMatrix(ecx, patched);
+                    return;
+                }
+            }
+        }
+    }
+
+    if (g_OrigShader_LoadMatrix)
+        g_OrigShader_LoadMatrix(ecx, matrix);
 }
 
 
@@ -613,13 +983,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.angles = viewAngles;
 
 	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
-	// Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,
-	// then restore, so the engine's view history/interp isn't corrupted.
-	QAngle prevEngineAngles;
-	m_Game->m_EngineClient->GetViewAngles(prevEngineAngles);
+    // Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,
+    // then restore, so the engine's view history/interp isn't corrupted.
+    QAngle prevEngineAngles;
+    m_Game->m_EngineClient->GetViewAngles(prevEngineAngles);
 
-	QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
-	m_Game->m_EngineClient->SetViewAngles(renderAngles);
+    QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
+    const bool useRenderThreadCameraFix = (m_VR && m_VR->m_RenderThreadViewMatrixFixEnabled);
+    if (!useRenderThreadCameraFix)
+    {
+        // Legacy path: temporarily change engine angles around RenderView.
+        m_Game->m_EngineClient->SetViewAngles(renderAngles);
+    }
+    else
+    {
+        // Render-thread path: keep game state untouched; patch MATERIAL_VIEW matrix on render thread.
+        QueueRenderThreadViewAngles(renderAngles);
+    }
 
 	// Align HUD view to the same origin/angles; otherwise you can get a second layer that
 	// appears to "follow the controller / stick" (classic double-image artifact).
@@ -647,8 +1027,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudRight.origin = rightEyeView.origin;
 	hudRight.angles = viewAngles;
 
-	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
-	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
+    rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
+    if (useRenderThreadCameraFix)
+        QueueRenderThreadViewAngles(renderAngles);
+    hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
@@ -665,16 +1047,20 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			{
 				hkPushRenderTargetAndViewport.fOriginal(rc, target, nullptr, 0, 0, texW, texH);
 
-				QAngle oldEngineAngles;
-				m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
-				m_Game->m_EngineClient->SetViewAngles(passAngles);
+                QAngle oldEngineAngles;
+                m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+                if (!useRenderThreadCameraFix)
+                    m_Game->m_EngineClient->SetViewAngles(passAngles);
+                else
+                    QueueRenderThreadViewAngles(passAngles);
 
-				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+                hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 
-				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
-				hkPopRenderTargetAndViewport.fOriginal(rc);
-				return;
-			}
+                if (!useRenderThreadCameraFix)
+                    m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+                hkPopRenderTargetAndViewport.fOriginal(rc);
+                return;
+            }
 
 			const bool prevSuppress = m_VR->m_SuppressHudCapture;
 			m_VR->m_SuppressHudCapture = true;
@@ -689,13 +1075,17 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			rc->ClearColor4ub(0, 0, 0, 255);
 			rc->ClearBuffers(true, true, true);
 
-			QAngle oldEngineAngles;
-			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
-			m_Game->m_EngineClient->SetViewAngles(passAngles);
+            QAngle oldEngineAngles;
+            m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+            if (!useRenderThreadCameraFix)
+                m_Game->m_EngineClient->SetViewAngles(passAngles);
+            else
+                QueueRenderThreadViewAngles(passAngles);
 
-			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+            hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 
-			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+            if (!useRenderThreadCameraFix)
+                m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
 			rc->SetRenderTarget(oldRT);
 			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
@@ -801,7 +1191,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 
 	// Restore engine angles immediately after our stereo render.
-	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
+    if (!useRenderThreadCameraFix)
+        m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame = true;
 }
 
