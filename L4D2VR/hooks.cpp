@@ -17,6 +17,9 @@
 #include <deque>
 #include <mutex>
 #include <atomic>
+#include <psapi.h>
+
+#pragma comment(lib, "psapi.lib")
 
 // ------------------------------------------------------------
 // Render-thread camera fix (mat_queue_mode 2)
@@ -44,12 +47,22 @@ static int g_ShaderMatrixModeIndex = -1;
 static int g_ShaderLoadMatrixIndex = -1;
 static void* g_CachedShaderApiIface = nullptr;
 static int g_ShaderVtableCandidateCursor = 0;
+// NOTE:
+// ShaderAPI vtable layouts vary across engine branches.
+// Instead of a tiny hand-picked list, we keep a broader, safe set.
+// These are (MatrixModeIndex, LoadMatrixIndex) pairs.
+//
+// Empirically, LoadMatrix often sits a few slots after MatrixMode, but not always.
+// We'll try a range of pairs, and additionally validate at runtime.
 static const int g_ShaderApiVtableCandidates[][2] = {
-	{15, 18},
-	{16, 19},
-	{14, 17},
-	{17, 20},
-	{13, 16}
+	// Common clusters (delta=3)
+	{12, 15}, {13, 16}, {14, 17}, {15, 18}, {16, 19}, {17, 20}, {18, 21}, {19, 22}, {20, 23}, {21, 24}, {22, 25},
+	// Slightly earlier
+	{10, 13}, {11, 14},
+	// delta=2 variants
+	{12, 14}, {13, 15}, {14, 16}, {15, 17}, {16, 18}, {17, 19}, {18, 20},
+	// delta=4 variants
+	{12, 16}, {13, 17}, {14, 18}, {15, 19}, {16, 20}, {17, 21},
 };
 static const int g_ShaderApiVtableCandidateCount =
 	static_cast<int>(sizeof(g_ShaderApiVtableCandidates) / sizeof(g_ShaderApiVtableCandidates[0]));
@@ -134,6 +147,55 @@ static void RtFix_UnhookNow()
 	g_ShaderMatrixModeIndex = -1;
 	g_ShaderLoadMatrixIndex = -1;
 	RtFix_ResetValidation();
+}
+
+static bool RtFix_IsExecutablePtr(const void* p)
+{
+	if (!p)
+		return false;
+	MEMORY_BASIC_INFORMATION mbi{};
+	if (!VirtualQuery(p, &mbi, sizeof(mbi)))
+		return false;
+	if (mbi.State != MEM_COMMIT)
+		return false;
+	const DWORD prot = (mbi.Protect & 0xFF);
+	return prot == PAGE_EXECUTE || prot == PAGE_EXECUTE_READ || prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY;
+}
+
+static bool RtFix_GetModuleRange(HMODULE hMod, uintptr_t& outBase, uintptr_t& outEnd)
+{
+	outBase = 0;
+	outEnd = 0;
+	if (!hMod)
+		return false;
+	MODULEINFO mi{};
+	if (!GetModuleInformation(GetCurrentProcess(), hMod, &mi, sizeof(mi)))
+		return false;
+	outBase = reinterpret_cast<uintptr_t>(mi.lpBaseOfDll);
+	outEnd = outBase + static_cast<uintptr_t>(mi.SizeOfImage);
+	return true;
+}
+
+static bool RtFix_IsAddrInModule(const void* p, HMODULE hMod)
+{
+	uintptr_t base = 0, end = 0;
+	if (!RtFix_GetModuleRange(hMod, base, end))
+		return false;
+	const uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+	return addr >= base && addr < end;
+}
+
+static bool RtFix_SafeReadFloat(const float* p, int idx, float& out)
+{
+	__try
+	{
+		out = p[idx];
+		return true;
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return false;
+	}
 }
 
 static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pReturnCode)
@@ -720,6 +782,19 @@ bool Hooks::TryInstallShaderApiHooks(void* shaderApiIface)
 	if (!targetMatrixMode || !targetLoadMatrix)
 		return false;
 
+	// Sanity: both functions should live in shaderapidx9.dll and be executable.
+	HMODULE hShader = g_hShaderapidx9 ? g_hShaderapidx9 : GetModuleHandleA("shaderapidx9.dll");
+	if (!RtFix_IsExecutablePtr(reinterpret_cast<void*>(targetMatrixMode)) ||
+		!RtFix_IsExecutablePtr(reinterpret_cast<void*>(targetLoadMatrix)))
+	{
+		return false;
+	}
+	if (hShader && (!RtFix_IsAddrInModule(reinterpret_cast<void*>(targetMatrixMode), hShader) ||
+		!RtFix_IsAddrInModule(reinterpret_cast<void*>(targetLoadMatrix), hShader)))
+	{
+		return false;
+	}
+
 	if (MH_CreateHook(reinterpret_cast<LPVOID>(targetMatrixMode),
 		reinterpret_cast<LPVOID>(&Hooks::dShader_MatrixMode),
 		reinterpret_cast<LPVOID*>(&g_OrigShader_MatrixMode)) != MH_OK)
@@ -894,8 +969,8 @@ void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMo
 		if (!g_RenderThreadPatchDisabledLogged.exchange(true))
 			Game::logMsg("[ERROR] RenderThreadViewMatrixFix: MatrixMode got invalid mode=%d, scheduling hook retry", (int)mode);
 		RtFix_RequestUnhook();
-		if (g_OrigShader_MatrixMode)
-			g_OrigShader_MatrixMode(ecx, mode);
+		// IMPORTANT: if our vtable indices are wrong, calling the "original" with a mismatched
+		// signature/args can make things worse. Just bail and let the next frame re-probe.
 		return;
 	}
 
@@ -924,11 +999,23 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
 	{
 		// Extra sanity check: if this isn't a plausible 4x4 view matrix, we likely hooked wrong vtable indices.
 		// In that case disable patching to avoid corrupting rendering.
-		if (!std::isfinite(matrix[0]) || !std::isfinite(matrix[5]) || !std::isfinite(matrix[10]) || !std::isfinite(matrix[15]) ||
-			fabsf(matrix[15]) < 0.5f || fabsf(matrix[15]) > 1.5f)
+		float m0 = 0.0f, m5 = 0.0f, m10 = 0.0f, m15 = 0.0f;
+		if (!RtFix_SafeReadFloat(matrix, 0, m0) ||
+			!RtFix_SafeReadFloat(matrix, 5, m5) ||
+			!RtFix_SafeReadFloat(matrix, 10, m10) ||
+			!RtFix_SafeReadFloat(matrix, 15, m15))
 		{
 			if (!g_RenderThreadPatchDisabledLogged.exchange(true))
-				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got non-plausible matrix (m15=%f), scheduling hook retry", matrix[15]);
+				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got unreadable pointer, scheduling hook retry");
+			RtFix_RequestUnhook();
+			return;
+		}
+
+		if (!std::isfinite(m0) || !std::isfinite(m5) || !std::isfinite(m10) || !std::isfinite(m15) ||
+			fabsf(m15) < 0.5f || fabsf(m15) > 1.5f)
+		{
+			if (!g_RenderThreadPatchDisabledLogged.exchange(true))
+				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got non-plausible matrix (m15=%f), scheduling hook retry", m15);
 			RtFix_RequestUnhook();
 		}
 		if (g_RenderThreadPatchDisabled.load())
