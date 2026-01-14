@@ -277,6 +277,18 @@ Option g_Options[] =
         0.8f, 1.2f,
         "1.0"
     },
+    // Performance / Rates
+    {
+        "RenderThreadViewMatrixFixEnabled",
+        OptionType::Bool,
+        { u8"Performance / Rates", u8"性能 / 频率" },
+        { u8"Render Thread Camera Fix (mat_queue_mode 2)", u8"渲染线程相机修复 (mat_queue_mode 2)" },
+        { u8"Allows using Source's render thread path (mat_queue_mode 2) without breaking VR view angles.",
+          u8"允许启用 Source 的渲染线程路径 (mat_queue_mode 2)，同时避免 VR 视角在渲染线程执行时错乱。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "true"
+    },
     // Input / Turning
     {
         "LeftHanded",
