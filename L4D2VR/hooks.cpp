@@ -13,6 +13,7 @@
 #include <algorithm> // std::clamp
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 
 // ------------------------------------------------------------
 // Render-thread camera fix (mat_queue_mode 2)
@@ -31,18 +32,33 @@
 
 static std::deque<QAngle> g_RenderThreadViewAnglesQueue;
 static std::mutex g_RenderThreadViewAnglesMutex;
-static void* g_ShaderApi = nullptr;
 static Hooks::tShaderMatrixMode g_OrigShader_MatrixMode = nullptr;
 static Hooks::tShaderLoadMatrix g_OrigShader_LoadMatrix = nullptr;
 static bool g_RenderThreadCameraFixHooksInstalled = false;
+
+// Hook shaderapidx9!CreateInterface so we can discover real interface names in this branch.
+typedef void* (*CreateInterfaceFn)(const char* pName, int* pReturnCode);
+static CreateInterfaceFn g_OrigShaderapidx9_CreateInterface = nullptr;
+static HMODULE g_hShaderapidx9 = nullptr;
 
 // Render-thread TLS state
 static thread_local MaterialMatrixMode_t g_TlsMatrixMode = MATERIAL_MODEL;
 static thread_local bool g_TlsUsedFirstViewLoad = false;
 
+static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pReturnCode)
+{
+	void* iface = g_OrigShaderapidx9_CreateInterface ? g_OrigShaderapidx9_CreateInterface(pName, pReturnCode) : nullptr;
+	if (iface && !g_RenderThreadCameraFixHooksInstalled && Hooks::m_VR && Hooks::m_VR->m_RenderThreadViewMatrixFixEnabled)
+	{
+		Game::logMsg("shaderapidx9 CreateInterface: %s -> %p", pName ? pName : "(null)", iface);
+		Hooks::TryInstallShaderApiHooks(iface);
+	}
+	return iface;
+}
+
 static float OrthoScore3(const Vector& a, const Vector& b, const Vector& c)
 {
-    const float la = fabsf(a.Length() - 1.0f);
+	const float la = fabsf(a.Length() - 1.0f);
     const float lb = fabsf(b.Length() - 1.0f);
     const float lc = fabsf(c.Length() - 1.0f);
     const float dab = fabsf(DotProduct(a, b));
@@ -78,13 +94,15 @@ static void PatchViewMatrixRotation(float out16[16], const float* in16, const QA
     CrossProduct(b0, b1, cross01);
     const float handed = DotProduct(cross01, b2); // >0 => b2 ~ cross(b0,b1); <0 => b2 ~ -cross
 
-    // Build new basis from angles (use right/up, then derive b2 via cross to match handedness)
-    Vector forward, right, up;
-    desiredAngles.AngleVectors(&forward, &right, &up);
+	// Build new basis from angles (use right/up, then derive b2 via cross to match handedness)
+	Vector forward, right, up;
+	QAngle::AngleVectors(desiredAngles, &forward, &right, &up);
 
-    // Normalize just in case
-    right.NormalizeInPlace();
-    up.NormalizeInPlace();
+	// Normalize just in case
+	const float rl = right.Length();
+	if (rl > 1e-6f) { right.x /= rl; right.y /= rl; right.z /= rl; }
+	const float ul = up.Length();
+	if (ul > 1e-6f) { up.x /= ul; up.y /= ul; up.z /= ul; }
 
     Vector newB2;
     CrossProduct(right, up, newB2);
@@ -521,13 +539,56 @@ int Hooks::initSourceHooks()
 
     hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
 
-    return 1;
+	return 1;
+}
+
+bool Hooks::TryInstallShaderApiHooks(void* shaderApiIface)
+{
+	if (!shaderApiIface || g_RenderThreadCameraFixHooksInstalled)
+		return false;
+
+	void** vtable = *reinterpret_cast<void***>(shaderApiIface);
+	if (!vtable)
+		return false;
+
+	// Most Source1 branches put IShaderDynamicAPI::MatrixMode / LoadMatrix roughly here.
+	// If your branch differs, we'll log and you can adjust by code later.
+	const int kMatrixModeIndex = 15;
+	const int kLoadMatrixIndex = 18;
+
+	auto targetMatrixMode = reinterpret_cast<tShaderMatrixMode>(vtable[kMatrixModeIndex]);
+	auto targetLoadMatrix = reinterpret_cast<tShaderLoadMatrix>(vtable[kLoadMatrixIndex]);
+	if (!targetMatrixMode || !targetLoadMatrix)
+		return false;
+
+	if (MH_CreateHook(reinterpret_cast<LPVOID>(targetMatrixMode),
+		reinterpret_cast<LPVOID>(&Hooks::dShader_MatrixMode),
+		reinterpret_cast<LPVOID*>(&g_OrigShader_MatrixMode)) != MH_OK)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFix: failed to hook MatrixMode vtable[%d]=%p", kMatrixModeIndex, targetMatrixMode);
+		return false;
+	}
+
+	if (MH_CreateHook(reinterpret_cast<LPVOID>(targetLoadMatrix),
+		reinterpret_cast<LPVOID>(&Hooks::dShader_LoadMatrix),
+		reinterpret_cast<LPVOID*>(&g_OrigShader_LoadMatrix)) != MH_OK)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFix: failed to hook LoadMatrix vtable[%d]=%p", kLoadMatrixIndex, targetLoadMatrix);
+		return false;
+	}
+
+	MH_EnableHook(reinterpret_cast<LPVOID>(targetMatrixMode));
+	MH_EnableHook(reinterpret_cast<LPVOID>(targetLoadMatrix));
+
+	g_RenderThreadCameraFixHooksInstalled = true;
+	Game::logMsg("RenderThreadViewMatrixFixEnabled: shaderapi vtable hooks installed (MatrixMode=%d LoadMatrix=%d)", kMatrixModeIndex, kLoadMatrixIndex);
+	return true;
 }
 
 void Hooks::QueueRenderThreadViewAngles(const QAngle& angles)
 {
-    // Called on the main thread during RenderView; keep it simple and safe.
-    std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
+	// Called on the main thread during RenderView; keep it simple and safe.
+	std::lock_guard<std::mutex> lock(g_RenderThreadViewAnglesMutex);
     g_RenderThreadViewAnglesQueue.push_back(angles);
 
     // If something goes off the rails (mismatch between push/pop), don't let it grow unbounded.
@@ -537,53 +598,73 @@ void Hooks::QueueRenderThreadViewAngles(const QAngle& angles)
 
 void Hooks::InitRenderThreadCameraFixHooks()
 {
-    if (g_RenderThreadCameraFixHooksInstalled)
-        return;
-    if (!m_VR || !m_VR->m_RenderThreadViewMatrixFixEnabled)
-        return;
+	if (g_RenderThreadCameraFixHooksInstalled)
+		return;
+	if (!m_VR || !m_VR->m_RenderThreadViewMatrixFixEnabled)
+		return;
 
-    // shaderapidx9 interface is usually ShaderApi030 on Source 1.
-    const char* candidates[] = { "ShaderApi030", "ShaderApi031", "ShaderApi032" };
-    for (const char* iface : candidates)
-    {
-        g_ShaderApi = m_Game->GetInterface("shaderapidx9.dll", iface);
-        if (g_ShaderApi)
-            break;
-    }
+	// Ensure module loaded
+	g_hShaderapidx9 = GetModuleHandleA("shaderapidx9.dll");
+	if (!g_hShaderapidx9)
+		g_hShaderapidx9 = LoadLibraryA("shaderapidx9.dll");
 
-    if (!g_ShaderApi)
-    {
-        Game::logMsg("RenderThreadViewMatrixFixEnabled: shaderapidx9 ShaderApi0xx interface not found (camera fix disabled)");
-        return;
-    }
+	if (!g_hShaderapidx9)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: shaderapidx9.dll not loaded");
+		return;
+	}
 
-    void** vtable = *reinterpret_cast<void***>(g_ShaderApi);
-    if (!vtable)
-        return;
+	auto ci = reinterpret_cast<CreateInterfaceFn>(GetProcAddress(g_hShaderapidx9, "CreateInterface"));
+	if (!ci)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: shaderapidx9 CreateInterface export not found");
+		return;
+	}
 
-    // IShaderDynamicAPI (Source SDK) vtable indices:
-    // 15 = MatrixMode, 18 = LoadMatrix
-    auto targetMatrixMode = reinterpret_cast<tShaderMatrixMode>(vtable[15]);
-    auto targetLoadMatrix = reinterpret_cast<tShaderLoadMatrix>(vtable[18]);
-    if (!targetMatrixMode || !targetLoadMatrix)
-        return;
+	// Hook CreateInterface so we can see which name is actually used on this engine branch.
+	if (!g_OrigShaderapidx9_CreateInterface)
+	{
+		if (MH_CreateHook(reinterpret_cast<LPVOID>(ci),
+			reinterpret_cast<LPVOID>(&dShaderapidx9_CreateInterface),
+			reinterpret_cast<LPVOID*>(&g_OrigShaderapidx9_CreateInterface)) == MH_OK)
+		{
+			MH_EnableHook(reinterpret_cast<LPVOID>(ci));
+			Game::logMsg("RenderThreadViewMatrixFixEnabled: hooked shaderapidx9 CreateInterface");
+		}
+	}
 
-    if (MH_CreateHook(reinterpret_cast<LPVOID>(targetMatrixMode), reinterpret_cast<LPVOID>(&Hooks::dShader_MatrixMode), reinterpret_cast<LPVOID*>(&g_OrigShader_MatrixMode)) != MH_OK)
-    {
-        Game::logMsg("Failed to hook shaderapidx9 MatrixMode");
-        return;
-    }
-    if (MH_CreateHook(reinterpret_cast<LPVOID>(targetLoadMatrix), reinterpret_cast<LPVOID>(&Hooks::dShader_LoadMatrix), reinterpret_cast<LPVOID*>(&g_OrigShader_LoadMatrix)) != MH_OK)
-    {
-        Game::logMsg("Failed to hook shaderapidx9 LoadMatrix");
-        return;
-    }
+	// Brute force interface discovery (do NOT guess one name).
+	// Try common Source naming schemes until we find something.
+	char name[64];
+	for (int i = 0; i <= 99 && !g_RenderThreadCameraFixHooksInstalled; ++i)
+	{
+		// ShaderApi%03d
+		std::snprintf(name, sizeof(name), "ShaderApi%03d", i);
+		if (void* iface = ci(name, nullptr))
+		{
+			if (TryInstallShaderApiHooks(iface))
+			{
+				Game::logMsg("RenderThreadViewMatrixFixEnabled: found interface %s", name);
+				break;
+			}
+		}
 
-    MH_EnableHook(reinterpret_cast<LPVOID>(targetMatrixMode));
-    MH_EnableHook(reinterpret_cast<LPVOID>(targetLoadMatrix));
+		// ShaderAPI%03d
+		std::snprintf(name, sizeof(name), "ShaderAPI%03d", i);
+		if (void* iface = ci(name, nullptr))
+		{
+			if (TryInstallShaderApiHooks(iface))
+			{
+				Game::logMsg("RenderThreadViewMatrixFixEnabled: found interface %s", name);
+				break;
+			}
+		}
+	}
 
-    g_RenderThreadCameraFixHooksInstalled = true;
-    Game::logMsg("RenderThreadViewMatrixFixEnabled: shaderapidx9 MatrixMode/LoadMatrix hooks installed");
+	if (!g_RenderThreadCameraFixHooksInstalled)
+	{
+		Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: no suitable shaderapi interface found (camera fix disabled)");
+	}
 }
 
 void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMode_t mode)

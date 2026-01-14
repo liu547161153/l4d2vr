@@ -3,6 +3,7 @@
 #include <deque>
 #include <mutex>
 #include <cstdint>
+#include <windows.h>
 #include "MinHook.h"
 
 class Game;
@@ -184,6 +185,10 @@ public:
 	// --- Render thread camera fix (mat_queue_mode 2) ---
 	static void InitRenderThreadCameraFixHooks();
 	static void QueueRenderThreadViewAngles(const QAngle& angles);
+
+	// Try install shaderapi vtable hooks from a CreateInterface result.
+	// Returns true if hooks are installed.
+	static bool TryInstallShaderApiHooks(void* shaderApiIface);
 
 	// shaderapidx9 IShaderDynamicAPI vtable hooks
 	typedef void(__thiscall* tShaderMatrixMode)(void* thisptr, MaterialMatrixMode_t mode);
