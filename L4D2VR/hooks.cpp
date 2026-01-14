@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <atomic>
 
 // ------------------------------------------------------------
 // Render-thread camera fix (mat_queue_mode 2)
@@ -44,15 +45,14 @@ static HMODULE g_hShaderapidx9 = nullptr;
 // Render-thread TLS state
 static thread_local MaterialMatrixMode_t g_TlsMatrixMode = MATERIAL_MODEL;
 static thread_local bool g_TlsUsedFirstViewLoad = false;
-// IMPORTANT (mat_queue_mode 2):
-// LoadMatrix may enqueue a pointer into a command list instead of copying immediately.
-// So the passed matrix memory must remain valid after this hook returns.
+// IMPORTANT (mat_queue_mode 2 / queued rendering):
+// LoadMatrix() may record a pointer into a command list instead of copying immediately.
+// Any matrix pointer we pass MUST remain valid after this hook returns.
 static thread_local float g_TlsMatrixRing[512][16];
 static thread_local uint32_t g_TlsMatrixRingIndex = 0;
 
-
-static std::atomic<bool> g_ShaderHookLooksValid{ true };
-static std::atomic<bool> g_ShaderHookInvalidLogged{ false };
+static std::atomic<bool> g_RenderThreadPatchDisabled{ false };
+static std::atomic<bool> g_RenderThreadPatchDisabledLogged{ false };
 
 static void* __cdecl dShaderapidx9_CreateInterface(const char* pName, int* pReturnCode)
 {
@@ -733,8 +733,26 @@ void Hooks::InitRenderThreadCameraFixHooks()
 	}
 }
 
+bool Hooks::IsRenderThreadCameraFixInstalled()
+{
+	return g_RenderThreadCameraFixHooksInstalled;
+}
+
+bool Hooks::IsRenderThreadCameraFixHealthy()
+{
+	return g_RenderThreadCameraFixHooksInstalled && !g_RenderThreadPatchDisabled.load();
+}
+
 void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMode_t mode)
 {
+	// If our vtable indices are wrong, this hook will receive garbage.
+	// Disable patching rather than corrupting matrices.
+	if ((int)mode < (int)MATERIAL_VIEW || (int)mode > (int)MATERIAL_TEXTURE7)
+	{
+		g_RenderThreadPatchDisabled.store(true);
+		if (!g_RenderThreadPatchDisabledLogged.exchange(true))
+			Game::logMsg("[ERROR] RenderThreadViewMatrixFix: MatrixMode got invalid mode=%d, disabling patch", (int)mode);
+	}
 
 	// Source may call MatrixMode(MATERIAL_VIEW) many times per frame.
 	// Only reset the latch when transitioning INTO view mode, otherwise we can patch/pop repeatedly.
@@ -750,8 +768,22 @@ void __fastcall Hooks::dShader_MatrixMode(void* ecx, void* edx, MaterialMatrixMo
 void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* matrix)
 {
 	// Only apply once per view (first LoadMatrix while in MATERIAL_VIEW).
-	if (matrix && g_TlsMatrixMode == MATERIAL_VIEW && !g_TlsUsedFirstViewLoad && m_VR && m_VR->m_RenderThreadViewMatrixFixEnabled)
+	if (matrix && !g_RenderThreadPatchDisabled.load() &&
+		g_TlsMatrixMode == MATERIAL_VIEW && !g_TlsUsedFirstViewLoad &&
+		m_VR && m_VR->m_RenderThreadViewMatrixFixEnabled)
 	{
+		// Extra sanity check: if this isn't a plausible 4x4 view matrix, we likely hooked wrong vtable indices.
+		// In that case disable patching to avoid corrupting rendering.
+		if (!std::isfinite(matrix[0]) || !std::isfinite(matrix[5]) || !std::isfinite(matrix[10]) || !std::isfinite(matrix[15]) ||
+			fabsf(matrix[15]) < 0.5f || fabsf(matrix[15]) > 1.5f)
+		{
+			g_RenderThreadPatchDisabled.store(true);
+			if (!g_RenderThreadPatchDisabledLogged.exchange(true))
+				Game::logMsg("[ERROR] RenderThreadViewMatrixFix: LoadMatrix got non-plausible matrix (m15=%f), disabling patch", matrix[15]);
+		}
+		if (g_RenderThreadPatchDisabled.load())
+			goto passthrough;
+
 		// Filter 1: skip matrices that look like HUD/2D (near-zero translation).
 		// This avoids rotating HUD view matrices and causing flicker.
 		const float tmag = TranslationMagnitudeGuess(matrix);
@@ -796,6 +828,7 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
 						}
 					}
 
+					// IMPORTANT: do NOT pass stack memory into LoadMatrix in queued mode.
 					float* stable = g_TlsMatrixRing[g_TlsMatrixRingIndex++ & 511];
 					PatchViewMatrixRotation(stable, matrix, nextAngles);
 					g_TlsUsedFirstViewLoad = true;
@@ -806,6 +839,7 @@ void __fastcall Hooks::dShader_LoadMatrix(void* ecx, void* edx, const float* mat
 		}
 	}
 
+passthrough:
 	if (g_OrigShader_LoadMatrix)
 		g_OrigShader_LoadMatrix(ecx, matrix);
 }

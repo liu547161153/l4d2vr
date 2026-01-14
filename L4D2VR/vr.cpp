@@ -403,19 +403,38 @@ void VR::Update()
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
 
-    // Enable Source's render thread path when requested.
+    // Render-thread camera fix must be hooked before enabling mat_queue_mode 2.
+    // Otherwise queued rendering will desync VR camera state and can cause HUD flicker.
+    if (m_RenderThreadViewMatrixFixEnabled && m_Game->m_Hooks)
+        Hooks::InitRenderThreadCameraFixHooks();
+
+    // Enable queued rendering only after shader hooks are confirmed healthy.
     // Must run on the main thread (EngineClient is not thread-safe).
     if (m_RenderThreadViewMatrixFixEnabled && m_ForceMatQueueMode2Pending && !m_ForceMatQueueMode2Done)
     {
-        // mat_queue_mode 2 = queued, render thread active.
-        // Note: some servers / configs may override this later; we only do a one-shot.
-        m_Game->m_EngineClient->ClientCmd_Unrestricted("mat_queue_mode 2\n");
-        m_ForceMatQueueMode2Done = true;
-        m_ForceMatQueueMode2Pending = false;
-        Game::logMsg("RenderThreadViewMatrixFixEnabled: forced mat_queue_mode 2");
+        if (Hooks::IsRenderThreadCameraFixHealthy())
+        {
+            m_Game->m_EngineClient->ClientCmd_Unrestricted("mat_queue_mode 2\n");
+            m_ForceMatQueueMode2Done = true;
+            m_ForceMatQueueMode2Pending = false;
+            Game::logMsg("RenderThreadViewMatrixFixEnabled: forced mat_queue_mode 2");
+        }
     }
-    if (m_RenderThreadViewMatrixFixEnabled && m_Game->m_Hooks)
-        Hooks::InitRenderThreadCameraFixHooks();
+
+    // If we already enabled queued rendering but the shader hook later proved invalid,
+    // immediately fall back to single-threaded rendering to stop HUD flicker/corruption.
+    static bool s_matQueueFallbackLogged = false;
+    if (m_RenderThreadViewMatrixFixEnabled && m_ForceMatQueueMode2Done && !Hooks::IsRenderThreadCameraFixHealthy())
+    {
+        m_Game->m_EngineClient->ClientCmd_Unrestricted("mat_queue_mode 0\n");
+        m_ForceMatQueueMode2Done = false;
+        m_ForceMatQueueMode2Pending = true;
+        if (!s_matQueueFallbackLogged)
+        {
+            s_matQueueFallbackLogged = true;
+            Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: shader hook invalid, reverted mat_queue_mode 0");
+        }
+    }
 
     if (m_IsVREnabled && g_D3DVR9)
     {
