@@ -280,6 +280,9 @@ public:
 	// changes state, and only release if we were the one who pressed.
 	bool m_PrimaryAttackCmdOwned = false;
 	bool m_SecondaryAttackCmdOwned = false;
+	bool m_JumpCmdOwned = false;
+	bool m_UseCmdOwned = false;
+	bool m_ReloadCmdOwned = false;
 	bool m_LeftGripPressedPrev = false;
 	bool m_RightGripPressedPrev = false;
 
@@ -374,6 +377,11 @@ public:
 	float m_MouseModeTurnSmoothing = 0.05f; // seconds; 0 disables smoothing
 	float m_MouseModeYawTarget = 0.0f;      // degrees in [0,360)
 	bool m_MouseModeYawTargetInitialized = false;
+	float m_MouseModePitchSmoothing = 0.05f; // seconds; 0 disables smoothing (pitch)
+	float m_MouseModePitchTarget = 0.0f;      // degrees (aim pitch)
+	bool m_MouseModePitchTargetInitialized = false;
+	float m_MouseModeViewPitchTargetOffset = 0.0f; // degrees; only used when MouseModePitchAffectsView
+	bool m_MouseModeViewPitchTargetOffsetInitialized = false;
 	// Independent aim pitch (deg). Initialized to the current HMD pitch on enable.
 	float m_MouseAimPitchOffset = 0.0f;
 	bool m_MouseAimInitialized = false;
@@ -591,6 +599,8 @@ public:
 		ReleaseJump
 	};
 	SpecialInfectedWarningActionStep m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
+	bool m_SpecialInfectedWarningAttack2CmdOwned = false;
+	bool m_SpecialInfectedWarningJumpCmdOwned = false;
 	std::chrono::steady_clock::time_point m_SpecialInfectedWarningNextActionTime{};
 	int m_AimLineWarningColorR = 255;
 	int m_AimLineWarningColorG = 255;
