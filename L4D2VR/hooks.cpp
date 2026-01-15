@@ -844,23 +844,31 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			const int dx = cmd->mousedx;
 			const int dy = cmd->mousedy;
 
-			// Initialize the target on first use so we don't jump.
-			if (!m_VR->m_MouseModeYawTargetInitialized)
+			// Mouse-mode yaw (scheme A): treat mouse X as an angular velocity source.
+			// - If MouseModeTurnSmoothing <= 0: legacy behavior (apply yaw directly on CreateMove ticks).
+			// - If MouseModeTurnSmoothing  > 0: compute yaw velocity target here; VR::UpdateTracking integrates per-frame.
+			if (m_VR->m_MouseModeTurnSmoothing <= 0.0f)
 			{
-				m_VR->m_MouseModeYawTarget = m_VR->m_RotationOffset;
-				m_VR->m_MouseModeYawTarget -= 360.0f * std::floor(m_VR->m_MouseModeYawTarget / 360.0f);
-				m_VR->m_MouseModeYawTargetInitialized = true;
+				if (dx != 0)
+				{
+					m_VR->m_RotationOffset += (-float(dx) * m_VR->m_MouseModeYawSensitivity);
+					// Wrap to [0, 360)
+					m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
+				}
+				m_VR->m_MouseModeYawVelTargetDegPerSec = 0.0f;
+				m_VR->m_MouseModeYawVelDegPerSec = 0.0f;
+				m_VR->m_MouseModeYawVelInitialized = false;
 			}
-
-			if (dx != 0)
+			else
 			{
-				m_VR->m_MouseModeYawTarget -= float(dx) * m_VR->m_MouseModeYawSensitivity;
-				// Wrap to [0, 360)
-				m_VR->m_MouseModeYawTarget -= 360.0f * std::floor(m_VR->m_MouseModeYawTarget / 360.0f);
-
-				// If smoothing is disabled, behave exactly like before (immediate yaw update).
-				if (m_VR->m_MouseModeTurnSmoothing <= 0.0f)
-					m_VR->m_RotationOffset = m_VR->m_MouseModeYawTarget;
+				const float sample = std::max(0.0001f, flInputSampleTime);
+				const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity);
+				m_VR->m_MouseModeYawVelTargetDegPerSec = (dx != 0) ? (yawDeltaDeg / sample) : 0.0f;
+				if (!m_VR->m_MouseModeYawVelInitialized)
+				{
+					m_VR->m_MouseModeYawVelDegPerSec = 0.0f;
+					m_VR->m_MouseModeYawVelInitialized = true;
+				}
 			}
 
 			if (!m_VR->m_MouseAimInitialized)

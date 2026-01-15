@@ -372,9 +372,21 @@ public:
 	// Degrees per mouse-count (tune to taste; negative inverts)
 	float m_MouseModeYawSensitivity = 0.022f;
 	float m_MouseModePitchSensitivity = 0.022f;
-	// Mouse X updates a target yaw. We then optionally smooth m_RotationOffset toward it per-frame
-	// (this avoids a "low-FPS" feel when CreateMove runs slower than VR rendering).
-	float m_MouseModeTurnSmoothing = 0.05f; // seconds; 0 disables smoothing
+	// Mouse-mode yaw smoothing time constant (seconds).
+	//
+	// Implementation note (scheme A): we treat mouse X as an angular velocity source.
+	// - CreateMove computes a target yaw velocity (deg/sec) from cmd->mousedx and the input sample time.
+	// - UpdateTracking runs at VR render rate and integrates yaw each frame:
+	//     m_RotationOffset += yawVelDegPerSec * dt
+	// - If this value is > 0, we low-pass filter the *velocity* (NOT the yaw angle), which keeps turning
+	//   smooth without adding the big "chasing a target" latency.
+	// - 0 disables yaw smoothing (legacy: apply yaw directly on CreateMove ticks).
+	float m_MouseModeTurnSmoothing = 0.05f;
+	// Internal state for scheme A (velocity-based yaw).
+	float m_MouseModeYawVelDegPerSec = 0.0f;
+	float m_MouseModeYawVelTargetDegPerSec = 0.0f;
+	bool  m_MouseModeYawVelInitialized = false;
+	// Legacy (scheme B) target-yaw smoothing fields (kept for compatibility / diff minimization).
 	float m_MouseModeYawTarget = 0.0f;      // degrees in [0,360)
 	bool m_MouseModeYawTargetInitialized = false;
 	float m_MouseModePitchSmoothing = 0.05f; // seconds; 0 disables smoothing (pitch)

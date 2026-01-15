@@ -2896,42 +2896,43 @@ void VR::UpdateTracking()
         }
     }
 
-    // Mouse-mode yaw smoothing:
-    // - cmd->mousedx arrives at CreateMove rate (tickrate), but VR rendering/tracking updates faster.
-    // - If we apply yaw only on CreateMove ticks, turning feels like "low FPS" even when actual render FPS is fine.
-    // So: CreateMove updates m_MouseModeYawTarget, and here we smoothly converge m_RotationOffset to it per-frame.
-    if (m_MouseModeEnabled)
-    {
-        if (!m_MouseModeYawTargetInitialized)
-        {
-            m_MouseModeYawTarget = m_RotationOffset;
-            m_MouseModeYawTarget -= 360.0f * std::floor(m_MouseModeYawTarget / 360.0f);
-            m_MouseModeYawTargetInitialized = true;
-        }
+	// Mouse-mode yaw smoothing (scheme A): velocity-based.
+	// - CreateMove computes m_MouseModeYawVelTargetDegPerSec from cmd->mousedx.
+	// - UpdateTracking runs at VR render rate and integrates yaw per frame.
+	// - MouseModeTurnSmoothing (tau) filters *velocity*, which avoids the big "chasing target" latency.
+	if (m_MouseModeEnabled)
+	{
+		if (m_MouseModeTurnSmoothing > 0.0f)
+		{
+			const float dt = std::max(0.0f, m_LastFrameDuration);
+			if (!m_MouseModeYawVelInitialized)
+			{
+				m_MouseModeYawVelDegPerSec = 0.0f;
+				m_MouseModeYawVelInitialized = true;
+			}
+			const float tau = std::max(0.0001f, m_MouseModeTurnSmoothing);
+			const float alpha = 1.0f - expf(-dt / tau);
+			m_MouseModeYawVelDegPerSec += (m_MouseModeYawVelTargetDegPerSec - m_MouseModeYawVelDegPerSec) * alpha;
 
-        if (m_MouseModeTurnSmoothing > 0.0f)
-        {
-            const float dt = std::max(0.0f, m_LastFrameDuration);
-            const float tau = std::max(0.0001f, m_MouseModeTurnSmoothing);
-            const float alpha = 1.0f - expf(-dt / tau);
-
-            float diff = m_MouseModeYawTarget - m_RotationOffset;
-            // Wrap diff to [-180, 180]
-            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-            m_RotationOffset += diff * alpha;
-            // Wrap to [0, 360)
-            m_RotationOffset -= 360.0f * std::floor(m_RotationOffset / 360.0f);
-        }
-        else
-        {
-            // Smoothing disabled: keep legacy immediate behavior.
-            m_RotationOffset = m_MouseModeYawTarget;
-        }
-    }
-    else
-    {
-        m_MouseModeYawTargetInitialized = false;
-    }
+			m_RotationOffset += m_MouseModeYawVelDegPerSec * dt;
+			// Wrap to [0, 360)
+			m_RotationOffset -= 360.0f * std::floor(m_RotationOffset / 360.0f);
+		}
+		else
+		{
+			// Legacy: yaw was already applied directly on CreateMove ticks.
+			m_MouseModeYawVelTargetDegPerSec = 0.0f;
+			m_MouseModeYawVelDegPerSec = 0.0f;
+			m_MouseModeYawVelInitialized = false;
+		}
+	}
+	else
+	{
+		m_MouseModeYawVelTargetDegPerSec = 0.0f;
+		m_MouseModeYawVelDegPerSec = 0.0f;
+		m_MouseModeYawVelInitialized = false;
+		m_MouseModeYawTargetInitialized = false; // legacy field
+	}
 
     // Mouse-mode pitch smoothing (aim pitch + optional view pitch):
     // - cmd->mousedy arrives at CreateMove rate (tickrate), but VR rendering/tracking updates faster.
