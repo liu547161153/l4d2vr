@@ -2735,6 +2735,13 @@ Vector VR::GetRightControllerAbsPos()
 Vector VR::GetRecommendedViewmodelAbsPos()
 {
     Vector viewmodelPos = GetRightControllerAbsPos();
+    if (m_MouseModeEnabled)
+    {
+        viewmodelPos = m_HmdPosAbs
+            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
+            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
+            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+    }
     viewmodelPos -= m_ViewmodelForward * m_ViewmodelPosOffset.x;
     viewmodelPos -= m_ViewmodelRight * m_ViewmodelPosOffset.y;
     viewmodelPos -= m_ViewmodelUp * m_ViewmodelPosOffset.z;
@@ -2957,6 +2964,23 @@ void VR::UpdateTracking()
         ResetPosition();
 
     m_HmdAngAbs = hmdAngSmoothed;
+
+    // Mouse aim initialization: decouple aim pitch from HMD pitch.
+    if (m_MouseModeEnabled)
+    {
+        if (!m_MouseAimInitialized)
+        {
+            m_MouseAimPitchOffset = m_HmdAngAbs.x;
+            m_MouseAimInitialized = true;
+        }
+        // Clamp to sane pitch range.
+        if (m_MouseAimPitchOffset > 89.f)  m_MouseAimPitchOffset = 89.f;
+        if (m_MouseAimPitchOffset < -89.f) m_MouseAimPitchOffset = -89.f;
+    }
+    else
+    {
+        m_MouseAimInitialized = false;
+    }
 
     m_HmdPosAbsPrev = m_HmdPosAbs;
     m_SetupOriginPrev = m_SetupOrigin;
@@ -3371,9 +3395,52 @@ void VR::UpdateTracking()
     m_ViewmodelPosOffset = viewmodelOffset.position + m_ViewmodelPosAdjust;
     m_ViewmodelAngOffset = viewmodelOffset.angle + m_ViewmodelAngAdjust;
 
-    m_ViewmodelForward = m_RightControllerForward;
-    m_ViewmodelUp = m_RightControllerUp;
-    m_ViewmodelRight = m_RightControllerRight;
+    if (m_MouseModeEnabled)
+    {
+        const float pitch = std::clamp(m_MouseAimPitchOffset, -89.f, 89.f);
+        const float yaw = m_RotationOffset; // body yaw only (independent of head yaw)
+        QAngle eyeAng(pitch, yaw, 0.f);
+        NormalizeAndClampViewAngles(eyeAng);
+
+        Vector eyeDir, eyeRight, eyeUp;
+        QAngle::AngleVectors(eyeAng, &eyeDir, &eyeRight, &eyeUp);
+        if (!eyeDir.IsZero())
+            VectorNormalize(eyeDir);
+
+        Vector gunOrigin = m_HmdPosAbs
+            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
+            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
+            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+
+        const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
+        Vector target = m_HmdPosAbs + eyeDir * convergeDist;
+
+        Vector aimDir = target - gunOrigin;
+        if (aimDir.IsZero())
+            aimDir = eyeDir;
+
+        if (aimDir.IsZero())
+        {
+            m_ViewmodelForward = m_RightControllerForward;
+            m_ViewmodelUp = m_RightControllerUp;
+            m_ViewmodelRight = m_RightControllerRight;
+        }
+        else
+        {
+            VectorNormalize(aimDir);
+            QAngle aimAng;
+            QAngle::VectorAngles(aimDir, aimAng);
+            NormalizeAndClampViewAngles(aimAng);
+
+            QAngle::AngleVectors(aimAng, &m_ViewmodelForward, &m_ViewmodelRight, &m_ViewmodelUp);
+        }
+    }
+    else
+    {
+        m_ViewmodelForward = m_RightControllerForward;
+        m_ViewmodelUp = m_RightControllerUp;
+        m_ViewmodelRight = m_RightControllerRight;
+    }
 
     // Viewmodel yaw offset
     m_ViewmodelForward = VectorRotate(m_ViewmodelForward, m_ViewmodelUp, m_ViewmodelAngOffset.y);
@@ -3525,6 +3592,46 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     if (ShouldThrottle(s_lastSolve, kSolveMaxHz))
         return;
 
+    if (m_MouseModeEnabled)
+    {
+        const Vector eye = localPlayer->EyePosition();
+
+        const float pitch = std::clamp(m_MouseAimPitchOffset, -89.f, 89.f);
+        const float yaw = m_RotationOffset;
+        QAngle eyeAng(pitch, yaw, 0.f);
+        NormalizeAndClampViewAngles(eyeAng);
+
+        Vector eyeDir, eyeRight, eyeUp;
+        QAngle::AngleVectors(eyeAng, &eyeDir, &eyeRight, &eyeUp);
+        if (eyeDir.IsZero())
+        {
+            m_HasNonVRAimSolution = false;
+            return;
+        }
+        VectorNormalize(eyeDir);
+
+        const float maxDistance = 8192.0f;
+
+        Vector endEye = eye + eyeDir * maxDistance;
+        CGameTrace traceH;
+        Ray_t rayH;
+        CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+        rayH.Init(eye, endEye);
+        m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, &tracefilter, &traceH);
+
+        const Vector H = (traceH.fraction < 1.0f && traceH.fraction > 0.0f) ? traceH.endpos : endEye;
+        m_NonVRAimHitPoint = H;
+
+        const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f)
+            ? std::min(m_MouseModeAimConvergeDistance, maxDistance)
+            : maxDistance;
+        m_NonVRAimDesiredPoint = eye + eyeDir * convergeDist;
+
+        m_NonVRAimAngles = eyeAng;
+        m_HasNonVRAimSolution = true;
+        return;
+    }
+
     // Use the same controller direction/origin rules as UpdateAimingLaser.
     Vector direction = m_RightControllerForward;
     if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
@@ -3621,11 +3728,43 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
 
     bool isThrowable = IsThrowableWeapon(activeWeapon);
-    // First-person: aim line follows the right controller.
-    // Third-person: aim line follows the camera/HMD (more intuitive and doesn't drift when you look around).
+    const bool useMouse = m_MouseModeEnabled;
+
+    // Eye-center ray direction (mouse aim in mouse mode).
+    Vector eyeDir = { 0.0f, 0.0f, 0.0f };
+    if (useMouse)
+    {
+        const float pitch = std::clamp(m_MouseAimPitchOffset, -89.f, 89.f);
+        const float yaw = m_RotationOffset;
+        QAngle eyeAng(pitch, yaw, 0.f);
+        NormalizeAndClampViewAngles(eyeAng);
+
+        Vector right, up;
+        QAngle::AngleVectors(eyeAng, &eyeDir, &right, &up);
+        if (!eyeDir.IsZero())
+            VectorNormalize(eyeDir);
+    }
+
+    // Aim direction:
+    //  - Normal mode: controller forward (existing behavior).
+    //  - Mouse mode (scheme B): start at the viewmodel anchor, but steer the ray to converge
+    //    to the eye-center ray at MouseModeAimConvergeDistance.
     Vector direction = m_RightControllerForward;
     if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
         direction = m_RightControllerForwardUnforced;
+
+    if (useMouse)
+    {
+        Vector gunOrigin = m_HmdPosAbs
+            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
+            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
+            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+
+        const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
+        Vector target = m_HmdPosAbs + eyeDir * convergeDist;
+
+        direction = target - gunOrigin;
+    }
     if (direction.IsZero())
     {
         if (m_LastAimDirection.IsZero())
@@ -3659,6 +3798,13 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     // so we translate the controller position into the rendered-camera frame.
     // We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
     Vector originBase = m_RightControllerPosAbs;
+    if (useMouse)
+    {
+        originBase = m_HmdPosAbs
+            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
+            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
+            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+    }
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
@@ -3670,7 +3816,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         m_HasAimConvergePoint = false;
 
         Vector pitchSource = direction;
-        if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
+        if (useMouse && !eyeDir.IsZero())
+            pitchSource = eyeDir;
+        else if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
             pitchSource = m_HmdForward;
 
         DrawThrowArc(origin, direction, pitchSource);
@@ -4636,6 +4784,15 @@ float VR::GetMovementYawDeg()
 {
     if (!m_MoveDirectionFromController)
     {
+        if (m_MouseModeEnabled)
+        {
+            // In mouse mode, locomotion follows the body yaw (turning), not head yaw.
+            float yaw = m_RotationOffset;
+            // Wrap to [-180, 180]
+            yaw -= 360.0f * std::floor((yaw + 180.0f) / 360.0f);
+            return yaw;
+        }
+
         Vector hmdAng = GetViewAngle();
         return hmdAng.y;
     }
@@ -5566,6 +5723,13 @@ void VR::ParseConfigFile()
         m_RearMirrorSpecialEnlargeActive = false;
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+
+    // Mouse mode (desktop-style aiming while staying in VR rendering)
+    m_MouseModeEnabled = getBool("MouseModeEnabled", m_MouseModeEnabled);
+    m_MouseModeYawSensitivity = getFloat("MouseModeYawSensitivity", m_MouseModeYawSensitivity);
+    m_MouseModePitchSensitivity = getFloat("MouseModePitchSensitivity", m_MouseModePitchSensitivity);
+    m_MouseModeViewmodelAnchorOffset = getVector3("MouseModeViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
+    m_MouseModeAimConvergeDistance = getFloat("MouseModeAimConvergeDistance", m_MouseModeAimConvergeDistance);
 
     // Non-VR server melee feel tuning (ForceNonVRServerMovement=true only)
     m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));

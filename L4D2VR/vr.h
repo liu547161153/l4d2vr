@@ -348,6 +348,25 @@ public:
 	// If false: movement (walk axis) follows HMD yaw ("head-oriented locomotion").
 	// If true:  movement follows the right-hand controller yaw ("hand-oriented locomotion").
 	bool m_MoveDirectionFromController = false;
+	// Mouse aiming / mouse steering mode (desktop-style).
+	// When enabled:
+	//  - Mouse X rotates the body (yaw) via m_RotationOffset.
+	//  - Mouse Y controls an independent aim pitch (does NOT tilt the HMD/camera).
+	//  - Viewmodel is anchored to an HMD-relative offset (MouseModeViewmodelAnchorOffset).
+	//  - Aim line starts at the anchored viewmodel point, but converges to the HMD-center ray
+	//    at MouseModeAimConvergeDistance (scheme B).
+	bool m_MouseModeEnabled = false;
+	// Degrees per mouse-count (tune to taste; negative inverts)
+	float m_MouseModeYawSensitivity = 0.022f;
+	float m_MouseModePitchSensitivity = 0.022f;
+	// Independent aim pitch (deg). Initialized to the current HMD pitch on enable.
+	float m_MouseAimPitchOffset = 0.0f;
+	bool m_MouseAimInitialized = false;
+	// HMD-local offset for the viewmodel anchor (meters; scaled by VRScale).
+	Vector m_MouseModeViewmodelAnchorOffset = { 0.0f, 0.0f, 0.0f };
+	// Convergence distance (Source units). Aim ray from the viewmodel anchor is steered to intersect
+	// the HMD-center ray at this distance. Set <= 0 to disable convergence (use raw viewmodel ray).
+	float m_MouseModeAimConvergeDistance = 2048.0f;
 	// HMD roll-based strafe (tilt head left/right to strafe).
 	float m_HmdTiltStrafeSensitivity = 0.05f;
 	float m_HmdTiltStrafeAngle = 10.0f;

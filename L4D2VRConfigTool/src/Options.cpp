@@ -376,6 +376,66 @@ Option g_Options[] =
         "0.0"
     },
     {
+        "MouseModeEnabled",
+        OptionType::Bool,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Mouse Mode", u8"鼠标操作模式" },
+        { u8"Enable desktop-style aiming: mouse X turns body, mouse Y aims without pitching the HMD/camera.",
+          u8"启用桌面式瞄准：鼠标左右转身，鼠标上下只移动瞄准线，不影响 HMD/视角俯仰。" },
+        { u8"Useful for gun-stock setups or fatigue-free aiming. VR rendering stays enabled.",
+          u8"适合枪托/减少手柄疲劳的玩法。仍然使用 VR 渲染。" },
+        0.0f, 1.0f,
+        "false"
+    },
+    {
+        "MouseModeYawSensitivity",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Mouse Yaw Sensitivity (deg/count)", u8"鼠标水平灵敏度 (度/计数)" },
+        { u8"How many degrees of body yaw to apply per raw mouse count (mousedx).",
+          u8"每个鼠标水平原始计数(mousedx)对应转身角度。" },
+        { u8"Typical values: 0.010~0.050. Negative inverts.",
+          u8"常用范围：0.010~0.050。负数可反向。" },
+        -0.2f, 0.2f,
+        "0.022"
+    },
+    {
+        "MouseModePitchSensitivity",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Mouse Pitch Sensitivity (deg/count)", u8"鼠标垂直灵敏度 (度/计数)" },
+        { u8"How many degrees of aim pitch to apply per raw mouse count (mousedy). Does NOT pitch the camera.",
+          u8"每个鼠标垂直原始计数(mousedy)对应瞄准线俯仰角度。不改变相机俯仰。" },
+        { u8"Typical values: 0.010~0.050. Negative inverts.",
+          u8"常用范围：0.010~0.050。负数可反向。" },
+        -0.2f, 0.2f,
+        "0.022"
+    },
+    {
+        "MouseModeViewmodelAnchorOffset",
+        OptionType::Vec3,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Mouse Mode Viewmodel Anchor Offset (m)", u8"鼠标模式 Viewmodel 锚点偏移 (米)" },
+        { u8"HMD-local offset for the fixed viewmodel/aim origin (meters).",
+          u8"基于 HMD 的固定 viewmodel/瞄准起点偏移（米制）。" },
+        { u8"X=forward, Y=right, Z=up. Tune so the gun sits where you want.",
+          u8"X=前方，Y=右方，Z=上方。调到枪在你想要的位置。" },
+        -1.0f, 1.0f,
+        "0.22,0.00,-0.18"
+    },
+    {
+        "MouseModeAimConvergeDistance",
+        OptionType::Float,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Mouse Mode Convergence Distance (units)", u8"鼠标模式汇聚距离 (单位)" },
+        { u8"Scheme B: viewmodel ray is steered to intersect the HMD-center ray at this distance (Source units).",
+          u8"方案B：让 viewmodel 发出的瞄准射线在该距离与视线中心射线相交（Source 单位）。" },
+        { u8"Helps keep the aim line near screen center even if you move the anchor. 2048~4096 is common.",
+          u8"即使调整锚点，也能让瞄准线远处回到视野中心。常用 2048~4096。" },
+        0.0f, 8192.0f,
+        "2048"
+    },
+    {
         "ForceNonVRServerMovement",
         OptionType::Bool,
         { u8"Multiplayer / Server", u8"多人 / 服务器" },
