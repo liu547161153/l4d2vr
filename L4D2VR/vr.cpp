@@ -1508,6 +1508,21 @@ void VR::ProcessInput()
             m_Game->ClientCmd_Unrestricted("-attack2");
             m_SecondaryAttackCmdOwned = false;
         }
+        if (m_JumpCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-jump");
+            m_JumpCmdOwned = false;
+        }
+        if (m_UseCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-use");
+            m_UseCmdOwned = false;
+        }
+        if (m_ReloadCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-reload");
+            m_ReloadCmdOwned = false;
+        }
         m_PrimaryAttackDown = false;
         return;
     }
@@ -1664,22 +1679,29 @@ void VR::ProcessInput()
 #endif
 
     const bool jumpGestureActive = currentTime < m_JumpGestureHoldUntil;
-    if (PressedDigitalAction(m_ActionJump) || jumpGestureActive)
+
+    const bool wantJump = PressedDigitalAction(m_ActionJump) || jumpGestureActive;
+    if (wantJump && !m_JumpCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("+jump");
+        m_JumpCmdOwned = true;
     }
-    else
+    else if (!wantJump && m_JumpCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("-jump");
+        m_JumpCmdOwned = false;
     }
 
-    if (PressedDigitalAction(m_ActionUse))
+    const bool wantUse = PressedDigitalAction(m_ActionUse);
+    if (wantUse && !m_UseCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("+use");
+        m_UseCmdOwned = true;
     }
-    else
+    else if (!wantUse && m_UseCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("-use");
+        m_UseCmdOwned = false;
     }
 
     auto getActionState = [&](vr::VRActionHandle_t* handle, vr::InputDigitalActionData_t& data, bool& isDown, bool& justPressed)
@@ -2326,13 +2348,16 @@ void VR::ProcessInput()
     reloadButtonDown = (reloadButtonDown || gestureReloadActive) && !suppressReload;
     secondaryAttackActive = secondaryAttackActive || gestureSecondaryAttackActive;
 
-    if (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive)
+    const bool wantReload = (!crouchButtonDown && reloadButtonDown && !adjustViewmodelActive);
+    if (wantReload && !m_ReloadCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("+reload");
+        m_ReloadCmdOwned = true;
     }
-    else
+    else if (!wantReload && m_ReloadCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("-reload");
+        m_ReloadCmdOwned = false;
     }
 
     {
@@ -2908,6 +2933,53 @@ void VR::UpdateTracking()
         m_MouseModeYawTargetInitialized = false;
     }
 
+    // Mouse-mode pitch smoothing (aim pitch + optional view pitch):
+    // - cmd->mousedy arrives at CreateMove rate (tickrate), but VR rendering/tracking updates faster.
+    // - If we apply pitch only on CreateMove ticks, aiming up/down feels like it's "stuttering".
+    // So: CreateMove updates pitch targets, and here we smoothly converge per-frame.
+    if (m_MouseModeEnabled)
+    {
+        if (!m_MouseModePitchTargetInitialized)
+        {
+            m_MouseModePitchTarget = m_MouseAimPitchOffset;
+            m_MouseModePitchTargetInitialized = true;
+        }
+        if (!m_MouseModeViewPitchTargetOffsetInitialized)
+        {
+            m_MouseModeViewPitchTargetOffset = m_MouseModeViewPitchOffset;
+            m_MouseModeViewPitchTargetOffsetInitialized = true;
+        }
+
+        if (m_MouseModePitchSmoothing > 0.0f)
+        {
+            const float dt = std::max(0.0f, m_LastFrameDuration);
+            const float tau = std::max(0.0001f, m_MouseModePitchSmoothing);
+            const float alpha = 1.0f - expf(-dt / tau);
+
+            m_MouseAimPitchOffset += (m_MouseModePitchTarget - m_MouseAimPitchOffset) * alpha;
+
+            if (m_MouseModePitchAffectsView)
+            {
+                m_MouseModeViewPitchOffset += (m_MouseModeViewPitchTargetOffset - m_MouseModeViewPitchOffset) * alpha;
+            }
+        }
+        else
+        {
+            // Smoothing disabled: keep legacy immediate behavior.
+            m_MouseAimPitchOffset = m_MouseModePitchTarget;
+            if (m_MouseModePitchAffectsView)
+                m_MouseModeViewPitchOffset = m_MouseModeViewPitchTargetOffset;
+        }
+
+        if (m_MouseAimPitchOffset > 89.f)  m_MouseAimPitchOffset = 89.f;
+        if (m_MouseAimPitchOffset < -89.f) m_MouseAimPitchOffset = -89.f;
+    }
+    else
+    {
+        m_MouseModePitchTargetInitialized = false;
+        m_MouseModeViewPitchTargetOffsetInitialized = false;
+    }
+
     // HMD tracking
     QAngle hmdAngLocal = m_HmdPose.TrackedDeviceAng;
     Vector hmdPosLocal = m_HmdPose.TrackedDevicePos;
@@ -3042,6 +3114,12 @@ void VR::UpdateTracking()
             m_MouseAimPitchOffset = m_HmdAngAbs.x;
             m_MouseModeViewPitchOffset = 0.0f;
             m_MouseAimInitialized = true;
+
+            // Initialize targets to avoid a one-frame jump when smoothing is enabled.
+            m_MouseModePitchTarget = m_MouseAimPitchOffset;
+            m_MouseModePitchTargetInitialized = true;
+            m_MouseModeViewPitchTargetOffset = m_MouseModeViewPitchOffset;
+            m_MouseModeViewPitchTargetOffsetInitialized = true;
         }
         // Clamp to sane pitch range.
         if (m_MouseAimPitchOffset > 89.f)  m_MouseAimPitchOffset = 89.f;
@@ -3051,6 +3129,8 @@ void VR::UpdateTracking()
     {
         m_MouseAimInitialized = false;
         m_MouseModeViewPitchOffset = 0.0f;
+        m_MouseModePitchTargetInitialized = false;
+        m_MouseModeViewPitchTargetOffsetInitialized = false;
     }
 
     m_HmdPosAbsPrev = m_HmdPosAbs;
@@ -4791,21 +4871,37 @@ void VR::UpdateSpecialInfectedWarningAction()
     switch (m_SpecialInfectedWarningActionStep)
     {
     case SpecialInfectedWarningActionStep::PressSecondaryAttack:
-        m_Game->ClientCmd_Unrestricted("+attack2");
+        if (!m_SpecialInfectedWarningAttack2CmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("+attack2");
+            m_SpecialInfectedWarningAttack2CmdOwned = true;
+        }
         m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseSecondaryAttack;
         m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningSecondaryHoldDuration);
         break;
     case SpecialInfectedWarningActionStep::ReleaseSecondaryAttack:
-        m_Game->ClientCmd_Unrestricted("-attack2");
+        if (m_SpecialInfectedWarningAttack2CmdOwned && !m_SecondaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack2");
+        }
+        m_SpecialInfectedWarningAttack2CmdOwned = false;
         ResetSpecialInfectedWarningAction();
         break;
     case SpecialInfectedWarningActionStep::PressJump:
-        m_Game->ClientCmd_Unrestricted("+jump");
+        if (!m_SpecialInfectedWarningJumpCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("+jump");
+            m_SpecialInfectedWarningJumpCmdOwned = true;
+        }
         m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::ReleaseJump;
         m_SpecialInfectedWarningNextActionTime = now + secondsToDuration(m_SpecialInfectedWarningJumpHoldDuration);
         break;
     case SpecialInfectedWarningActionStep::ReleaseJump:
-        m_Game->ClientCmd_Unrestricted("-jump");
+        if (m_SpecialInfectedWarningJumpCmdOwned && !m_JumpCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-jump");
+        }
+        m_SpecialInfectedWarningJumpCmdOwned = false;
         ResetSpecialInfectedWarningAction();
         break;
     default:
@@ -4815,8 +4911,20 @@ void VR::UpdateSpecialInfectedWarningAction()
 
 void VR::ResetSpecialInfectedWarningAction()
 {
-    m_Game->ClientCmd_Unrestricted("-attack2");
-    m_Game->ClientCmd_Unrestricted("-jump");
+    // Do NOT spam "-attack2"/"-jump" here: it cancels real keyboard/mouse input.
+    // Only release if this automation actually owned the command and the player's normal
+    // input path isn't currently holding it.
+    if (m_SpecialInfectedWarningAttack2CmdOwned && !m_SecondaryAttackCmdOwned)
+    {
+        m_Game->ClientCmd_Unrestricted("-attack2");
+    }
+    if (m_SpecialInfectedWarningJumpCmdOwned && !m_JumpCmdOwned)
+    {
+        m_Game->ClientCmd_Unrestricted("-jump");
+    }
+
+    m_SpecialInfectedWarningAttack2CmdOwned = false;
+    m_SpecialInfectedWarningJumpCmdOwned = false;
     m_SpecialInfectedWarningActionStep = SpecialInfectedWarningActionStep::None;
     m_SpecialInfectedWarningNextActionTime = {};
     m_SuppressPlayerInput = false;
@@ -5801,6 +5909,7 @@ void VR::ParseConfigFile()
     m_MouseModePitchSensitivity = getFloat("MouseModePitchSensitivity", m_MouseModePitchSensitivity);
     m_MouseModePitchAffectsView = getBool("MouseModePitchAffectsView", m_MouseModePitchAffectsView);
     m_MouseModeTurnSmoothing = getFloat("MouseModeTurnSmoothing", m_MouseModeTurnSmoothing);
+    m_MouseModePitchSmoothing = getFloat("MouseModePitchSmoothing", m_MouseModePitchSmoothing);
     m_MouseModeViewmodelAnchorOffset = getVector3("MouseModeViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
     m_MouseModeAimConvergeDistance = getFloat("MouseModeAimConvergeDistance", m_MouseModeAimConvergeDistance);
 
