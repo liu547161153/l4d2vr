@@ -844,9 +844,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			const int dx = cmd->mousedx;
 			const int dy = cmd->mousedy;
 
-			// Mouse-mode yaw (scheme A): treat mouse X as an angular velocity source.
+			// Mouse-mode yaw (scheme A): delta-drain smoothing.
 			// - If MouseModeTurnSmoothing <= 0: legacy behavior (apply yaw directly on CreateMove ticks).
-			// - If MouseModeTurnSmoothing  > 0: compute yaw velocity target here; VR::UpdateTracking integrates per-frame.
+			// - If MouseModeTurnSmoothing  > 0: convert mouse X to a yaw delta and accumulate it.
+			//   VR::UpdateTracking will drain/apply it smoothly per-frame.
 			if (m_VR->m_MouseModeTurnSmoothing <= 0.0f)
 			{
 				if (dx != 0)
@@ -855,19 +856,20 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 					// Wrap to [0, 360)
 					m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
 				}
-				m_VR->m_MouseModeYawVelTargetDegPerSec = 0.0f;
-				m_VR->m_MouseModeYawVelDegPerSec = 0.0f;
-				m_VR->m_MouseModeYawVelInitialized = false;
+				m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
+				m_VR->m_MouseModeYawDeltaInitialized = false;
 			}
 			else
 			{
-				const float sample = std::max(0.0001f, flInputSampleTime);
-				const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity);
-				m_VR->m_MouseModeYawVelTargetDegPerSec = (dx != 0) ? (yawDeltaDeg / sample) : 0.0f;
-				if (!m_VR->m_MouseModeYawVelInitialized)
+				if (!m_VR->m_MouseModeYawDeltaInitialized)
 				{
-					m_VR->m_MouseModeYawVelDegPerSec = 0.0f;
-					m_VR->m_MouseModeYawVelInitialized = true;
+					m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
+					m_VR->m_MouseModeYawDeltaInitialized = true;
+				}
+				if (dx != 0)
+				{
+					const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity);
+					m_VR->m_MouseModeYawDeltaRemainingDeg += yawDeltaDeg;
 				}
 			}
 
