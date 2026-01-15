@@ -356,11 +356,16 @@ public:
 	// Mouse aiming / mouse steering mode (desktop-style).
 	// When enabled:
 	//  - Mouse X rotates the body (yaw) via m_RotationOffset.
-	//  - Mouse Y controls an independent aim pitch (does NOT tilt the HMD/camera).
+	//  - Mouse Y controls aim pitch (see MouseModePitchAffectsView).
 	//  - Viewmodel is anchored to an HMD-relative offset (MouseModeViewmodelAnchorOffset).
-	//  - Aim line starts at the anchored viewmodel point, but converges to the HMD-center ray
+	//  - Aim line starts at the anchored viewmodel point, but converges to the mouse-aim ray
 	//    at MouseModeAimConvergeDistance (scheme B).
 	bool m_MouseModeEnabled = false;
+	// If true, mouse Y also tilts the rendered view (adds a pitch offset on top of head tracking).
+	// This makes it possible to aim high/low without physically tilting your head (more like flatscreen).
+	bool m_MouseModePitchAffectsView = true;
+	// Additional pitch applied to the HMD view (degrees). Only used when MouseModePitchAffectsView is true.
+	float m_MouseModeViewPitchOffset = 0.0f;
 	// Degrees per mouse-count (tune to taste; negative inverts)
 	float m_MouseModeYawSensitivity = 0.022f;
 	float m_MouseModePitchSensitivity = 0.022f;
