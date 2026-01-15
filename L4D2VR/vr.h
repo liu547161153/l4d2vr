@@ -275,6 +275,11 @@ public:
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
 	bool m_PrimaryAttackDown = false;
+	// We drive +attack/+attack2 via ClientCmd for VR actions. In mouse-mode, spamming "-attack"
+	// every frame prevents real mouse buttons from working, so we only send +/- when VR actually
+	// changes state, and only release if we were the one who pressed.
+	bool m_PrimaryAttackCmdOwned = false;
+	bool m_SecondaryAttackCmdOwned = false;
 	bool m_LeftGripPressedPrev = false;
 	bool m_RightGripPressedPrev = false;
 
@@ -359,6 +364,11 @@ public:
 	// Degrees per mouse-count (tune to taste; negative inverts)
 	float m_MouseModeYawSensitivity = 0.022f;
 	float m_MouseModePitchSensitivity = 0.022f;
+	// Mouse X updates a target yaw. We then optionally smooth m_RotationOffset toward it per-frame
+	// (this avoids a "low-FPS" feel when CreateMove runs slower than VR rendering).
+	float m_MouseModeTurnSmoothing = 0.05f; // seconds; 0 disables smoothing
+	float m_MouseModeYawTarget = 0.0f;      // degrees in [0,360)
+	bool m_MouseModeYawTargetInitialized = false;
 	// Independent aim pitch (deg). Initialized to the current HMD pitch on enable.
 	float m_MouseAimPitchOffset = 0.0f;
 	bool m_MouseAimInitialized = false;
