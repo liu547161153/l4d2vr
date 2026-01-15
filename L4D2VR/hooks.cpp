@@ -557,11 +557,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.m_flAspectRatio = m_VR->m_Aspect;
 	leftEyeView.zNear = 6;
 	leftEyeView.zNearViewmodel = 6;
-	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
+	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera.
+	// IMPORTANT (VR compatibility):
+	// Some VScript mods (e.g. slide mods) temporarily enable point_viewcontrol_survivor via
+	// CBasePlayer::m_hViewEntity. In that case, setup.origin can jump to an attachment-driven
+	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
+	// So: only borrow setup.origin.z when the player has no active view-entity override.
 	m_VR->m_SetupOrigin = eyeOrigin;
-	if (!renderThirdPerson)
+	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
+	if (!renderThirdPerson && !hasViewEntityOverride)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
@@ -837,11 +844,23 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			const int dx = cmd->mousedx;
 			const int dy = cmd->mousedy;
 
+			// Initialize the target on first use so we don't jump.
+			if (!m_VR->m_MouseModeYawTargetInitialized)
+			{
+				m_VR->m_MouseModeYawTarget = m_VR->m_RotationOffset;
+				m_VR->m_MouseModeYawTarget -= 360.0f * std::floor(m_VR->m_MouseModeYawTarget / 360.0f);
+				m_VR->m_MouseModeYawTargetInitialized = true;
+			}
+
 			if (dx != 0)
 			{
-				m_VR->m_RotationOffset -= float(dx) * m_VR->m_MouseModeYawSensitivity;
+				m_VR->m_MouseModeYawTarget -= float(dx) * m_VR->m_MouseModeYawSensitivity;
 				// Wrap to [0, 360)
-				m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
+				m_VR->m_MouseModeYawTarget -= 360.0f * std::floor(m_VR->m_MouseModeYawTarget / 360.0f);
+
+				// If smoothing is disabled, behave exactly like before (immediate yaw update).
+				if (m_VR->m_MouseModeTurnSmoothing <= 0.0f)
+					m_VR->m_RotationOffset = m_VR->m_MouseModeYawTarget;
 			}
 
 			if (!m_VR->m_MouseAimInitialized)
