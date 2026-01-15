@@ -2921,6 +2921,17 @@ void VR::UpdateTracking()
     // Wrap angle from -180 to 180
     hmdAngLocal.y -= 360 * std::floor((hmdAngLocal.y + 180) / 360);
 
+    // Mouse-mode pitch: optional view tilt driven by mouse Y.
+    if (m_MouseModeEnabled && m_MouseModePitchAffectsView)
+    {
+        hmdAngLocal.x += m_MouseModeViewPitchOffset;
+        // Wrap to [-180, 180]
+        hmdAngLocal.x -= 360 * std::floor((hmdAngLocal.x + 180) / 360);
+        // Keep pitch in a sane range (Source viewangles expect [-89, 89]).
+        if (hmdAngLocal.x > 89.f)  hmdAngLocal.x = 89.f;
+        if (hmdAngLocal.x < -89.f) hmdAngLocal.x = -89.f;
+    }
+
     auto wrapAngle = [](float angle)
         {
             return angle - 360.0f * std::floor((angle + 180.0f) / 360.0f);
@@ -3029,6 +3040,7 @@ void VR::UpdateTracking()
         if (!m_MouseAimInitialized)
         {
             m_MouseAimPitchOffset = m_HmdAngAbs.x;
+            m_MouseModeViewPitchOffset = 0.0f;
             m_MouseAimInitialized = true;
         }
         // Clamp to sane pitch range.
@@ -3038,6 +3050,7 @@ void VR::UpdateTracking()
     else
     {
         m_MouseAimInitialized = false;
+        m_MouseModeViewPitchOffset = 0.0f;
     }
 
     m_HmdPosAbsPrev = m_HmdPosAbs;
@@ -5786,6 +5799,7 @@ void VR::ParseConfigFile()
     m_MouseModeEnabled = getBool("MouseModeEnabled", m_MouseModeEnabled);
     m_MouseModeYawSensitivity = getFloat("MouseModeYawSensitivity", m_MouseModeYawSensitivity);
     m_MouseModePitchSensitivity = getFloat("MouseModePitchSensitivity", m_MouseModePitchSensitivity);
+    m_MouseModePitchAffectsView = getBool("MouseModePitchAffectsView", m_MouseModePitchAffectsView);
     m_MouseModeTurnSmoothing = getFloat("MouseModeTurnSmoothing", m_MouseModeTurnSmoothing);
     m_MouseModeViewmodelAnchorOffset = getVector3("MouseModeViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
     m_MouseModeAimConvergeDistance = getFloat("MouseModeAimConvergeDistance", m_MouseModeAimConvergeDistance);

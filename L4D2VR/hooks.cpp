@@ -866,14 +866,33 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			if (!m_VR->m_MouseAimInitialized)
 			{
 				m_VR->m_MouseAimPitchOffset = m_VR->m_HmdAngAbs.x;
+				m_VR->m_MouseModeViewPitchOffset = 0.0f;
 				m_VR->m_MouseAimInitialized = true;
 			}
 
 			if (dy != 0)
 			{
-				m_VR->m_MouseAimPitchOffset += float(dy) * m_VR->m_MouseModePitchSensitivity;
-				if (m_VR->m_MouseAimPitchOffset > 89.f)  m_VR->m_MouseAimPitchOffset = 89.f;
-				if (m_VR->m_MouseAimPitchOffset < -89.f) m_VR->m_MouseAimPitchOffset = -89.f;
+				const float deltaPitch = float(dy) * m_VR->m_MouseModePitchSensitivity;
+
+				if (m_VR->m_MouseModePitchAffectsView)
+				{
+					// Drive both aiming pitch and rendered view pitch (mouse-style look up/down).
+					// Note: m_HmdAngAbs.x already includes the current view pitch (physical + any existing offset).
+					const float curViewPitch = m_VR->m_HmdAngAbs.x;
+					float newViewPitch = curViewPitch + deltaPitch;
+					if (newViewPitch > 89.f)  newViewPitch = 89.f;
+					if (newViewPitch < -89.f) newViewPitch = -89.f;
+					const float appliedDelta = newViewPitch - curViewPitch;
+					m_VR->m_MouseModeViewPitchOffset += appliedDelta;
+					m_VR->m_MouseAimPitchOffset = newViewPitch;
+				}
+				else
+				{
+					// Legacy behavior: aim pitch only (camera remains driven purely by HMD).
+					m_VR->m_MouseAimPitchOffset += deltaPitch;
+					if (m_VR->m_MouseAimPitchOffset > 89.f)  m_VR->m_MouseAimPitchOffset = 89.f;
+					if (m_VR->m_MouseAimPitchOffset < -89.f) m_VR->m_MouseAimPitchOffset = -89.f;
+				}
 			}
 
 			cmd->mousedx = 0;
