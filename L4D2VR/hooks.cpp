@@ -861,9 +861,21 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			}
 			else
 			{
-				const float sample = std::max(0.0001f, flInputSampleTime);
+				// flInputSampleTime is *supposed* to be the CreateMove tick delta.
+				// In practice it can be 0 (or absurdly small) in some windowed/raw-input paths,
+				// which would explode the computed deg/sec and make yaw feel "hypersensitive".
+				float sample = flInputSampleTime;
+				if (sample <= 0.0005f)
+					sample = m_VR->m_LastFrameDuration;
+				if (sample <= 0.0005f)
+					sample = (1.0f / 90.0f); // sane fallback for VR render rate
+				// Clamp to a reasonable range to prevent single-frame spikes.
+				sample = std::clamp(sample, 0.001f, 0.05f);
+
 				const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity);
-				m_VR->m_MouseModeYawVelTargetDegPerSec = (dx != 0) ? (yawDeltaDeg / sample) : 0.0f;
+				const float target = (dx != 0) ? (yawDeltaDeg / sample) : 0.0f;
+				// Guardrail: allow very fast turns, but never let a bad dt create absurd velocity.
+				m_VR->m_MouseModeYawVelTargetDegPerSec = std::clamp(target, -7200.0f, 7200.0f);
 				if (!m_VR->m_MouseModeYawVelInitialized)
 				{
 					m_VR->m_MouseModeYawVelDegPerSec = 0.0f;
