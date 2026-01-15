@@ -1496,6 +1496,18 @@ void VR::ProcessInput()
 
     if (m_SuppressPlayerInput)
     {
+        // If some automation temporarily suppresses player input, ensure we don't leave
+        // +attack/+attack2 stuck (we used to spam "-attack" every frame; now we edge-trigger).
+        if (m_PrimaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack");
+            m_PrimaryAttackCmdOwned = false;
+        }
+        if (m_SecondaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack2");
+            m_SecondaryAttackCmdOwned = false;
+        }
         m_PrimaryAttackDown = false;
         return;
     }
@@ -2211,13 +2223,17 @@ void VR::ProcessInput()
         CycleScopeMagnification();
     }
 
-    if (primaryAttackDown)
+    // Drive +attack only from the VR action state. IMPORTANT: do NOT spam "-attack" every frame,
+    // otherwise real mouse1 cannot work in MouseMode (mouse1 triggers +attack, but we instantly cancel it).
+    if (primaryAttackDown && !m_PrimaryAttackCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("+attack");
+        m_PrimaryAttackCmdOwned = true;
     }
-    else
+    else if (!primaryAttackDown && m_PrimaryAttackCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("-attack");
+        m_PrimaryAttackCmdOwned = false;
     }
 
     vr::InputDigitalActionData_t voicePrimaryData{};
@@ -2319,13 +2335,18 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("-reload");
     }
 
-    if (secondaryAttackActive && !adjustViewmodelActive)
     {
-        m_Game->ClientCmd_Unrestricted("+attack2");
-    }
-    else
-    {
-        m_Game->ClientCmd_Unrestricted("-attack2");
+        const bool wantAttack2 = secondaryAttackActive && !adjustViewmodelActive;
+        if (wantAttack2 && !m_SecondaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("+attack2");
+            m_SecondaryAttackCmdOwned = true;
+        }
+        else if (!wantAttack2 && m_SecondaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack2");
+            m_SecondaryAttackCmdOwned = false;
+        }
     }
 
     if (quickTurnComboPressed && !m_QuickTurnTriggered)
@@ -2848,6 +2869,43 @@ void VR::UpdateTracking()
             m_SetupOriginPrev += delta;
             m_SetupOrigin = desired;
         }
+    }
+
+    // Mouse-mode yaw smoothing:
+    // - cmd->mousedx arrives at CreateMove rate (tickrate), but VR rendering/tracking updates faster.
+    // - If we apply yaw only on CreateMove ticks, turning feels like "low FPS" even when actual render FPS is fine.
+    // So: CreateMove updates m_MouseModeYawTarget, and here we smoothly converge m_RotationOffset to it per-frame.
+    if (m_MouseModeEnabled)
+    {
+        if (!m_MouseModeYawTargetInitialized)
+        {
+            m_MouseModeYawTarget = m_RotationOffset;
+            m_MouseModeYawTarget -= 360.0f * std::floor(m_MouseModeYawTarget / 360.0f);
+            m_MouseModeYawTargetInitialized = true;
+        }
+
+        if (m_MouseModeTurnSmoothing > 0.0f)
+        {
+            const float dt = std::max(0.0f, m_LastFrameDuration);
+            const float tau = std::max(0.0001f, m_MouseModeTurnSmoothing);
+            const float alpha = 1.0f - expf(-dt / tau);
+
+            float diff = m_MouseModeYawTarget - m_RotationOffset;
+            // Wrap diff to [-180, 180]
+            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+            m_RotationOffset += diff * alpha;
+            // Wrap to [0, 360)
+            m_RotationOffset -= 360.0f * std::floor(m_RotationOffset / 360.0f);
+        }
+        else
+        {
+            // Smoothing disabled: keep legacy immediate behavior.
+            m_RotationOffset = m_MouseModeYawTarget;
+        }
+    }
+    else
+    {
+        m_MouseModeYawTargetInitialized = false;
     }
 
     // HMD tracking
@@ -5728,6 +5786,7 @@ void VR::ParseConfigFile()
     m_MouseModeEnabled = getBool("MouseModeEnabled", m_MouseModeEnabled);
     m_MouseModeYawSensitivity = getFloat("MouseModeYawSensitivity", m_MouseModeYawSensitivity);
     m_MouseModePitchSensitivity = getFloat("MouseModePitchSensitivity", m_MouseModePitchSensitivity);
+    m_MouseModeTurnSmoothing = getFloat("MouseModeTurnSmoothing", m_MouseModeTurnSmoothing);
     m_MouseModeViewmodelAnchorOffset = getVector3("MouseModeViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
     m_MouseModeAimConvergeDistance = getFloat("MouseModeAimConvergeDistance", m_MouseModeAimConvergeDistance);
 
