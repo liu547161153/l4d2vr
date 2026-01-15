@@ -403,39 +403,6 @@ void VR::Update()
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
 
-    // Render-thread camera fix must be hooked before enabling mat_queue_mode 2.
-    // Otherwise queued rendering will desync VR camera state and can cause HUD flicker.
-    if (m_RenderThreadViewMatrixFixEnabled && m_Game->m_Hooks)
-        Hooks::InitRenderThreadCameraFixHooks();
-
-    // Enable queued rendering only after shader hooks are confirmed healthy.
-    // Must run on the main thread (EngineClient is not thread-safe).
-    if (m_RenderThreadViewMatrixFixEnabled && m_ForceMatQueueMode2Pending && !m_ForceMatQueueMode2Done)
-    {
-        if (Hooks::IsRenderThreadCameraFixHealthy())
-        {
-            m_Game->m_EngineClient->ClientCmd_Unrestricted("mat_queue_mode 2\n");
-            m_ForceMatQueueMode2Done = true;
-            m_ForceMatQueueMode2Pending = false;
-            Game::logMsg("RenderThreadViewMatrixFixEnabled: forced mat_queue_mode 2");
-        }
-    }
-
-    // If we already enabled queued rendering but the shader hook later proved invalid,
-    // immediately fall back to single-threaded rendering to stop HUD flicker/corruption.
-    static bool s_matQueueFallbackLogged = false;
-    if (m_RenderThreadViewMatrixFixEnabled && m_ForceMatQueueMode2Done && !Hooks::IsRenderThreadCameraFixHealthy())
-    {
-        m_Game->m_EngineClient->ClientCmd_Unrestricted("mat_queue_mode 0\n");
-        m_ForceMatQueueMode2Done = false;
-        m_ForceMatQueueMode2Pending = true;
-        if (!s_matQueueFallbackLogged)
-        {
-            s_matQueueFallbackLogged = true;
-            Game::logMsg("[ERROR] RenderThreadViewMatrixFixEnabled: shader hook invalid, reverted mat_queue_mode 0");
-        }
-    }
-
     if (m_IsVREnabled && g_D3DVR9)
     {
         // Prevents crashing at menu
@@ -5460,28 +5427,6 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
-
-    // Render thread / multi-core rendering (mat_queue_mode 2).
-    // This is a render-path fix: we patch the view matrix on the render thread instead of
-    // temporarily changing engine view angles on the main thread.
-    const bool prevRTFix = m_RenderThreadViewMatrixFixEnabled;
-    m_RenderThreadViewMatrixFixEnabled = getBool("RenderThreadViewMatrixFixEnabled", m_RenderThreadViewMatrixFixEnabled);
-    const int prevMM = m_RenderThreadViewMatrixFixMatrixModeIndex;
-    const int prevLM = m_RenderThreadViewMatrixFixLoadMatrixIndex;
-    m_RenderThreadViewMatrixFixMatrixModeIndex = getInt("RenderThreadViewMatrixFixMatrixModeIndex", m_RenderThreadViewMatrixFixMatrixModeIndex);
-    m_RenderThreadViewMatrixFixLoadMatrixIndex = getInt("RenderThreadViewMatrixFixLoadMatrixIndex", m_RenderThreadViewMatrixFixLoadMatrixIndex);
-    if (m_RenderThreadViewMatrixFixEnabled && !prevRTFix)
-    {
-        // One-shot request; Update() will do the actual ClientCmd on the main thread.
-        m_ForceMatQueueMode2Pending = true;
-        m_ForceMatQueueMode2Done = false;
-    }
-    if (m_RenderThreadViewMatrixFixEnabled &&
-        (prevMM != m_RenderThreadViewMatrixFixMatrixModeIndex || prevLM != m_RenderThreadViewMatrixFixLoadMatrixIndex))
-    {
-        m_ForceMatQueueMode2Pending = true;
-        m_ForceMatQueueMode2Done = false;
-    }
 
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
