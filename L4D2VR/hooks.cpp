@@ -828,6 +828,38 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 	if (m_VR->m_IsVREnabled) {
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
+
+		// Mouse mode: consume raw mouse deltas to drive body yaw and independent aim pitch.
+		// Mouse X -> yaw (m_RotationOffset), Mouse Y -> m_MouseAimPitchOffset.
+		// We zero cmd->mousedx/y so Source doesn't also apply them to viewangles.
+		if (m_VR->m_MouseModeEnabled)
+		{
+			const int dx = cmd->mousedx;
+			const int dy = cmd->mousedy;
+
+			if (dx != 0)
+			{
+				m_VR->m_RotationOffset -= float(dx) * m_VR->m_MouseModeYawSensitivity;
+				// Wrap to [0, 360)
+				m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
+			}
+
+			if (!m_VR->m_MouseAimInitialized)
+			{
+				m_VR->m_MouseAimPitchOffset = m_VR->m_HmdAngAbs.x;
+				m_VR->m_MouseAimInitialized = true;
+			}
+
+			if (dy != 0)
+			{
+				m_VR->m_MouseAimPitchOffset += float(dy) * m_VR->m_MouseModePitchSensitivity;
+				if (m_VR->m_MouseAimPitchOffset > 89.f)  m_VR->m_MouseAimPitchOffset = 89.f;
+				if (m_VR->m_MouseAimPitchOffset < -89.f) m_VR->m_MouseAimPitchOffset = -89.f;
+			}
+
+			cmd->mousedx = 0;
+			cmd->mousedy = 0;
+		}
 		const QAngle originalViewAngles = cmd->viewangles;
 		bool hadWalkAxis = false;
 		float walkNx = 0.f, walkNy = 0.f;
@@ -859,7 +891,13 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				// Final cmd basis will be HMD yaw (see below). Convert walk input from the chosen
 				// movement basis (HMD or controller) into that cmd basis.
 				Vector hmdAng = m_VR->GetViewAngle();
-				const float viewYaw = hmdAng.y;
+				float viewYaw = hmdAng.y;
+				if (m_VR->m_MouseModeEnabled)
+				{
+					viewYaw = m_VR->m_RotationOffset;
+					// Wrap to [-180, 180]
+					viewYaw -= 360.0f * std::floor((viewYaw + 180.0f) / 360.0f);
+				}
 				const float moveYaw = m_VR->GetMovementYawDeg();
 
 				QAngle viewYawOnly(0.f, viewYaw, 0.f);
@@ -886,6 +924,13 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
 		if (treatServerAsNonVR) {
 			QAngle aim = m_VR->GetRightControllerAbsAngle();
+			if (m_VR->m_MouseModeEnabled)
+			{
+				if (m_VR->m_HasNonVRAimSolution)
+					aim = m_VR->m_NonVRAimAngles;
+				else
+					aim = QAngle(m_VR->m_MouseAimPitchOffset, m_VR->m_RotationOffset, 0.0f);
+			}
 			// ForceNonVRServerMovement: prefer the eye-based solve (what the server will actually trace).
 			if (m_VR->m_HasNonVRAimSolution)
 				aim = m_VR->m_NonVRAimAngles;
@@ -1095,6 +1140,14 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			// Otherwise forward/sidemove get interpreted in the wrong basis (push forward -> strafe).
 			Vector hmdAng = m_VR->GetViewAngle();
 			QAngle view(hmdAng.x, hmdAng.y, hmdAng.z);
+			if (m_VR->m_MouseModeEnabled)
+			{
+				float yaw = m_VR->m_RotationOffset;
+				while (yaw > 180.f)  yaw -= 360.f;
+				while (yaw < -180.f) yaw += 360.f;
+				float pitch = m_VR->m_MouseAimInitialized ? m_VR->m_MouseAimPitchOffset : hmdAng.x;
+				view = QAngle(pitch, yaw, 0.f);
+			}
 			if (view.x > 89.f)  view.x = 89.f;
 			if (view.x < -89.f) view.x = -89.f;
 			while (view.y > 180.f)  view.y -= 360.f;
