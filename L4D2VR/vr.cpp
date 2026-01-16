@@ -525,6 +525,10 @@ void VR::CreateVRTextures()
 
     m_Game->m_MaterialSystem->EndRenderTargetAllocation();
 
+    // New textures (re)created, we must re-bind overlay bounds/textures.
+    m_OverlayTexturesBound = false;
+    m_LastRearMirrorFlipHorizontal = m_RearMirrorFlipHorizontal;
+
     m_CreatedVRTextures = true;
 }
 
@@ -580,25 +584,43 @@ void VR::SubmitVRTextures()
         vr::VRTextureBounds_t{ 0.75f, 0.5f, 1.0f, 1.0f }
     };
 
-    auto applyHudTexture = [&](vr::VROverlayHandle_t overlay, const vr::VRTextureBounds_t& bounds)
+    auto ensureOverlayTexturesBound = [&]()
         {
-            vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
-            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKHUD.m_VRTexture);
-        };
+            // HUD/scope/rear-mirror overlays always use the same render targets.
+            // Rebinding textures and bounds every frame costs CPU and can add jitter.
+            const bool rearMirrorBoundsChanged = (m_LastRearMirrorFlipHorizontal != m_RearMirrorFlipHorizontal);
+            if (m_OverlayTexturesBound && !rearMirrorBoundsChanged)
+                return;
 
-    auto applyScopeTexture = [&](vr::VROverlayHandle_t overlay)
-        {
-            static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
-            vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
-            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKScope.m_VRTexture);
-        };
-    auto applyRearMirrorTexture = [&](vr::VROverlayHandle_t overlay)
-        {
-            vr::VRTextureBounds_t bounds{ 0.0f, 0.0f, 1.0f, 1.0f };
-            if (m_RearMirrorFlipHorizontal)
-                std::swap(bounds.uMin, bounds.uMax);
-            vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
-            vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
+            // HUD top + bottom segments
+            vr::VROverlay()->SetOverlayTextureBounds(m_HUDTopHandle, &topBounds);
+            vr::VROverlay()->SetOverlayTexture(m_HUDTopHandle, &m_VKHUD.m_VRTexture);
+            for (int i = 0; i < 4; ++i)
+            {
+                vr::VROverlay()->SetOverlayTextureBounds(m_HUDBottomHandles[i], &bottomBounds[i]);
+                vr::VROverlay()->SetOverlayTexture(m_HUDBottomHandles[i], &m_VKHUD.m_VRTexture);
+            }
+
+            // Scope (full bounds)
+            if (m_ScopeHandle != vr::k_ulOverlayHandleInvalid)
+            {
+                static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
+                vr::VROverlay()->SetOverlayTextureBounds(m_ScopeHandle, &full);
+                vr::VROverlay()->SetOverlayTexture(m_ScopeHandle, &m_VKScope.m_VRTexture);
+            }
+
+            // Rear mirror (may need horizontal flip)
+            if (m_RearMirrorHandle != vr::k_ulOverlayHandleInvalid)
+            {
+                vr::VRTextureBounds_t bounds{ 0.0f, 0.0f, 1.0f, 1.0f };
+                if (m_RearMirrorFlipHorizontal)
+                    std::swap(bounds.uMin, bounds.uMax);
+                vr::VROverlay()->SetOverlayTextureBounds(m_RearMirrorHandle, &bounds);
+                vr::VROverlay()->SetOverlayTexture(m_RearMirrorHandle, &m_VKRearMirror.m_VRTexture);
+            }
+
+            m_OverlayTexturesBound = true;
+            m_LastRearMirrorFlipHorizontal = m_RearMirrorFlipHorizontal;
         };
 
     //     ֡û       ݣ    ߲˵ /Overlay ·  
@@ -633,11 +655,7 @@ void VR::SubmitVRTextures()
 
 
     vr::VROverlay()->HideOverlay(m_MainMenuHandle);
-    applyHudTexture(m_HUDTopHandle, topBounds);
-    for (int i = 0; i < 4; ++i)
-    {
-        applyHudTexture(m_HUDBottomHandles[i], bottomBounds[i]);
-    }
+    ensureOverlayTexturesBound();
     if (m_Game->m_VguiSurface->IsCursorVisible())
     {
         vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
@@ -655,7 +673,6 @@ void VR::SubmitVRTextures()
     // Scope overlay independent of HUD cursor mode
     if (m_ScopeTexture && m_ScopeEnabled)
     {
-        applyScopeTexture(m_ScopeHandle);
         const float alpha = IsScopeActive() ? 1.0f : std::clamp(m_ScopeOverlayIdleAlpha, 0.0f, 1.0f);
         vr::VROverlay()->SetOverlayAlpha(m_ScopeHandle, alpha);
 
@@ -677,7 +694,6 @@ void VR::SubmitVRTextures()
 
     if (m_RearMirrorTexture && m_RearMirrorEnabled)
     {
-        applyRearMirrorTexture(m_RearMirrorHandle);
         vr::VROverlay()->SetOverlayAlpha(m_RearMirrorHandle, std::clamp(m_RearMirrorAlpha, 0.0f, 1.0f));
 
         // Body-anchored rear mirror: update absolute transform every frame.

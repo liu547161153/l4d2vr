@@ -267,6 +267,10 @@ public:
 	bool m_SuppressHudCapture = false;
 	bool m_CompositorExplicitTiming = false;
 	bool m_CompositorNeedsHandoff = false;
+	// Overlay texture/bounds are expensive to set every frame.
+	// We only re-bind when textures are recreated or when bounds change.
+	bool m_OverlayTexturesBound = false;
+	bool m_LastRearMirrorFlipHorizontal = false;
 	TextureID m_CreatingTextureID = Texture_None;
 
 	bool m_PressedTurn = false;
