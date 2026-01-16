@@ -810,6 +810,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Restore engine angles immediately after our stereo render.
 	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame = true;
+	m_VR->m_HasEverRenderedFrame = true;
 }
 
 bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd)
@@ -1883,9 +1884,16 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 			return hkPushRenderTargetAndViewport.fOriginal(ecx, originalTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 		}
 
+		// The engine's HUD RT can be pushed with odd viewports (especially with multicore
+		// rendering). Our vrHUD texture is always full-window, so force a matching viewport
+		// to prevent HUD elements being scaled/offset incorrectly.
+		int wndW = nViewW;
+		int wndH = nViewH;
+		renderContext->GetWindowSize(wndW, wndH);
+
 		renderContext->ClearBuffers(false, true, true);
 
-		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, 0, 0, wndW, wndH);
 
 		renderContext->OverrideAlphaWriteEnable(true, true);
 		renderContext->ClearColor4ub(0, 0, 0, 0);
