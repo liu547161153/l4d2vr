@@ -485,16 +485,36 @@ void VR::CreateVRTextures()
     int windowWidth, windowHeight;
     m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
 
+    // HUD overlays require a real alpha channel; with multicore rendering the backbuffer
+    // format can be a no-alpha variant (e.g. BGRX8888), which makes the HUD quad opaque
+    // black in SteamVR.
+    auto ensureHudAlphaFormat = [](ImageFormat fmt) -> ImageFormat
+        {
+            switch (fmt)
+            {
+            case IMAGE_FORMAT_BGRX8888:  return IMAGE_FORMAT_BGRA8888;
+            case IMAGE_FORMAT_LINEAR_BGRX8888: return IMAGE_FORMAT_LINEAR_BGRA8888;
+            case IMAGE_FORMAT_LE_BGRX8888: return IMAGE_FORMAT_LE_BGRA8888;
+            case IMAGE_FORMAT_BGRX5551:  return IMAGE_FORMAT_BGRA5551;
+            case IMAGE_FORMAT_LINEAR_BGRX5551: return IMAGE_FORMAT_BGRA5551;
+            default:
+                return fmt;
+            }
+        };
+
+    const ImageFormat backFmt = m_Game->m_MaterialSystem->GetBackBufferFormat();
+    const ImageFormat hudFmt = ensureHudAlphaFormat(backFmt);
+
     m_Game->m_MaterialSystem->isGameRunning = false;
     m_Game->m_MaterialSystem->BeginRenderTargetAllocation();
     m_Game->m_MaterialSystem->isGameRunning = true;
 
     m_CreatingTextureID = Texture_LeftEye;
-    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
+    m_LeftEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, backFmt, MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
     m_CreatingTextureID = Texture_RightEye;
-    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
+    m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, backFmt, MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
     m_CreatingTextureID = Texture_HUD;
-    m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
+    m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, hudFmt, MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
     // Square RTT for gun-mounted scope lens
     m_CreatingTextureID = Texture_Scope;
@@ -601,34 +621,39 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
         };
 
-    //     ֡û       ݣ    ߲˵ /Overlay ·  
+    // No new frame this tick. With multicore rendering, our RenderView hook can
+    // intermittently miss a frame even while in-game. Don't aggressively switch to
+    // the main-menu overlay and hide everything; keep the last submitted textures
+    // to avoid one-frame flicker.
+    const bool inGame = m_Game->m_EngineClient->IsInGame();
     if (!m_RenderedNewFrame)
     {
         if (!m_BlankTexture)
             CreateVRTextures();
 
-        if (!vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
-            RepositionOverlays();
-
-        vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
-        vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
-        hideHudOverlays();
-        vr::VROverlay()->HideOverlay(m_ScopeHandle);
-        vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
-
-        if (!m_Game->m_EngineClient->IsInGame())
+        // Only fall back to menu/blank path when we truly have nothing valid to show.
+        if (!inGame || !m_HasEverRenderedFrame)
         {
+            if (!vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
+                RepositionOverlays();
+
+            vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
+            vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
+            hideHudOverlays();
+            vr::VROverlay()->HideOverlay(m_ScopeHandle);
+            vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+
             submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
             submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
-        }
 
-        if (successfulSubmit && m_CompositorExplicitTiming)
-        {
-            m_CompositorNeedsHandoff = true;
-            FinishFrame();
+            if (successfulSubmit && m_CompositorExplicitTiming)
+            {
+                m_CompositorNeedsHandoff = true;
+                FinishFrame();
+            }
+            return;
         }
-
-        return;
+        // else: stale frame, fall through and re-submit last textures.
     }
 
 

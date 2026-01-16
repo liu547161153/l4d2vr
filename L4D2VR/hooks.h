@@ -158,6 +158,4 @@ public:
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
 
-	static inline int m_PushHUDStep;
-	static inline bool m_PushedHud;
 };
