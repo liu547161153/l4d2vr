@@ -14,6 +14,22 @@
 #include <chrono>
 #include <cmath>
 
+// In some Source branches IMaterialSystem doesn't expose Flush(), but IMatRenderContext does.
+// For queued/multicore rendering, we still want to flush queued draw calls while the desired
+// render target + viewport are bound.
+static inline void FlushQueuedDraws(IMaterialSystem* ms, IMatRenderContext* rc)
+{
+	if (rc)
+	{
+		rc->Flush(true);
+		return;
+	}
+
+	// Best-effort fallback: run the material system queue.
+	if (ms)
+		ms->ExecuteQueued();
+}
+
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
 // - Then clamp pitch to [-89, 89].
@@ -634,7 +650,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
 	// In queued/multicore rendering modes, draw calls may execute later.
 	// Flush here so the left-eye work stays with the left-eye RT.
-	m_Game->m_MaterialSystem->Flush(true);
+	FlushQueuedDraws(m_Game->m_MaterialSystem, rndrContext);
 
 	// Right eye CViewSetup
 	rightEyeView.x = 0;
@@ -656,7 +672,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 	// Flush for the same reason as the left eye (avoid cross-pass RT bleed).
-	m_Game->m_MaterialSystem->Flush(true);
+	FlushQueuedDraws(m_Game->m_MaterialSystem, rndrContext);
 
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
@@ -679,7 +695,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 				// Flush queued draw calls so this pass stays on its RT.
-				m_Game->m_MaterialSystem->Flush(true);
+				FlushQueuedDraws(m_Game->m_MaterialSystem, rc);
 
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
@@ -705,7 +721,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 			// Flush queued draw calls so this pass stays on its RT.
-			m_Game->m_MaterialSystem->Flush(true);
+			FlushQueuedDraws(m_Game->m_MaterialSystem, rc);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
@@ -1936,7 +1952,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 		// In queued rendering modes, ensure the HUD draw calls execute while our
 		// HUD RT + viewport are still bound. Otherwise the queued commands can
 		// spill into the next pass and cause flicker/incorrect HUD placement.
-		m_Game->m_MaterialSystem->Flush(true);
+		FlushQueuedDraws(m_Game->m_MaterialSystem, rc);
 
 		rc->OverrideAlphaWriteEnable(false, true);
 		rc->ClearColor4ub(0, 0, 0, 255);
@@ -1954,7 +1970,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
 		const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
 		hkVgui_Paint.fOriginal(ecx, wantedMode);
-		m_Game->m_MaterialSystem->Flush(true);
+		FlushQueuedDraws(m_Game->m_MaterialSystem, rc);
 
 		rc->OverrideAlphaWriteEnable(false, true);
 		rc->ClearColor4ub(0, 0, 0, 255);
