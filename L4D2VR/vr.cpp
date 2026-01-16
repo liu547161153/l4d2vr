@@ -482,8 +482,11 @@ bool VR::GetWalkAxis(float& x, float& y) {
 
 void VR::CreateVRTextures()
 {
-    int windowWidth, windowHeight;
-    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+    // NOTE: With multicore/queued rendering enabled, IMatRenderContext::GetWindowSize()
+    // can report transient/worker viewport dimensions which breaks HUD RT sizing and
+    // overlay placement. Backbuffer dimensions are stable.
+    int windowWidth = 0, windowHeight = 0;
+    m_Game->m_MaterialSystem->GetBackBufferDimensions(windowWidth, windowHeight);
 
     // HUD overlays require a real alpha channel; with multicore rendering the backbuffer
     // format can be a no-alpha variant (e.g. BGRX8888), which makes the HUD quad opaque
@@ -1090,8 +1093,10 @@ void VR::RepositionOverlays(bool attachToControllers)
     Vector hmdPosition = { hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3] };
     Vector hmdForward = { -hmdMat.m[0][2], 0, -hmdMat.m[2][2] };
 
-    int windowWidth, windowHeight;
-    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+    // Use backbuffer dimensions instead of IMatRenderContext::GetWindowSize() because
+    // with multicore/queued rendering the render context can report transient sizes.
+    int windowWidth = 0, windowHeight = 0;
+    m_Game->m_MaterialSystem->GetBackBufferDimensions(windowWidth, windowHeight);
 
     vr::HmdMatrix34_t menuTransform =
     {

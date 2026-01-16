@@ -632,6 +632,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudLeft.angles = viewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
+	// In queued/multicore rendering modes, draw calls may execute later.
+	// Flush here so the left-eye work stays with the left-eye RT.
+	m_Game->m_MaterialSystem->Flush(true);
 
 	// Right eye CViewSetup
 	rightEyeView.x = 0;
@@ -652,6 +655,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
+	// Flush for the same reason as the left eye (avoid cross-pass RT bleed).
+	m_Game->m_MaterialSystem->Flush(true);
 
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
@@ -673,6 +678,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+				// Flush queued draw calls so this pass stays on its RT.
+				m_Game->m_MaterialSystem->Flush(true);
 
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
@@ -697,6 +704,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+			// Flush queued draw calls so this pass stays on its RT.
+			m_Game->m_MaterialSystem->Flush(true);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
@@ -1895,8 +1904,11 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	m_VR->m_SuppressHudCapture = true;
 	m_VR->m_ManualHudCaptureInProgress = true;
 
+	// With multicore/queued rendering enabled, GetWindowSize() can report a
+	// transient worker viewport. Backbuffer dimensions are stable and match
+	// how VGUI lays out panels.
 	int wndW = 0, wndH = 0;
-	rc->GetWindowSize(wndW, wndH);
+	m_Game->m_MaterialSystem->GetBackBufferDimensions(wndW, wndH);
 	if (wndW <= 0 || wndH <= 0)
 	{
 		m_VR->m_ManualHudCaptureInProgress = false;
@@ -1921,6 +1933,10 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 		// Ensure UI + in-game panels are painted; preserve other bits (e.g. cursor) from the call.
 		const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
 		hkVgui_Paint.fOriginal(ecx, wantedMode);
+		// In queued rendering modes, ensure the HUD draw calls execute while our
+		// HUD RT + viewport are still bound. Otherwise the queued commands can
+		// spill into the next pass and cause flicker/incorrect HUD placement.
+		m_Game->m_MaterialSystem->Flush(true);
 
 		rc->OverrideAlphaWriteEnable(false, true);
 		rc->ClearColor4ub(0, 0, 0, 255);
@@ -1938,6 +1954,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
 		const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
 		hkVgui_Paint.fOriginal(ecx, wantedMode);
+		m_Game->m_MaterialSystem->Flush(true);
 
 		rc->OverrideAlphaWriteEnable(false, true);
 		rc->ClearColor4ub(0, 0, 0, 255);
