@@ -261,6 +261,13 @@ public:
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
+	// With multicore rendering enabled, the engine may occasionally run RenderView on a
+	// different thread/sequence and our hook can miss a frame. Track whether we've
+	// ever produced a valid VR frame so we can avoid flickering overlays on transient
+	// misses.
+	bool m_HasEverRenderedFrame = false;
+	// Guard to prevent recursion when we manually capture VGUI into the HUD RT.
+	bool m_ManualHudCaptureInProgress = false;
 	bool m_RenderedHud = false;
 	bool m_CreatedVRTextures = false;
 	// Used by extra offscreen passes (scope RTT): prevents HUD hooks from hijacking RT stack
