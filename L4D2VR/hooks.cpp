@@ -1878,75 +1878,42 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	if (!m_VR->m_CreatedVRTextures)
 		return hkVgui_Paint.fOriginal(ecx, mode);
 
-	// When scope/rear-mirror RTT is rendering, do not paint VGUI into those offscreen passes.
+	// When scope / rear-mirror RTT is rendering, don't paint VGUI into those offscreen passes.
 	if (m_VR->m_SuppressHudCapture)
 		return;
 
-	// Capture VGUI deterministically: render it into our vrHUD RT right here.
-	// This avoids relying on RenderView RT-stack call order, which breaks under multicore rendering.
-	if (m_VR->m_ManualHudCaptureInProgress || !m_VR->m_HUDTexture)
+	// Deterministic HUD capture: paint VGUI into vrHUD here.
+	if (!m_VR->m_HUDTexture || m_VR->m_ManualHudCaptureInProgress)
 		return hkVgui_Paint.fOriginal(ecx, mode);
 
 	IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
-	if (!rc)
-		return hkVgui_Paint.fOriginal(ecx, mode);
-
-	const bool prevSuppress = m_VR->m_SuppressHudCapture;
-	m_VR->m_SuppressHudCapture = true;
-	m_VR->m_ManualHudCaptureInProgress = true;
-
-	int wndW = 0, wndH = 0;
-	rc->GetWindowSize(wndW, wndH);
-	if (wndW <= 0 || wndH <= 0)
+	if (rc)
 	{
-		m_VR->m_ManualHudCaptureInProgress = false;
-		m_VR->m_SuppressHudCapture = prevSuppress;
-		return hkVgui_Paint.fOriginal(ecx, mode);
+		int wndW = 0, wndH = 0;
+		rc->GetWindowSize(wndW, wndH);
+		if (wndW > 0 && wndH > 0)
+		{
+			m_VR->m_ManualHudCaptureInProgress = true;
+
+			hkPushRenderTargetAndViewport.fOriginal(rc, m_VR->m_HUDTexture, nullptr, 0, 0, wndW, wndH);
+			rc->OverrideAlphaWriteEnable(true, true);
+			rc->ClearColor4ub(0, 0, 0, 0);
+			rc->ClearBuffers(true, true, true);
+
+			const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
+			hkVgui_Paint.fOriginal(ecx, wantedMode);
+
+			rc->OverrideAlphaWriteEnable(false, true);
+			rc->ClearColor4ub(0, 0, 0, 255);
+			hkPopRenderTargetAndViewport.fOriginal(rc);
+
+			m_VR->m_RenderedHud = true;
+			m_VR->m_ManualHudCaptureInProgress = false;
+		}
 	}
 
-	// Save current RT + viewport and render VGUI into vrHUD.
-	if (hkGetViewport.fOriginal && hkViewport.fOriginal)
-	{
-		int oldX = 0, oldY = 0, oldW = 0, oldH = 0;
-		hkGetViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
-		ITexture* oldRT = rc->GetRenderTarget();
-
-		rc->SetRenderTarget(m_VR->m_HUDTexture);
-		hkViewport.fOriginal(rc, 0, 0, wndW, wndH);
-
-		rc->OverrideAlphaWriteEnable(true, true);
-		rc->ClearColor4ub(0, 0, 0, 0);
-		rc->ClearBuffers(true, true, true);
-
-		// Ensure UI + in-game panels are painted; preserve other bits (e.g. cursor) from the call.
-		const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
-		hkVgui_Paint.fOriginal(ecx, wantedMode);
-
-		rc->OverrideAlphaWriteEnable(false, true);
-		rc->ClearColor4ub(0, 0, 0, 255);
-
-		rc->SetRenderTarget(oldRT);
-		hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
-	}
-	else
-	{
-		// Fallback path if viewport hooks aren't available.
-		hkPushRenderTargetAndViewport.fOriginal(rc, m_VR->m_HUDTexture, nullptr, 0, 0, wndW, wndH);
-		rc->OverrideAlphaWriteEnable(true, true);
-		rc->ClearColor4ub(0, 0, 0, 0);
-		rc->ClearBuffers(true, true, true);
-
-		const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
-		hkVgui_Paint.fOriginal(ecx, wantedMode);
-
-		rc->OverrideAlphaWriteEnable(false, true);
-		rc->ClearColor4ub(0, 0, 0, 255);
-		hkPopRenderTargetAndViewport.fOriginal(rc);
-	}
-
-	m_VR->m_RenderedHud = true;
-	m_VR->m_ManualHudCaptureInProgress = false;
-	m_VR->m_SuppressHudCapture = prevSuppress;
+	// Paint normally as well (desktop mirror / non-VR paths still expect it).
+	hkVgui_Paint.fOriginal(ecx, mode);
 }
 
 int Hooks::dIsSplitScreen()
