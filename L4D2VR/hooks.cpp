@@ -263,9 +263,6 @@ Hooks::Hooks(Game* game)
 	m_Game = game;
 	m_VR = m_Game->m_VR;
 
-	m_PushHUDStep = -999;
-	m_PushedHud = false;
-
 	initSourceHooks();
 
 	hkGetRenderTarget.enableHook();
@@ -635,7 +632,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudLeft.angles = viewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
-	m_PushedHud = false;
 
 	// Right eye CViewSetup
 	rightEyeView.x = 0;
@@ -810,6 +806,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Restore engine angles immediately after our stereo render.
 	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame = true;
+	m_VR->m_HasEverRenderedFrame = true;
 }
 
 bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd)
@@ -1863,63 +1860,16 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 	if (m_VR->m_SuppressHudCapture)
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
-	if (m_PushHUDStep == 2)
-		++m_PushHUDStep;
-	else
-		m_PushHUDStep = -999;
-
-	// RenderView calls PushRenderTargetAndViewport multiple times with different textures. 
-	// When the call order goes PopRenderTargetAndViewport -> IsSplitScreen -> PrePushRenderTarget -> PushRenderTargetAndViewport,
-	// then it pushed the HUD/GUI render target to the RT stack.
-	if (m_PushHUDStep == 3)
-	{
-		ITexture* originalTexture = pTexture;
-		pTexture = m_VR->m_HUDTexture;
-
-		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
-		if (!renderContext)
-		{
-			m_VR->HandleMissingRenderContext("Hooks::dPushRenderTargetAndViewport");
-			return hkPushRenderTargetAndViewport.fOriginal(ecx, originalTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-		}
-
-		renderContext->ClearBuffers(false, true, true);
-
-		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-
-		renderContext->OverrideAlphaWriteEnable(true, true);
-		renderContext->ClearColor4ub(0, 0, 0, 0);
-		renderContext->ClearBuffers(true, false);
-
-		m_VR->m_RenderedHud = true;
-		m_PushedHud = true;
-	}
-	else
-	{
-		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-	}
+	// Do not try to "guess" HUD RT stack sequences here. With multicore rendering enabled,
+	// the call order frequently changes and we end up hijacking the wrong render target.
+	// HUD capture is handled in dVGui_Paint instead (more deterministic).
+	hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 }
 
 void Hooks::dPopRenderTargetAndViewport(void* ecx, void* edx)
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkPopRenderTargetAndViewport.fOriginal(ecx);
-
-	m_PushHUDStep = 0;
-
-	if (m_PushedHud)
-	{
-		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
-		if (!renderContext)
-		{
-			m_VR->HandleMissingRenderContext("Hooks::dPopRenderTargetAndViewport");
-			return hkPopRenderTargetAndViewport.fOriginal(ecx);
-		}
-
-		renderContext->OverrideAlphaWriteEnable(false, true);
-		renderContext->ClearColor4ub(0, 0, 0, 255);
-	}
-
 	hkPopRenderTargetAndViewport.fOriginal(ecx);
 }
 
@@ -1928,32 +1878,83 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	if (!m_VR->m_CreatedVRTextures)
 		return hkVgui_Paint.fOriginal(ecx, mode);
 
-	// When scope RTT is rendering, don't redirect HUD/VGUI
+	// When scope/rear-mirror RTT is rendering, do not paint VGUI into those offscreen passes.
 	if (m_VR->m_SuppressHudCapture)
 		return;
 
-	if (m_PushedHud)
-		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
+	// Capture VGUI deterministically: render it into our vrHUD RT right here.
+	// This avoids relying on RenderView RT-stack call order, which breaks under multicore rendering.
+	if (m_VR->m_ManualHudCaptureInProgress || !m_VR->m_HUDTexture)
+		return hkVgui_Paint.fOriginal(ecx, mode);
 
-	hkVgui_Paint.fOriginal(ecx, mode);
+	IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
+	if (!rc)
+		return hkVgui_Paint.fOriginal(ecx, mode);
+
+	const bool prevSuppress = m_VR->m_SuppressHudCapture;
+	m_VR->m_SuppressHudCapture = true;
+	m_VR->m_ManualHudCaptureInProgress = true;
+
+	int wndW = 0, wndH = 0;
+	rc->GetWindowSize(wndW, wndH);
+	if (wndW <= 0 || wndH <= 0)
+	{
+		m_VR->m_ManualHudCaptureInProgress = false;
+		m_VR->m_SuppressHudCapture = prevSuppress;
+		return hkVgui_Paint.fOriginal(ecx, mode);
+	}
+
+	// Save current RT + viewport and render VGUI into vrHUD.
+	if (hkGetViewport.fOriginal && hkViewport.fOriginal)
+	{
+		int oldX = 0, oldY = 0, oldW = 0, oldH = 0;
+		hkGetViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+		ITexture* oldRT = rc->GetRenderTarget();
+
+		rc->SetRenderTarget(m_VR->m_HUDTexture);
+		hkViewport.fOriginal(rc, 0, 0, wndW, wndH);
+
+		rc->OverrideAlphaWriteEnable(true, true);
+		rc->ClearColor4ub(0, 0, 0, 0);
+		rc->ClearBuffers(true, true, true);
+
+		// Ensure UI + in-game panels are painted; preserve other bits (e.g. cursor) from the call.
+		const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
+		hkVgui_Paint.fOriginal(ecx, wantedMode);
+
+		rc->OverrideAlphaWriteEnable(false, true);
+		rc->ClearColor4ub(0, 0, 0, 255);
+
+		rc->SetRenderTarget(oldRT);
+		hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+	}
+	else
+	{
+		// Fallback path if viewport hooks aren't available.
+		hkPushRenderTargetAndViewport.fOriginal(rc, m_VR->m_HUDTexture, nullptr, 0, 0, wndW, wndH);
+		rc->OverrideAlphaWriteEnable(true, true);
+		rc->ClearColor4ub(0, 0, 0, 0);
+		rc->ClearBuffers(true, true, true);
+
+		const int wantedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
+		hkVgui_Paint.fOriginal(ecx, wantedMode);
+
+		rc->OverrideAlphaWriteEnable(false, true);
+		rc->ClearColor4ub(0, 0, 0, 255);
+		hkPopRenderTargetAndViewport.fOriginal(rc);
+	}
+
+	m_VR->m_RenderedHud = true;
+	m_VR->m_ManualHudCaptureInProgress = false;
+	m_VR->m_SuppressHudCapture = prevSuppress;
 }
 
 int Hooks::dIsSplitScreen()
 {
-	if (m_PushHUDStep == 0)
-		++m_PushHUDStep;
-	else
-		m_PushHUDStep = -999;
-
 	return hkIsSplitScreen.fOriginal();
 }
 
 DWORD* Hooks::dPrePushRenderTarget(void* ecx, void* edx, int a2)
 {
-	if (m_PushHUDStep == 1)
-		++m_PushHUDStep;
-	else
-		m_PushHUDStep = -999;
-
 	return hkPrePushRenderTarget.fOriginal(ecx, a2);
 }
