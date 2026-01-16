@@ -261,6 +261,9 @@ public:
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
+	// Once we've successfully rendered at least one VR frame. Used to avoid flickering
+	// overlays when multicore rendering occasionally skips our render-view hook.
+	bool m_HasEverRenderedFrame = false;
 	bool m_RenderedHud = false;
 	bool m_CreatedVRTextures = false;
 	// Used by extra offscreen passes (scope RTT): prevents HUD hooks from hijacking RT stack
