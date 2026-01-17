@@ -484,6 +484,32 @@ Option g_Options[] =
         "false"
     },
 
+    // Mouse mode (desktop-style input while staying in VR rendering)
+    {
+        "MouseModeEnabled",
+        OptionType::Bool,
+        { u8"Mouse Mode", u8"鼠标模式" },
+        { u8"Enable Mouse Mode", u8"启用鼠标模式" },
+        { u8"Enables a desktop-style mouse/keyboard input scheme while keeping VR rendering.",
+          u8"启用桌面式键鼠输入方案，但仍保持VR渲染。" },
+        { u8"Mouse X drives body yaw (turning). Mouse Y behavior is controlled by MouseModePitchAffectsView.",
+          u8"鼠标X控制身体水平转向；鼠标Y的行为由 MouseModePitchAffectsView 决定。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "MouseModeAimFromHmd",
+        OptionType::Bool,
+        { u8"Mouse Mode", u8"鼠标模式" },
+        { u8"Aim From HMD", u8"瞄准跟随头显" },
+        { u8"When enabled, aiming uses the HMD/view center ray instead of the mouse-derived aim direction.",
+          u8"开启后，瞄准方向使用头显/视线中心射线，而不是由鼠标推导的瞄准方向。" },
+        { u8"Turning remains controlled by the mouse. The aim line origin stays at the mouse-mode viewmodel anchor (it is NOT moved to the HMD).",
+          u8"转向仍由鼠标控制；瞄准线起点仍在鼠标模式的武器锚点（不会把瞄准线挪到头显上）。" },
+        0.0f, 0.0f,
+        "false"
+    },
+
     // HUD (Main)
     {
         "HudDistance",

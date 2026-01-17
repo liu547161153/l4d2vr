@@ -1007,7 +1007,17 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				if (m_VR->m_HasNonVRAimSolution)
 					aim = m_VR->m_NonVRAimAngles;
 				else
-					aim = QAngle(m_VR->m_MouseAimPitchOffset, m_VR->m_RotationOffset, 0.0f);
+				{
+					if (m_VR->m_MouseModeAimFromHmd)
+					{
+						Vector v = m_VR->GetViewAngle();
+						aim = QAngle(v.x, v.y, 0.0f);
+					}
+					else
+					{
+						aim = QAngle(m_VR->m_MouseAimPitchOffset, m_VR->m_RotationOffset, 0.0f);
+					}
+				}
 			}
 			// ForceNonVRServerMovement: prefer the eye-based solve (what the server will actually trace).
 			if (m_VR->m_HasNonVRAimSolution)
