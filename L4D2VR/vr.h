@@ -364,6 +364,11 @@ public:
 	//  - Aim line starts at the anchored viewmodel point, but converges to the mouse-aim ray
 	//    at MouseModeAimConvergeDistance (scheme B).
 	bool m_MouseModeEnabled = false;
+	// Mouse-mode aiming source.
+	// If false (default): aim direction is driven by the accumulated mouse pitch + body yaw (m_RotationOffset).
+	// If true:            aim direction follows the HMD center ray (view direction), while the aim line origin
+	//                     remains at the mouse-mode viewmodel anchor (so we do NOT move the aim line to the HMD).
+	bool m_MouseModeAimFromHmd = false;
 	// If true, mouse Y also tilts the rendered view (adds a pitch offset on top of head tracking).
 	// This makes it possible to aim high/low without physically tilting your head (more like flatscreen).
 	bool m_MouseModePitchAffectsView = true;
