@@ -460,6 +460,54 @@ Option g_Options[] =
         "0.22,0.00,-0.18"
     },
     {
+        "MouseModeScopedViewmodelAnchorOffset",
+        OptionType::Vec3,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Scoped Viewmodel Anchor Offset (m)", u8"开镜 Viewmodel 锚点偏移 (米)" },
+        { u8"Alternate viewmodel anchor offset used while mouse-mode scope toggle is active.",
+          u8"键鼠模式开镜切换启用时使用的备用 viewmodel 锚点偏移。" },
+        { u8"Use this to shift the gun into an ADS-like position.",
+          u8"用于把枪移动到更像开镜/贴腮的位置。" },
+        -1.0f, 1.0f,
+        "0.22,0.00,-0.18"
+    },
+    {
+        "MouseModeScopeToggleKey",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Scope Toggle Key", u8"开关瞄准镜快捷键" },
+        { u8"Keyboard shortcut to toggle ScopeRTT on/off in mouse mode (e.g. key:f9).",
+          u8"键鼠模式下开关 ScopeRTT 的快捷键（例如 key:f9）。" },
+        { u8"Format: key:<letter> or key:f1..f12. Empty disables.",
+          u8"格式：key:<字母> 或 key:f1..f12。留空禁用。" },
+        0.0f, 0.0f,
+        "key:f9"
+    },
+    {
+        "MouseModeScopeMagnificationKey",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Scope Magnification Key", u8"倍镜切换快捷键" },
+        { u8"Keyboard shortcut to cycle scope magnification while scope is active in mouse mode.",
+          u8"键鼠模式开镜时用于切换倍镜倍率的快捷键。" },
+        { u8"Format: key:<letter> or key:f1..f12. Empty disables.",
+          u8"格式：key:<字母> 或 key:f1..f12。留空禁用。" },
+        0.0f, 0.0f,
+        "key:f10"
+    },
+    {
+        "MouseModeScopeSensitivityScale",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Scope Sensitivity Scale (%)", u8"倍镜灵敏度缩放 (%)" },
+        { u8"Per-magnification mouse sensitivity scale (comma-separated, in %). First value is 1x.",
+          u8"按倍率分档的鼠标灵敏度缩放（逗号分隔，单位%），第一个对应1x。" },
+        { u8"Example: 100,85,70 for 1x/2x/4x. Missing entries repeat the last.",
+          u8"示例：100,85,70 表示 1x/2x/4x。缺失的档位将沿用最后一个值。" },
+        0.0f, 0.0f,
+        "100"
+    },
+    {
         "MouseModeAimConvergeDistance",
         OptionType::Float,
         { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },

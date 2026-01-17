@@ -4,6 +4,7 @@
 #include "vector.h"
 #include <array>
 #include <chrono>
+#include <algorithm>
 #include <limits>
 #include <optional>
 #include <string>
@@ -404,6 +405,17 @@ public:
 	bool m_MouseAimInitialized = false;
 	// HMD-local offset for the viewmodel anchor (meters; scaled by VRScale).
 	Vector m_MouseModeViewmodelAnchorOffset = { 0.0f, 0.0f, 0.0f };
+	// Optional HMD-local anchor to use while mouse-mode scope is toggled on (meters; scaled by VRScale).
+	// If you want a more "ADS"-like viewmodel position when using ScopeRTT in mouse mode, set this.
+	Vector m_MouseModeScopedViewmodelAnchorOffset = { 0.0f, 0.0f, 0.0f };
+	// Mouse-mode scope hotkeys (keyboard). Format in config.txt: key:X, key:F1..F12 (see parseVirtualKey).
+	std::optional<WORD> m_MouseModeScopeToggleKey;
+	std::optional<WORD> m_MouseModeScopeMagnificationKey;
+	bool m_MouseModeScopeToggleActive = false;
+	bool m_MouseModeScopeToggleKeyDownPrev = false;
+	bool m_MouseModeScopeMagnificationKeyDownPrev = false;
+	// Per-magnification sensitivity scale (%) for mouse-mode. First entry corresponds to 1x.
+	std::vector<float> m_MouseModeScopeSensitivityScales = { 100.0f };
 	// Convergence distance (Source units). Aim ray from the viewmodel anchor is steered to intersect
 	// the HMD-center ray at this distance. Set <= 0 to disable convergence (use raw viewmodel ray).
 	float m_MouseModeAimConvergeDistance = 2048.0f;
@@ -683,8 +695,20 @@ public:
 
 	Vector GetScopeCameraAbsPos() const { return m_ScopeCameraPosAbs; }
 	QAngle GetScopeCameraAbsAngle() const { return m_ScopeCameraAngAbs; }
-	bool   IsScopeActive() const { return m_ScopeEnabled && m_ScopeActive; }
+	bool   IsMouseModeScopeActive() const { return m_MouseModeEnabled && m_ScopeEnabled && m_ScopeWeaponIsFirearm && m_MouseModeScopeToggleActive; }
+	float  GetMouseModeScopeSensitivityScale() const
+	{
+		if (!IsMouseModeScopeActive())
+			return 1.0f;
+		const int idx = std::max(0, static_cast<int>(m_ScopeMagnificationIndex));
+		if (m_MouseModeScopeSensitivityScales.empty())
+			return 1.0f;
+		const int clamped = std::min(idx, (int)m_MouseModeScopeSensitivityScales.size() - 1);
+		return std::clamp(m_MouseModeScopeSensitivityScales[clamped] / 100.0f, 0.05f, 2.0f);
+	}
+	bool   IsScopeActive() const { return m_ScopeEnabled && (m_ScopeActive || IsMouseModeScopeActive()); }
 	bool   ShouldRenderScope() const { return m_ScopeEnabled && m_ScopeWeaponIsFirearm && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
+	void   ToggleMouseModeScope();
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
 
@@ -749,6 +773,7 @@ public:
 	void LogCompositorError(const char* action, vr::EVRCompositorError error);
 	void RepositionOverlays(bool attachToControllers = true);
 	void UpdateRearMirrorOverlayTransform();
+	void UpdateScopeOverlayTransform();
 	void GetPoses();
 	bool UpdatePosesAndActions();
 	void GetViewParameters();

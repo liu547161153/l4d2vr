@@ -13,6 +13,13 @@
 #include <algorithm> // std::clamp
 #include <chrono>
 #include <cmath>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
@@ -920,6 +927,28 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// We zero cmd->mousedx/y so Source doesn't also apply them to viewangles.
 		if (m_VR->m_MouseModeEnabled)
 		{
+			// Mouse mode hotkeys (keyboard). Polled here because CreateMove runs at input tick rate.
+			auto pollKeyPressed = [&](const std::optional<WORD>& vk, bool& prevDown) -> bool
+				{
+					if (!vk.has_value())
+					{
+						prevDown = false;
+						return false;
+					}
+					const SHORT state = GetAsyncKeyState((int)*vk);
+					const bool down = (state & 0x8000) != 0;
+					const bool pressed = down && !prevDown;
+					prevDown = down;
+					return pressed;
+				};
+
+			if (pollKeyPressed(m_VR->m_MouseModeScopeToggleKey, m_VR->m_MouseModeScopeToggleKeyDownPrev))
+				m_VR->ToggleMouseModeScope();
+			if (pollKeyPressed(m_VR->m_MouseModeScopeMagnificationKey, m_VR->m_MouseModeScopeMagnificationKeyDownPrev) && m_VR->IsMouseModeScopeActive())
+				m_VR->CycleScopeMagnification();
+
+			const float mouseScopeGain = m_VR->GetMouseModeScopeSensitivityScale();
+
 			const int dx = cmd->mousedx;
 			const int dy = cmd->mousedy;
 
@@ -931,7 +960,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			{
 				if (dx != 0)
 				{
-					m_VR->m_RotationOffset += (-float(dx) * m_VR->m_MouseModeYawSensitivity);
+					m_VR->m_RotationOffset += (-float(dx) * m_VR->m_MouseModeYawSensitivity) * mouseScopeGain;
 					// Wrap to [0, 360)
 					m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
 				}
@@ -947,7 +976,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				}
 				if (dx != 0)
 				{
-					const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity);
+					const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity) * mouseScopeGain;
 					m_VR->m_MouseModeYawDeltaRemainingDeg += yawDeltaDeg;
 				}
 			}
@@ -979,7 +1008,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 			if (dy != 0)
 			{
-				const float deltaPitch = float(dy) * m_VR->m_MouseModePitchSensitivity;
+				const float deltaPitch = float(dy) * m_VR->m_MouseModePitchSensitivity * mouseScopeGain;
 
 				if (m_VR->m_MouseModePitchAffectsView)
 				{
