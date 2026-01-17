@@ -665,7 +665,12 @@ void VR::SubmitVRTextures()
             std::swap(leftControllerIndex, rightControllerIndex);
         const vr::TrackedDeviceIndex_t gunControllerIndex = rightControllerIndex;
 
-        if (ShouldRenderScope() && gunControllerIndex != vr::k_unTrackedDeviceIndexInvalid)
+        // Mouse mode: the "gun" may not be a tracked controller.
+        if (m_MouseModeEnabled)
+            UpdateScopeOverlayTransform();
+
+        const bool canShowScope = ShouldRenderScope() && (m_MouseModeEnabled || gunControllerIndex != vr::k_unTrackedDeviceIndexInvalid);
+        if (canShowScope)
             vr::VROverlay()->ShowOverlay(m_ScopeHandle);
         else
             vr::VROverlay()->HideOverlay(m_ScopeHandle);
@@ -1012,6 +1017,76 @@ void VR::UpdateRearMirrorOverlayTransform()
     if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
         mirrorWidth *= 2.0f;
     vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, mirrorWidth);
+}
+
+void VR::UpdateScopeOverlayTransform()
+{
+    if (!m_ScopeEnabled)
+        return;
+
+    // Default behavior (controllers available): scope overlay is tracked-device-relative and updated in RepositionOverlays().
+    // Mouse mode needs an absolute transform since there may be no tracked gun controller.
+    if (!m_MouseModeEnabled || m_ScopeHandle == vr::k_ulOverlayHandleInvalid)
+        return;
+
+    const float scopeWidth = std::max(0.01f, m_ScopeOverlayWidthMeters);
+
+    // Parent basis: use viewmodel basis (right/up/back) so offsets behave like tracked-device-relative transforms.
+    Vector parentRight = m_ViewmodelRight;
+    Vector parentUp = m_ViewmodelUp;
+    Vector parentBack = -m_ViewmodelForward;
+    if (parentRight.IsZero() || parentUp.IsZero() || parentBack.IsZero())
+        return;
+    VectorNormalize(parentRight);
+    VectorNormalize(parentUp);
+    VectorNormalize(parentBack);
+
+    // Base origin at the current viewmodel anchor position.
+    const Vector vmAbs = GetRecommendedViewmodelAbsPos();
+
+    // Translation is in parent space axes (x=right, y=up, z=back).
+    Vector overlayPos = vmAbs
+        + parentRight * m_ScopeOverlayXOffset
+        + parentUp * m_ScopeOverlayYOffset
+        + parentBack * m_ScopeOverlayZOffset;
+
+    const QAngle a = m_ScopeOverlayAngleOffset;
+    const float cx = std::cos(DEG2RAD(a.x)), sx = std::sin(DEG2RAD(a.x));
+    const float cy = std::cos(DEG2RAD(a.y)), sy = std::sin(DEG2RAD(a.y));
+    const float cz = std::cos(DEG2RAD(a.z)), sz = std::sin(DEG2RAD(a.z));
+
+    const float Roff00 = cy * cz;
+    const float Roff01 = -cy * sz;
+    const float Roff02 = sy;
+    const float Roff10 = sx * sy * cz + cx * sz;
+    const float Roff11 = -sx * sy * sz + cx * cz;
+    const float Roff12 = -sx * cy;
+    const float Roff20 = -cx * sy * cz + sx * sz;
+    const float Roff21 = cx * sy * sz + sx * cz;
+    const float Roff22 = cx * cy;
+
+    // World basis = ParentBasis * OffsetRotation.
+    const float B00 = parentRight.x, B01 = parentUp.x, B02 = parentBack.x;
+    const float B10 = parentRight.y, B11 = parentUp.y, B12 = parentBack.y;
+    const float B20 = parentRight.z, B21 = parentUp.z, B22 = parentBack.z;
+
+    const float R00 = B00 * Roff00 + B01 * Roff10 + B02 * Roff20;
+    const float R01 = B00 * Roff01 + B01 * Roff11 + B02 * Roff21;
+    const float R02 = B00 * Roff02 + B01 * Roff12 + B02 * Roff22;
+    const float R10 = B10 * Roff00 + B11 * Roff10 + B12 * Roff20;
+    const float R11 = B10 * Roff01 + B11 * Roff11 + B12 * Roff21;
+    const float R12 = B10 * Roff02 + B11 * Roff12 + B12 * Roff22;
+    const float R20 = B20 * Roff00 + B21 * Roff10 + B22 * Roff20;
+    const float R21 = B20 * Roff01 + B21 * Roff11 + B22 * Roff21;
+    const float R22 = B20 * Roff02 + B21 * Roff12 + B22 * Roff22;
+
+    vr::HmdMatrix34_t scopeAbs = {
+        R00, R01, R02, overlayPos.x,
+        R10, R11, R12, overlayPos.y,
+        R20, R21, R22, overlayPos.z
+    };
+    vr::VROverlay()->SetOverlayTransformAbsolute(m_ScopeHandle, vr::TrackingUniverseStanding, &scopeAbs);
+    vr::VROverlay()->SetOverlayWidthInMeters(m_ScopeHandle, scopeWidth);
 }
 
 bool VR::ShouldRenderRearMirror() const
@@ -2787,10 +2862,11 @@ Vector VR::GetRecommendedViewmodelAbsPos()
     Vector viewmodelPos = GetRightControllerAbsPos();
     if (m_MouseModeEnabled)
     {
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
         viewmodelPos = m_HmdPosAbs
-            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
-            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
-            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
     }
     viewmodelPos -= m_ViewmodelForward * m_ViewmodelPosOffset.x;
     viewmodelPos -= m_ViewmodelRight * m_ViewmodelPosOffset.y;
@@ -3294,7 +3370,57 @@ void VR::UpdateTracking()
     }
 
     // Update scope camera pose + look-through activation
-    if (m_ScopeEnabled && m_ScopeWeaponIsFirearm)
+    if (m_MouseModeEnabled && m_ScopeEnabled)
+    {
+        // Mouse mode: scope activation is driven by a keyboard toggle (not look-through).
+        m_ScopeActive = m_MouseModeScopeToggleActive && m_ScopeWeaponIsFirearm;
+        if (m_ScopeActive)
+        {
+            const Vector& anchor = m_MouseModeScopedViewmodelAnchorOffset;
+            const Vector gunOrigin = m_HmdPosAbs
+                + (m_HmdForward * (anchor.x * m_VRScale))
+                + (m_HmdRight * (anchor.y * m_VRScale))
+                + (m_HmdUp * (anchor.z * m_VRScale));
+
+            QAngle aimAngBase = m_HmdAngAbs;
+            aimAngBase.x = m_MouseAimPitchOffset;
+            Vector aimRay;
+            QAngle::AngleVectors(aimAngBase, &aimRay);
+            Vector eyeDir = m_MouseModeAimFromHmd ? aimRay : m_HmdForward;
+            if (!eyeDir.IsZero())
+                VectorNormalize(eyeDir);
+
+            const float converge = std::max(0.0f, m_MouseModeAimConvergeDistance);
+            const Vector target = gunOrigin + eyeDir * (converge > 0.0f ? converge : 2048.0f);
+
+            Vector aimDir = target - gunOrigin;
+            if (aimDir.IsZero())
+                aimDir = m_HmdForward;
+            VectorNormalize(aimDir);
+
+            QAngle aimAng;
+            VectorAngles(aimDir, m_HmdUp, aimAng);
+
+            Vector f, r, u;
+            QAngle::AngleVectors(aimAng, &f, &r, &u);
+            m_RightControllerForward = f;
+            m_RightControllerRight = r;
+            m_RightControllerUp = u;
+
+            m_ScopeCameraPosAbs = gunOrigin
+                + f * m_ScopeCameraOffset.x
+                + r * m_ScopeCameraOffset.y
+                + u * m_ScopeCameraOffset.z;
+            m_ScopeCameraAngAbs = aimAng + m_ScopeCameraAngleOffset;
+        }
+        else
+        {
+            m_ScopeAimSensitivityInit = false;
+            m_ScopeStabilizationInit = false;
+            m_ScopeStabilizationLastTime = {};
+        }
+    }
+    else if (m_ScopeEnabled && m_ScopeWeaponIsFirearm)
     {
         // Raw scope camera pose from controller (used for activation tests).
         const Vector scopePosRaw = m_RightControllerPosAbs
@@ -3591,10 +3717,11 @@ void VR::UpdateTracking()
                 VectorNormalize(eyeDir);
         }
 
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
         Vector gunOrigin = m_HmdPosAbs
-            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
-            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
-            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
 
         const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
         Vector target = m_HmdPosAbs + eyeDir * convergeDist;
@@ -3964,10 +4091,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     if (useMouse)
     {
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
         Vector gunOrigin = m_HmdPosAbs
-            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
-            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
-            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
 
         const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
         Vector target = m_HmdPosAbs + eyeDir * convergeDist;
@@ -4009,10 +4137,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     Vector originBase = m_RightControllerPosAbs;
     if (useMouse)
     {
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
         originBase = m_HmdPosAbs
-            + (m_HmdForward * (m_MouseModeViewmodelAnchorOffset.x * m_VRScale))
-            + (m_HmdRight * (m_MouseModeViewmodelAnchorOffset.y * m_VRScale))
-            + (m_HmdUp * (m_MouseModeViewmodelAnchorOffset.z * m_VRScale));
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
     }
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
@@ -4176,6 +4305,18 @@ void VR::UpdateScopeAimLineState()
         m_HasAimLine = false;
         m_ScopeForcingAimLine = false;
     }
+}
+
+void VR::ToggleMouseModeScope()
+{
+    if (!m_MouseModeEnabled)
+        return;
+
+    m_MouseModeScopeToggleActive = !m_MouseModeScopeToggleActive;
+
+    // Clear lingering stabilization history.
+    m_ScopeStabilizationInit = false;
+    m_ScopeStabilizationLastTime = {};
 }
 
 bool VR::IsThrowableWeapon(C_WeaponCSBase* weapon) const
@@ -5483,14 +5624,15 @@ void VR::ParseConfigFile()
         return result;
         };
 
-    auto getFloatList = [&](const char* k) -> std::vector<float>
+    auto getFloatList = [&](const char* k, const char* defVal = nullptr) -> std::vector<float>
         {
             std::vector<float> values;
-            auto it = userConfig.find(k);
-            if (it == userConfig.end())
+            const auto it = userConfig.find(k);
+            if (it == userConfig.end() && !defVal)
                 return values;
 
-            std::stringstream ss(it->second);
+            const std::string source = (it == userConfig.end()) ? defVal : it->second;
+            std::stringstream ss(source);
             std::string token;
             while (std::getline(ss, token, ','))
             {
@@ -5970,6 +6112,18 @@ void VR::ParseConfigFile()
     m_MouseModeTurnSmoothing = getFloat("MouseModeTurnSmoothing", m_MouseModeTurnSmoothing);
     m_MouseModePitchSmoothing = getFloat("MouseModePitchSmoothing", m_MouseModePitchSmoothing);
     m_MouseModeViewmodelAnchorOffset = getVector3("MouseModeViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
+    m_MouseModeScopedViewmodelAnchorOffset = getVector3("MouseModeScopedViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
+    m_MouseModeScopeToggleKey = parseVirtualKey(getString("MouseModeScopeToggleKey", "key:f9"));
+    m_MouseModeScopeMagnificationKey = parseVirtualKey(getString("MouseModeScopeMagnificationKey", "key:f10"));
+
+    auto mouseModeScopeSensitivityList = getFloatList("MouseModeScopeSensitivityScale", "100");
+    if (mouseModeScopeSensitivityList.empty())
+        mouseModeScopeSensitivityList.push_back(100.0f);
+    for (auto& v : mouseModeScopeSensitivityList)
+        v = std::clamp(v, 1.0f, 200.0f);
+    if (mouseModeScopeSensitivityList.size() < m_ScopeMagnificationOptions.size())
+        mouseModeScopeSensitivityList.resize(m_ScopeMagnificationOptions.size(), mouseModeScopeSensitivityList.back());
+    m_MouseModeScopeSensitivityScales = mouseModeScopeSensitivityList;
     m_MouseModeAimConvergeDistance = getFloat("MouseModeAimConvergeDistance", m_MouseModeAimConvergeDistance);
 
     // Non-VR server melee feel tuning (ForceNonVRServerMovement=true only)
