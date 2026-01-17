@@ -283,6 +283,7 @@ public:
 	bool m_JumpCmdOwned = false;
 	bool m_UseCmdOwned = false;
 	bool m_ReloadCmdOwned = false;
+	bool m_DuckCmdOwned = false;
 	bool m_LeftGripPressedPrev = false;
 	bool m_RightGripPressedPrev = false;
 
