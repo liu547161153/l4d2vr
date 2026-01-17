@@ -3385,7 +3385,7 @@ void VR::UpdateTracking()
             QAngle aimAngBase = m_HmdAngAbs;
             aimAngBase.x = m_MouseAimPitchOffset;
             Vector aimRay;
-            QAngle::AngleVectors(aimAngBase, &aimRay);
+            QAngle::AngleVectors(aimAngBase, &aimRay, nullptr, nullptr);
             Vector eyeDir = m_MouseModeAimFromHmd ? aimRay : m_HmdForward;
             if (!eyeDir.IsZero())
                 VectorNormalize(eyeDir);
@@ -3399,7 +3399,7 @@ void VR::UpdateTracking()
             VectorNormalize(aimDir);
 
             QAngle aimAng;
-            VectorAngles(aimDir, m_HmdUp, aimAng);
+            QAngle::VectorAngles(aimDir, m_HmdUp, aimAng);
 
             Vector f, r, u;
             QAngle::AngleVectors(aimAng, &f, &r, &u);
@@ -6115,6 +6115,11 @@ void VR::ParseConfigFile()
     m_MouseModeScopedViewmodelAnchorOffset = getVector3("MouseModeScopedViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
     m_MouseModeScopeToggleKey = parseVirtualKey(getString("MouseModeScopeToggleKey", "key:f9"));
     m_MouseModeScopeMagnificationKey = parseVirtualKey(getString("MouseModeScopeMagnificationKey", "key:f10"));
+
+    // Optional bindable impulses for mouse-mode scope control.
+    // Using impulses avoids GetAsyncKeyState issues and allows normal Source binds.
+    m_MouseModeScopeToggleImpulse = std::clamp(getInt("MouseModeScopeToggleImpulse", m_MouseModeScopeToggleImpulse), 0, 255);
+    m_MouseModeScopeMagnificationImpulse = std::clamp(getInt("MouseModeScopeMagnificationImpulse", m_MouseModeScopeMagnificationImpulse), 0, 255);
 
     auto mouseModeScopeSensitivityList = getFloatList("MouseModeScopeSensitivityScale", "100");
     if (mouseModeScopeSensitivityList.empty())
