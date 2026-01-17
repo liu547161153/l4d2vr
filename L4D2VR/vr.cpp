@@ -24,6 +24,108 @@
 
 namespace
 {
+    inline bool IsAltHeld()
+    {
+        return (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    }
+
+    struct CursorVertex
+    {
+        float x, y, z, rhw;
+        float u, v;
+    };
+    constexpr DWORD kCursorFVF = (D3DFVF_XYZRHW | D3DFVF_TEX1);
+
+    inline void EnsureAltCursorTexture(VR* vr, IDirect3DDevice9* dev)
+    {
+        if (!vr || !dev || vr->m_MouseModeCursorTex)
+            return;
+
+        IDirect3DTexture9* tex = nullptr;
+        if (FAILED(dev->CreateTexture(32, 32, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr)))
+            return;
+
+        D3DLOCKED_RECT lr{};
+        if (SUCCEEDED(tex->LockRect(0, &lr, nullptr, 0)))
+        {
+            for (int y = 0; y < 32; ++y)
+            {
+                auto* row = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(lr.pBits) + y * lr.Pitch);
+                for (int x = 0; x < 32; ++x)
+                {
+                    const int dx = x - 15;
+                    const int dy = y - 15;
+                    const bool cross = (abs(dx) <= 1 && abs(dy) <= 10) || (abs(dy) <= 1 && abs(dx) <= 10);
+                    const bool center = (abs(dx) <= 2 && abs(dy) <= 2);
+                    row[x] = (cross || center) ? 0xFFFFFFFFu : 0x00000000u;
+                }
+            }
+            tex->UnlockRect(0);
+        }
+
+        vr->m_MouseModeCursorTex = tex;
+    }
+
+    inline void RenderAltCursorToSurface(VR* vr, IDirect3DDevice9* dev, IDirect3DSurface9* rtSurface,
+        float x, float y, int winW, int winH)
+    {
+        if (!vr || !dev || !rtSurface || !vr->m_MouseModeCursorTex)
+            return;
+        if (winW <= 0 || winH <= 0)
+            return;
+
+        // Cursor is drawn into the TOP half of the packed HUD texture.
+        const float size = 24.0f;
+        const float left = std::clamp(x - size * 0.5f, 0.0f, float(winW - 1));
+        const float top = std::clamp(y - size * 0.5f, 0.0f, float(winH - 1));
+        const float right = std::clamp(left + size, 0.0f, float(winW));
+        const float bottom = std::clamp(top + size, 0.0f, float(winH));
+
+        IDirect3DStateBlock9* sb = nullptr;
+        dev->CreateStateBlock(D3DSBT_ALL, &sb);
+        if (sb) sb->Capture();
+
+        IDirect3DSurface9* oldRT = nullptr;
+        dev->GetRenderTarget(0, &oldRT);
+        dev->SetRenderTarget(0, rtSurface);
+
+        dev->SetFVF(kCursorFVF);
+        dev->SetTexture(0, vr->m_MouseModeCursorTex);
+        dev->SetRenderState(D3DRS_ZENABLE, FALSE);
+        dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+        dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+        dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+        dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+
+        CursorVertex v[4] = {
+            { left,  top,    0.0f, 1.0f, 0.0f, 0.0f },
+            { right, top,    0.0f, 1.0f, 1.0f, 0.0f },
+            { left,  bottom, 0.0f, 1.0f, 0.0f, 1.0f },
+            { right, bottom, 0.0f, 1.0f, 1.0f, 1.0f },
+        };
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, v, sizeof(CursorVertex));
+
+        if (oldRT)
+        {
+            dev->SetRenderTarget(0, oldRT);
+            oldRT->Release();
+        }
+
+        if (sb)
+        {
+            sb->Apply();
+            sb->Release();
+        }
+    }
     // Returns true if the call should be skipped because we ran it too recently.
     inline bool ShouldThrottle(std::chrono::steady_clock::time_point& last, float maxHz)
     {
@@ -431,10 +533,37 @@ void VR::Update()
 
     UpdateTracking();
 
+    // Cache window size for mouse-mode ALT cursor mapping.
+    {
+        IMatRenderContext* ctx = m_Game->m_MaterialSystem ? m_Game->m_MaterialSystem->GetRenderContext() : nullptr;
+        if (ctx)
+            ctx->GetWindowSize(m_MouseModeAltCursorWindowW, m_MouseModeAltCursorWindowH);
+    }
 
-    if (m_Game->m_VguiSurface->IsCursorVisible())
-        ProcessMenuInput();
+    const bool vguiCursorVisible = m_Game->m_VguiSurface && m_Game->m_VguiSurface->IsCursorVisible();
+    const bool altCursorActive = m_MouseModeEnabled && m_MouseModeAltCursorEnabled && IsAltHeld();
+    m_MouseModeAltCursorActive = altCursorActive;
+
+    // While holding ALT in mouse-mode, route mouse clicks to VGUI even if the engine doesn't
+    // consider the cursor "visible".
+    if (altCursorActive && m_Game->m_VguiInput)
+    {
+        const bool lmbDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        if (lmbDown && !m_MouseModeAltCursorLmbPrev)
+            m_Game->m_VguiInput->InternalMousePressed(ButtonCode_t::MOUSE_LEFT);
+        if (!lmbDown && m_MouseModeAltCursorLmbPrev)
+            m_Game->m_VguiInput->InternalMouseReleased(ButtonCode_t::MOUSE_LEFT);
+        m_MouseModeAltCursorLmbPrev = lmbDown;
+    }
     else
+    {
+        m_MouseModeAltCursorLmbPrev = false;
+        m_MouseModeAltCursorInitialized = false;
+    }
+
+    if (vguiCursorVisible)
+        ProcessMenuInput();
+    else if (!altCursorActive)
         ProcessInput();
 }
 
@@ -638,7 +767,37 @@ void VR::SubmitVRTextures()
     {
         applyHudTexture(m_HUDBottomHandles[i], bottomBounds[i]);
     }
-    if (m_Game->m_VguiSurface->IsCursorVisible())
+
+    const bool vguiCursorVisible = m_Game->m_VguiSurface && m_Game->m_VguiSurface->IsCursorVisible();
+    const bool altCursorActive = m_MouseModeEnabled && m_MouseModeAltCursorEnabled && IsAltHeld();
+
+    // ALT cursor: draw a lightweight software cursor into the packed HUD texture so it
+    // shows up in VR (OS cursors are not part of the captured backbuffer).
+    if (altCursorActive && m_D9HUDSurface)
+    {
+        IDirect3DDevice9* dev = nullptr;
+        if (SUCCEEDED(m_D9HUDSurface->GetDevice(&dev)) && dev)
+        {
+            EnsureAltCursorTexture(this, dev);
+
+            int winW = m_MouseModeAltCursorWindowW;
+            int winH = m_MouseModeAltCursorWindowH;
+            if (winW <= 0 || winH <= 0)
+            {
+                D3DSURFACE_DESC desc{};
+                if (SUCCEEDED(m_D9HUDSurface->GetDesc(&desc)))
+                {
+                    winW = int(desc.Width);
+                    winH = int(desc.Height) / 2; // packed HUD: top half is the main HUD
+                }
+            }
+            RenderAltCursorToSurface(this, dev, m_D9HUDSurface, m_MouseModeAltCursorX, m_MouseModeAltCursorY,
+                winW, winH);
+            dev->Release();
+        }
+    }
+
+    if (vguiCursorVisible || altCursorActive)
     {
         vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
         for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)

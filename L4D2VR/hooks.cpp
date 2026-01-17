@@ -844,99 +844,130 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			const int dx = cmd->mousedx;
 			const int dy = cmd->mousedy;
 
-			// Mouse-mode yaw (scheme A): delta-drain smoothing.
-			// - If MouseModeTurnSmoothing <= 0: legacy behavior (apply yaw directly on CreateMove ticks).
-			// - If MouseModeTurnSmoothing  > 0: convert mouse X to a yaw delta and accumulate it.
-			//   VR::UpdateTracking will drain/apply it smoothly per-frame.
-			if (m_VR->m_MouseModeTurnSmoothing <= 0.0f)
+			// Hold ALT in mouse-mode: turn the raw mouse deltas into a temporary software cursor
+			// (drawn on the HUD in VR::SubmitVRTextures) and route clicks to VGUI.
+			const bool altCursor = m_VR->m_MouseModeAltCursorEnabled && ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0);
+			if (altCursor)
 			{
-				if (dx != 0)
+				const int w = (m_VR->m_MouseModeAltCursorWindowW > 0) ? m_VR->m_MouseModeAltCursorWindowW : 1280;
+				const int h = (m_VR->m_MouseModeAltCursorWindowH > 0) ? m_VR->m_MouseModeAltCursorWindowH : 720;
+
+				if (!m_VR->m_MouseModeAltCursorInitialized)
 				{
-					m_VR->m_RotationOffset += (-float(dx) * m_VR->m_MouseModeYawSensitivity);
-					// Wrap to [0, 360)
-					m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
+					m_VR->m_MouseModeAltCursorX = w * 0.5f;
+					m_VR->m_MouseModeAltCursorY = h * 0.5f;
+					m_VR->m_MouseModeAltCursorInitialized = true;
 				}
-				m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
-				m_VR->m_MouseModeYawDeltaInitialized = false;
+
+				m_VR->m_MouseModeAltCursorX = std::clamp(m_VR->m_MouseModeAltCursorX + float(dx), 0.0f, float(w - 1));
+				m_VR->m_MouseModeAltCursorY = std::clamp(m_VR->m_MouseModeAltCursorY + float(dy), 0.0f, float(h - 1));
+
+				if (m_Game->m_VguiInput)
+					m_Game->m_VguiInput->SetCursorPos(int(m_VR->m_MouseModeAltCursorX), int(m_VR->m_MouseModeAltCursorY));
+
+				// Avoid shooting while interacting with UI.
+				cmd->buttons &= ~(1 << 0);  // IN_ATTACK
+				cmd->buttons &= ~(1 << 11); // IN_ATTACK2
+
+				cmd->mousedx = 0;
+				cmd->mousedy = 0;
 			}
 			else
 			{
-				if (!m_VR->m_MouseModeYawDeltaInitialized)
+				// Mouse-mode yaw (scheme A): delta-drain smoothing.
+				// - If MouseModeTurnSmoothing <= 0: legacy behavior (apply yaw directly on CreateMove ticks).
+				// - If MouseModeTurnSmoothing  > 0: convert mouse X to a yaw delta and accumulate it.
+				//   VR::UpdateTracking will drain/apply it smoothly per-frame.
+				if (m_VR->m_MouseModeTurnSmoothing <= 0.0f)
 				{
-					m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
-					m_VR->m_MouseModeYawDeltaInitialized = true;
-				}
-				if (dx != 0)
-				{
-					const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity);
-					m_VR->m_MouseModeYawDeltaRemainingDeg += yawDeltaDeg;
-				}
-			}
-
-			if (!m_VR->m_MouseAimInitialized)
-			{
-				// Initialize current values (used immediately) and targets (smoothed per-frame in VR::UpdateTracking).
-				m_VR->m_MouseAimPitchOffset = m_VR->m_HmdAngAbs.x;
-				m_VR->m_MouseModeViewPitchOffset = 0.0f;
-				m_VR->m_MouseAimInitialized = true;
-
-				m_VR->m_MouseModePitchTarget = m_VR->m_MouseAimPitchOffset;
-				m_VR->m_MouseModePitchTargetInitialized = true;
-				m_VR->m_MouseModeViewPitchTargetOffset = m_VR->m_MouseModeViewPitchOffset;
-				m_VR->m_MouseModeViewPitchTargetOffsetInitialized = true;
-			}
-
-			// Ensure targets are initialized even if MouseAimInitialized was set elsewhere.
-			if (!m_VR->m_MouseModePitchTargetInitialized)
-			{
-				m_VR->m_MouseModePitchTarget = m_VR->m_MouseAimPitchOffset;
-				m_VR->m_MouseModePitchTargetInitialized = true;
-			}
-			if (!m_VR->m_MouseModeViewPitchTargetOffsetInitialized)
-			{
-				m_VR->m_MouseModeViewPitchTargetOffset = m_VR->m_MouseModeViewPitchOffset;
-				m_VR->m_MouseModeViewPitchTargetOffsetInitialized = true;
-			}
-
-			if (dy != 0)
-			{
-				const float deltaPitch = float(dy) * m_VR->m_MouseModePitchSensitivity;
-
-				if (m_VR->m_MouseModePitchAffectsView)
-				{
-					// Update targets only. VR::UpdateTracking will smooth the current values per-frame.
-					const float curViewPitch = m_VR->m_MouseModePitchTarget;
-					float newViewPitch = curViewPitch + deltaPitch;
-					if (newViewPitch > 89.f)  newViewPitch = 89.f;
-					if (newViewPitch < -89.f) newViewPitch = -89.f;
-
-					const float appliedDelta = newViewPitch - curViewPitch;
-					m_VR->m_MouseModeViewPitchTargetOffset += appliedDelta;
-					m_VR->m_MouseModePitchTarget = newViewPitch;
-
-					// If pitch smoothing is disabled, keep legacy immediate behavior.
-					if (m_VR->m_MouseModePitchSmoothing <= 0.0f)
+					if (dx != 0)
 					{
-						m_VR->m_MouseModeViewPitchOffset = m_VR->m_MouseModeViewPitchTargetOffset;
-						m_VR->m_MouseAimPitchOffset = m_VR->m_MouseModePitchTarget;
+						m_VR->m_RotationOffset += (-float(dx) * m_VR->m_MouseModeYawSensitivity);
+						// Wrap to [0, 360)
+						m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
 					}
+					m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
+					m_VR->m_MouseModeYawDeltaInitialized = false;
 				}
 				else
 				{
-					// Aim pitch only (camera remains driven purely by HMD).
-					m_VR->m_MouseModePitchTarget += deltaPitch;
-					if (m_VR->m_MouseModePitchTarget > 89.f)  m_VR->m_MouseModePitchTarget = 89.f;
-					if (m_VR->m_MouseModePitchTarget < -89.f) m_VR->m_MouseModePitchTarget = -89.f;
-
-					if (m_VR->m_MouseModePitchSmoothing <= 0.0f)
+					if (!m_VR->m_MouseModeYawDeltaInitialized)
 					{
-						m_VR->m_MouseAimPitchOffset = m_VR->m_MouseModePitchTarget;
+						m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
+						m_VR->m_MouseModeYawDeltaInitialized = true;
+					}
+					if (dx != 0)
+					{
+						const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity);
+						m_VR->m_MouseModeYawDeltaRemainingDeg += yawDeltaDeg;
 					}
 				}
-			}
 
-			cmd->mousedx = 0;
-			cmd->mousedy = 0;
+				if (!m_VR->m_MouseAimInitialized)
+				{
+					// Initialize current values (used immediately) and targets (smoothed per-frame in VR::UpdateTracking).
+					m_VR->m_MouseAimPitchOffset = m_VR->m_HmdAngAbs.x;
+					m_VR->m_MouseModeViewPitchOffset = 0.0f;
+					m_VR->m_MouseAimInitialized = true;
+
+					m_VR->m_MouseModePitchTarget = m_VR->m_MouseAimPitchOffset;
+					m_VR->m_MouseModePitchTargetInitialized = true;
+					m_VR->m_MouseModeViewPitchTargetOffset = m_VR->m_MouseModeViewPitchOffset;
+					m_VR->m_MouseModeViewPitchTargetOffsetInitialized = true;
+				}
+
+				// Ensure targets are initialized even if MouseAimInitialized was set elsewhere.
+				if (!m_VR->m_MouseModePitchTargetInitialized)
+				{
+					m_VR->m_MouseModePitchTarget = m_VR->m_MouseAimPitchOffset;
+					m_VR->m_MouseModePitchTargetInitialized = true;
+				}
+				if (!m_VR->m_MouseModeViewPitchTargetOffsetInitialized)
+				{
+					m_VR->m_MouseModeViewPitchTargetOffset = m_VR->m_MouseModeViewPitchOffset;
+					m_VR->m_MouseModeViewPitchTargetOffsetInitialized = true;
+				}
+
+				if (dy != 0)
+				{
+					const float deltaPitch = float(dy) * m_VR->m_MouseModePitchSensitivity;
+
+					if (m_VR->m_MouseModePitchAffectsView)
+					{
+						// Update targets only. VR::UpdateTracking will smooth the current values per-frame.
+						const float curViewPitch = m_VR->m_MouseModePitchTarget;
+						float newViewPitch = curViewPitch + deltaPitch;
+						if (newViewPitch > 89.f)  newViewPitch = 89.f;
+						if (newViewPitch < -89.f) newViewPitch = -89.f;
+
+						const float appliedDelta = newViewPitch - curViewPitch;
+						m_VR->m_MouseModeViewPitchTargetOffset += appliedDelta;
+						m_VR->m_MouseModePitchTarget = newViewPitch;
+
+						// If pitch smoothing is disabled, keep legacy immediate behavior.
+						if (m_VR->m_MouseModePitchSmoothing <= 0.0f)
+						{
+							m_VR->m_MouseModeViewPitchOffset = m_VR->m_MouseModeViewPitchTargetOffset;
+							m_VR->m_MouseAimPitchOffset = m_VR->m_MouseModePitchTarget;
+						}
+					}
+					else
+					{
+						// Aim pitch only (camera remains driven purely by HMD).
+						m_VR->m_MouseModePitchTarget += deltaPitch;
+						if (m_VR->m_MouseModePitchTarget > 89.f)  m_VR->m_MouseModePitchTarget = 89.f;
+						if (m_VR->m_MouseModePitchTarget < -89.f) m_VR->m_MouseModePitchTarget = -89.f;
+
+						if (m_VR->m_MouseModePitchSmoothing <= 0.0f)
+						{
+							m_VR->m_MouseAimPitchOffset = m_VR->m_MouseModePitchTarget;
+						}
+					}
+				}
+
+				cmd->mousedx = 0;
+				cmd->mousedy = 0;
+			}
 		}
 		const QAngle originalViewAngles = cmd->viewangles;
 		bool hadWalkAxis = false;

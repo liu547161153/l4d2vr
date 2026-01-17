@@ -364,6 +364,19 @@ public:
 	//  - Aim line starts at the anchored viewmodel point, but converges to the mouse-aim ray
 	//    at MouseModeAimConvergeDistance (scheme B).
 	bool m_MouseModeEnabled = false;
+	// MouseMode helper: hold ALT to temporarily show a software cursor on the HUD and
+	// route mouse clicks to VGUI (useful for UI panels when playing without controllers).
+	bool  m_MouseModeAltCursorEnabled = true;
+	// Runtime state for ALT cursor overlay (updated from CreateMove/input).
+	bool  m_MouseModeAltCursorActive = false;
+	float m_MouseModeAltCursorX = 0.0f;
+	float m_MouseModeAltCursorY = 0.0f;
+	bool  m_MouseModeAltCursorInitialized = false;
+	bool  m_MouseModeAltCursorLmbPrev = false;
+	int   m_MouseModeAltCursorWindowW = 0;
+	int   m_MouseModeAltCursorWindowH = 0;
+	// D3D resources for cursor rendering.
+	IDirect3DTexture9* m_MouseModeCursorTex = nullptr;
 	// Mouse-mode aiming source.
 	// If false (default): aim direction is driven by the accumulated mouse pitch + body yaw (m_RotationOffset).
 	// If true:            aim direction follows the HMD center ray (view direction), while the aim line origin
