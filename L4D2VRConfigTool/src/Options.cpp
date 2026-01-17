@@ -1170,6 +1170,18 @@ Option g_Options[] =
         0.f, 255.f,
         "203"
     },
+    {
+        "MouseModeScopeOverlayOffset",
+        OptionType::Vec3,
+        { u8"Mouse Mode", u8"鼠标模式" },
+        { u8"Scope Overlay Offset (HMD) (x,y,z)", u8"瞄准镜Overlay偏移(基于HMD)(x,y,z)" },
+        { u8"In mouse mode, anchor the scope overlay to the HMD and apply this offset in HMD-local axes (meters).",
+          u8"键鼠模式下将瞄准镜Overlay挂在HMD上，并按HMD本地坐标应用偏移（米）。" },
+        { u8"x=right, y=up, z=back (towards your face). Set non-zero to prevent the overlay from disappearing.",
+          u8"x=右, y=上, z=向后(靠近脸). 设为非零可避免Overlay看不到。" },
+        -1.0f, 1.0f,
+        "0,0,0"
+    },
 
     // Rear mirror
     {
