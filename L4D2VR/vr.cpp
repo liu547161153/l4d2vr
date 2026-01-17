@@ -3385,7 +3385,7 @@ void VR::UpdateTracking()
             QAngle aimAngBase = m_HmdAngAbs;
             aimAngBase.x = m_MouseAimPitchOffset;
             Vector aimRay;
-            QAngle::AngleVectors(aimAngBase, &aimRay);
+            QAngle::AngleVectors(aimAngBase, &aimRay, nullptr, nullptr);
             Vector eyeDir = m_MouseModeAimFromHmd ? aimRay : m_HmdForward;
             if (!eyeDir.IsZero())
                 VectorNormalize(eyeDir);
@@ -3399,7 +3399,7 @@ void VR::UpdateTracking()
             VectorNormalize(aimDir);
 
             QAngle aimAng;
-            VectorAngles(aimDir, m_HmdUp, aimAng);
+            QAngle::VectorAngles(aimDir, m_HmdUp, aimAng);
 
             Vector f, r, u;
             QAngle::AngleVectors(aimAng, &f, &r, &u);
