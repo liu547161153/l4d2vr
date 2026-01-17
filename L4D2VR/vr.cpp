@@ -6116,6 +6116,11 @@ void VR::ParseConfigFile()
     m_MouseModeScopeToggleKey = parseVirtualKey(getString("MouseModeScopeToggleKey", "key:f9"));
     m_MouseModeScopeMagnificationKey = parseVirtualKey(getString("MouseModeScopeMagnificationKey", "key:f10"));
 
+    // Optional bindable impulses for mouse-mode scope control.
+    // Using impulses avoids GetAsyncKeyState issues and allows normal Source binds.
+    m_MouseModeScopeToggleImpulse = std::clamp(getInt("MouseModeScopeToggleImpulse", m_MouseModeScopeToggleImpulse), 0, 255);
+    m_MouseModeScopeMagnificationImpulse = std::clamp(getInt("MouseModeScopeMagnificationImpulse", m_MouseModeScopeMagnificationImpulse), 0, 255);
+
     auto mouseModeScopeSensitivityList = getFloatList("MouseModeScopeSensitivityScale", "100");
     if (mouseModeScopeSensitivityList.empty())
         mouseModeScopeSensitivityList.push_back(100.0f);

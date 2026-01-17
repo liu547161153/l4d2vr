@@ -411,6 +411,13 @@ public:
 	// Mouse-mode scope hotkeys (keyboard). Format in config.txt: key:X, key:F1..F12 (see parseVirtualKey).
 	std::optional<WORD> m_MouseModeScopeToggleKey;
 	std::optional<WORD> m_MouseModeScopeMagnificationKey;
+	// Mouse-mode scope triggers via CUserCmd::impulse (bindable from the in-game console).
+	// Example binds:
+	//   bind q "impulse 202"   // toggle mouse-mode scope
+	//   bind z "impulse 203"   // cycle mouse-mode scope magnification
+	// Set to 0 to disable (do nothing).
+	int m_MouseModeScopeToggleImpulse = 202;
+	int m_MouseModeScopeMagnificationImpulse = 203;
 	bool m_MouseModeScopeToggleActive = false;
 	bool m_MouseModeScopeToggleKeyDownPrev = false;
 	bool m_MouseModeScopeMagnificationKeyDownPrev = false;

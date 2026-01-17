@@ -1145,6 +1145,32 @@ Option g_Options[] =
         "5,0,25"
     },
 
+    // Mouse Mode (Desktop aiming in VR)
+    {
+        "MouseModeScopeToggleImpulse",
+        OptionType::Int,
+        { u8"Mouse Mode", u8"鼠标模式" },
+        { u8"Scope Toggle Impulse", u8"开镜切换 Impulse" },
+        { u8"When Mouse Mode is enabled, this CUserCmd impulse value toggles the mouse-mode scope state.",
+          u8"开启鼠标模式时，该 CUserCmd impulse 数值将切换鼠标模式的开镜状态。" },
+        { u8"Bind a key in console, e.g.: bind q \"impulse 202\". Set 0 to disable.",
+          u8"可在控制台绑定按键，例如：bind q \"impulse 202\"。设为 0 则禁用。" },
+        0.f, 255.f,
+        "202"
+    },
+    {
+        "MouseModeScopeMagnificationImpulse",
+        OptionType::Int,
+        { u8"Mouse Mode", u8"鼠标模式" },
+        { u8"Scope Magnification Impulse", u8"镜倍切换 Impulse" },
+        { u8"When mouse-mode scope is active, this CUserCmd impulse cycles scope magnification.",
+          u8"鼠标模式开镜激活时，该 CUserCmd impulse 将循环切换瞄准镜倍率。" },
+        { u8"Bind a key in console, e.g.: bind z \"impulse 203\". Set 0 to disable.",
+          u8"可在控制台绑定按键，例如：bind z \"impulse 203\"。设为 0 则禁用。" },
+        0.f, 255.f,
+        "203"
+    },
+
     // Rear mirror
     {
         "RearMirrorFlipHorizontal",

@@ -927,6 +927,25 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// We zero cmd->mousedx/y so Source doesn't also apply them to viewangles.
 		if (m_VR->m_MouseModeEnabled)
 		{
+			// Mouse mode scope triggers via CUserCmd::impulse (bindable from Source console).
+			// This is more reliable than polling Windows virtual keys (GetAsyncKeyState) and
+			// allows normal binds / alias chains.
+			if (cmd->impulse != 0)
+			{
+				const int imp = (int)cmd->impulse;
+				if (m_VR->m_MouseModeScopeToggleImpulse > 0 && imp == m_VR->m_MouseModeScopeToggleImpulse)
+				{
+					m_VR->ToggleMouseModeScope();
+					cmd->impulse = 0; // consume
+				}
+				else if (m_VR->m_MouseModeScopeMagnificationImpulse > 0 && imp == m_VR->m_MouseModeScopeMagnificationImpulse)
+				{
+					if (m_VR->IsMouseModeScopeActive())
+						m_VR->CycleScopeMagnification();
+					cmd->impulse = 0; // consume
+				}
+			}
+
 			// Mouse mode hotkeys (keyboard). Polled here because CreateMove runs at input tick rate.
 			auto pollKeyPressed = [&](const std::optional<WORD>& vk, bool& prevDown) -> bool
 				{
