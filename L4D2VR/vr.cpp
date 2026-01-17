@@ -1032,23 +1032,61 @@ void VR::UpdateScopeOverlayTransform()
     const float scopeWidth = std::max(0.01f, m_ScopeOverlayWidthMeters);
 
     // Parent basis: use viewmodel basis (right/up/back) so offsets behave like tracked-device-relative transforms.
+    // In mouse mode we normally attach the scope overlay near the viewmodel anchor.
+    // However, on some setups the viewmodel basis can be invalid (or end up off-screen) while mouse mode is enabled.
+    // To make the overlay always findable, we support anchoring it directly to the HMD when
+    // MouseModeScopeOverlayOffset is non-zero (or as a fallback when viewmodel basis is unusable).
+
+    bool useHmdAnchor = !m_MouseModeScopeOverlayOffset.IsZero();
+
+    // Choose parent basis (right/up/back) and base origin.
     Vector parentRight = m_ViewmodelRight;
     Vector parentUp = m_ViewmodelUp;
     Vector parentBack = -m_ViewmodelForward;
+    Vector baseAbs = GetRecommendedViewmodelAbsPos();
+
+    // Fallback: if viewmodel basis is missing/zero, anchor to HMD so the overlay can't disappear into space.
+    if (!useHmdAnchor)
+    {
+        if (parentRight.IsZero() || parentUp.IsZero() || parentBack.IsZero() || baseAbs.IsZero())
+            useHmdAnchor = true;
+    }
+
+    if (useHmdAnchor)
+    {
+        parentRight = m_HmdRight;
+        parentUp = m_HmdUp;
+        parentBack = -m_HmdForward;
+        baseAbs = m_HmdPosAbs;
+        if (baseAbs.IsZero())
+            return;
+    }
+
     if (parentRight.IsZero() || parentUp.IsZero() || parentBack.IsZero())
         return;
     VectorNormalize(parentRight);
     VectorNormalize(parentUp);
     VectorNormalize(parentBack);
 
-    // Base origin at the current viewmodel anchor position.
-    const Vector vmAbs = GetRecommendedViewmodelAbsPos();
+    Vector overlayPos = baseAbs;
 
-    // Translation is in parent space axes (x=right, y=up, z=back).
-    Vector overlayPos = vmAbs
-        + parentRight * m_ScopeOverlayXOffset
-        + parentUp * m_ScopeOverlayYOffset
-        + parentBack * m_ScopeOverlayZOffset;
+    if (useHmdAnchor && !m_MouseModeScopeOverlayOffset.IsZero())
+    {
+        // MouseModeScopeOverlayOffset is expressed in the chosen parent basis (HMD-local axes).
+        // x = right, y = up, z = back (toward the player's face).
+        overlayPos = overlayPos
+            + parentRight * m_MouseModeScopeOverlayOffset.x
+            + parentUp * m_MouseModeScopeOverlayOffset.y
+            + parentBack * m_MouseModeScopeOverlayOffset.z;
+    }
+    else
+    {
+        // Translation is in parent space axes (x=right, y=up, z=back).
+        overlayPos = overlayPos
+            + parentRight * m_ScopeOverlayXOffset
+            + parentUp * m_ScopeOverlayYOffset
+            + parentBack * m_ScopeOverlayZOffset;
+    }
 
     const QAngle a = m_ScopeOverlayAngleOffset;
     const float cx = std::cos(DEG2RAD(a.x)), sx = std::sin(DEG2RAD(a.x));
@@ -6113,6 +6151,7 @@ void VR::ParseConfigFile()
     m_MouseModePitchSmoothing = getFloat("MouseModePitchSmoothing", m_MouseModePitchSmoothing);
     m_MouseModeViewmodelAnchorOffset = getVector3("MouseModeViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
     m_MouseModeScopedViewmodelAnchorOffset = getVector3("MouseModeScopedViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
+    m_MouseModeScopeOverlayOffset = getVector3("MouseModeScopeOverlayOffset", m_MouseModeScopeOverlayOffset);
     m_MouseModeScopeToggleKey = parseVirtualKey(getString("MouseModeScopeToggleKey", "key:f9"));
     m_MouseModeScopeMagnificationKey = parseVirtualKey(getString("MouseModeScopeMagnificationKey", "key:f10"));
 
