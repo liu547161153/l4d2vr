@@ -472,6 +472,18 @@ Option g_Options[] =
         "0.22,0.00,-0.18"
     },
     {
+        "MouseModeScopeOverlayOffset",
+        OptionType::Vec3,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Scope Overlay Offset (HMD) (x,y,z)", u8"瞄准镜Overlay偏移(基于HMD)(x,y,z)" },
+        { u8"In mouse mode, anchors the scope overlay to the HMD tracking pose and applies this offset in tracking-space meters.",
+          u8"键鼠模式下，将瞄准镜Overlay挂到HMD追踪姿态上，并按追踪空间的米制偏移进行定位。" },
+        { u8"x=right, y=up, z=back (towards your face). Set non-zero to avoid the overlay disappearing.",
+          u8"x=右, y=上, z=向后(靠近脸)。设为非零可避免Overlay看不到。" },
+        -1.0f, 1.0f,
+        "0,0,0"
+    },
+    {
         "MouseModeScopeToggleKey",
         OptionType::String,
         { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
