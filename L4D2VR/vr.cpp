@@ -1031,61 +1031,41 @@ void VR::UpdateScopeOverlayTransform()
 
     const float scopeWidth = std::max(0.01f, m_ScopeOverlayWidthMeters);
 
-    // Parent basis: use viewmodel basis (right/up/back) so offsets behave like tracked-device-relative transforms.
-    // In mouse mode we normally attach the scope overlay near the viewmodel anchor.
-    // However, on some setups the viewmodel basis can be invalid (or end up off-screen) while mouse mode is enabled.
-    // To make the overlay always findable, we support anchoring it directly to the HMD when
-    // MouseModeScopeOverlayOffset is non-zero (or as a fallback when viewmodel basis is unusable).
+    // IMPORTANT:
+    // - OpenVR absolute overlay transforms are in tracking-space *meters*.
+    // - Most of our in-game positions (m_HmdPosAbs, viewmodel anchors, etc.) are in Source units.
+    // If we feed Source units into SetOverlayTransformAbsolute, the overlay ends up kilometers away.
+    // So for mouse mode we build the transform directly from the OpenVR HMD tracking pose.
 
-    bool useHmdAnchor = !m_MouseModeScopeOverlayOffset.IsZero();
-
-    // Choose parent basis (right/up/back) and base origin.
-    Vector parentRight = m_ViewmodelRight;
-    Vector parentUp = m_ViewmodelUp;
-    Vector parentBack = -m_ViewmodelForward;
-    Vector baseAbs = GetRecommendedViewmodelAbsPos();
-
-    // Fallback: if viewmodel basis is missing/zero, anchor to HMD so the overlay can't disappear into space.
-    if (!useHmdAnchor)
-    {
-        if (parentRight.IsZero() || parentUp.IsZero() || parentBack.IsZero() || baseAbs.IsZero())
-            useHmdAnchor = true;
-    }
-
-    if (useHmdAnchor)
-    {
-        parentRight = m_HmdRight;
-        parentUp = m_HmdUp;
-        parentBack = -m_HmdForward;
-        baseAbs = m_HmdPosAbs;
-        if (baseAbs.IsZero())
-            return;
-    }
-
-    if (parentRight.IsZero() || parentUp.IsZero() || parentBack.IsZero())
+    const vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
+    if (!hmdPose.bPoseIsValid)
         return;
-    VectorNormalize(parentRight);
-    VectorNormalize(parentUp);
-    VectorNormalize(parentBack);
 
-    Vector overlayPos = baseAbs;
+    const vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
+    const Vector hmdPos = { hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3] }; // meters
 
-    if (useHmdAnchor && !m_MouseModeScopeOverlayOffset.IsZero())
+    // Tracking-space basis (meters): columns of the 3x4 matrix
+    // right = +X, up = +Y, back = +Z (OpenVR commonly treats -Z as forward)
+    Vector parentRight = { hmdMat.m[0][0], hmdMat.m[1][0], hmdMat.m[2][0] };
+    Vector parentUp = { hmdMat.m[0][1], hmdMat.m[1][1], hmdMat.m[2][1] };
+    Vector parentBack = { hmdMat.m[0][2], hmdMat.m[1][2], hmdMat.m[2][2] };
+    if (VectorNormalize(parentRight) == 0.0f || VectorNormalize(parentUp) == 0.0f || VectorNormalize(parentBack) == 0.0f)
+        return;
+
+    // Base position: HMD position plus optional mouse-mode HMD-anchored offset (meters).
+    // If not set, fall back to the existing ScopeOverlay offsets.
+    Vector overlayPos = hmdPos;
+    if (!m_MouseModeScopeOverlayOffset.IsZero())
     {
-        // MouseModeScopeOverlayOffset is expressed in the chosen parent basis (HMD-local axes).
-        // x = right, y = up, z = back (toward the player's face).
-        overlayPos = overlayPos
-            + parentRight * m_MouseModeScopeOverlayOffset.x
-            + parentUp * m_MouseModeScopeOverlayOffset.y
-            + parentBack * m_MouseModeScopeOverlayOffset.z;
+        overlayPos += parentRight * m_MouseModeScopeOverlayOffset.x;
+        overlayPos += parentUp * m_MouseModeScopeOverlayOffset.y;
+        overlayPos += parentBack * m_MouseModeScopeOverlayOffset.z;
     }
     else
     {
-        // Translation is in parent space axes (x=right, y=up, z=back).
-        overlayPos = overlayPos
-            + parentRight * m_ScopeOverlayXOffset
-            + parentUp * m_ScopeOverlayYOffset
-            + parentBack * m_ScopeOverlayZOffset;
+        overlayPos += parentRight * m_ScopeOverlayXOffset;
+        overlayPos += parentUp * m_ScopeOverlayYOffset;
+        overlayPos += parentBack * m_ScopeOverlayZOffset;
     }
 
     const QAngle a = m_ScopeOverlayAngleOffset;
@@ -6152,6 +6132,9 @@ void VR::ParseConfigFile()
     m_MouseModePitchSmoothing = getFloat("MouseModePitchSmoothing", m_MouseModePitchSmoothing);
     m_MouseModeViewmodelAnchorOffset = getVector3("MouseModeViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
     m_MouseModeScopedViewmodelAnchorOffset = getVector3("MouseModeScopedViewmodelAnchorOffset", m_MouseModeViewmodelAnchorOffset);
+    // Mouse-mode: if non-zero, place the scope overlay using the OpenVR HMD tracking pose
+    // (meters in tracking space), so the overlay can't disappear due to unit mismatches.
+    m_MouseModeScopeOverlayOffset = getVector3("MouseModeScopeOverlayOffset", m_MouseModeScopeOverlayOffset);
     m_MouseModeScopeToggleKey = parseVirtualKey(getString("MouseModeScopeToggleKey", "key:f9"));
     m_MouseModeScopeMagnificationKey = parseVirtualKey(getString("MouseModeScopeMagnificationKey", "key:f10"));
 

@@ -408,9 +408,10 @@ public:
 	// Optional HMD-local anchor to use while mouse-mode scope is toggled on (meters; scaled by VRScale).
 	// If you want a more "ADS"-like viewmodel position when using ScopeRTT in mouse mode, set this.
 	Vector m_MouseModeScopedViewmodelAnchorOffset = { 0.0f, 0.0f, 0.0f };
-	// Mouse-mode scope overlay offset relative to the HMD (meters, in HMD-local axes).
+	// Mouse-mode: scope overlay offset relative to the HMD in OpenVR tracking space (meters).
 	// x = right, y = up, z = back (towards the player's face).
-	// If non-zero, the scope overlay is anchored to the HMD instead of the viewmodel anchor in mouse mode.
+	// If non-zero, mouse mode will place the scope overlay using the HMD tracking pose
+	// so it won't disappear due to mismatched game-units vs meters when using absolute overlays.
 	Vector m_MouseModeScopeOverlayOffset = { 0.0f, 0.0f, 0.0f };
 	// Mouse-mode scope hotkeys (keyboard). Format in config.txt: key:X, key:F1..F12 (see parseVirtualKey).
 	std::optional<WORD> m_MouseModeScopeToggleKey;
