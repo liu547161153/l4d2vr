@@ -2397,14 +2397,18 @@ void VR::ProcessInput()
         }
     }
 
-    bool crouchActive = (!suppressCrouch) && (crouchButtonDown || m_CrouchToggleActive);
-    if (crouchActive)
+    const bool wantDuck = (!suppressCrouch) && (crouchButtonDown || m_CrouchToggleActive);
+    // IMPORTANT: only release -duck if *we* previously issued +duck.
+    // Otherwise we would cancel the player's real keyboard input (e.g. Ctrl +duck in mouse mode).
+    if (wantDuck && !m_DuckCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("+duck");
+        m_DuckCmdOwned = true;
     }
-    else
+    else if (!wantDuck && m_DuckCmdOwned)
     {
         m_Game->ClientCmd_Unrestricted("-duck");
+        m_DuckCmdOwned = false;
     }
 
     if (flashlightJustPressed)

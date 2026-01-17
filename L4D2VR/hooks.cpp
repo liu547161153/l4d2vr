@@ -161,6 +161,73 @@ static inline bool HandleValid(int h)
 	return (h != 0 && h != -1);
 }
 
+// Mouse-mode aiming helpers (mouse+keyboard play; no controllers required)
+static inline Vector GetMouseModeGunOriginAbs(const VR* vr)
+{
+	return vr->m_HmdPosAbs
+		+ (vr->m_HmdForward * (vr->m_MouseModeViewmodelAnchorOffset.x * vr->m_VRScale))
+		+ (vr->m_HmdRight * (vr->m_MouseModeViewmodelAnchorOffset.y * vr->m_VRScale))
+		+ (vr->m_HmdUp * (vr->m_MouseModeViewmodelAnchorOffset.z * vr->m_VRScale));
+}
+
+static inline Vector GetMouseModeEyeDir(const VR* vr)
+{
+	Vector eyeDir{ 0.0f, 0.0f, 0.0f };
+	if (vr->m_MouseModeAimFromHmd)
+	{
+		eyeDir = vr->m_HmdForward;
+	}
+	else
+	{
+		const float pitch = std::clamp(vr->m_MouseAimPitchOffset, -89.f, 89.f);
+		const float yaw = vr->m_RotationOffset;
+		QAngle eyeAng(pitch, yaw, 0.f);
+		NormalizeAndClampViewAngles(eyeAng);
+
+		Vector right, up;
+		QAngle::AngleVectors(eyeAng, &eyeDir, &right, &up);
+	}
+
+	if (!eyeDir.IsZero())
+		VectorNormalize(eyeDir);
+	return eyeDir;
+}
+
+static inline Vector GetMouseModeDefaultTargetAbs(const VR* vr)
+{
+	Vector eyeDir = GetMouseModeEyeDir(vr);
+	const float dist = (vr->m_MouseModeAimConvergeDistance > 0.0f) ? vr->m_MouseModeAimConvergeDistance : 8192.0f;
+	return vr->m_HmdPosAbs + eyeDir * dist;
+}
+
+static inline bool GetMouseModeAimAnglesToTarget(const VR* vr, const Vector& from, const Vector& target, QAngle& outAngles)
+{
+	Vector to = target - from;
+	if (to.IsZero())
+		return false;
+	VectorNormalize(to);
+	QAngle ang;
+	QAngle::VectorAngles(to, ang);
+	NormalizeAndClampViewAngles(ang);
+	outAngles = ang;
+	return true;
+}
+
+static inline QAngle GetMouseModeFallbackAimAngles(const VR* vr)
+{
+	Vector eyeDir = GetMouseModeEyeDir(vr);
+	if (eyeDir.IsZero())
+	{
+		QAngle a(std::clamp(vr->m_MouseAimPitchOffset, -89.f, 89.f), vr->m_RotationOffset, 0.f);
+		NormalizeAndClampViewAngles(a);
+		return a;
+	}
+	QAngle a;
+	QAngle::VectorAngles(eyeDir, a);
+	NormalizeAndClampViewAngles(a);
+	return a;
+}
+
 // Returns true if the local player is currently pinned/controlled by special infected.
 // Used to disable jittery aim line while being dragged / pinned.
 static inline bool IsPlayerControlledBySI(const C_BasePlayer* player)
@@ -248,8 +315,8 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 
 	// NOTE: user request:
 	// - "倒地" (incapacitated) 不强制第三人称
-	// Keep other pinned/use/revive/tongue states.
-	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction || dbg.reviving;
+	// Keep other pinned/use/tongue states.
+	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -478,7 +545,19 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// - 3D is a fallback for edge cases.
 	constexpr float kThirdPersonXY = 18.0f;  // was 30.0f
 	constexpr float kThirdPerson3D = 90.0f;
-	const bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition()
+	// even though we want to keep first-person VR rendering. Treat that as NOT third-person.
+	bool playerReviving = false;
+	if (localPlayer)
+	{
+		const int reviveOwner = ReadNetvar<int>(localPlayer, 0x1f88);   // m_reviveOwner
+		const int reviveTarget = ReadNetvar<int>(localPlayer, 0x1f8c);  // m_reviveTarget
+		playerReviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
+	}
+
+	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	if (playerReviving)
+		engineThirdPersonNow = false;
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
 	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
@@ -1275,7 +1354,7 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// Server host
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->GetRightControllerAbsPos();
+		vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
 
 		// ForceNonVRServerMovement: aim the *visual* bullet line to the solved hit point (H)
 		// so what you see matches what the remote non-VR server will hit.
@@ -1292,12 +1371,10 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			}
 			else
 			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				vecNewAngles = m_VR->m_NonVRAimAngles;
 			}
 		}
-
-		// Third-person convergence: aim bullets to the converge point so "bullet line" intersects
-		// the rendered aim line at the actual hit point.
+		// Third-person convergence
 		else if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 		{
 			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
@@ -1311,8 +1388,20 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			}
 			else
 			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				vecNewAngles = m_VR->m_MouseModeEnabled ? GetMouseModeFallbackAimAngles(m_VR) : m_VR->GetRightControllerAbsAngle();
 			}
+		}
+		else if (m_VR->m_MouseModeEnabled)
+		{
+			const Vector target = (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+				? m_VR->m_AimConvergePoint
+				: GetMouseModeDefaultTargetAbs(m_VR);
+
+			QAngle ang;
+			if (GetMouseModeAimAnglesToTarget(m_VR, vecNewOrigin, target, ang))
+				vecNewAngles = ang;
+			else
+				vecNewAngles = GetMouseModeFallbackAimAngles(m_VR);
 		}
 		else
 		{
@@ -1347,7 +1436,7 @@ int Hooks::dClientFireTerrorBullets(
 
 		if (!m_VR->m_ForceNonVRServerMovement)
 		{
-			// VR-aware server：起点/方向都跟控制器（你现在第三人称汇聚点逻辑保留）
+			// VR-aware server：默认起点/方向都跟控制器；鼠标模式改用鼠标枪口锚点 + 目标方向
 			if (scopeActive)
 			{
 				vecNewOrigin = m_VR->GetScopeCameraAbsPos();
@@ -1355,27 +1444,44 @@ int Hooks::dClientFireTerrorBullets(
 			}
 			else
 			{
-				vecNewOrigin = m_VR->GetRightControllerAbsPos();
-
-				if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+				if (m_VR->m_MouseModeEnabled)
 				{
-					Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
-					if (!to.IsZero())
-					{
-						VectorNormalize(to);
-						QAngle ang;
-						QAngle::VectorAngles(to, ang);
-						NormalizeAndClampViewAngles(ang);
+					vecNewOrigin = GetMouseModeGunOriginAbs(m_VR);
+
+					const Vector target = (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+						? m_VR->m_AimConvergePoint
+						: GetMouseModeDefaultTargetAbs(m_VR);
+
+					QAngle ang;
+					if (GetMouseModeAimAnglesToTarget(m_VR, vecNewOrigin, target, ang))
 						vecNewAngles = ang;
+					else
+						vecNewAngles = GetMouseModeFallbackAimAngles(m_VR);
+				}
+				else
+				{
+					vecNewOrigin = m_VR->GetRightControllerAbsPos();
+
+					if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+					{
+						Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
+						if (!to.IsZero())
+						{
+							VectorNormalize(to);
+							QAngle ang;
+							QAngle::VectorAngles(to, ang);
+							NormalizeAndClampViewAngles(ang);
+							vecNewAngles = ang;
+						}
+						else
+						{
+							vecNewAngles = m_VR->GetRightControllerAbsAngle();
+						}
 					}
 					else
 					{
 						vecNewAngles = m_VR->GetRightControllerAbsAngle();
 					}
-				}
-				else
-				{
-					vecNewAngles = m_VR->GetRightControllerAbsAngle();
 				}
 			}
 		}
