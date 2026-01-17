@@ -917,6 +917,27 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	if (!cmd->command_number)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
+	// Mouse-mode scope impulses (default: 202) can be consumed by the game
+	// inside the original CreateMove (it may clear cmd->impulse).
+	// Capture & zero them *before* calling the original so the bind always works
+	// and the game does not execute any built-in impulse behavior.
+	bool pendingMouseModeScopeToggle = false;
+	bool pendingMouseModeScopeMagnify = false;
+	if (m_VR->m_IsVREnabled && m_VR->m_MouseModeEnabled && cmd->impulse != 0)
+	{
+		const int imp = (int)cmd->impulse;
+		if (m_VR->m_MouseModeScopeToggleImpulse > 0 && imp == m_VR->m_MouseModeScopeToggleImpulse)
+		{
+			pendingMouseModeScopeToggle = true;
+			cmd->impulse = 0;
+		}
+		else if (m_VR->m_MouseModeScopeMagnificationImpulse > 0 && imp == m_VR->m_MouseModeScopeMagnificationImpulse)
+		{
+			pendingMouseModeScopeMagnify = true;
+			cmd->impulse = 0;
+		}
+	}
+
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	if (m_VR->m_IsVREnabled) {
@@ -927,6 +948,15 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// We zero cmd->mousedx/y so Source doesn't also apply them to viewangles.
 		if (m_VR->m_MouseModeEnabled)
 		{
+			// Apply any pre-consumed mouse-mode impulses (see above).
+			if (pendingMouseModeScopeToggle)
+				m_VR->ToggleMouseModeScope();
+			if (pendingMouseModeScopeMagnify)
+			{
+				if (m_VR->IsMouseModeScopeActive())
+					m_VR->CycleScopeMagnification();
+			}
+
 			// Mouse mode scope triggers via CUserCmd::impulse (bindable from Source console).
 			// This is more reliable than polling Windows virtual keys (GetAsyncKeyState) and
 			// allows normal binds / alias chains.
