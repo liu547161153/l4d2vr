@@ -1292,7 +1292,7 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			}
 			else
 			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				vecNewAngles = m_VR->m_MouseModeEnabled ? m_VR->GetRecommendedViewmodelAbsAngle() : m_VR->GetRightControllerAbsAngle();
 			}
 		}
 
@@ -1311,12 +1311,12 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			}
 			else
 			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				vecNewAngles = m_VR->m_MouseModeEnabled ? m_VR->GetRecommendedViewmodelAbsAngle() : m_VR->GetRightControllerAbsAngle();
 			}
 		}
 		else
 		{
-			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+			vecNewAngles = m_VR->m_MouseModeEnabled ? m_VR->GetRecommendedViewmodelAbsAngle() : m_VR->GetRightControllerAbsAngle();
 		}
 	}
 	// Clients
@@ -1370,12 +1370,12 @@ int Hooks::dClientFireTerrorBullets(
 					}
 					else
 					{
-						vecNewAngles = m_VR->GetRightControllerAbsAngle();
+						vecNewAngles = m_VR->m_MouseModeEnabled ? m_VR->GetRecommendedViewmodelAbsAngle() : m_VR->GetRightControllerAbsAngle();
 					}
 				}
 				else
 				{
-					vecNewAngles = m_VR->GetRightControllerAbsAngle();
+					vecNewAngles = m_VR->m_MouseModeEnabled ? m_VR->GetRecommendedViewmodelAbsAngle() : m_VR->GetRightControllerAbsAngle();
 				}
 			}
 		}
@@ -1408,12 +1408,12 @@ int Hooks::dClientFireTerrorBullets(
 						}
 						else
 						{
-							vecNewAngles = m_VR->GetRightControllerAbsAngle();
+							vecNewAngles = m_VR->m_MouseModeEnabled ? m_VR->GetRecommendedViewmodelAbsAngle() : m_VR->GetRightControllerAbsAngle();
 						}
 					}
 					else
 					{
-						vecNewAngles = m_VR->GetRightControllerAbsAngle();
+						vecNewAngles = m_VR->m_MouseModeEnabled ? m_VR->GetRecommendedViewmodelAbsAngle() : m_VR->GetRightControllerAbsAngle();
 					}
 				}
 			}

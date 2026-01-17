@@ -2398,13 +2398,29 @@ void VR::ProcessInput()
     }
 
     bool crouchActive = (!suppressCrouch) && (crouchButtonDown || m_CrouchToggleActive);
-    if (crouchActive)
+
+    // In MouseMode we must not drive +duck/-duck via ClientCmd, otherwise it overrides the player's
+    // keyboard bind (e.g. Ctrl). Also, if we were holding +duck previously, release it once.
+    if (m_MouseModeEnabled)
     {
-        m_Game->ClientCmd_Unrestricted("+duck");
+        if (m_DuckCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-duck");
+            m_DuckCmdOwned = false;
+        }
     }
     else
     {
-        m_Game->ClientCmd_Unrestricted("-duck");
+        if (crouchActive && !m_DuckCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("+duck");
+            m_DuckCmdOwned = true;
+        }
+        else if (!crouchActive && m_DuckCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-duck");
+            m_DuckCmdOwned = false;
+        }
     }
 
     if (flashlightJustPressed)
@@ -3556,7 +3572,25 @@ void VR::UpdateTracking()
         m_ViewmodelAdjustmentsDirty = true;
     }
 
-    PositionAngle viewmodelOffset = localPlayer->GetViewmodelOffset();
+    C_WeaponCSBase* activeWeaponForVm = nullptr;
+    if (localPlayer)
+        activeWeaponForVm = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
+
+    PositionAngle viewmodelOffset;
+    if (activeWeaponForVm)
+    {
+        viewmodelOffset = localPlayer->GetViewmodelOffset();
+        // Remember last valid offsets so incap/revive (weapon temporarily null) doesn't snap the viewmodel away.
+        m_LastWeaponViewmodelPosOffset = viewmodelOffset.position;
+        m_LastWeaponViewmodelAngOffset = viewmodelOffset.angle;
+        m_HasLastWeaponViewmodelOffset = true;
+    }
+    else
+    {
+        // Fall back to the last known offsets (or a sane default) when the game reports no active weapon.
+        viewmodelOffset.position = m_HasLastWeaponViewmodelOffset ? m_LastWeaponViewmodelPosOffset : Vector{ 20,3,0 };
+        viewmodelOffset.angle = m_HasLastWeaponViewmodelOffset ? m_LastWeaponViewmodelAngOffset : QAngle{ 0,0,0 };
+    }
 
     m_ViewmodelPosOffset = viewmodelOffset.position + m_ViewmodelPosAdjust;
     m_ViewmodelAngOffset = viewmodelOffset.angle + m_ViewmodelAngAdjust;

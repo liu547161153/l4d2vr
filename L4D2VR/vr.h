@@ -145,6 +145,11 @@ public:
 
 	Vector m_ViewmodelPosOffset;
 	QAngle m_ViewmodelAngOffset;
+	// Cache the last valid weapon viewmodel offsets. During incap/revive the game can report no active weapon
+	// for a few seconds, which would otherwise snap offsets to zero and push the viewmodel far away.
+	Vector m_LastWeaponViewmodelPosOffset = { 20,3,0 };
+	QAngle m_LastWeaponViewmodelAngOffset = { 0,0,0 };
+	bool m_HasLastWeaponViewmodelOffset = true;
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
 	ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };
@@ -283,6 +288,7 @@ public:
 	bool m_JumpCmdOwned = false;
 	bool m_UseCmdOwned = false;
 	bool m_ReloadCmdOwned = false;
+	bool m_DuckCmdOwned = false;
 	bool m_LeftGripPressedPrev = false;
 	bool m_RightGripPressedPrev = false;
 
