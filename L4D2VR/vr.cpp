@@ -3401,11 +3401,24 @@ void VR::UpdateTracking()
                 + (m_HmdRight * (anchor.y * m_VRScale))
                 + (m_HmdUp * (anchor.z * m_VRScale));
 
-            QAngle aimAngBase = m_HmdAngAbs;
-            aimAngBase.x = m_MouseAimPitchOffset;
-            Vector aimRay;
-            QAngle::AngleVectors(aimAngBase, &aimRay, nullptr, nullptr);
-            Vector eyeDir = m_MouseModeAimFromHmd ? aimRay : m_HmdForward;
+            // Mouse-mode scope aiming must use the same yaw basis as the viewmodel/bullets.
+            // - When MouseModeAimFromHmd is true: aim follows the HMD center ray.
+            // - Otherwise: aim follows mouse pitch  body yaw (m_RotationOffset), independent of head yaw.
+            Vector eyeDir = { 0.0f, 0.0f, 0.0f };
+            if (m_MouseModeAimFromHmd)
+            {
+                eyeDir = m_HmdForward;
+            }
+            else
+            {
+                const float pitch = std::clamp(m_MouseAimPitchOffset, -89.f, 89.f);
+                const float yaw = m_RotationOffset;
+                QAngle eyeAng(pitch, yaw, 0.f);
+                NormalizeAndClampViewAngles(eyeAng);
+
+                Vector eyeRight, eyeUp;
+                QAngle::AngleVectors(eyeAng, &eyeDir, &eyeRight, &eyeUp);
+            }
             if (!eyeDir.IsZero())
                 VectorNormalize(eyeDir);
 
