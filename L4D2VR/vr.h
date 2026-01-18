@@ -657,6 +657,8 @@ public:
 	// ----------------------------
 	bool  m_ScopeEnabled = false;
 	int   m_ScopeRTTSize = 1024;               // square RTT size in pixels
+	float m_ScopeRTTMaxHz = 90.0f;
+	std::chrono::steady_clock::time_point m_LastScopeRTTRenderTime{};
 	float m_ScopeFov = 20.0f;                  // smaller = more zoom
 	float m_ScopeZNear = 2.0f;                 // game units
 	std::vector<float> m_ScopeMagnificationOptions{ 20.0f, 15.0f, 10.0f, 5.0f };
@@ -725,6 +727,7 @@ public:
 	}
 	bool   IsScopeActive() const { return m_ScopeEnabled && (m_ScopeActive || IsMouseModeScopeActive()); }
 	bool   ShouldRenderScope() const { return m_ScopeEnabled && m_ScopeWeaponIsFirearm && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
+	bool   ShouldUpdateScopeRTT();
 	void   ToggleMouseModeScope();
 	void   CycleScopeMagnification();
 	void   UpdateScopeAimLineState();
@@ -740,6 +743,8 @@ public:
 	float m_RearMirrorSpecialShowHoldSeconds = 0.50f;
 	std::chrono::steady_clock::time_point m_LastRearMirrorAlertTime{};
 	int   m_RearMirrorRTTSize = 512;
+	float m_RearMirrorRTTMaxHz = 45.0f;
+	std::chrono::steady_clock::time_point m_LastRearMirrorRTTRenderTime{};
 	float m_RearMirrorFov = 85.0f;
 	float m_RearMirrorZNear = 6.0f;
 
@@ -777,6 +782,7 @@ public:
 	Vector GetRearMirrorCameraAbsPos() const { return m_RearMirrorCameraPosAbs; }
 	QAngle GetRearMirrorCameraAbsAngle() const { return m_RearMirrorCameraAngAbs; }
 	bool   ShouldRenderRearMirror() const;
+	bool   ShouldUpdateRearMirrorRTT();
 	void   NotifyRearMirrorSpecialWarning();
 
 	VR() {};
