@@ -9,6 +9,7 @@
 #include <mutex>
 
 #include "sdk.h"
+#include "source_access.h"
 #include "vr.h"
 #include "hooks.h"
 #include "offsets.h"
@@ -195,44 +196,14 @@ C_BaseEntity* Game::GetClientEntity(int entityIndex)
 // === Network Name Utility ===
 char* Game::getNetworkName(uintptr_t* entity)
 {
-    if (!entity)
-        return nullptr;
-
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
-    if (!vtable)
-        return nullptr;
-
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return nullptr;
-
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
-    if (!clientClass)
-        return nullptr;
-
-    char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
-    int classID = static_cast<int>(*(clientClass + 0x10));
-    return name;
+    // Legacy helper (kept for callsites); now uses a proper vtable call rather than
+    // reading immediates from function code.
+    return const_cast<char*>(SourceAccess::GetNetworkName(entity));
 }
 
 const char* Game::GetNetworkClassName(uintptr_t* entity) const
 {
-    if (!entity)
-        return nullptr;
-
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
-    if (!vtable)
-        return nullptr;
-
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return nullptr;
-
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
-    if (!clientClass)
-        return nullptr;
-
-    return reinterpret_cast<const char*>(*(clientClass + 0x8));
+    return SourceAccess::GetNetworkName(entity);
 }
 
 // === Commands ===
