@@ -1,4 +1,5 @@
 
+
 #include "vr.h"
 #include <Windows.h>
 #include "sdk.h"
@@ -1146,6 +1147,16 @@ void VR::NotifyRearMirrorSpecialWarning()
     m_LastRearMirrorAlertTime = std::chrono::steady_clock::now();
 }
 
+bool VR::ShouldUpdateScopeRTT()
+{
+    // Throttle the expensive offscreen render pass; leaving the last rendered texture in place is fine.
+    return !ShouldThrottle(m_LastScopeRTTRenderTime, m_ScopeRTTMaxHz);
+}
+bool VR::ShouldUpdateRearMirrorRTT()
+{
+   // The rear mirror is a full extra scene render. Throttling this can significantly reduce CPU spikes.
+    return !ShouldThrottle(m_LastScopeRTTRenderTime, m_ScopeRTTMaxHz);
+}
 void VR::RepositionOverlays(bool attachToControllers)
 {
     vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
@@ -2939,7 +2950,18 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
         // Capture a reference direction the first frame HMD aiming becomes active.
         if (!m_MouseModeHmdAimReferenceInitialized)
         {
+            // IMPORTANT:
+            //  - m_HmdAngAbs already includes m_RotationOffset (mouse/body yaw).
+            //  - MouseModeHmdAimSensitivity is meant to scale *HMD* deltas only.
+            // If we capture/scale the full absolute angle, mouse yaw gets scaled too,
+            // which makes MouseModeHmdAimSensitivity < 1 feel like mouse turning is "stuck",
+            // and > 1 feel like mouse turning is too fast.
+            //
+            // So: keep the reference in "head-local" space (yaw with body yaw removed).
             m_MouseModeHmdAimReferenceAng = m_HmdAngAbs;
+            m_MouseModeHmdAimReferenceAng.y -= m_RotationOffset;
+            // Wrap yaw to [-180, 180]
+            m_MouseModeHmdAimReferenceAng.y -= 360.0f * std::floor((m_MouseModeHmdAimReferenceAng.y + 180.0f) / 360.0f);
             m_MouseModeHmdAimReferenceAng.z = 0.0f;
             NormalizeAndClampViewAngles(m_MouseModeHmdAimReferenceAng);
             m_MouseModeHmdAimReferenceInitialized = true;
@@ -2948,21 +2970,26 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
         const float sens = std::clamp(m_MouseModeHmdAimSensitivity, 0.0f, 3.0f);
 
         // Scale pitch/yaw deltas around the captured reference.
+        // Use "head-local" yaw (absolute yaw minus body yaw) so mouse turning stays 1:1.
         QAngle cur = m_HmdAngAbs;
+        cur.y -= m_RotationOffset;
+        // Wrap yaw to [-180, 180]
+        cur.y -= 360.0f * std::floor((cur.y + 180.0f) / 360.0f);
         cur.z = 0.0f;
         NormalizeAndClampViewAngles(cur);
 
         auto wrapDelta = [](float deg)
-        {
-            deg -= 360.0f * std::floor((deg + 180.0f) / 360.0f);
-            return deg;
-        };
+            {
+                deg -= 360.0f * std::floor((deg + 180.0f) / 360.0f);
+                return deg;
+            };
 
         const float dPitch = wrapDelta(cur.x - m_MouseModeHmdAimReferenceAng.x);
         const float dYaw = wrapDelta(cur.y - m_MouseModeHmdAimReferenceAng.y);
 
         eyeAng.x = m_MouseModeHmdAimReferenceAng.x + dPitch * sens;
-        eyeAng.y = m_MouseModeHmdAimReferenceAng.y + dYaw * sens;
+        // Convert back to absolute yaw by re-applying body yaw.
+        eyeAng.y = m_RotationOffset + (m_MouseModeHmdAimReferenceAng.y + dYaw * sens);
         eyeAng.z = 0.0f;
         NormalizeAndClampViewAngles(eyeAng);
 
@@ -5992,6 +6019,7 @@ void VR::ParseConfigFile()
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);
+    m_ScopeRTTMaxHz = std::clamp(getFloat("ScopeRTTMaxHz", m_ScopeRTTMaxHz), 0.0f, 240.0f);
     m_ScopeFov = std::clamp(getFloat("ScopeFov", m_ScopeFov), 1.0f, 179.0f);
     m_ScopeZNear = std::clamp(getFloat("ScopeZNear", m_ScopeZNear), 0.1f, 64.0f);
     {
@@ -6091,6 +6119,7 @@ void VR::ParseConfigFile()
     m_RearMirrorShowOnlyOnSpecialWarning = getBool("RearMirrorShowOnlyOnSpecialWarning", m_RearMirrorShowOnlyOnSpecialWarning);
     m_RearMirrorSpecialShowHoldSeconds = std::max(0.0f, getFloat("RearMirrorSpecialShowHoldSeconds", m_RearMirrorSpecialShowHoldSeconds));
     m_RearMirrorRTTSize = std::clamp(getInt("RearMirrorRTTSize", m_RearMirrorRTTSize), 128, 4096);
+    m_RearMirrorRTTMaxHz = std::clamp(getFloat("RearMirrorRTTMaxHz", m_RearMirrorRTTMaxHz), 0.0f, 240.0f);
     m_RearMirrorFov = std::clamp(getFloat("RearMirrorFov", m_RearMirrorFov), 1.0f, 179.0f);
     m_RearMirrorZNear = std::clamp(getFloat("RearMirrorZNear", m_RearMirrorZNear), 0.1f, 64.0f);
 
