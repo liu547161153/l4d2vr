@@ -371,6 +371,11 @@ public:
 	// If true:            aim direction follows the HMD center ray (view direction), while the aim line origin
 	//                     remains at the mouse-mode viewmodel anchor (so we do NOT move the aim line to the HMD).
 	bool m_MouseModeAimFromHmd = false;
+	// Mouse-mode HMD aim sensitivity (only when MouseModeAimFromHmd is true).
+	// 1.0 = 1:1 head rotation, 0 = frozen at enable, >1 amplifies head motion.
+	float m_MouseModeHmdAimSensitivity = 1.0f;
+	QAngle m_MouseModeHmdAimReferenceAng = { 0.0f, 0.0f, 0.0f };
+	bool m_MouseModeHmdAimReferenceInitialized = false;
 	// If true, mouse Y also tilts the rendered view (adds a pitch offset on top of head tracking).
 	// This makes it possible to aim high/low without physically tilting your head (more like flatscreen).
 	bool m_MouseModePitchAffectsView = true;
@@ -804,6 +809,8 @@ public:
 	Vector GetRightControllerAbsPos();
 	Vector GetRecommendedViewmodelAbsPos();
 	QAngle GetRecommendedViewmodelAbsAngle();
+	// Mouse-mode: compute the eye-center ray used for aiming (mouse pitch+yaw or HMD-based, optionally sensitivity-scaled).
+	void GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut = nullptr);
 	void UpdateTracking();
 	void UpdateMotionGestures(C_BasePlayer* localPlayer);
 	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
