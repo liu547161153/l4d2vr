@@ -569,6 +569,18 @@ Option g_Options[] =
         0.0f, 0.0f,
         "false"
     },
+    {
+        "MouseModeHmdAimSensitivity",
+        OptionType::Float,
+        { u8"Mouse Mode", u8"鼠标模式" },
+        { u8"HMD Aim Sensitivity", u8"HMD 瞄准灵敏度" },
+        { u8"When MouseModeAimFromHmd is enabled, scales how much head rotation affects the aim direction (1.0 = 1:1).",
+          u8"当开启 MouseModeAimFromHmd 时，用于缩放头部转动对瞄准方向的影响（1.0 表示 1:1）。" },
+        { u8"0 freezes aim at the moment HMD aiming becomes active; >1 amplifies head movement.",
+          u8"0 表示锁定为开启 HMD 瞄准时的方向；>1 会放大头部转动。" },
+        0.0f, 3.0f,
+        "1.0"
+    },
 
     // HUD (Main)
     {
