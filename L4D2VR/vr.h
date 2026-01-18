@@ -576,6 +576,28 @@ public:
 
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
+
+	// RenderView spam diagnostics: Source can call RenderView multiple times per VR frame.
+	// If our hook runs the full VR stereo path repeatedly in the same frame, CPU frametime spikes.
+	// These fields help identify which RenderView variants are being called *after* the main VR render.
+	bool m_RenderViewSpamDebug = false;
+	float m_RenderViewSpamLogIntervalSec = 2.0f; // minimum seconds between logs/overlays
+	int m_RenderViewSpamMinExtraCalls = 1;       // only log frames with >= this many extra RenderView calls
+	int m_RenderViewCallCountThisFrame = 0;
+	int m_RenderViewExtraCallCountThisFrame = 0;
+	std::chrono::steady_clock::time_point m_RenderViewSpamLastLogTime{};
+
+	struct RenderViewSpamEntry
+	{
+		uint32_t clearFlags = 0;
+		uint32_t whatToDraw = 0;
+		int count = 0;
+		int sampleW = 0;
+		int sampleH = 0;
+		float sampleFov = 0.0f;
+	};
+	std::array<RenderViewSpamEntry, 8> m_RenderViewSpamTop{};
+	uint32_t m_RenderViewSpamDropped = 0;
 	float m_SpecialInfectedArrowSize = 12.0f;
 	float m_SpecialInfectedArrowHeight = 36.0f;
 	float m_SpecialInfectedArrowThickness = 0.0f;

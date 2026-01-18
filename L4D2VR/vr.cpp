@@ -6202,6 +6202,16 @@ void VR::ParseConfigFile()
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
     m_SpecialInfectedDebug = getBool("SpecialInfectedDebug", m_SpecialInfectedDebug);
+
+    // RenderView spam diagnostics (helps identify extra RenderView calls within a VR frame).
+    m_RenderViewSpamDebug = getBool("RenderViewSpamDebug", m_RenderViewSpamDebug);
+    m_RenderViewSpamLogIntervalSec = std::clamp(getFloat("RenderViewSpamLogIntervalSec", m_RenderViewSpamLogIntervalSec), 0.1f, 30.0f);
+    m_RenderViewSpamMinExtraCalls = std::clamp(getInt("RenderViewSpamMinExtraCalls", m_RenderViewSpamMinExtraCalls), 0, 200);
+    m_RenderViewCallCountThisFrame = 0;
+    m_RenderViewExtraCallCountThisFrame = 0;
+    m_RenderViewSpamTop.fill({});
+    m_RenderViewSpamDropped = 0;
+    m_RenderViewSpamLastLogTime = {};
     m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
     m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
     m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));
