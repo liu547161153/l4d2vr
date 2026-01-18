@@ -2939,7 +2939,18 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
         // Capture a reference direction the first frame HMD aiming becomes active.
         if (!m_MouseModeHmdAimReferenceInitialized)
         {
+            // IMPORTANT:
+            //  - m_HmdAngAbs already includes m_RotationOffset (mouse/body yaw).
+            //  - MouseModeHmdAimSensitivity is meant to scale *HMD* deltas only.
+            // If we capture/scale the full absolute angle, mouse yaw gets scaled too,
+            // which makes MouseModeHmdAimSensitivity < 1 feel like mouse turning is "stuck",
+            // and > 1 feel like mouse turning is too fast.
+            //
+            // So: keep the reference in "head-local" space (yaw with body yaw removed).
             m_MouseModeHmdAimReferenceAng = m_HmdAngAbs;
+            m_MouseModeHmdAimReferenceAng.y -= m_RotationOffset;
+            // Wrap yaw to [-180, 180]
+            m_MouseModeHmdAimReferenceAng.y -= 360.0f * std::floor((m_MouseModeHmdAimReferenceAng.y + 180.0f) / 360.0f);
             m_MouseModeHmdAimReferenceAng.z = 0.0f;
             NormalizeAndClampViewAngles(m_MouseModeHmdAimReferenceAng);
             m_MouseModeHmdAimReferenceInitialized = true;
@@ -2948,7 +2959,11 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
         const float sens = std::clamp(m_MouseModeHmdAimSensitivity, 0.0f, 3.0f);
 
         // Scale pitch/yaw deltas around the captured reference.
+        // Use "head-local" yaw (absolute yaw minus body yaw) so mouse turning stays 1:1.
         QAngle cur = m_HmdAngAbs;
+        cur.y -= m_RotationOffset;
+        // Wrap yaw to [-180, 180]
+        cur.y -= 360.0f * std::floor((cur.y + 180.0f) / 360.0f);
         cur.z = 0.0f;
         NormalizeAndClampViewAngles(cur);
 
@@ -2962,7 +2977,8 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
         const float dYaw = wrapDelta(cur.y - m_MouseModeHmdAimReferenceAng.y);
 
         eyeAng.x = m_MouseModeHmdAimReferenceAng.x + dPitch * sens;
-        eyeAng.y = m_MouseModeHmdAimReferenceAng.y + dYaw * sens;
+        // Convert back to absolute yaw by re-applying body yaw.
+        eyeAng.y = m_RotationOffset + (m_MouseModeHmdAimReferenceAng.y + dYaw * sens);
         eyeAng.z = 0.0f;
         NormalizeAndClampViewAngles(eyeAng);
 
