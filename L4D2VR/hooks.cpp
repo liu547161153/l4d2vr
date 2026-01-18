@@ -524,7 +524,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
-
 	// If we've already produced the VR eye textures for this frame, don't do the full
 	// VR stereo path again. Source can call RenderView multiple times per frame
 	// (screenshots, special views, etc.), which blows CPU frametime and can increase crash risk.
@@ -532,7 +531,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	{
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
-
+	
 	// ------------------------------
 	// Third-person camera fix:
 	// If engine is in third-person, setup.origin is a shoulder camera,
@@ -807,7 +806,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// ----------------------------
 	// Scope RTT pass: render from scope camera into vrScope RTT
 	// ----------------------------
-	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture)
+	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture && m_VR->ShouldUpdateScopeRTT())
 	{
 		CViewSetup scopeView = setup;
 		scopeView.x = 0;
@@ -842,7 +841,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// ----------------------------
 	// Rear mirror RTT pass: render from HMD with 180 yaw into vrRearMirror RTT
 	// ----------------------------
-	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderRearMirror() && m_VR->m_RearMirrorTexture)
+	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderRearMirror() && m_VR->m_RearMirrorTexture && m_VR->ShouldUpdateRearMirrorRTT())
 	{
 		CViewSetup mirrorView = setup;
 		mirrorView.x = 0;
