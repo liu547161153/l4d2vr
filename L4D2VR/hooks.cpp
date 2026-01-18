@@ -515,6 +515,67 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 {
 	static EngineThirdPersonCamSmoother s_engineTpCam;
 
+	// Source can call RenderView multiple times per VR frame (screenshots, special views, etc.).
+	// Once we've already produced the VR eye textures for this frame, don't run the full VR stereo path again.
+	// Optional diagnostics: record what keeps calling RenderView after the main VR render.
+	const auto rvNow = std::chrono::steady_clock::now();
+	auto rvAddSpamEntry = [&](uint32_t clearFlags, uint32_t drawMask, const CViewSetup& s)
+	{
+		for (auto& e : m_VR->m_RenderViewSpamTop)
+			if (e.count > 0 && e.clearFlags == clearFlags && e.whatToDraw == drawMask) { e.count++; return; }
+		for (auto& e : m_VR->m_RenderViewSpamTop)
+			if (e.count == 0) { e.clearFlags = clearFlags; e.whatToDraw = drawMask; e.count = 1; e.sampleW = s.width; e.sampleH = s.height; e.sampleFov = s.fov; return; }
+		m_VR->m_RenderViewSpamDropped++;
+	};
+
+	if (!m_VR->m_RenderedNewFrame)
+	{
+		if (m_VR->m_RenderViewSpamDebug)
+		{
+			const bool hasSpam = m_VR->m_RenderViewExtraCallCountThisFrame >= m_VR->m_RenderViewSpamMinExtraCalls;
+			const float minInterval = std::max(0.1f, m_VR->m_RenderViewSpamLogIntervalSec);
+			const bool timeOk = (m_VR->m_RenderViewSpamLastLogTime.time_since_epoch().count() == 0)
+				|| (std::chrono::duration<float>(rvNow - m_VR->m_RenderViewSpamLastLogTime).count() >= minInterval);
+			if (hasSpam && timeOk)
+			{
+				auto entries = m_VR->m_RenderViewSpamTop;
+				std::sort(entries.begin(), entries.end(), [](const VR::RenderViewSpamEntry& a, const VR::RenderViewSpamEntry& b) { return a.count > b.count; });
+
+				Game::logMsg("[RenderViewSpam] calls=%d extra=%d dropped=%u | top: "
+					"CF=0x%08X WD=0x%08X x%d (w=%d h=%d fov=%.1f), "
+					"CF=0x%08X WD=0x%08X x%d, "
+					"CF=0x%08X WD=0x%08X x%d",
+					m_VR->m_RenderViewCallCountThisFrame,
+					m_VR->m_RenderViewExtraCallCountThisFrame,
+					m_VR->m_RenderViewSpamDropped,
+					entries[0].clearFlags, entries[0].whatToDraw, entries[0].count, entries[0].sampleW, entries[0].sampleH, entries[0].sampleFov,
+					entries[1].clearFlags, entries[1].whatToDraw, entries[1].count,
+					entries[2].clearFlags, entries[2].whatToDraw, entries[2].count);
+
+				if (m_Game && m_Game->m_DebugOverlay && m_Game->m_EngineClient)
+				{
+					int lp = m_Game->m_EngineClient->GetLocalPlayer();
+					if (lp > 0)
+					{
+						m_Game->m_DebugOverlay->AddEntityTextOverlay(lp, 0, minInterval, 255, 120, 40, 255,
+							"RenderViewSpam: calls=%d extra=%d dropped=%u", m_VR->m_RenderViewCallCountThisFrame, m_VR->m_RenderViewExtraCallCountThisFrame, m_VR->m_RenderViewSpamDropped);
+						m_Game->m_DebugOverlay->AddEntityTextOverlay(lp, 1, minInterval, 255, 120, 40, 255,
+							"Top1 CF=0x%08X WD=0x%08X x%d", entries[0].clearFlags, entries[0].whatToDraw, entries[0].count);
+						m_Game->m_DebugOverlay->AddEntityTextOverlay(lp, 2, minInterval, 255, 120, 40, 255,
+							"Top2 CF=0x%08X WD=0x%08X x%d", entries[1].clearFlags, entries[1].whatToDraw, entries[1].count);
+					}
+				}
+				m_VR->m_RenderViewSpamLastLogTime = rvNow;
+			}
+
+			// Reset counters for the new VR frame.
+			m_VR->m_RenderViewCallCountThisFrame = 0;
+			m_VR->m_RenderViewExtraCallCountThisFrame = 0;
+			m_VR->m_RenderViewSpamTop.fill({});
+			m_VR->m_RenderViewSpamDropped = 0;
+		}
+	}
+
 	if (!m_VR->m_CreatedVRTextures)
 		m_VR->CreateVRTextures();
 
@@ -529,8 +590,17 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// (screenshots, special views, etc.), which blows CPU frametime and can increase crash risk.
 	if (m_VR->m_RenderedNewFrame)
 	{
+		if (m_VR->m_RenderViewSpamDebug)
+		{
+			m_VR->m_RenderViewCallCountThisFrame++;
+			m_VR->m_RenderViewExtraCallCountThisFrame++;
+			rvAddSpamEntry(static_cast<uint32_t>(nClearFlags), static_cast<uint32_t>(whatToDraw), setup);
+		}
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
+
+	if (m_VR->m_RenderViewSpamDebug)
+		m_VR->m_RenderViewCallCountThisFrame++;
 	
 	// ------------------------------
 	// Third-person camera fix:
