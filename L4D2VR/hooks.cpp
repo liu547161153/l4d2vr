@@ -726,8 +726,44 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	CViewSetup hudLeft = hudViewSetup;
 	hudLeft.origin = leftEyeView.origin;
 	hudLeft.angles = viewAngles;
+
+	// Apply user-configurable RenderView draw masks (experimental performance tool).
+	// We keep two masks: one for main stereo eyes, one for offscreen RTT passes.
+	auto applyWhatToDrawMask = [&](int inMask, bool offscreen) -> int
+		{
+			const int andMask = offscreen ? m_VR->m_OffscreenWhatToDrawAndMask : m_VR->m_RenderViewWhatToDrawAndMask;
+			const int orMask = offscreen ? m_VR->m_OffscreenWhatToDrawOrMask : m_VR->m_RenderViewWhatToDrawOrMask;
+			return (inMask & andMask) | orMask;
+		};
+	const int whatToDrawMain = applyWhatToDrawMask(whatToDraw, false);
+	const int whatToDrawOffscreen = applyWhatToDrawMask(whatToDraw, true);
+
+	if (m_VR->m_RenderViewMaskDebug)
+	{
+		static std::chrono::steady_clock::time_point s_lastMaskDbg{};
+		static int s_lastIn = 0;
+		static int s_lastMain = 0;
+		static int s_lastOff = 0;
+		const auto now = std::chrono::steady_clock::now();
+		const bool changed = (whatToDraw != s_lastIn)
+			|| (whatToDrawMain != s_lastMain)
+			|| (whatToDrawOffscreen != s_lastOff);
+		const bool timeUp = (s_lastMaskDbg.time_since_epoch().count() == 0)
+			|| (std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastMaskDbg).count() >= 1000);
+		if (changed && timeUp)
+		{
+			s_lastMaskDbg = now;
+			s_lastIn = whatToDraw;
+			s_lastMain = whatToDrawMain;
+			s_lastOff = whatToDrawOffscreen;
+			Game::logMsg("[VR] RenderView whatToDraw=0x%08X main=0x%08X offscreen=0x%08X",
+				static_cast<unsigned>(whatToDraw),
+				static_cast<unsigned>(whatToDrawMain),
+				static_cast<unsigned>(whatToDrawOffscreen));
+		}
+	}
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
-	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
+	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDrawMain);
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -748,7 +784,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudRight.angles = viewAngles;
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
-	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
+	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDrawMain);
 
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
@@ -769,7 +805,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
 				m_Game->m_EngineClient->SetViewAngles(passAngles);
 
-				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDrawOffscreen);
 
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
@@ -793,7 +829,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
 			m_Game->m_EngineClient->SetViewAngles(passAngles);
 
-			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDrawOffscreen);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
