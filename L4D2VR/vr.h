@@ -354,7 +354,6 @@ public:
 	bool m_SnapTurning = false;
 	float m_SnapTurnAngle = 45.0;
 	bool m_LeftHanded = false;
-	bool m_SingleHandedMode = false;
 	// If false: movement (walk axis) follows HMD yaw ("head-oriented locomotion").
 	// If true:  movement follows the right-hand controller yaw ("hand-oriented locomotion").
 	bool m_MoveDirectionFromController = false;
@@ -436,10 +435,7 @@ public:
 	// Convergence distance (Source units). Aim ray from the viewmodel anchor is steered to intersect
 	// the HMD-center ray at this distance. Set <= 0 to disable convergence (use raw viewmodel ray).
 	float m_MouseModeAimConvergeDistance = 2048.0f;
-	// HMD roll-based strafe (tilt head left/right to strafe).
-	float m_HmdTiltStrafeSensitivity = 0.05f;
-	float m_HmdTiltStrafeAngle = 10.0f;
-	float m_HmdTiltStrafeSpeed = 1.0f;
+
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
@@ -456,17 +452,7 @@ public:
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
-	enum class StickTapDirection
-	{
-		None,
-		Left,
-		Right,
-		Down
-	};
-	StickTapDirection m_RightStickTapDirection = StickTapDirection::None;
-	int m_RightStickTapCount = 0;
-	bool m_RightStickTapReady = true;
-	std::chrono::steady_clock::time_point m_RightStickLastTapTime{};
+
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
 	float m_HeadSmoothing = 0.0f;
@@ -485,7 +471,7 @@ public:
 	float m_MotionGestureJumpThreshold = 1.0f;
 	float m_MotionGestureCooldown = 0.8f;
 	float m_MotionGestureHoldDuration = 0.2f;
-	float m_SingleHandPushAngleTolerance = 30.0f;
+
 	bool m_MotionGestureInitialized = false;
 	std::chrono::steady_clock::time_point m_LastGestureUpdateTime{};
 	Vector m_PrevLeftControllerLocalPos = { 0,0,0 };
