@@ -441,10 +441,8 @@ void VR::Update()
 
 bool VR::GetWalkAxis(float& x, float& y) {
     vr::InputAnalogActionData_t d;
-    vr::VRActionHandle_t* action = m_SingleHandedMode ? &m_ActionTurn : &m_ActionWalk;
-    // m_ActionWalk        д     ʹ  
     bool hasAxis = false;
-    if (GetAnalogActionData(*action, d)) {
+    if (GetAnalogActionData(m_ActionWalk, d)) {
         x = d.x;
         y = d.y;
         hasAxis = true;
@@ -453,31 +451,6 @@ bool VR::GetWalkAxis(float& x, float& y) {
     {
         x = y = 0.0f;
     }
-
-    if (m_SingleHandedMode)
-    {
-        x = 0.0f;
-    }
-
-    float tiltStrafe = 0.0f;
-    if (m_HmdTiltStrafeSpeed > 0.0f && m_HmdTiltStrafeSensitivity > 0.0f)
-    {
-        const float roll = m_HmdAngAbs.z;
-        const float absRoll = std::fabs(roll);
-        const float threshold = std::max(0.0f, m_HmdTiltStrafeAngle);
-        if (absRoll > threshold)
-        {
-            const float scaled = (absRoll - threshold) * m_HmdTiltStrafeSensitivity;
-            const float maxAxis = std::max(0.0f, m_HmdTiltStrafeSpeed);
-            const float magnitude = std::min(scaled, maxAxis);
-            tiltStrafe = (roll >= 0.0f ? 1.0f : -1.0f) * magnitude;
-        }
-    }
-
-    if (tiltStrafe != 0.0f)
-        hasAxis = true;
-
-    x = std::clamp(x + tiltStrafe, -1.0f, 1.0f);
     return hasAxis;
 }
 
@@ -1633,7 +1606,6 @@ void VR::ProcessInput()
     }
 
     vr::InputAnalogActionData_t analogActionData;
-    bool quickTurnTapTriggered = false;
 
     if (GetAnalogActionData(m_ActionTurn, analogActionData))
     {
@@ -1672,59 +1644,7 @@ void VR::ProcessInput()
                 }
             };
 
-        if (m_SingleHandedMode)
-        {
-            const float tapThreshold = 0.8f;
-            const float neutralThreshold = 0.3f;
-            const auto tapWindow = std::chrono::duration<float>(0.35f);
-
-            auto registerTap = [&](StickTapDirection direction)
-                {
-                    const bool withinWindow = (m_RightStickTapDirection == direction) &&
-                        (currentTime - m_RightStickLastTapTime <= tapWindow);
-
-                    m_RightStickTapCount = withinWindow ? (m_RightStickTapCount + 1) : 1;
-                    m_RightStickTapDirection = direction;
-                    m_RightStickLastTapTime = currentTime;
-                    m_RightStickTapReady = false;
-
-                    if (m_RightStickTapCount >= 2)
-                    {
-                        m_RightStickTapCount = 0;
-                        m_RightStickTapDirection = StickTapDirection::None;
-                        return true;
-                    }
-
-                    return false;
-                };
-
-            if (std::abs(analogActionData.x) < neutralThreshold && std::abs(analogActionData.y) < neutralThreshold)
-            {
-                m_RightStickTapReady = true;
-            }
-            if (m_RightStickTapReady)
-            {
-                if (analogActionData.y <= -tapThreshold)
-                {
-                    if (registerTap(StickTapDirection::Down))
-                        quickTurnTapTriggered = true;
-                }
-            }
-
-            if (m_RightStickTapDirection != StickTapDirection::None &&
-                currentTime - m_RightStickLastTapTime > tapWindow)
-            {
-                m_RightStickTapDirection = StickTapDirection::None;
-                m_RightStickTapCount = 0;
-            }
-
-            applyTurnFromStick(analogActionData.x);
-        }
-
-        else
-        {
-            applyTurnFromStick(analogActionData.x);
-        }
+        applyTurnFromStick(analogActionData.x);
 
         // Wrap from 0 to 360
         m_RotationOffset -= 360 * std::floor(m_RotationOffset / 360);
@@ -2310,13 +2230,6 @@ void VR::ProcessInput()
         suppressIfNeeded(resetActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, resetButtonDown, resetJustPressed);
     }
 
-    if (m_SingleHandedMode && crouchJustPressed)
-    {
-        m_CrouchToggleActive = !m_CrouchToggleActive;
-        crouchButtonDown = false;
-        crouchJustPressed = false;
-    }
-
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
     {
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
@@ -2383,8 +2296,6 @@ void VR::ProcessInput()
     bool quickTurnComboValid = getComboStates(m_QuickTurnCombo, quickTurnPrimaryData, quickTurnSecondaryData,
         quickTurnPrimaryDown, quickTurnSecondaryDown, quickTurnPrimaryJustPressed, quickTurnSecondaryJustPressed);
     bool quickTurnComboPressed = quickTurnComboValid && quickTurnPrimaryDown && quickTurnSecondaryDown;
-    if (m_SingleHandedMode && quickTurnTapTriggered)
-        quickTurnComboPressed = true;
     vr::InputDigitalActionData_t viewmodelPrimaryData{};
     vr::InputDigitalActionData_t viewmodelSecondaryData{};
     bool viewmodelPrimaryDown = false;
@@ -2432,8 +2343,7 @@ void VR::ProcessInput()
         }
         else
         {
-            if (!m_SingleHandedMode)
-                m_CrouchToggleActive = !m_CrouchToggleActive;
+            m_CrouchToggleActive = !m_CrouchToggleActive;
             ResetPosition();
         }
     }
@@ -2518,7 +2428,7 @@ void VR::ProcessInput()
 
     if (flashlightJustPressed)
     {
-        if (!m_SingleHandedMode && crouchButtonDown)
+        if (crouchButtonDown)
             SendFunctionKey(VK_F1);
         else
             m_Game->ClientCmd_Unrestricted("impulse 100");
@@ -3904,55 +3814,19 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
                 std::chrono::duration<float>(m_MotionGestureCooldown));
         };
 
-    if (!m_SingleHandedMode)
-    {
-        const Vector leftForwardHorizontal{ m_LeftControllerForward.x, m_LeftControllerForward.y, 0.0f };
-        const float leftForwardHorizontalLength = VectorLength(leftForwardHorizontal);
-        const Vector leftForwardHorizontalNorm = leftForwardHorizontalLength > 0.0f
-            ? leftForwardHorizontal / leftForwardHorizontalLength
-            : Vector(0.0f, 0.0f, 0.0f);
+    const Vector leftForwardHorizontal{ m_LeftControllerForward.x, m_LeftControllerForward.y, 0.0f };
+    const float leftForwardHorizontalLength = VectorLength(leftForwardHorizontal);
+    const Vector leftForwardHorizontalNorm = leftForwardHorizontalLength > 0.0f
+        ? leftForwardHorizontal / leftForwardHorizontalLength
+        : Vector(0.0f, 0.0f, 0.0f);
 
-        const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
-        const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
-        const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
-        if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
-        {
-            startHold(m_SecondaryAttackGestureHoldUntil);
-            startCooldown(m_SecondaryGestureCooldownEnd);
-        }
-    }
-    else
+    const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
+    const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
+    const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
+    if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
     {
-        const float rightDeltaLength = VectorLength(rightDelta);
-        if (rightDeltaLength > 0.001f)
-        {
-            Vector hmdForward = m_HmdForward;
-            hmdForward.z = 0.0f;
-            const float hmdForwardLength = VectorLength(hmdForward);
-            const Vector rightDeltaHorizontal{ rightDelta.x, rightDelta.y, 0.0f };
-            const float rightDeltaHorizontalLength = VectorLength(rightDeltaHorizontal);
-            if (hmdForwardLength > 0.001f && rightDeltaHorizontalLength > 0.001f)
-            {
-                const Vector hmdForwardNorm = hmdForward / hmdForwardLength;
-                const Vector rightDeltaHorizontalNorm = rightDeltaHorizontal / rightDeltaHorizontalLength;
-                const float forwardDot = DotProduct(rightDeltaHorizontalNorm, hmdForwardNorm);
-                if (forwardDot > 0.0f)
-                {
-                    const float clampedDot = std::clamp(forwardDot, -1.0f, 1.0f);
-                    const float angleDeg = std::acos(clampedDot) * (180.0f / 3.14159265f);
-                    const float tolerance = std::max(0.0f, m_SingleHandPushAngleTolerance);
-                    const float pushThreshold = std::max(0.0f, m_MotionGesturePushThreshold);
-                    const float rightForwardSpeed = std::max(0.0f, DotProduct(rightDelta, hmdForwardNorm)) / deltaSeconds;
-                    if (angleDeg <= tolerance &&
-                        rightForwardSpeed >= pushThreshold &&
-                        now >= m_SecondaryGestureCooldownEnd)
-                    {
-                        startHold(m_SecondaryAttackGestureHoldUntil);
-                        startCooldown(m_SecondaryGestureCooldownEnd);
-                    }
-                }
-            }
-        }
+        startHold(m_SecondaryAttackGestureHoldUntil);
+        startCooldown(m_SecondaryGestureCooldownEnd);
     }
 
     if (rightDownSpeed >= m_MotionGestureDownSwingThreshold && now >= m_ReloadGestureCooldownEnd)
@@ -5845,15 +5719,11 @@ void VR::ParseConfigFile()
         };
 
 
-    const bool snapTurningConfigured = userConfig.find("SnapTurning") != userConfig.end();
     m_SnapTurnAngle = getFloat("SnapTurnAngle", m_SnapTurnAngle);
     m_TurnSpeed = getFloat("TurnSpeed", m_TurnSpeed);
     // Locomotion direction: default is HMD-yaw-based. Optional hand-yaw-based.
     m_MoveDirectionFromController = getBool("MoveDirectionFromController", m_MoveDirectionFromController);
     m_MoveDirectionFromController = getBool("MovementDirectionFromController", m_MoveDirectionFromController);
-    m_HmdTiltStrafeSensitivity = getFloat("HmdTiltStrafeSensitivity", m_HmdTiltStrafeSensitivity);
-    m_HmdTiltStrafeAngle = getFloat("HmdTiltStrafeAngle", m_HmdTiltStrafeAngle);
-    m_HmdTiltStrafeSpeed = getFloat("HmdTiltStrafeSpeed", m_HmdTiltStrafeSpeed);
     m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
     m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
     m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
@@ -5957,9 +5827,6 @@ void VR::ParseConfigFile()
     parseCustomActionBinding("CustomAction5Command", m_CustomAction5Binding);
 
     m_LeftHanded = getBool("LeftHanded", m_LeftHanded);
-    m_SingleHandedMode = getBool("SingleHandedMode", m_SingleHandedMode);
-    if (m_SingleHandedMode && !snapTurningConfigured)
-        m_SnapTurning = true;
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
@@ -5999,7 +5866,6 @@ void VR::ParseConfigFile()
     m_MotionGestureJumpThreshold = std::max(0.0f, getFloat("MotionGestureJumpThreshold", m_MotionGestureJumpThreshold));
     m_MotionGestureCooldown = std::max(0.0f, getFloat("MotionGestureCooldown", m_MotionGestureCooldown));
     m_MotionGestureHoldDuration = std::max(0.0f, getFloat("MotionGestureHoldDuration", m_MotionGestureHoldDuration));
-    m_SingleHandPushAngleTolerance = std::clamp(getFloat("SingleHandPushAngleTolerance", m_SingleHandPushAngleTolerance), 0.0f, 90.0f);
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
