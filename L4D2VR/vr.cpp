@@ -404,6 +404,8 @@ void VR::Update()
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
 
+    ApplyPerfLowEffectsCvarsIfNeeded();
+
     if (m_IsVREnabled && g_D3DVR9)
     {
         // Prevents crashing at menu
@@ -437,6 +439,67 @@ void VR::Update()
         ProcessMenuInput();
     else
         ProcessInput();
+}
+
+void VR::ApplyPerfLowEffectsCvarsIfNeeded()
+{
+    // NOTE: ParseConfigFile runs on a separate thread (file-watcher). We only touch engine-facing
+    // calls here on the main thread.
+    const bool inGameNow = m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame();
+    if (!inGameNow)
+    {
+        m_PerfWasInGame = false;
+        // Drop pending requests while in menu/loading. We'll re-apply on next in-game transition.
+        m_PerfLowEffectsCvarsDirty.store(false, std::memory_order_relaxed);
+        return;
+    }
+
+    bool needApply = false;
+    if (!m_PerfWasInGame)
+        needApply = true; // just entered a game session
+
+    if (m_PerfLowEffectsCvarsDirty.exchange(false, std::memory_order_relaxed))
+        needApply = true;
+
+    if (needApply && m_PerfLowEffectsCvars)
+        ApplyPerfLowEffectsCvars();
+
+    m_PerfWasInGame = true;
+}
+
+void VR::ApplyPerfLowEffectsCvars()
+{
+    // Soft "effects-to-the-floor" preset. Commands that are cheat-protected or server-forced
+    // will simply fail / be ignored by the engine.
+    static const char* kCmds[] =
+    {
+        // Decals / sprays
+        "r_decals 0",
+        "r_drawmodeldecals 0",
+        "r_maxmodeldecal 0",
+        "mp_decals 0",
+        "r_decalstaticprops 0",
+        "r_spray_lifetime 0",
+
+        // Bullet impacts / small debris
+        "r_drawflecks 0",
+        "cl_ejectbrass 0",
+
+        // Dynamic lights / muzzle flash light
+        "r_dynamic 0",
+        "muzzleflash_light 0",
+
+        // Detail props (tiny clutter)
+        "r_drawdetailprops 0",
+    };
+
+    for (const char* cmd : kCmds)
+    {
+        if (cmd && *cmd)
+            m_Game->ClientCmd_Unrestricted(cmd);
+    }
+
+    Game::logMsg("[VR] Applied PerfLowEffectsCvars preset (decals/dlights/flecks/detailprops)");
 }
 
 bool VR::GetWalkAxis(float& x, float& y) {
@@ -6015,6 +6078,23 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
+
+    // Performance (soft approach): issue client cvars that reduce CPU-heavy effects.
+    {
+        const bool newVal = getBool("PerfLowEffectsCvars", m_PerfLowEffectsCvars);
+        if (newVal != m_PerfLowEffectsCvars)
+        {
+            m_PerfLowEffectsCvars = newVal;
+            m_PerfLowEffectsCvarsDirty.store(true, std::memory_order_relaxed);
+        }
+        else
+        {
+            // If user explicitly sets the key (even to the same value), mark dirty so we re-apply
+            // after hot-reload. This is useful when a server resets cvars on map change.
+            if (userConfig.find("PerfLowEffectsCvars") != userConfig.end())
+                m_PerfLowEffectsCvarsDirty.store(true, std::memory_order_relaxed);
+        }
+    }
 
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
