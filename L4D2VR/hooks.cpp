@@ -926,6 +926,13 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
+	// impulse 204 -> QuickTurnCombo (Quick 180° turn)
+	if (cmd && cmd->impulse == Hooks::kImpulseQuickTurnCombo)
+	{
+		Hooks::ApplyQuickTurn180(cmd);
+		cmd->impulse = 0; // consume it
+	}
+
 	if (m_VR->m_IsVREnabled) {
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
 
