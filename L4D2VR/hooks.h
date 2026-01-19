@@ -88,6 +88,21 @@ typedef DWORD* (__thiscall* tPrePushRenderTarget)(void* thisptr, int a2);
 class Hooks
 {
 public:
+	// Console: impulse 204 -> QuickTurn (180 deg)
+	static constexpr int kImpulseQuickTurnCombo = 204;
+
+	// Apply a 180° yaw turn to the current usercmd viewangles, normalized to [-180, 180].
+	static inline void ApplyQuickTurn180(CUserCmd* cmd)
+	{
+		if (!cmd)
+			return;
+		cmd->viewangles.y += 180.0f;
+		if (cmd->viewangles.y > 180.0f)
+			cmd->viewangles.y -= 360.0f;
+		else if (cmd->viewangles.y < -180.0f)
+			cmd->viewangles.y += 360.0f;
+	}
+
 	static inline Game* m_Game;
 	static inline VR* m_VR;
 
