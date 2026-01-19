@@ -5,6 +5,7 @@
 #include <array>
 #include <chrono>
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <optional>
 #include <string>
@@ -214,6 +215,13 @@ public:
 	float m_ThrowArcMaxHz = 30.0f;             // caps throw arc overlay calls
 	float m_SpecialInfectedOverlayMaxHz = 20.0f; // caps arrow drawing + prewarning refresh per entity
 	float m_SpecialInfectedTraceMaxHz = 15.0f;   // caps TraceRay per entity
+
+	// --- Performance: client cvar preset to reduce CPU-heavy effects (safe/soft approach) ---
+	// When enabled, we issue a small set of client cvars (decals/dynamic lights/flecks/etc.)
+	// once when entering the game (and whenever the config toggles).
+	bool m_PerfLowEffectsCvars = false;
+	std::atomic<bool> m_PerfLowEffectsCvarsDirty{ false };
+	bool m_PerfWasInGame = false;
 
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
@@ -790,6 +798,8 @@ public:
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
+	void ApplyPerfLowEffectsCvarsIfNeeded();
+	void ApplyPerfLowEffectsCvars();
 	void CreateVRTextures();
 	void HandleMissingRenderContext(const char* location);
 	void SubmitVRTextures();
