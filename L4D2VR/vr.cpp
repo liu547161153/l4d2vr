@@ -5612,6 +5612,13 @@ void VR::ParseConfigFile()
         try { return std::stoi(it->second); }
         catch (...) { return defVal; }
         };
+    // Like getInt(), but supports 0x... hex (base=0). Useful for bitmasks.
+    auto getIntAnyBase = [&](const char* k, int defVal)->int {
+        auto it = userConfig.find(k);
+        if (it == userConfig.end() || it->second.empty()) return defVal;
+        try { return std::stoi(it->second, nullptr, 0); }
+        catch (...) { return defVal; }
+        };
     auto getColor = [&](const char* k, int defR, int defG, int defB, int defA)->std::array<int, 4> {
         std::array<int, 4> defaults{ defR, defG, defB, defA };
         auto it = userConfig.find(k);
@@ -6215,6 +6222,13 @@ void VR::ParseConfigFile()
     m_SpecialInfectedPreWarningTargetUpdateInterval = std::max(0.0f, getFloat("SpecialInfectedPreWarningTargetUpdateInterval", m_SpecialInfectedPreWarningTargetUpdateInterval));
     m_SpecialInfectedOverlayMaxHz = std::max(0.0f, getFloat("SpecialInfectedOverlayMaxHz", m_SpecialInfectedOverlayMaxHz));
     m_SpecialInfectedTraceMaxHz = std::max(0.0f, getFloat("SpecialInfectedTraceMaxHz", m_SpecialInfectedTraceMaxHz));
+    // RenderView draw-mask (experimental): AND/OR whatToDraw to skip draw categories.
+    // Use -1/0 (defaults) for no change. Accepts hex (0x...).
+    m_RenderViewWhatToDrawAndMask = getIntAnyBase("RenderViewWhatToDrawAndMask", m_RenderViewWhatToDrawAndMask);
+    m_RenderViewWhatToDrawOrMask = getIntAnyBase("RenderViewWhatToDrawOrMask", m_RenderViewWhatToDrawOrMask);
+    m_OffscreenWhatToDrawAndMask = getIntAnyBase("OffscreenWhatToDrawAndMask", m_OffscreenWhatToDrawAndMask);
+    m_OffscreenWhatToDrawOrMask = getIntAnyBase("OffscreenWhatToDrawOrMask", m_OffscreenWhatToDrawOrMask);
+    m_RenderViewMaskDebug = getBool("RenderViewMaskDebug", m_RenderViewMaskDebug);
     const float preWarningAimAngle = getFloat("SpecialInfectedPreWarningAimAngle", m_SpecialInfectedPreWarningAimAngle);
     m_SpecialInfectedPreWarningAimAngle = m_SpecialInfectedDebug
         ? std::max(0.0f, preWarningAimAngle)

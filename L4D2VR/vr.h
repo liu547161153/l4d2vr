@@ -215,6 +215,16 @@ public:
 	float m_SpecialInfectedOverlayMaxHz = 20.0f; // caps arrow drawing + prewarning refresh per entity
 	float m_SpecialInfectedTraceMaxHz = 15.0f;   // caps TraceRay per entity
 
+	// --- RenderView draw-mask (experimental performance tool) ---
+	// RenderView is called with an engine-defined bitmask (whatToDraw).
+	// We can AND/OR that mask to skip certain categories of drawing.
+	// NOTE: exact bit meanings are branch/game dependent; use RenderViewMaskDebug to inspect values.
+	int m_RenderViewWhatToDrawAndMask = -1;   // applied to main stereo eye renders
+	int m_RenderViewWhatToDrawOrMask = 0;     // applied to main stereo eye renders
+	int m_OffscreenWhatToDrawAndMask = -1;    // applied to offscreen RTT passes (scope/rear-mirror)
+	int m_OffscreenWhatToDrawOrMask = 0;      // applied to offscreen RTT passes (scope/rear-mirror)
+	bool m_RenderViewMaskDebug = false;       // log whatToDraw / masked values (throttled)
+
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
