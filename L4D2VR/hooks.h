@@ -1,12 +1,12 @@
 #pragma once
 #include <iostream>
 #include "MinHook.h"
+#include "usercmd.h" // for CUserCmd / QAngle (needed by inline helpers)
 
 class Game;
 class VR;
 class ITexture;
 class CViewSetup;
-class CUserCmd;
 class QAngle;
 class Vector;
 class edict_t;
@@ -91,7 +91,7 @@ public:
 	// Console: impulse 204 -> QuickTurn (180 deg)
 	static constexpr int kImpulseQuickTurnCombo = 204;
 
-	// Apply a 180° yaw turn to the current usercmd viewangles, normalized to [-180, 180].
+	// Apply a 180 deg yaw turn to the current usercmd viewangles, normalized to [-180, 180].
 	static inline void ApplyQuickTurn180(CUserCmd* cmd)
 	{
 		if (!cmd)
