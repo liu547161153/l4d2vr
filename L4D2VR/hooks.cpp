@@ -13,6 +13,8 @@
 #include <algorithm> // std::clamp
 #include <chrono>
 #include <cmath>
+#include <cctype>
+#include <unordered_set>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -369,6 +371,8 @@ Hooks::Hooks(Game* game)
 	hkVgui_Paint.enableHook();
 	hkIsSplitScreen.enableHook();
 	hkPrePushRenderTarget.enableHook();
+	if (hkDispatchEffect.pTarget)
+		hkDispatchEffect.enableHook();
 }
 
 Hooks::~Hooks()
@@ -459,6 +463,12 @@ int Hooks::initSourceHooks()
 
 	LPVOID PrePushRenderTargetAddr = (LPVOID)(m_Game->m_Offsets->PrePushRenderTarget.address);
 	hkPrePushRenderTarget.createHook(PrePushRenderTargetAddr, &dPrePushRenderTarget);
+
+	// Optional: client-side effect dispatch hook (temp entities -> effects).
+	// If the signature drifts, m_Offsets->DispatchEffect.address will be 0 and we simply skip it.
+	LPVOID DispatchEffectAddr = (LPVOID)(m_Game->m_Offsets->DispatchEffect.address);
+	if (DispatchEffectAddr)
+		hkDispatchEffect.createHook(DispatchEffectAddr, &dDispatchEffect);
 
 	uintptr_t clientModeAddress = m_Game->m_Offsets->g_pClientMode.address;
 	if (!clientModeAddress)
@@ -1384,6 +1394,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 {
+	++s_FrameId;
 	return hkEndFrame.fOriginal(ecx);
 }
 
@@ -2096,6 +2107,15 @@ void Hooks::dPopRenderTargetAndViewport(void* ecx, void* edx)
 
 void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 {
+	// Best-effort frame marker (VGui_Paint runs frequently and is stable across branches).
+	static DWORD s_lastTick = 0;
+	DWORD now = GetTickCount();
+	if (now != s_lastTick)
+	{
+		s_lastTick = now;
+		++s_FrameId;
+	}
+
 	if (!m_VR->m_CreatedVRTextures)
 		return hkVgui_Paint.fOriginal(ecx, mode);
 
@@ -2127,4 +2147,65 @@ DWORD* Hooks::dPrePushRenderTarget(void* ecx, void* edx, int a2)
 		m_PushHUDStep = -999;
 
 	return hkPrePushRenderTarget.fOriginal(ecx, a2);
+}
+
+void __cdecl Hooks::dDispatchEffect(const char* pName, const void* pData)
+{
+	// If this hook failed to install (signature drift), fOriginal will be null and we should do nothing.
+	if (!hkDispatchEffect.fOriginal)
+		return;
+
+	VR* vr = m_VR;
+	if (!vr || !vr->m_EffectFilterEnabled || !pName || !*pName)
+	{
+		hkDispatchEffect.fOriginal(pName, pData);
+		return;
+	}
+
+	// Per-frame budget (frame id is best-effort, see dVGui_Paint).
+	static unsigned long long s_lastFrame = 0;
+	static int s_usedThisFrame = 0;
+	static int s_suppressedThisFrame = 0;
+	const unsigned long long frame = s_FrameId;
+	if (frame != s_lastFrame)
+	{
+		s_lastFrame = frame;
+		s_usedThisFrame = 0;
+		s_suppressedThisFrame = 0;
+	}
+
+	std::string nameLower(pName);
+	std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
+		[](unsigned char c) { return (char)std::tolower(c); });
+
+	// Optional: log unique effect names (helps build deny list).
+	if (vr->m_EffectFilterLog)
+	{
+		static std::unordered_set<std::string> s_seen;
+		if (s_seen.insert(nameLower).second)
+			Game::logMsg("[EffectFilter] effect: %s", pName);
+	}
+
+	// Deny list match
+	for (const std::string& tok : vr->m_EffectFilterDenyTokens)
+	{
+		if (!tok.empty() && nameLower.find(tok) != std::string::npos)
+		{
+			++s_suppressedThisFrame;
+			return;
+		}
+	}
+
+	// Budget cap
+	if (vr->m_EffectFilterMaxPerFrame > 0 && s_usedThisFrame >= vr->m_EffectFilterMaxPerFrame)
+	{
+		++s_suppressedThisFrame;
+		if ((s_suppressedThisFrame % 256) == 0)
+			Game::logMsg("[EffectFilter] suppressed %d effects this frame (budget=%d)",
+				s_suppressedThisFrame, vr->m_EffectFilterMaxPerFrame);
+		return;
+	}
+
+	++s_usedThisFrame;
+	hkDispatchEffect.fOriginal(pName, pData);
 }

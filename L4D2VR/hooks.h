@@ -15,9 +15,9 @@ class ModelRenderInfo_t;
 
 template <typename T>
 struct Hook {
-	T fOriginal;
-	LPVOID pTarget;
-	bool isEnabled;
+	T fOriginal = nullptr;
+	LPVOID pTarget = nullptr;
+	bool isEnabled = false;
 
 	int createHook(LPVOID targetFunc, LPVOID detourFunc)
 	{
@@ -83,6 +83,10 @@ typedef void(__thiscall* tPopRenderTargetAndViewport)(void* thisptr);
 typedef void(__thiscall* tVgui_Paint)(void* thisptr, int mode);
 typedef int(__cdecl* tIsSplitScreen)();
 typedef DWORD* (__thiscall* tPrePushRenderTarget)(void* thisptr, int a2);
+// Client-side effect dispatch (temp entities -> effects)
+// Source signature: DispatchEffect( const char* pName, const CEffectData& data )
+// We treat CEffectData as opaque and only filter by name.
+typedef void(__cdecl* tDispatchEffect)(const char* pName, const void* pData);
 
 
 class Hooks
@@ -119,6 +123,7 @@ public:
 	static inline Hook<tVgui_Paint> hkVgui_Paint;
 	static inline Hook<tIsSplitScreen> hkIsSplitScreen;
 	static inline Hook<tPrePushRenderTarget> hkPrePushRenderTarget;
+	static inline Hook<tDispatchEffect> hkDispatchEffect;
 	static bool s_ServerUnderstandsVR;
 
 	Hooks() {};
@@ -157,6 +162,10 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
+	static void __cdecl dDispatchEffect(const char* pName, const void* pData);
+
+	// Monotonic frame counter (incremented in dVGui_Paint/dEndFrame). Useful for per-frame budgets.
+	static inline unsigned long long s_FrameId = 0;
 
 	static inline int m_PushHUDStep;
 	static inline bool m_PushedHud;

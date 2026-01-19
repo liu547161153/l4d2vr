@@ -31,19 +31,22 @@ public:
 
 		int patternLen = pattern.size();
 
-		// Check if current offset is good
-		bool offsetMatchesSig = true;
-		for (int i = 0; i < patternLen; ++i)
+		// Check if current offset is good (skip if caller passed an invalid/unknown offset)
+		if (currentOffset > 0)
 		{
-			if ( (bytes[currentOffset - sigOffset + i] != pattern[i]) && (pattern[i] != -1) )
+			bool offsetMatchesSig = true;
+			for (int i = 0; i < patternLen; ++i)
 			{
-				offsetMatchesSig = false;
-				break;
+				if ((bytes[currentOffset - sigOffset + i] != pattern[i]) && (pattern[i] != -1))
+				{
+					offsetMatchesSig = false;
+					break;
+				}
 			}
-		}
 
-		if (offsetMatchesSig)
-			return 0;
+			if (offsetMatchesSig)
+				return 0;
+		}
 
 		// Scan the dll for new offset
 		for (int i = 0; i < moduleInfo.SizeOfImage; ++i)

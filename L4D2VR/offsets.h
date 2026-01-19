@@ -6,10 +6,10 @@
 struct Offset
 {
     std::string moduleName;
-    int offset;
-    int address;
+    int offset = 0;
+    int address = 0;
     std::string signature;
-    int sigOffset;
+    int sigOffset = 0;
 
     Offset(std::string moduleName, int currentOffset, std::string signature, int sigOffset = 0)
     {
@@ -27,6 +27,7 @@ struct Offset
         if (newOffset == -1)
         {
             Game::errorMsg(("Signature not found: " + signature).c_str());
+            this->address = 0;
             return;
         }
 
@@ -49,6 +50,10 @@ public:
     Offset GetMeleeWeaponInfoClient =    { "client.dll", 0x30B570, "8B 81 ? ? ? ? 50 B9 ? ? ? ? E8 ? ? ? ? C3" };
     Offset IsSplitScreen =               { "client.dll", 0x1B2A60, "33 C0 83 3D ? ? ? ? ? 0F 9D C0" };
     Offset PrePushRenderTarget =         { "client.dll", 0xA8C80, "55 8B EC 8B C1 56 8B 75 08 8B 0E 89 08 8B 56 04 89" };
+
+    // Client-side effects (temp entities / effect dispatch)
+    // NOTE: Signature may drift between builds. If this fails to resolve, effect filtering is simply disabled.
+    Offset DispatchEffect =              { "client.dll", 0x0, "55 8B EC 83 EC ? 56 8B F1 8B 0D ? ? ? ? 57" };
 
     Offset ServerFireTerrorBullets =     { "server.dll", 0x3C3FC0, "55 8B EC 81 EC ? ? ? ? A1 ? ? ? ? 33 C5 89 45 FC 8B 45 08 8B 4D 10" };
     Offset ReadUserCmd =                 { "server.dll", 0x205100, "55 8B EC 53 8B 5D 10 56 57 8B 7D 0C 53" };
