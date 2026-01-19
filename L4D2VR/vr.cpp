@@ -6016,6 +6016,26 @@ void VR::ParseConfigFile()
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
 
+    // Effect filtering (client-side temp entities / DispatchEffect)
+    m_EffectFilterEnabled = getBool("EffectFilterEnabled", m_EffectFilterEnabled);
+    m_EffectFilterLog = getBool("EffectFilterLog", m_EffectFilterLog);
+    m_EffectFilterMaxPerFrame = std::max(0, getInt("EffectFilterMaxPerFrame", m_EffectFilterMaxPerFrame));
+    m_EffectFilterDenyList = getString("EffectFilterDenyList", m_EffectFilterDenyList);
+    m_EffectFilterDenyTokens.clear();
+    if (!m_EffectFilterDenyList.empty())
+    {
+        std::stringstream ss(m_EffectFilterDenyList);
+        std::string token;
+        while (std::getline(ss, token, ','))
+        {
+            trim(token);
+            if (token.empty()) continue;
+            std::transform(token.begin(), token.end(), token.begin(),
+                [](unsigned char c) { return (char)std::tolower(c); });
+            m_EffectFilterDenyTokens.push_back(token);
+        }
+    }
+
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);

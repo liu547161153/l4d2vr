@@ -215,6 +215,13 @@ public:
 	float m_SpecialInfectedOverlayMaxHz = 20.0f; // caps arrow drawing + prewarning refresh per entity
 	float m_SpecialInfectedTraceMaxHz = 15.0f;   // caps TraceRay per entity
 
+	// --- Effect filtering (client-side temp entities / DispatchEffect) ---
+	bool m_EffectFilterEnabled = false;
+	bool m_EffectFilterLog = false;              // log effect names (for building deny list)
+	int  m_EffectFilterMaxPerFrame = 0;          // 0 = unlimited
+	std::string m_EffectFilterDenyList;          // comma-separated keywords/effect names
+	std::vector<std::string> m_EffectFilterDenyTokens;
+
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
