@@ -4429,6 +4429,17 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     }
 }
 
+bool VR::IsEntityAlive(const C_BaseEntity* entity) const
+{
+    if (!entity)
+        return false;
+
+    const auto base = reinterpret_cast<const std::uint8_t*>(entity);
+    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+
+    return lifeState == 0;
+}
+
 // --- Special infected recognition / arrows / auto-aim / auto-evade ---
 //
 // This block is intentionally split out so that advanced users can drop
