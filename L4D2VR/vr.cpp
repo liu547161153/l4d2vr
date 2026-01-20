@@ -4,6 +4,7 @@
 #include "sdk.h"
 #include "game.h"
 #include "hooks.h"
+#include "usercmd.h"
 #include "trace.h"
 #include "sdk/ivdebugoverlay.h"
 #include <iostream>
@@ -3986,6 +3987,49 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     m_HasNonVRAimSolution = true;
 }
 
+bool VR::ShouldSuppressPrimaryFireForCmd(const CUserCmd* cmd)
+{
+    if (!m_BlockFireOnFriendlyAimEnabled)
+    {
+        m_FriendlyFireGuardLatched = false;
+        m_FriendlyFireGuardLastFriendlyHit = {};
+        return false;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const bool attackDown = (cmd != nullptr) && ((cmd->buttons & (1 << 0)) != 0); // IN_ATTACK
+
+    if (m_AimLineHitsFriendly)
+    {
+        m_FriendlyFireGuardLastFriendlyHit = now;
+        // Latch only when the user is actively trying to fire. This prevents
+        // aim-line flicker from toggling suppression on/off while holding trigger.
+        if (attackDown)
+            m_FriendlyFireGuardLatched = true;
+    }
+    else if (m_FriendlyFireGuardLatched)
+    {
+        // If the player released attack, immediately unlatch.
+        if (!attackDown)
+        {
+            m_FriendlyFireGuardLatched = false;
+        }
+        else
+        {
+            // Otherwise require a short clean window (no friendly hit) before
+            // allowing held-attack to pass through again.
+            const float dt = (m_FriendlyFireGuardLastFriendlyHit.time_since_epoch().count() != 0)
+                ? std::chrono::duration<float>(now - m_FriendlyFireGuardLastFriendlyHit).count()
+                : 1e9f;
+
+            if (dt > std::max(0.0f, m_FriendlyFireGuardUnlatchDelaySeconds))
+                m_FriendlyFireGuardLatched = false;
+        }
+    }
+
+    return m_AimLineHitsFriendly || m_FriendlyFireGuardLatched;
+}
+
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 {
     UpdateSpecialInfectedWarningState();
@@ -4020,7 +4064,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         // Optional debug: confirm the guard is actually arming/suppressing.
         if (m_BlockFireOnFriendlyAimEnabled && m_AimLineHitsFriendly)
         {
-            if (ShouldThrottle(m_LastFriendlyFireGuardLogTime, 1.0f))
+            if (!ShouldThrottle(m_LastFriendlyFireGuardLogTime, 1.0f))
                 Game::logMsg("[VR] Friendly-fire aim guard: aiming at teammate -> suppressing IN_ATTACK");
         }
     };

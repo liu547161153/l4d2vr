@@ -17,6 +17,7 @@ class Game;
 class C_BaseEntity;
 class C_BasePlayer;
 class C_WeaponCSBase;
+class CUserCmd;
 class IDirect3DTexture9;
 class IDirect3DSurface9;
 class ITexture;
@@ -566,6 +567,11 @@ public:
 	bool m_BlockFireOnFriendlyAimEnabled = false; // toggled by SteamVR binding
 	bool m_AimLineHitsFriendly = false;           // updated each frame from aim-line trace
 	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
+	// Hysteresis for friendly-fire guard to prevent flicker from creating repeated
+	// press/release edges (which turns semi-auto pistols into "auto" when holding trigger).
+	bool m_FriendlyFireGuardLatched = false;
+	std::chrono::steady_clock::time_point m_FriendlyFireGuardLastFriendlyHit{};
+	float m_FriendlyFireGuardUnlatchDelaySeconds = 0.20f;
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
@@ -838,8 +844,12 @@ public:
 	void WaitForConfigUpdate();
 	bool GetWalkAxis(float& x, float& y);
 	void UpdateNonVRAimSolution(C_BasePlayer* localPlayer);
-	// If enabled via SteamVR toggle, block IN_ATTACK when the aim line is currently hitting a teammate.
+	// Friendly-fire aim guard: block primary fire when aiming at a teammate.
+	// NOTE: m_AimLineHitsFriendly is based on a ray trace and can flicker at hitbox edges.
+	// To avoid semi-auto weapons behaving like full-auto when the trace flickers,
+	// we apply a small hysteresis / latch window while the attack button is held.
 	bool ShouldSuppressPrimaryFire() const { return m_BlockFireOnFriendlyAimEnabled && m_AimLineHitsFriendly; }
+	bool ShouldSuppressPrimaryFireForCmd(const CUserCmd* cmd);
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
