@@ -565,6 +565,7 @@ public:
 	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
 	bool m_BlockFireOnFriendlyAimEnabled = false; // toggled by SteamVR binding
 	bool m_AimLineHitsFriendly = false;           // updated each frame from aim-line trace
+	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
