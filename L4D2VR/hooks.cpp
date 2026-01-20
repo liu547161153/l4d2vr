@@ -524,14 +524,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
-	// If we've already produced the VR eye textures for this frame, don't do the full
-	// VR stereo path again. Source can call RenderView multiple times per frame
-	// (screenshots, special views, etc.), which blows CPU frametime and can increase crash risk.
-	if (m_VR->m_RenderedNewFrame)
-	{
-		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
-	}
-	
+
 	// ------------------------------
 	// Third-person camera fix:
 	// If engine is in third-person, setup.origin is a shoulder camera,
@@ -925,13 +918,6 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
-
-	// impulse 204 -> QuickTurnCombo (Quick 180° turn)
-	if (cmd && cmd->impulse == Hooks::kImpulseQuickTurnCombo)
-	{
-		Hooks::ApplyQuickTurn180(cmd);
-		cmd->impulse = 0; // consume it
-	}
 
 	if (m_VR->m_IsVREnabled) {
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
