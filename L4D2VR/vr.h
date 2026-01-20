@@ -559,7 +559,12 @@ public:
 
 	static constexpr int kZombieClassOffset = 0x1c90;
 	static constexpr int kLifeStateOffset = 0x147;
+	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 
+	// Aim-line friendly-fire guard (client-side fire suppression)
+	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
+	bool m_BlockFireOnFriendlyAimEnabled = false; // toggled by SteamVR binding
+	bool m_AimLineHitsFriendly = false;           // updated each frame from aim-line trace
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
@@ -832,6 +837,8 @@ public:
 	void WaitForConfigUpdate();
 	bool GetWalkAxis(float& x, float& y);
 	void UpdateNonVRAimSolution(C_BasePlayer* localPlayer);
+	// If enabled via SteamVR toggle, block IN_ATTACK when the aim line is currently hitting a teammate.
+	bool ShouldSuppressPrimaryFire() const { return m_BlockFireOnFriendlyAimEnabled && m_AimLineHitsFriendly; }
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
