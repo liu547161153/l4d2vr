@@ -623,11 +623,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	bool renderThirdPerson = false;
 	if (m_VR->m_ThirdPersonDefault)
 	{
-		// Keep first-person only for explicitly handled cases where third-person is known to be problematic.
-		const bool explicitFirstPerson = playerReviving || hasViewEntityOverride;
+		// Policy: ONLY fall back to third-person when we're not in any explicitly-known first-person state.
+		// The bug we want to avoid: enabling ThirdPersonDefault shouldn't turn normal first-person gameplay
+		// (or "倒地" / incapacitated) into third-person rendering.
+		const bool isIncap = tpStateDbg.incap;
+		const bool explicitlyNormalFirstPerson =
+			!engineThirdPersonNow && !customWalkThirdPersonNow && !stateWantsThirdPerson && (m_VR->m_ThirdPersonHoldFrames <= 0);
+		const bool explicitFirstPerson = playerReviving || hasViewEntityOverride || isIncap || explicitlyNormalFirstPerson;
 		renderThirdPerson = !explicitFirstPerson;
-		// When forcing default-3P, don't let stale hold-frames keep us stuck.
-		m_VR->m_ThirdPersonHoldFrames = 0;
 	}
 	else
 	{
