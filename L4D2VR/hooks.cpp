@@ -1373,8 +1373,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	}
 	
 	// Aim-line friendly-fire guard: if enabled and the aim line is currently hitting a teammate,
-   // suppress primary fire for this tick by clearing IN_ATTACK.
-	if (m_VR->ShouldSuppressPrimaryFire())
+	// suppress primary fire for this tick by clearing IN_ATTACK.
+	if (m_VR->ShouldSuppressPrimaryFireForCmd(cmd))
 	{
 		cmd->buttons &= ~(1 << 0); // IN_ATTACK
 	}
