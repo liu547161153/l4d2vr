@@ -374,6 +374,8 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/Pause", &m_Pause);
     m_Input->GetActionHandle("/actions/main/in/NonVRServerMovementAngleToggle", &m_NonVRServerMovementAngleToggle);
     m_Input->GetActionHandle("/actions/main/in/ScopeMagnificationToggle", &m_ActionScopeMagnificationToggle);
+    // Aim-line friendly-fire guard toggle (bindable in SteamVR)
+    m_Input->GetActionHandle("/actions/main/in/FriendlyFireBlockToggle", &m_ActionFriendlyFireBlockToggle);
     m_Input->GetActionHandle("/actions/main/in/CustomAction1", &m_CustomAction1);
     m_Input->GetActionHandle("/actions/main/in/CustomAction2", &m_CustomAction2);
     m_Input->GetActionHandle("/actions/main/in/CustomAction3", &m_CustomAction3);
@@ -2438,6 +2440,14 @@ void VR::ProcessInput()
         m_Game->ClientCmd_Unrestricted("impulse 201");
     }
 
+    // Toggle: suppress primary fire when the aim line is currently hitting a teammate.
+    // This is a pure client-side guard: we simply clear IN_ATTACK in CreateMove.
+    if (PressedDigitalAction(m_ActionFriendlyFireBlockToggle, true))
+    {
+        m_BlockFireOnFriendlyAimEnabled = !m_BlockFireOnFriendlyAimEnabled;
+        Game::logMsg("[VR] Friendly-fire aim guard: %s", m_BlockFireOnFriendlyAimEnabled ? "ON" : "OFF");
+    }
+
     auto isWalkPressCommand = [](const std::string& cmd) -> bool
         {
             // Match the first token only (allow "+walk;..." or "+walk ...").
@@ -3982,7 +3992,10 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     UpdateSpecialInfectedPreWarningState();
 
     if (!m_Game->m_DebugOverlay)
+    {
+        m_AimLineHitsFriendly = false;
         return;
+    }
 
     C_WeaponCSBase* activeWeapon = nullptr;
     if (localPlayer)
@@ -3995,6 +4008,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         m_HasAimConvergePoint = false;
         m_HasThrowArc = false;
         m_LastAimWasThrowable = false;
+        m_AimLineHitsFriendly = false;
         return;
     }
 
@@ -4036,11 +4050,16 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             if (m_LastAimWasThrowable && m_HasThrowArc)
             {
                 DrawThrowArcFromCache(duration);
+                m_AimLineHitsFriendly = false;
                 return;
             }
 
             if (!m_HasAimLine)
+            {
+                m_AimLineHitsFriendly = false;
                 return;
+            }
+
 
             DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
             return;
@@ -4076,6 +4095,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     if (isThrowable)
     {
+        m_AimLineHitsFriendly = false;
         m_HasAimConvergePoint = false;
 
         Vector pitchSource = direction;
@@ -4118,6 +4138,30 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         else
         {
             m_HasAimConvergePoint = false;
+        }
+    }
+    // Friendly-fire aim guard: see if the aim line currently hits a teammate player.
+    // We intentionally do this even in first-person so it works for normal play.
+    m_AimLineHitsFriendly = false;
+    if (localPlayer && m_Game->m_EngineTrace)
+    {
+        CGameTrace trace;
+        Ray_t ray;
+        CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+
+        ray.Init(origin, target);
+        m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+
+        C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
+        if (hitEnt && hitEnt != localPlayer && hitEnt->IsPlayer() != nullptr)
+        {
+            const unsigned char* myBase = reinterpret_cast<const unsigned char*>(localPlayer);
+            const unsigned char* hitBase = reinterpret_cast<const unsigned char*>(hitEnt);
+            const int myTeam = *reinterpret_cast<const int*>(myBase + kTeamNumOffset);
+            const int hitTeam = *reinterpret_cast<const int*>(hitBase + kTeamNumOffset);
+
+            if (myTeam != 0 && myTeam == hitTeam && IsEntityAlive(hitEnt))
+                m_AimLineHitsFriendly = true;
         }
     }
 
