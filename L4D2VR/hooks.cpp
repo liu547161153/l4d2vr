@@ -607,12 +607,26 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kWalkThirdPersonHoldFrames);
 
 	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
-	if (engineThirdPersonNow)
-		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
-	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
-		m_VR->m_ThirdPersonHoldFrames--;
+	if (!m_VR->m_ThirdPersonExplicitOnly)
+	{
+		if (engineThirdPersonNow)
+			m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
+		else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
+			m_VR->m_ThirdPersonHoldFrames--;
+	}
+	else
+	{
+		// Explicit-only mode:
+		// Ignore the geometric "engineThirdPersonNow" heuristic entirely. Third-person activates only
+		// for explicitly handled conditions (state lock and/or custom +walk helper). Any unhandled
+		// camera oddities stay first-person to avoid 1P/3P flicker.
+		if (!allowStateThirdPerson && !customWalkThirdPersonNow && m_VR->m_ThirdPersonHoldFrames > 0)
+			m_VR->m_ThirdPersonHoldFrames--;
+	}
 
-	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool renderThirdPerson = m_VR->m_ThirdPersonExplicitOnly
+		? (m_VR->m_ThirdPersonHoldFrames > 0)
+		: (customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0));
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
 		static std::chrono::steady_clock::time_point s_lastTpDbg{};
