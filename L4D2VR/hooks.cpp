@@ -562,6 +562,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		playerReviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
 	}
 
+	// Some VScript mods (e.g. slide mods) temporarily enable point_viewcontrol_survivor via
+	// CBasePlayer::m_hViewEntity. In that case, setup.origin can jump to an attachment-driven
+	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
+	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
+
 	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
 	if (playerReviving)
 		engineThirdPersonNow = false;
@@ -612,7 +617,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
-	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	// Camera mode policy:
+	// - Default behavior: render third-person only when engine/state says so (plus a small hold).
+	// - Optional "ThirdPersonDefault": render third-person unless we explicitly whitelist first-person cases.
+	bool renderThirdPerson = false;
+	if (m_VR->m_ThirdPersonDefault)
+	{
+		// Keep first-person only for explicitly handled cases where third-person is known to be problematic.
+		const bool explicitFirstPerson = playerReviving || hasViewEntityOverride;
+		renderThirdPerson = !explicitFirstPerson;
+		// When forcing default-3P, don't let stale hold-frames keep us stuck.
+		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
+	else
+	{
+		renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	}
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
 		static std::chrono::steady_clock::time_point s_lastTpDbg{};
@@ -650,7 +670,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
 	// So: only borrow setup.origin.z when the player has no active view-entity override.
 	m_VR->m_SetupOrigin = eyeOrigin;
-	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
 	if (!renderThirdPerson && !hasViewEntityOverride)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);

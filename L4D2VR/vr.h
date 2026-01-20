@@ -133,6 +133,9 @@ public:
 	// (e.g. slide mods that switch to 3P while +walk is held).
 	bool m_CustomWalkHeld = false;
 	bool m_ThirdPersonRenderOnCustomWalk = false;
+	// If enabled, render in third-person by default to avoid camera mode flicker.
+	// Only a small whitelist of explicitly-handled cases will remain first-person.
+	bool m_ThirdPersonDefault = false;
 	bool m_ObserverThirdPerson = false;
 	int m_ThirdPersonHoldFrames = 0;
 	Vector m_ThirdPersonViewOrigin = { 0,0,0 };
