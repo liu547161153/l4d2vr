@@ -2446,7 +2446,6 @@ void VR::ProcessInput()
     if (PressedDigitalAction(m_ActionFriendlyFireBlockToggle, true))
     {
         m_BlockFireOnFriendlyAimEnabled = !m_BlockFireOnFriendlyAimEnabled;
-        Game::logMsg("[VR] Friendly-fire aim guard: %s", m_BlockFireOnFriendlyAimEnabled ? "ON" : "OFF");
     }
 
     auto isWalkPressCommand = [](const std::string& cmd) -> bool
@@ -4094,15 +4093,6 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     const bool canDraw = (m_Game->m_DebugOverlay != nullptr);
 
-    auto logFriendlyGuard = [&]()
-    {
-        // Optional debug: confirm the guard is actually arming/suppressing.
-        if (m_BlockFireOnFriendlyAimEnabled && m_AimLineHitsFriendly)
-        {
-            if (!ShouldThrottle(m_LastFriendlyFireGuardLogTime, 1.0f))
-                Game::logMsg("[VR] Friendly-fire aim guard: aiming at teammate -> suppressing IN_ATTACK");
-        }
-    };
 
     C_WeaponCSBase* activeWeapon = nullptr;
     if (localPlayer)
@@ -4119,7 +4109,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         // Even when the aim line is hidden/disabled, still run the friendly-fire guard trace
         // if the user toggled it on.
         UpdateFriendlyFireAimHit(localPlayer);
-        logFriendlyGuard();
+     
         return;
     }
 
@@ -4127,7 +4117,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     if (!canDraw)
     {
         UpdateFriendlyFireAimHit(localPlayer);
-        logFriendlyGuard();
+   
         return;
     }
 
@@ -4262,7 +4252,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     // Friendly-fire aim guard: see if the aim ray currently hits a teammate player.
     // This runs regardless of whether the line is actually drawn.
     UpdateFriendlyFireAimHit(localPlayer);
-    logFriendlyGuard();
+
 
     m_AimLineStart = origin;
     m_AimLineEnd = target;
