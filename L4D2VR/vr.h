@@ -565,13 +565,10 @@ public:
 	// Aim-line friendly-fire guard (client-side fire suppression)
 	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
 	bool m_BlockFireOnFriendlyAimEnabled = false; // toggled by SteamVR binding
-	bool m_AimLineHitsFriendly = false;           // updated each frame from aim-line trace
+	bool m_AimLineHitsFriendly = false;           // updated from a ray trace (aim ray)
 	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
-	// Hysteresis for friendly-fire guard to prevent flicker from creating repeated
-	// press/release edges (which turns semi-auto pistols into "auto" when holding trigger).
+	// Latch suppression while attack is held (prevents flicker causing intermittent firing).
 	bool m_FriendlyFireGuardLatched = false;
-	std::chrono::steady_clock::time_point m_FriendlyFireGuardLastFriendlyHit{};
-	float m_FriendlyFireGuardUnlatchDelaySeconds = 0.20f;
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
@@ -844,12 +841,13 @@ public:
 	void WaitForConfigUpdate();
 	bool GetWalkAxis(float& x, float& y);
 	void UpdateNonVRAimSolution(C_BasePlayer* localPlayer);
-	// Friendly-fire aim guard: block primary fire when aiming at a teammate.
-	// NOTE: m_AimLineHitsFriendly is based on a ray trace and can flicker at hitbox edges.
-	// To avoid semi-auto weapons behaving like full-auto when the trace flickers,
-	// we apply a small hysteresis / latch window while the attack button is held.
-	bool ShouldSuppressPrimaryFire() const { return m_BlockFireOnFriendlyAimEnabled && m_AimLineHitsFriendly; }
-	bool ShouldSuppressPrimaryFireForCmd(const CUserCmd* cmd);
+	// Friendly-fire aim guard:
+	// - m_AimLineHitsFriendly is computed from a ray trace and may flicker at hitbox edges.
+	// - While the attack button is held, flicker can effectively create press/release edges.
+	// To make this robust, we compute the friendly-hit from the current aim ray on CreateMove
+	// ticks and latch suppression until the user releases attack.
+	bool ShouldSuppressPrimaryFire(const CUserCmd* cmd, C_BasePlayer* localPlayer);
+	bool UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer);
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
