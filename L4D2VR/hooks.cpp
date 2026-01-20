@@ -1372,9 +1372,16 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		}
 	}
 	
-	// Aim-line friendly-fire guard: if enabled and the aim line is currently hitting a teammate,
-	// suppress primary fire for this tick by clearing IN_ATTACK.
-	if (m_VR->ShouldSuppressPrimaryFireForCmd(cmd))
+	// Aim-line friendly-fire guard:
+	// Compute teammate hit at input-tick rate (CreateMove) and latch suppression until attack is released.
+	C_BasePlayer* ffLocalPlayer = nullptr;
+	if (m_VR->m_BlockFireOnFriendlyAimEnabled)
+	{
+		const int ffIdx = m_Game->m_EngineClient->GetLocalPlayer();
+		if (ffIdx > 0)
+			ffLocalPlayer = (C_BasePlayer*)m_Game->GetClientEntity(ffIdx);
+	}
+	if (m_VR->ShouldSuppressPrimaryFire(cmd, ffLocalPlayer))
 	{
 		cmd->buttons &= ~(1 << 0); // IN_ATTACK
 	}
@@ -1769,6 +1776,11 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	CInput* m_Input = **(CInput***)(m_Game->m_Offsets->g_pppInput.address);
 	CVerifiedUserCmd* pVerifiedCommands = *(CVerifiedUserCmd**)((uintptr_t)m_Input + 0xF0);
 	CVerifiedUserCmd* pVerified = &pVerifiedCommands[(to->command_number) % 150];
+
+	if (to && m_VR->ShouldSuppressPrimaryFire(to, nullptr))
+	{
+		to->buttons &= ~(1 << 0); // IN_ATTACK
+	}
 
 	// Signal to the server that this CUserCmd has VR info
 	to->tick_count *= -1;

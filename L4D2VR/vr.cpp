@@ -3987,47 +3987,104 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     m_HasNonVRAimSolution = true;
 }
 
-bool VR::ShouldSuppressPrimaryFireForCmd(const CUserCmd* cmd)
+bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
+{
+    m_AimLineHitsFriendly = false;
+    if (!m_BlockFireOnFriendlyAimEnabled)
+        return false;
+    if (!localPlayer || !m_Game || !m_Game->m_EngineTrace)
+        return false;
+
+    C_WeaponCSBase* activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
+    if (!activeWeapon || IsThrowableWeapon(activeWeapon))
+        return false;
+
+    const bool useMouse = m_MouseModeEnabled;
+    Vector eyeDir{ 0.0f, 0.0f, 0.0f };
+    if (useMouse)
+        GetMouseModeEyeRay(eyeDir);
+
+    Vector direction = m_RightControllerForward;
+    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+        direction = m_RightControllerForwardUnforced;
+
+    Vector gunOrigin = m_RightControllerPosAbs;
+    if (useMouse)
+    {
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
+        gunOrigin = m_HmdPosAbs
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
+
+        const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
+        Vector target = m_HmdPosAbs + eyeDir * convergeDist;
+        direction = target - gunOrigin;
+    }
+
+    if (direction.IsZero())
+        return false;
+    VectorNormalize(direction);
+
+    Vector originBase = gunOrigin;
+    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+        originBase += camDelta;
+
+    Vector origin = originBase + direction * 2.0f;
+    Vector end = origin + direction * 8192.0f;
+
+    CGameTrace trace;
+    Ray_t ray;
+    CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+    ray.Init(origin, end);
+    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+
+    C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
+    if (hitEnt && hitEnt != localPlayer && hitEnt->IsPlayer() != nullptr)
+    {
+        const unsigned char* myBase = reinterpret_cast<const unsigned char*>(localPlayer);
+        const unsigned char* hitBase = reinterpret_cast<const unsigned char*>(hitEnt);
+        const int myTeam = *reinterpret_cast<const int*>(myBase + kTeamNumOffset);
+        const int hitTeam = *reinterpret_cast<const int*>(hitBase + kTeamNumOffset);
+        if (myTeam != 0 && myTeam == hitTeam && IsEntityAlive(hitEnt))
+            m_AimLineHitsFriendly = true;
+    }
+
+    return m_AimLineHitsFriendly;
+}
+
+bool VR::ShouldSuppressPrimaryFire(const CUserCmd* cmd, C_BasePlayer* localPlayer)
 {
     if (!m_BlockFireOnFriendlyAimEnabled)
     {
         m_FriendlyFireGuardLatched = false;
-        m_FriendlyFireGuardLastFriendlyHit = {};
         return false;
     }
 
-    const auto now = std::chrono::steady_clock::now();
     const bool attackDown = (cmd != nullptr) && ((cmd->buttons & (1 << 0)) != 0); // IN_ATTACK
 
-    if (m_AimLineHitsFriendly)
+    // Keep the hit result current on input ticks (CreateMove).
+    if (localPlayer)
+        UpdateFriendlyFireAimHit(localPlayer);
+
+    const bool friendlyNow = m_AimLineHitsFriendly;
+
+    // Latch until attack is released: prevents “pause then resume firing” while still holding.
+    if (m_FriendlyFireGuardLatched)
     {
-        m_FriendlyFireGuardLastFriendlyHit = now;
-        // Latch only when the user is actively trying to fire. This prevents
-        // aim-line flicker from toggling suppression on/off while holding trigger.
-        if (attackDown)
-            m_FriendlyFireGuardLatched = true;
-    }
-    else if (m_FriendlyFireGuardLatched)
-    {
-        // If the player released attack, immediately unlatch.
         if (!attackDown)
-        {
             m_FriendlyFireGuardLatched = false;
-        }
-        else
-        {
-            // Otherwise require a short clean window (no friendly hit) before
-            // allowing held-attack to pass through again.
-            const float dt = (m_FriendlyFireGuardLastFriendlyHit.time_since_epoch().count() != 0)
-                ? std::chrono::duration<float>(now - m_FriendlyFireGuardLastFriendlyHit).count()
-                : 1e9f;
-
-            if (dt > std::max(0.0f, m_FriendlyFireGuardUnlatchDelaySeconds))
-                m_FriendlyFireGuardLatched = false;
-        }
+        return true;
     }
 
-    return m_AimLineHitsFriendly || m_FriendlyFireGuardLatched;
+    if (attackDown && friendlyNow)
+    {
+        m_FriendlyFireGuardLatched = true;
+        return true;
+    }
+
+    return false;
 }
 
 void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
@@ -4037,30 +4094,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     const bool canDraw = (m_Game->m_DebugOverlay != nullptr);
 
-    auto computeFriendlyHit = [&](const Vector& rayStart, const Vector& rayEnd)
+    auto logFriendlyGuard = [&]()
     {
-        m_AimLineHitsFriendly = false;
-        if (!localPlayer || !m_Game->m_EngineTrace)
-            return;
-
-        CGameTrace trace;
-        Ray_t ray;
-        CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
-        ray.Init(rayStart, rayEnd);
-        m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
-
-        C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
-        if (hitEnt && hitEnt != localPlayer && hitEnt->IsPlayer() != nullptr)
-        {
-            const unsigned char* myBase = reinterpret_cast<const unsigned char*>(localPlayer);
-            const unsigned char* hitBase = reinterpret_cast<const unsigned char*>(hitEnt);
-            const int myTeam = *reinterpret_cast<const int*>(myBase + kTeamNumOffset);
-            const int hitTeam = *reinterpret_cast<const int*>(hitBase + kTeamNumOffset);
-
-            if (myTeam != 0 && myTeam == hitTeam && IsEntityAlive(hitEnt))
-                m_AimLineHitsFriendly = true;
-        }
-
         // Optional debug: confirm the guard is actually arming/suppressing.
         if (m_BlockFireOnFriendlyAimEnabled && m_AimLineHitsFriendly)
         {
@@ -4083,120 +4118,16 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
         // Even when the aim line is hidden/disabled, still run the friendly-fire guard trace
         // if the user toggled it on.
-        if (m_BlockFireOnFriendlyAimEnabled && localPlayer && activeWeapon && !IsThrowableWeapon(activeWeapon))
-        {
-            const bool useMouse = m_MouseModeEnabled;
-
-            Vector eyeDir{ 0.0f, 0.0f, 0.0f };
-            if (useMouse)
-                GetMouseModeEyeRay(eyeDir);
-
-            Vector direction = m_RightControllerForward;
-            if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-                direction = m_RightControllerForwardUnforced;
-
-            if (useMouse)
-            {
-                const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
-                Vector gunOrigin = m_HmdPosAbs
-                    + (m_HmdForward * (anchor.x * m_VRScale))
-                    + (m_HmdRight   * (anchor.y * m_VRScale))
-                    + (m_HmdUp      * (anchor.z * m_VRScale));
-
-                const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
-                Vector target = m_HmdPosAbs + eyeDir * convergeDist;
-                direction = target - gunOrigin;
-            }
-
-            if (!direction.IsZero())
-            {
-                VectorNormalize(direction);
-
-                Vector originBase = m_RightControllerPosAbs;
-                if (useMouse)
-                {
-                    const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
-                    originBase = m_HmdPosAbs
-                        + (m_HmdForward * (anchor.x * m_VRScale))
-                        + (m_HmdRight   * (anchor.y * m_VRScale))
-                        + (m_HmdUp      * (anchor.z * m_VRScale));
-                }
-
-                Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-                if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-                    originBase += camDelta;
-
-                Vector origin = originBase + direction * 2.0f;
-                const float maxDistance = 8192.0f;
-                Vector end = origin + direction * maxDistance;
-
-                computeFriendlyHit(origin, end);
-            }
-            else
-            {
-                m_AimLineHitsFriendly = false;
-            }
-        }
-        else
-        {
-            m_AimLineHitsFriendly = false;
-        }
+        UpdateFriendlyFireAimHit(localPlayer);
+        logFriendlyGuard();
         return;
     }
 
     // If debug overlay isn't available, don't draw, but keep the guard working.
     if (!canDraw)
     {
-        const bool useMouse = m_MouseModeEnabled;
-        Vector eyeDir{ 0.0f, 0.0f, 0.0f };
-        if (useMouse)
-            GetMouseModeEyeRay(eyeDir);
-
-        Vector direction = m_RightControllerForward;
-        if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-            direction = m_RightControllerForwardUnforced;
-
-        if (useMouse)
-        {
-            const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
-            Vector gunOrigin = m_HmdPosAbs
-                + (m_HmdForward * (anchor.x * m_VRScale))
-                + (m_HmdRight   * (anchor.y * m_VRScale))
-                + (m_HmdUp      * (anchor.z * m_VRScale));
-            const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
-            Vector convergeTarget = m_HmdPosAbs + eyeDir * convergeDist;
-            direction = convergeTarget - gunOrigin;
-        }
-
-        if (direction.IsZero() || (activeWeapon && IsThrowableWeapon(activeWeapon)))
-        {
-            m_AimLineHitsFriendly = false;
-            return;
-        }
-
-        VectorNormalize(direction);
-
-        Vector originBase = m_RightControllerPosAbs;
-        if (useMouse)
-        {
-            const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
-            originBase = m_HmdPosAbs
-                + (m_HmdForward * (anchor.x * m_VRScale))
-                + (m_HmdRight   * (anchor.y * m_VRScale))
-                + (m_HmdUp      * (anchor.z * m_VRScale));
-        }
-        Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-        if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-            originBase += camDelta;
-
-        Vector origin = originBase + direction * 2.0f;
-        const float maxDistance = 8192.0f;
-        Vector target = origin + direction * maxDistance;
-
-        if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
-            target = m_NonVRAimHitPoint;
-
-        computeFriendlyHit(origin, target);
+        UpdateFriendlyFireAimHit(localPlayer);
+        logFriendlyGuard();
         return;
     }
 
@@ -4330,7 +4261,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     // Friendly-fire aim guard: see if the aim ray currently hits a teammate player.
     // This runs regardless of whether the line is actually drawn.
-    computeFriendlyHit(origin, target);
+    UpdateFriendlyFireAimHit(localPlayer);
+    logFriendlyGuard();
 
     m_AimLineStart = origin;
     m_AimLineEnd = target;
