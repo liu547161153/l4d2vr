@@ -21,6 +21,7 @@
 
 #include "../util/util_bit.h"
 #include "../util/util_math.h"
+#include "../util/util_monitor.h"
 
 #include "d3d9_initializer.h"
 
@@ -52,6 +53,24 @@ namespace
         default:
             return D3DMULTISAMPLE_NONE;
         }
+    }
+}
+
+namespace {
+    // In windowed mode, if the swapchain backbuffer size does not match the window client size,
+    // the rendered image (including UI) may only occupy the top-left portion of the window.
+    // Normalize it so the implicit swapchain always matches the HWND client area.
+    static void NormalizeWindowedBackbufferSize(D3DPRESENT_PARAMETERS* pp, HWND hWnd) {
+        if (pp == nullptr || !pp->Windowed || hWnd == nullptr)
+            return;
+
+        UINT w = 0, h = 0;
+        dxvk::GetWindowClientSize(hWnd, &w, &h);
+        if (w == 0 || h == 0)
+            return;
+
+        pp->BackBufferWidth  = w;
+        pp->BackBufferHeight = h;
     }
 }
 
@@ -380,11 +399,10 @@ namespace dxvk {
 
 
     HRESULT STDMETHODCALLTYPE D3D9DeviceEx::Reset(D3DPRESENT_PARAMETERS* pPresentationParameters) {
-        if (g_Game && g_Game->m_VR)
-        {
-            pPresentationParameters->BackBufferWidth = g_Game->m_VR->m_RenderWidth;
-            pPresentationParameters->BackBufferHeight = g_Game->m_VR->m_RenderHeight;
-        }
+        // Keep implicit swapchain backbuffer matched to window client size in windowed mode.
+        // Do NOT force backbuffer to VR render size; VR uses separate eye textures.
+        if (g_Game)
+            NormalizeWindowedBackbufferSize(pPresentationParameters, m_window);
 
         D3D9DeviceLock lock = LockDevice();
 
@@ -1713,14 +1731,6 @@ namespace dxvk {
 
 
     HRESULT STDMETHODCALLTYPE D3D9DeviceEx::SetViewport(const D3DVIEWPORT9* pViewport) {
-
-        // TODO: Overriding the viewport in-game will mess up the shadows, so only do it in the menu for now.
-        if (g_Game && !g_Game->m_EngineClient->IsInGame())
-        {
-            D3DVIEWPORT9* newViewport = const_cast<D3DVIEWPORT9*>(pViewport);
-            newViewport->Width = g_Game->m_VR->m_RenderWidth;
-            newViewport->Height = g_Game->m_VR->m_RenderHeight;
-        }
 
         D3D9DeviceLock lock = LockDevice();
 
@@ -3759,6 +3769,9 @@ namespace dxvk {
         D3DDISPLAYMODEEX* pFullscreenDisplayMode) {
         D3D9DeviceLock lock = LockDevice();
 
+        if (g_Game)
+            NormalizeWindowedBackbufferSize(pPresentationParameters, m_window);
+
         HRESULT hr = ResetSwapChain(pPresentationParameters, pFullscreenDisplayMode);
         if (FAILED(hr))
             return hr;
@@ -3792,6 +3805,13 @@ namespace dxvk {
         // Additional fullscreen swapchains are forbidden.
         if (!pPresentationParameters->Windowed)
             return D3DERR_INVALIDCALL;
+
+        if (g_Game) {
+            HWND wnd = pPresentationParameters->hDeviceWindow
+                ? pPresentationParameters->hDeviceWindow
+                : m_window;
+            NormalizeWindowedBackbufferSize(pPresentationParameters, wnd);
+        }
 
         // We can't make another swapchain if we are fullscreen.
         if (!m_implicitSwapchain->GetPresentParams()->Windowed)
@@ -7549,6 +7569,9 @@ namespace dxvk {
 
 
     HRESULT D3D9DeviceEx::InitialReset(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode) {
+        if (g_Game)
+            NormalizeWindowedBackbufferSize(pPresentationParameters, m_window);
+
         HRESULT hr = ResetSwapChain(pPresentationParameters, pFullscreenDisplayMode);
         if (FAILED(hr))
             return hr;
