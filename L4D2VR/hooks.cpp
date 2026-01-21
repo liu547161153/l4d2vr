@@ -562,6 +562,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		playerReviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
 	}
 
+	// Fixed/mounted gun (minigun, etc): user requested to force FIRST-person rendering in VR.
+	bool playerUsingMountedGun = false;
+	if (localPlayer)
+	{
+		const bool usingMountedGun = (ReadNetvar<uint8_t>(localPlayer, 0x1eba) != 0);     // m_usingMountedGun
+		const bool usingMountedWeapon = (ReadNetvar<uint8_t>(localPlayer, 0x1ebb) != 0);  // m_usingMountedWeapon
+		playerUsingMountedGun = (usingMountedGun || usingMountedWeapon);
+	}
+
 	// Some VScript mods (e.g. slide mods) temporarily enable point_viewcontrol_survivor via
 	// CBasePlayer::m_hViewEntity. In that case, setup.origin can jump to an attachment-driven
 	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
@@ -569,6 +578,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
 	if (playerReviving)
+		engineThirdPersonNow = false;
+	if (playerUsingMountedGun)
 		engineThirdPersonNow = false;
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
@@ -617,6 +628,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
+	// When using a fixed/mounted gun, force FIRST-person rendering (override hysteresis).
+	if (playerUsingMountedGun)
+		m_VR->m_ThirdPersonHoldFrames = 0;
+
 	// Camera mode policy:
 	// - Default behavior: render third-person only when engine/state says so (plus a small hold).
 	// - Optional "ThirdPersonDefault": render third-person unless we explicitly whitelist first-person cases.
@@ -630,15 +645,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const bool explicitlyNormalFirstPerson =
 			!engineThirdPersonNow && !customWalkThirdPersonNow && !stateWantsThirdPerson && (m_VR->m_ThirdPersonHoldFrames <= 0);
 		// IMPORTANT:
-		// m_hViewEntity 通常表示引擎正在用 point_viewcontrol_survivor / 过场 / 固定机枪/机关等视角控制实体。
-		// 这种情况必须跟随引擎相机，否则会“过场没了/机关视角不对”。
-		if (hasViewEntityOverride)
+		// m_hViewEntity 通常表示引擎正在用 point_viewcontrol_survivor / 过场等视角控制实体。
+		// 这种情况一般必须跟随引擎相机；但“固定机枪/架设武器”用户要求强制第一人称。
+		if (hasViewEntityOverride && !playerUsingMountedGun)
 		{
 			renderThirdPerson = true;
 		}
 		else
 		{
-			const bool explicitFirstPerson = playerReviving || isIncap || explicitlyNormalFirstPerson;
+			const bool explicitFirstPerson = playerUsingMountedGun || playerReviving || isIncap || explicitlyNormalFirstPerson;
 			renderThirdPerson = !explicitFirstPerson;
 		}
 	}
@@ -660,6 +675,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const bool timeUp = (s_lastTpDbg.time_since_epoch().count() == 0) ||
 			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000);
 	}
+	// Fixed/mounted gun: hard-force first-person.
+	if (playerUsingMountedGun)
+		renderThirdPerson = false;
+
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
 	CViewSetup leftEyeView = setup;
