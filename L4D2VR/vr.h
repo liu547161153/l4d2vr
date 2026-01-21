@@ -561,9 +561,9 @@ public:
 		Count
 	};
 
-	static constexpr int kZombieClassOffset = 0x1c90;
-	static constexpr int kLifeStateOffset = 0x147;
-	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
+    static constexpr int kZombieClassOffset = 0x1c90;
+    static constexpr int kLifeStateOffset = 0x147;
+    static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 
 	// Aim-line friendly-fire guard (client-side fire suppression)
 	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
@@ -571,7 +571,18 @@ public:
 	bool m_AimLineHitsFriendly = false;           // updated from a ray trace (aim ray)
 	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
 	// Latch suppression while attack is held (prevents flicker causing intermittent firing).
-	bool m_FriendlyFireGuardLatched = false;
+    bool m_FriendlyFireGuardLatched = false;
+
+    // CTerrorPlayer netvars (from offsets.txt). These are used for a special-case in the
+    // friendly-fire aim guard: if the aim ray hits a teammate who is currently pinned/
+    // controlled, we allow a "see-through" trace to hit the attacker behind them.
+    // NOTE: These offsets can change between game builds.
+    static constexpr int kIsIncapacitatedOffset = 0x1EA9; // DT_TerrorPlayer::m_isIncapacitated
+    static constexpr int kTongueOwnerOffset     = 0x1F6C; // DT_TerrorPlayer::m_tongueOwner
+    static constexpr int kPummelAttackerOffset  = 0x2720; // DT_TerrorPlayer::m_pummelAttacker
+    static constexpr int kCarryAttackerOffset   = 0x2714; // DT_TerrorPlayer::m_carryAttacker
+    static constexpr int kPounceAttackerOffset  = 0x272C; // DT_TerrorPlayer::m_pounceAttacker
+    static constexpr int kJockeyAttackerOffset  = 0x274C; // DT_TerrorPlayer::m_jockeyAttacker
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
