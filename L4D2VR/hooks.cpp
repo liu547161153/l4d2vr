@@ -323,7 +323,7 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 	// NOTE: user request:
 	// - "倒地" (incapacitated) 不强制第三人称
 	// Keep other pinned/use/tongue states.
-	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction;
+	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -623,11 +623,24 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	bool renderThirdPerson = false;
 	if (m_VR->m_ThirdPersonDefault)
 	{
-		// Keep first-person only for explicitly handled cases where third-person is known to be problematic.
-		const bool explicitFirstPerson = playerReviving || hasViewEntityOverride;
-		renderThirdPerson = !explicitFirstPerson;
-		// When forcing default-3P, don't let stale hold-frames keep us stuck.
-		m_VR->m_ThirdPersonHoldFrames = 0;
+		// Policy: ONLY fall back to third-person when we're not in any explicitly-known first-person state.
+		// The bug we want to avoid: enabling ThirdPersonDefault shouldn't turn normal first-person gameplay
+		// (or "倒地" / incapacitated) into third-person rendering.
+		const bool isIncap = tpStateDbg.incap;
+		const bool explicitlyNormalFirstPerson =
+			!engineThirdPersonNow && !customWalkThirdPersonNow && !stateWantsThirdPerson && (m_VR->m_ThirdPersonHoldFrames <= 0);
+		// IMPORTANT:
+		// m_hViewEntity 通常表示引擎正在用 point_viewcontrol_survivor / 过场 / 固定机枪/机关等视角控制实体。
+		// 这种情况必须跟随引擎相机，否则会“过场没了/机关视角不对”。
+		if (hasViewEntityOverride)
+		{
+			renderThirdPerson = true;
+		}
+		else
+		{
+			const bool explicitFirstPerson = playerReviving || isIncap || explicitlyNormalFirstPerson;
+			renderThirdPerson = !explicitFirstPerson;
+		}
 	}
 	else
 	{
@@ -1390,7 +1403,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			cmd->viewangles = view;
 		}
 	}
-	
+
 	// Aim-line friendly-fire guard:
 	// Compute teammate hit at input-tick rate (CreateMove) and latch suppression until attack is released.
 	C_BasePlayer* ffLocalPlayer = nullptr;
