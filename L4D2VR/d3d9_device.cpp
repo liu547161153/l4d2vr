@@ -53,6 +53,29 @@ namespace
             return D3DMULTISAMPLE_NONE;
         }
     }
+
+    void NormalizeWindowedBackbufferSize(D3DPRESENT_PARAMETERS* pParameters, HWND window)
+    {
+        if (!pParameters || !pParameters->Windowed || window == nullptr)
+            return;
+
+        RECT clientRect = {};
+        if (!GetClientRect(window, &clientRect))
+            return;
+
+        const UINT width = clientRect.right > clientRect.left
+            ? static_cast<UINT>(clientRect.right - clientRect.left)
+            : 0u;
+        const UINT height = clientRect.bottom > clientRect.top
+            ? static_cast<UINT>(clientRect.bottom - clientRect.top)
+            : 0u;
+
+        if (width == 0 || height == 0)
+            return;
+
+        pParameters->BackBufferWidth = width;
+        pParameters->BackBufferHeight = height;
+    }
 }
 
 namespace dxvk {
@@ -380,10 +403,9 @@ namespace dxvk {
 
 
     HRESULT STDMETHODCALLTYPE D3D9DeviceEx::Reset(D3DPRESENT_PARAMETERS* pPresentationParameters) {
-        if (g_Game && g_Game->m_VR)
-        {
-            pPresentationParameters->BackBufferWidth = g_Game->m_VR->m_RenderWidth;
-            pPresentationParameters->BackBufferHeight = g_Game->m_VR->m_RenderHeight;
+        if (g_Game && pPresentationParameters) {
+            HWND wnd = pPresentationParameters->hDeviceWindow ? pPresentationParameters->hDeviceWindow : m_window;
+            NormalizeWindowedBackbufferSize(pPresentationParameters, wnd);
         }
 
         D3D9DeviceLock lock = LockDevice();
@@ -3758,6 +3780,11 @@ namespace dxvk {
         D3DPRESENT_PARAMETERS* pPresentationParameters,
         D3DDISPLAYMODEEX* pFullscreenDisplayMode) {
         D3D9DeviceLock lock = LockDevice();
+
+        if (g_Game && pPresentationParameters) {
+            HWND wnd = pPresentationParameters->hDeviceWindow ? pPresentationParameters->hDeviceWindow : m_window;
+            NormalizeWindowedBackbufferSize(pPresentationParameters, wnd);
+        }
 
         HRESULT hr = ResetSwapChain(pPresentationParameters, pFullscreenDisplayMode);
         if (FAILED(hr))
@@ -7549,6 +7576,11 @@ namespace dxvk {
 
 
     HRESULT D3D9DeviceEx::InitialReset(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode) {
+        if (g_Game && pPresentationParameters) {
+            HWND wnd = pPresentationParameters->hDeviceWindow ? pPresentationParameters->hDeviceWindow : m_window;
+            NormalizeWindowedBackbufferSize(pPresentationParameters, wnd);
+        }
+
         HRESULT hr = ResetSwapChain(pPresentationParameters, pFullscreenDisplayMode);
         if (FAILED(hr))
             return hr;
