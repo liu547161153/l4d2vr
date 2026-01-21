@@ -277,43 +277,6 @@ Option g_Options[] =
         0.8f, 1.2f,
         "1.0"
     },
-    // Performance / Threading
-    {
-        "RenderThreadViewMatrixFixEnabled",
-        OptionType::Bool,
-        { u8"Performance / Threading", u8"性能 / 多核渲染" },
-        { u8"Queued Rendering Camera Fix", u8"多核渲染相机修复" },
-        { u8"Enables a render-thread view-matrix fix so mat_queue_mode 2 (queued rendering) can be used safely.",
-          u8"启用渲染线程视图矩阵修复，使 mat_queue_mode 2（队列/多核渲染）可以更安全地使用。" },
-        { u8"If disabled, the mod will not force mat_queue_mode 2.",
-          u8"关闭后，模组不会强制开启 mat_queue_mode 2。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "RenderThreadViewMatrixFixMatrixModeIndex",
-        OptionType::Int,
-        { u8"Performance / Threading", u8"性能 / 多核渲染" },
-        { u8"ShaderApi MatrixMode VTable Index", u8"ShaderApi MatrixMode 虚表索引" },
-        { u8"Advanced override: vtable index for IShaderDynamicAPI::MatrixMode in shaderapidx9.",
-          u8"高级选项：shaderapidx9 中 IShaderDynamicAPI::MatrixMode 的虚表索引。" },
-        { u8"Set -1 for auto-probe. Only change if you know your engine branch indices.",
-          u8"设为 -1 表示自动探测。仅在你确定引擎分支索引时再改。" },
-        -1.0f, 80.0f,
-        "-1"
-    },
-    {
-        "RenderThreadViewMatrixFixLoadMatrixIndex",
-        OptionType::Int,
-        { u8"Performance / Threading", u8"性能 / 多核渲染" },
-        { u8"ShaderApi LoadMatrix VTable Index", u8"ShaderApi LoadMatrix 虚表索引" },
-        { u8"Advanced override: vtable index for IShaderDynamicAPI::LoadMatrix in shaderapidx9.",
-          u8"高级选项：shaderapidx9 中 IShaderDynamicAPI::LoadMatrix 的虚表索引。" },
-        { u8"Set -1 for auto-probe. Only change if you know your engine branch indices.",
-          u8"设为 -1 表示自动探测。仅在你确定引擎分支索引时再改。" },
-        -1.0f, 80.0f,
-        "-1"
-    },
     // Input / Turning
     {
         "LeftHanded",
@@ -325,6 +288,13 @@ Option g_Options[] =
         { u8"Toggle if you primarily aim with the left controller.",
           u8"如果主要用左手瞄准，请开启。" },
         0.0f, 0.0f,
+        "false"
+    },
+    {
+        "MoveDirectionFromController",
+        OptionType::Bool,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Controller determines the direction of movement", u8"手柄决定前进方向" },
         "false"
     },
     {
@@ -460,66 +430,6 @@ Option g_Options[] =
         "0.22,0.00,-0.18"
     },
     {
-        "MouseModeScopedViewmodelAnchorOffset",
-        OptionType::Vec3,
-        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
-        { u8"Scoped Viewmodel Anchor Offset (m)", u8"开镜 Viewmodel 锚点偏移 (米)" },
-        { u8"Alternate viewmodel anchor offset used while mouse-mode scope toggle is active.",
-          u8"键鼠模式开镜切换启用时使用的备用 viewmodel 锚点偏移。" },
-        { u8"Use this to shift the gun into an ADS-like position.",
-          u8"用于把枪移动到更像开镜/贴腮的位置。" },
-        -1.0f, 1.0f,
-        "0.22,0.00,-0.18"
-    },
-    {
-        "MouseModeScopeOverlayOffset",
-        OptionType::Vec3,
-        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
-        { u8"Scope Overlay Offset (HMD) (x,y,z)", u8"瞄准镜Overlay偏移(基于HMD)(x,y,z)" },
-        { u8"In mouse mode, anchors the scope overlay to the HMD tracking pose and applies this offset in tracking-space meters.",
-          u8"键鼠模式下，将瞄准镜Overlay挂到HMD追踪姿态上，并按追踪空间的米制偏移进行定位。" },
-        { u8"x=right, y=up, z=back (towards your face). Set non-zero to avoid the overlay disappearing.",
-          u8"x=右, y=上, z=向后(靠近脸)。设为非零可避免Overlay看不到。" },
-        -1.0f, 1.0f,
-        "0,0,0"
-    },
-    {
-        "MouseModeScopeToggleKey",
-        OptionType::String,
-        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
-        { u8"Scope Toggle Key", u8"开关瞄准镜快捷键" },
-        { u8"Keyboard shortcut to toggle ScopeRTT on/off in mouse mode (e.g. key:f9).",
-          u8"键鼠模式下开关 ScopeRTT 的快捷键（例如 key:f9）。" },
-        { u8"Format: key:<letter> or key:f1..f12. Empty disables.",
-          u8"格式：key:<字母> 或 key:f1..f12。留空禁用。" },
-        0.0f, 0.0f,
-        "key:f9"
-    },
-    {
-        "MouseModeScopeMagnificationKey",
-        OptionType::String,
-        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
-        { u8"Scope Magnification Key", u8"倍镜切换快捷键" },
-        { u8"Keyboard shortcut to cycle scope magnification while scope is active in mouse mode.",
-          u8"键鼠模式开镜时用于切换倍镜倍率的快捷键。" },
-        { u8"Format: key:<letter> or key:f1..f12. Empty disables.",
-          u8"格式：key:<字母> 或 key:f1..f12。留空禁用。" },
-        0.0f, 0.0f,
-        "key:f10"
-    },
-    {
-        "MouseModeScopeSensitivityScale",
-        OptionType::String,
-        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
-        { u8"Scope Sensitivity Scale (%)", u8"倍镜灵敏度缩放 (%)" },
-        { u8"Per-magnification mouse sensitivity scale (comma-separated, in %). First value is 1x.",
-          u8"按倍率分档的鼠标灵敏度缩放（逗号分隔，单位%），第一个对应1x。" },
-        { u8"Example: 100,85,70 for 1x/2x/4x. Missing entries repeat the last.",
-          u8"示例：100,85,70 表示 1x/2x/4x。缺失的档位将沿用最后一个值。" },
-        0.0f, 0.0f,
-        "100"
-    },
-    {
         "MouseModeAimConvergeDistance",
         OptionType::Float,
         { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
@@ -542,44 +452,6 @@ Option g_Options[] =
           u8"非自己建房多必须开启。" },
         0.0f, 0.0f,
         "false"
-    },
-
-    // Mouse mode (desktop-style input while staying in VR rendering)
-    {
-        "MouseModeEnabled",
-        OptionType::Bool,
-        { u8"Mouse Mode", u8"鼠标模式" },
-        { u8"Enable Mouse Mode", u8"启用鼠标模式" },
-        { u8"Enables a desktop-style mouse/keyboard input scheme while keeping VR rendering.",
-          u8"启用桌面式键鼠输入方案，但仍保持VR渲染。" },
-        { u8"Mouse X drives body yaw (turning). Mouse Y behavior is controlled by MouseModePitchAffectsView.",
-          u8"鼠标X控制身体水平转向；鼠标Y的行为由 MouseModePitchAffectsView 决定。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "MouseModeAimFromHmd",
-        OptionType::Bool,
-        { u8"Mouse Mode", u8"鼠标模式" },
-        { u8"Aim From HMD", u8"瞄准跟随头显" },
-        { u8"When enabled, aiming uses the HMD/view center ray instead of the mouse-derived aim direction.",
-          u8"开启后，瞄准方向使用头显/视线中心射线，而不是由鼠标推导的瞄准方向。" },
-        { u8"Turning remains controlled by the mouse. The aim line origin stays at the mouse-mode viewmodel anchor (it is NOT moved to the HMD).",
-          u8"转向仍由鼠标控制；瞄准线起点仍在鼠标模式的武器锚点（不会把瞄准线挪到头显上）。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "MouseModeHmdAimSensitivity",
-        OptionType::Float,
-        { u8"Mouse Mode", u8"鼠标模式" },
-        { u8"HMD Aim Sensitivity", u8"HMD 瞄准灵敏度" },
-        { u8"When MouseModeAimFromHmd is enabled, scales how much head rotation affects the aim direction (1.0 = 1:1).",
-          u8"当开启 MouseModeAimFromHmd 时，用于缩放头部转动对瞄准方向的影响（1.0 表示 1:1）。" },
-        { u8"0 freezes aim at the moment HMD aiming becomes active; >1 amplifies head movement.",
-          u8"0 表示锁定为开启 HMD 瞄准时的方向；>1 会放大头部转动。" },
-        0.0f, 3.0f,
-        "1.0"
     },
 
     // HUD (Main)
@@ -621,6 +493,15 @@ Option g_Options[] =
     },
 
     // HUD (Controller)
+    {
+        "ControllerHudCut",
+        OptionType::Bool,
+        { u8"HUD (Controller)", u8"HUD（手柄）" },
+        { u8"HUD clipping", u8"HUD裁切" },
+        { u8"cutting the HUD at the bottom-left and bottom-right corners to the controllers.",
+          u8"将左下角和右下角的hud裁切到手柄。" },
+        "false"
+     },
     {
         "ControllerHudSize",
         OptionType::Float,
@@ -702,7 +583,7 @@ Option g_Options[] =
           u8"需要按住副攻击键才切换物品，避免误触。" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "true"
+        "false"
     },
     {
         "VoiceRecordCombo",
@@ -811,19 +692,6 @@ Option g_Options[] =
         30.f, 180.f,
         "90"
     },
-    // Scope
-    {
-        "ScopeAimSensitivityScale",
-        OptionType::String,
-        { u8"Scope", u8"瞄准镜" },
-        { u8"Scoped Aim Sensitivity Scale", u8"开镜灵敏度缩放" },
-        { u8"Scales controller aim while scope is active (ADS / zoom sensitivity).",
-          u8"瞄准镜触发时按比例降低手柄瞄准灵敏度（类似开镜灵敏度）。" },
-        { u8"Accepts 0~1 or 0~100; comma list matches ScopeMagnification order.",
-          u8"支持 0~1 或 0~100；也支持逗号列表，对应 ScopeMagnification 的档位顺序。" },
-        0.0f, 0.0f,
-        "100"
-    },
 
     // Motion Gestures
     {
@@ -887,11 +755,11 @@ Option g_Options[] =
         "InventoryGestureRange",
         OptionType::Float,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Inventory Gesture Range", u8"物品手势触发距离" },
-        { u8"How far the hand can move from the body to trigger inventory gestures (meters).",
-          u8"手部离身体多远触发物品手势（米）。" },
-        { u8"0.15~0.35 works for most arm lengths.",
-          u8"0.15~0.35 适合大多数身材。" },
+        { u8"Inventory Gesture Activation Range", u8"道具锚点抓取的有效范围" },
+        { u8"Distance from the inventory anchor within which grabbing is allowed (meters).",
+          u8"手部靠近道具栏多近时，允许触发物品抓取（米）。" },
+        { u8"Grab is triggered by pressing the grip when the hand is inside this range.",
+          u8"手进入范围后按下握键即可抓取道具。" },
         0.1f, 0.5f,
         "0.16"
     },
@@ -899,11 +767,11 @@ Option g_Options[] =
         "InventoryChestOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Chest Anchor Offset (x,y,z)", u8"胸前锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to chest anchor in meters.",
-          u8"从头部到胸前锚点的米制偏移。" },
-        { u8"Adjust per body size. Positive X = forward.",
-          u8"根据体型调整。X 正为前方。" },
+        { u8"Chest Anchor Offset (x,y,z)", u8"医疗包锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the medkit anchor (meters).",
+          u8"从胸口基准点到医疗包锚点的米制偏移。" },
+        { u8"Default position is directly in front of the head, centered.",
+          u8"默认位于头顶正前方中央位置。" },
         -0.6f, 0.6f,
         "0.20,0.0,-0.20"
     },
@@ -911,10 +779,11 @@ Option g_Options[] =
         "InventoryBackOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Back Anchor Offset (x,y,z)", u8"背部锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to back anchor in meters.",
-          u8"从头部到背部锚点的米制偏移。" },
-        { u8"", u8"" },
+        { u8"Weapon Switch Anchor Offset (x,y,z)", u8"主/副武器切换锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the weapon switch anchor (meters).",
+          u8"从胸口基准点到武器切换锚点的米制偏移。" },
+        { u8"By default, this anchor is still located at the chest.",
+          u8"默认仍位于胸口位置。" },
         -0.6f, 0.6f,
         "-0.25,0.0,-0.10"
     },
@@ -922,10 +791,11 @@ Option g_Options[] =
         "InventoryLeftWaistOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Left Waist Anchor Offset (x,y,z)", u8"左腰锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to left waist anchor in meters.",
-          u8"从头部到左腰锚点的米制偏移。" },
-        { u8"", u8"" },
+        { u8"Left Waist Anchor Offset (x,y,z)", u8"投掷物锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the throwable item anchor (meters).",
+          u8"从胸口基准点到投掷物锚点的米制偏移。" },
+        { u8"Default position is in front of the head, to the left.",
+          u8"默认位于头顶左前方区域。" },
         -0.6f, 0.6f,
         "0.05,-0.25,-0.50"
     },
@@ -933,10 +803,11 @@ Option g_Options[] =
         "InventoryRightWaistOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Right Waist Anchor Offset (x,y,z)", u8"右腰锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to right waist anchor in meters.",
-          u8"从头部到右腰锚点的米制偏移。" },
-        { u8"", u8"" },
+        { u8"Right Waist Anchor Offset (x,y,z)", u8"药片/兴奋剂锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the pills/adrenaline anchor (meters).",
+          u8"从胸口基准点到药片/兴奋剂锚点的米制偏移。" },
+        { u8"Default position is in front of the head, to the right.",
+          u8"默认位于头顶右前方区域。" },
         -0.6f, 0.6f,
         "0.05,0.25,-0.50"
     },
@@ -944,10 +815,208 @@ Option g_Options[] =
         "ShowInventoryAnchors",
         OptionType::Bool,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Draw the item-switching grab zone.", u8"绘制道具切换区域" },
+        { u8"Show Inventory Grab Zones",
+          u8"显示道具栏抓取区域（不熟悉位置时建议开启）" },
+        { u8"Draws visible grab zones for inventory anchors.",
+          u8"在世界中绘制可视化的道具栏抓取区域。" },
+        { u8"Recommended for learning anchor positions; can be disabled once familiar.",
+          u8"熟悉各锚点位置后可关闭以减少视觉干扰。" },
+        0.0f, 0.0f,
         "false"
-   },
-
+    },
+       // Optics (Scope / Rear Mirror)
+    {
+        "ScopeEnabled",
+        OptionType::Bool,
+        { u8"Optics", u8"光学" },
+        { u8"Enable Gun Scope", u8"启用枪械瞄准镜" },
+        { u8"Renders a gun-mounted scope view to an overlay.",
+          u8"将枪械瞄准镜画面渲染到一个覆盖层上。" },
+        { u8"If disabled, scope rendering and overlay are skipped.",
+          u8"关闭后将不再渲染瞄准镜及其覆盖层。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "ScopeRTTSize",
+        OptionType::Int,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Render Texture Size", u8"瞄准镜渲染分辨率" },
+        { u8"Render target size (pixels) for the scope view.",
+          u8"瞄准镜画面渲染目标尺寸（像素）。" },
+        { u8"Higher is sharper but costs more GPU time.",
+          u8"越高越清晰，但GPU开销更大。" },
+        128.f, 1024.f,
+        "512"
+    },
+    {
+        "ScopeFov",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Field of View", u8"瞄准镜视野(FOV)" },
+        { u8"Camera FOV used when rendering through the scope (degrees).",
+          u8"瞄准镜渲染相机使用的视野角（度）。" },
+        { u8"Smaller FOV = higher magnification.",
+          u8"FOV 越小 = 倍率越高。" },
+        5.0f, 45.0f,
+        "30"
+    },
+    {
+        "ScopeMagnification",
+        OptionType::String,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Magnification Steps (FOV list)", u8"瞄准镜倍率档位（FOV列表）" },
+        { u8"Comma-separated list of scope FOV values used as toggle steps.SteamVR button binding to toggle Scope Magnification.",
+          u8"用逗号分隔的一组瞄准镜FOV，用于切换倍率档位。Steamvr按键绑定选择Toggle Scope Magnification使用" },
+        { u8"Example: 20,15,10,5. Values are clamped to 5~45.",
+          u8"示例：20,15,10,5。数值会被限制在 5~45。" },
+        0.0f, 0.0f,
+        "20,15,10,5"
+    },
+    {
+        "ScopeAimSensitivityScale",
+        OptionType::String,
+        { u8"Scope", u8"瞄准镜" },
+        { u8"Scoped Aim Sensitivity Scale", u8"开镜灵敏度缩放" },
+        { u8"Scales controller aim delta when scope is active (ADS / zoom sensitivity).",
+          u8"瞄准镜触发时按比例降低手柄瞄准灵敏度（类似开镜灵敏度）。" },
+        { u8"Accepts 0~1 or 0~100; supports comma list matching ScopeMagnification.",
+          u8"支持 0~1 或 0~100；也支持逗号列表，对应 ScopeMagnification 的档位顺序。" },
+        0.0f, 0.0f,
+        "100,100,100,100"
+     },
+    {
+        "ScopeZNear",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Camera Near Plane", u8"瞄准镜近裁剪面" },
+        { u8"Near clip distance for the scope camera.",
+          u8"瞄准镜相机的近裁剪距离。" },
+        { u8"Increase if the scope camera clips through nearby geometry.",
+          u8"如果近处几何体被裁剪/穿模，可适当调大。" },
+        0.1f, 6.0f,
+        "2"
+    },
+    {
+        "ScopeOverlayWidthMeters",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Overlay Width", u8"瞄准镜覆盖层宽度" },
+        { u8"Physical width of the scope overlay quad (meters).",
+          u8"瞄准镜覆盖层平面的物理宽度（米）。" },
+        { u8"Adjust to match your scope model size.",
+          u8"调到与瞄准镜模型大小一致即可。" },
+        0.01f, 0.3f,
+        "0.15"
+    },
+    {
+        "ScopeOverlayXOffset",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Overlay X Offset", u8"瞄准镜覆盖层X偏移" },
+        { u8"Overlay offset along controller forward axis (meters).",
+          u8"覆盖层沿控制器前方轴的偏移（米）。" },
+        { u8"Positive moves it forward.",
+          u8"正数更靠前。" },
+        -0.1f, 0.1f,
+        "0.02"
+    },
+    {
+        "ScopeOverlayYOffset",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Overlay Y Offset", u8"瞄准镜覆盖层Y偏移" },
+        { u8"Overlay offset along controller right axis (meters).",
+          u8"覆盖层沿控制器右侧轴的偏移（米）。" },
+        { u8"Positive moves it to the right.",
+          u8"正数更靠右。" },
+        -0.1f, 0.1f,
+        "0.04"
+    },
+    {
+        "ScopeOverlayZOffset",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Overlay Z Offset", u8"瞄准镜覆盖层Z偏移" },
+        { u8"Overlay offset along controller up axis (meters).",
+          u8"覆盖层沿控制器上方轴的偏移（米）。" },
+        { u8"Positive moves it up.",
+          u8"正数更靠上。" },
+        -0.1f, 0.1f,
+        "-0.06"
+    },
+    {
+        "ScopeOverlayAngleOffset",
+        OptionType::Vec3,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Overlay Angle Offset (pitch,yaw,roll)", u8"瞄准镜覆盖层角度偏移 (俯仰,偏航,翻滚)" },
+        { u8"Additional rotation for the scope overlay quad (degrees).",
+          u8"瞄准镜覆盖层平面的额外旋转（度）。" },
+        { u8"Use this to make the scope face your eye correctly.",
+          u8"用于让瞄准镜平面正确朝向眼睛。" },
+        -180.f, 180.f,
+        "-65,-5,-5"
+    },
+    {
+        "ScopeRequireLookThrough",
+        OptionType::Bool,
+        { u8"Optics", u8"光学" },
+        { u8"Require Looking Through Scope", u8"需要贴近瞄准镜才显示" },
+        { u8"Only shows the scope overlay when your eye is close and aligned.",
+          u8"仅在眼睛靠近并对准时才显示瞄准镜覆盖层。" },
+        { u8"Disabling makes the overlay always visible (useful for testing).",
+          u8"关闭后覆盖层总显示（便于调试）。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "ScopeLookThroughDistanceMeters",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Look-Through Distance", u8"贴近距离" },
+        { u8"Max eye-to-scope distance to count as looking through (meters).",
+          u8"眼睛到瞄准镜的最大距离（米），小于该值才算在看镜。" },
+        { u8"Larger is more forgiving.",
+          u8"越大越宽松。" },
+        0.01f, 2.0f,
+        "0.5"
+    },
+    {
+        "ScopeLookThroughAngleDeg",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Look-Through Angle", u8"贴近角度" },
+        { u8"Max angle off the scope axis to count as looking through (degrees).",
+          u8"视线偏离瞄准镜轴线的最大角度（度）。" },
+        { u8"Smaller is stricter; larger is more forgiving.",
+          u8"越小越严格，越大越宽松。" },
+        1.0f, 89.0f,
+        "60"
+    },
+    {
+        "ScopeOverlayAlwaysVisible",
+        OptionType::Bool,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Overlay Always Visible", u8"瞄准镜覆盖层始终可见" },
+        { u8"Keeps the scope overlay visible even when not looking through.",
+          u8"即使没有贴近瞄准镜，也保持覆盖层可见。" },
+        { u8"Useful for aligning/previewing the overlay.",
+          u8"用于对齐/预览覆盖层位置。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "ScopeOverlayIdleAlpha",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Idle Alpha", u8"瞄准镜闲置透明度" },
+        { u8"Overlay alpha when not looking through (0~1).",
+          u8"未贴近时覆盖层透明度（0~1）。" },
+        { u8"0 = invisible, 1 = fully opaque.",
+          u8"0=完全透明，1=完全不透明。" },
+        0.0f, 1.0f,
+        "0.5"
+    },
     // Custom Actions
     {
         "CustomAction1Command",
@@ -1000,248 +1069,6 @@ Option g_Options[] =
         { u8"", u8"" },
         0.0f, 0.0f,
         ""
-    },
-
-    // Special Infected Assist
-    {
-        "SpecialInfectedPreWarningDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Pre-Warning Distance", u8"特感预警距离" },
-        { u8"Triggers warning/auto-aim logic when within this range (units).",
-          u8"特感进入此距离时触发预警/辅助（游戏单位）。" },
-        { u8"Extend for more reaction time; shorten to reduce assists.",
-          u8"想要更长反应时间可调大，想少辅助可调小。" },
-        300.0f, 1200.0f,
-        "850.0"
-    },
-    {
-        "SpecialInfectedPreWarningAutoAimEnabled",
-        OptionType::Bool,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Enable Pre-Warning Auto Aim", u8"启用预警自动瞄准" },
-        { u8"Allows the pre-warning system to gently steer aim toward threats.",
-          u8"允许预警系统轻微引导瞄准至威胁目标。" },
-        { u8"Disable for pure warnings only.",
-          u8"若只想要预警，可关闭。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "SpecialInfectedAutoAimLerp",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Auto Aim Lerp", u8"自动瞄准插值" },
-        { u8"How quickly auto aim blends toward the target (0 = off).",
-          u8"自动瞄准向目标插值的速度（0 表示关闭）。" },
-        { u8"Kept within the in-game clamp of 0~0.3.",
-          u8"与游戏内限制一致（0~0.3）。" },
-        0.0f, 0.3f,
-        "0.3"
-    },
-    {
-        "SpecialInfectedAutoAimCooldown",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Auto Aim Cooldown", u8"自动瞄准冷却" },
-        { u8"Minimum seconds between auto-aim assists.",
-          u8"两次自动瞄准辅助之间的最小秒数。" },
-        { u8"Game enforces at least 0.5s.",
-          u8"游戏最少强制 0.5 秒。" },
-        0.5f, 2.0f,
-        "0.5"
-    },
-    {
-        "SpecialInfectedPreWarningAimAngle",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Aim Assist Angle", u8"瞄准辅助角度" },
-        { u8"Maximum angular offset allowed for auto-aim to engage.",
-          u8"自动瞄准可介入的最大角度偏移。" },
-        { u8"Clamped by game to 0~10 degrees.",
-          u8"游戏会限制在 0~10 度。" },
-        0.0f, 10.0f,
-        "5.0"
-    },
-    {
-        "SpecialInfectedPreWarningAimSnapDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Aim Snap Distance", u8"瞄准锁定距离" },
-        { u8"Distance at which aim lock starts (units).",
-          u8"开始瞄准锁定的距离（游戏单位）。" },
-        { u8"Kept within game clamp 0~20.",
-          u8"遵循游戏 0~20 的限制。" },
-        0.0f, 20.0f,
-        "18.0"
-    },
-    {
-        "SpecialInfectedPreWarningAimReleaseDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Aim Release Distance", u8"瞄准释放距离" },
-        { u8"Distance where auto aim stops (>= snap distance).",
-          u8"自动瞄准停止的距离（需 ≥ 锁定距离）。" },
-        { u8"Game clamps to 0~30.",
-          u8"游戏限制 0~30。" },
-        0.0f, 30.0f,
-        "28.0"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetBoomer",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Boomer Aim Offset (x,y,z)", u8"胖子瞄准偏移 (x,y,z)" },
-        { u8"Offset applied when auto-aiming at a Boomer (units).",
-          u8"自动瞄准胖子时的偏移量（游戏单位）。" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,40"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetSmoker",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Smoker Aim Offset (x,y,z)", u8"烟鬼瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "3,0,42"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetHunter",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Hunter Aim Offset (x,y,z)", u8"猎人瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,20"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetSpitter",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Spitter Aim Offset (x,y,z)", u8"口水瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "3,0,42"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetJockey",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Jockey Aim Offset (x,y,z)", u8"猴子瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "10,0,20"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetCharger",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Charger Aim Offset (x,y,z)", u8"牛子瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "3,0,48"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetTank",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Tank Aim Offset (x,y,z)", u8"坦克瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,45"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetWitch",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Witch Aim Offset (x,y,z)", u8"妹子瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,25"
-    },
-
-    // Mouse Mode (Desktop aiming in VR)
-    {
-        "MouseModeScopeToggleImpulse",
-        OptionType::Int,
-        { u8"Mouse Mode", u8"鼠标模式" },
-        { u8"Scope Toggle Impulse", u8"开镜切换 Impulse" },
-        { u8"When Mouse Mode is enabled, this CUserCmd impulse value toggles the mouse-mode scope state.",
-          u8"开启鼠标模式时，该 CUserCmd impulse 数值将切换鼠标模式的开镜状态。" },
-        { u8"Bind a key in console, e.g.: bind q \"impulse 202\". Set 0 to disable.",
-          u8"可在控制台绑定按键，例如：bind q \"impulse 202\"。设为 0 则禁用。" },
-        0.f, 255.f,
-        "202"
-    },
-    {
-        "MouseModeScopeMagnificationImpulse",
-        OptionType::Int,
-        { u8"Mouse Mode", u8"鼠标模式" },
-        { u8"Scope Magnification Impulse", u8"镜倍切换 Impulse" },
-        { u8"When mouse-mode scope is active, this CUserCmd impulse cycles scope magnification.",
-          u8"鼠标模式开镜激活时，该 CUserCmd impulse 将循环切换瞄准镜倍率。" },
-        { u8"Bind a key in console, e.g.: bind z \"impulse 203\". Set 0 to disable.",
-          u8"可在控制台绑定按键，例如：bind z \"impulse 203\"。设为 0 则禁用。" },
-        0.f, 255.f,
-        "203"
-    },
-
-    // Rear mirror
-    {
-        "RearMirrorFlipHorizontal",
-        OptionType::Bool,
-        { u8"Rear Mirror", u8"后视镜" },
-        { u8"Flip Rear Mirror Horizontally", u8"后视镜左右翻转" },
-        { u8"Mirrors the rear-mirror texture left/right.",
-          u8"将后视镜画面做左右镜像翻转。" },
-        { u8"Useful if the mirror feels backward.",
-          u8"觉得画面方向别扭时开启。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "RearMirrorHideWhenAimLineHits",
-        OptionType::Bool,
-        { u8"Rear Mirror", u8"后视镜" },
-        { u8"Hide When Aim Line Hits", u8"瞄准线碰到时隐藏" },
-        { u8"Auto-hides the rear mirror when your aim line would pass through it.",
-          u8"当瞄准线会穿过后视镜时自动隐藏，避免遮挡瞄准视线。" },
-        { u8"Useful if you keep the mirror near the weapon/center view.",
-          u8"后视镜靠近枪口/视线中心时很有用。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "RearMirrorAimLineHideHoldSeconds",
-        OptionType::Float,
-        { u8"Rear Mirror", u8"后视镜" },
-        { u8"Aim-Line Hide Hold (sec)", u8"隐藏保持时间(秒)" },
-        { u8"How long to keep the mirror hidden after a hit, to reduce flicker.",
-          u8"命中后视镜后保持隐藏的时间，用于减少边缘抖动/闪烁。" },
-        { u8"0.05~0.15 is usually enough.",
-          u8"通常 0.05~0.15 就够了。" },
-        0.0f, 1.0f,
-        "0.08"
-    },
-    {
-        "RearMirrorSpecialWarningDistance",
-        OptionType::Float,
-        { u8"Rear Mirror", u8"后视镜" },
-        { u8"Special Warning Distance", u8"特感警示距离" },
-        { u8"Enlarge the rear mirror when special-infected arrows are visible within this distance.",
-          u8"当后视镜中可见特感箭头且距离在此范围内时放大后视镜。" },
-        { u8"Set <= 0 to disable.", u8"设为 <= 0 以禁用。" },
-        0.0f, 2000.0f,
-        "180.0"
     }
 };
 
