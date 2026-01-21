@@ -477,6 +477,8 @@ namespace dxvk {
         if (unlikely(ppTexture == nullptr))
             return D3DERR_INVALIDCALL;
 
+        D3D9DeviceLock lock = LockDevice();
+
         D3D9_COMMON_TEXTURE_DESC desc;
         desc.Width = Width;
         desc.Height = Height;
@@ -530,37 +532,43 @@ namespace dxvk {
                 {
                     textureTarget = &g_Game->m_VR->m_VKLeftEye;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9LeftEyeSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9LeftEyeSurface, &texDesc);
+                    if (g_D3DVR9)
+                        g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9LeftEyeSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_RightEye)
                 {
                     textureTarget = &g_Game->m_VR->m_VKRightEye;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9RightEyeSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RightEyeSurface, &texDesc);
+                    if (g_D3DVR9)
+                        g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RightEyeSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_HUD)
                 {
                     textureTarget = &g_Game->m_VR->m_VKHUD;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9HUDSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9HUDSurface, &texDesc);
+                    if (g_D3DVR9)
+                        g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9HUDSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_Scope)
                 {
                     textureTarget = &g_Game->m_VR->m_VKScope;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9ScopeSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9ScopeSurface, &texDesc);
+                    if (g_D3DVR9)
+                        g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9ScopeSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_RearMirror)
                 {
                     textureTarget = &g_Game->m_VR->m_VKRearMirror;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9RearMirrorSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RearMirrorSurface, &texDesc);
+                    if (g_D3DVR9)
+                        g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RearMirrorSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_Blank)
                 {
                     textureTarget = &g_Game->m_VR->m_VKBlankTexture;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9BlankSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9BlankSurface, &texDesc);
+                    if (g_D3DVR9)
+                        g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9BlankSurface, &texDesc);
                 }
 
                 memcpy(&textureTarget->m_VulkanData, &texDesc, sizeof(vr::VRVulkanTextureData_t));
@@ -592,6 +600,8 @@ namespace dxvk {
 
         if (unlikely(ppVolumeTexture == nullptr))
             return D3DERR_INVALIDCALL;
+
+        D3D9DeviceLock lock = LockDevice();
 
         if (pSharedHandle)
             Logger::err("CreateVolumeTexture: Shared volume textures not supported");
@@ -641,6 +651,8 @@ namespace dxvk {
         if (unlikely(ppCubeTexture == nullptr))
             return D3DERR_INVALIDCALL;
 
+        D3D9DeviceLock lock = LockDevice();
+
         if (pSharedHandle)
             Logger::err("CreateCubeTexture: Shared cube textures not supported");
 
@@ -688,6 +700,8 @@ namespace dxvk {
         if (unlikely(ppVertexBuffer == nullptr))
             return D3DERR_INVALIDCALL;
 
+        D3D9DeviceLock lock = LockDevice();
+
         if (pSharedHandle)
             Logger::err("CreateVertexBuffer: Shared vertex buffers not supported");
 
@@ -726,6 +740,8 @@ namespace dxvk {
 
         if (unlikely(ppIndexBuffer == nullptr))
             return D3DERR_INVALIDCALL;
+
+        D3D9DeviceLock lock = LockDevice();
 
         if (pSharedHandle)
             Logger::err("CreateIndexBuffer: Shared index buffers not supported");
@@ -2327,6 +2343,8 @@ namespace dxvk {
 
 
     HRESULT STDMETHODCALLTYPE D3D9DeviceEx::SetTexture(DWORD Stage, IDirect3DBaseTexture9* pTexture) {
+        D3D9DeviceLock lock = LockDevice();
+
         if (unlikely(InvalidSampler(Stage)))
             return D3D_OK;
 
@@ -2340,6 +2358,8 @@ namespace dxvk {
         DWORD                    Stage,
         D3DTEXTURESTAGESTATETYPE Type,
         DWORD* pValue) {
+        D3D9DeviceLock lock = LockDevice();
+
         auto dxvkType = RemapTextureStageStateType(Type);
 
         if (unlikely(pValue == nullptr))
@@ -2362,6 +2382,8 @@ namespace dxvk {
         DWORD                    Stage,
         D3DTEXTURESTAGESTATETYPE Type,
         DWORD                    Value) {
+        D3D9DeviceLock lock = LockDevice();
+
         return SetStateTextureStageState(Stage, RemapTextureStageStateType(Type), Value);
     }
 
@@ -2392,6 +2414,8 @@ namespace dxvk {
         DWORD               Sampler,
         D3DSAMPLERSTATETYPE Type,
         DWORD               Value) {
+        D3D9DeviceLock lock = LockDevice();
+
         if (unlikely(InvalidSampler(Sampler)))
             return D3D_OK;
 
@@ -3555,6 +3579,8 @@ namespace dxvk {
         const RGNDATA* pDirtyRegion,
         DWORD dwFlags) {
 
+        D3D9DeviceLock lock = LockDevice();
+
         HRESULT result = m_implicitSwapchain->Present(
             pSourceRect,
             pDestRect,
@@ -3567,7 +3593,8 @@ namespace dxvk {
             ResolveImage(GetCommonTexture(g_Game->m_VR->m_D9RightEyeSurface));
         }
 
-        g_D3DVR9->WaitDeviceIdle();
+        if (g_D3DVR9)
+            g_D3DVR9->WaitDeviceIdle();
 
         if (g_Game && g_Game->m_VR)
         {
@@ -3592,6 +3619,8 @@ namespace dxvk {
 
         if (unlikely(ppSurface == nullptr))
             return D3DERR_INVALIDCALL;
+
+        D3D9DeviceLock lock = LockDevice();
 
         D3D9_COMMON_TEXTURE_DESC desc;
         desc.Width = Width;
@@ -3636,6 +3665,8 @@ namespace dxvk {
 
         if (unlikely(ppSurface == nullptr))
             return D3DERR_INVALIDCALL;
+
+        D3D9DeviceLock lock = LockDevice();
 
         D3D9_COMMON_TEXTURE_DESC desc;
         desc.Width = Width;
