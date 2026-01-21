@@ -4039,15 +4039,83 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     ray.Init(origin, end);
     m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
 
-    C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
-    if (hitEnt && hitEnt != localPlayer && hitEnt->IsPlayer() != nullptr)
+    auto hasValidHandle = [](uint32_t h) -> bool
     {
-        const unsigned char* myBase = reinterpret_cast<const unsigned char*>(localPlayer);
-        const unsigned char* hitBase = reinterpret_cast<const unsigned char*>(hitEnt);
-        const int myTeam = *reinterpret_cast<const int*>(myBase + kTeamNumOffset);
-        const int hitTeam = *reinterpret_cast<const int*>(hitBase + kTeamNumOffset);
-        if (myTeam != 0 && myTeam == hitTeam && IsEntityAlive(hitEnt))
-            m_AimLineHitsFriendly = true;
+        // EHANDLE / CBaseHandle is invalid when 0 or 0xFFFFFFFF (common patterns across Source builds).
+        return h != 0u && h != 0xFFFFFFFFu;
+    };
+
+    auto isPinnedOrControlledTeammate = [&](C_BaseEntity* ent) -> bool
+    {
+        if (!ent)
+            return false;
+
+        const unsigned char* base = reinterpret_cast<const unsigned char*>(ent);
+        const bool incapacitated = (*reinterpret_cast<const unsigned char*>(base + kIsIncapacitatedOffset)) != 0;
+
+        const uint32_t tongueOwner    = *reinterpret_cast<const uint32_t*>(base + kTongueOwnerOffset);
+        const uint32_t pummelAttacker = *reinterpret_cast<const uint32_t*>(base + kPummelAttackerOffset);
+        const uint32_t carryAttacker  = *reinterpret_cast<const uint32_t*>(base + kCarryAttackerOffset);
+        const uint32_t pounceAttacker = *reinterpret_cast<const uint32_t*>(base + kPounceAttackerOffset);
+        const uint32_t jockeyAttacker = *reinterpret_cast<const uint32_t*>(base + kJockeyAttackerOffset);
+
+        return incapacitated
+            || hasValidHandle(tongueOwner)
+            || hasValidHandle(pummelAttacker)
+            || hasValidHandle(carryAttacker)
+            || hasValidHandle(pounceAttacker)
+            || hasValidHandle(jockeyAttacker);
+    };
+
+    auto isSameTeamAlivePlayer = [&](C_BaseEntity* a, C_BaseEntity* b) -> bool
+    {
+        if (!a || !b)
+            return false;
+        if (b->IsPlayer() == nullptr)
+            return false;
+
+        const unsigned char* aBase = reinterpret_cast<const unsigned char*>(a);
+        const unsigned char* bBase = reinterpret_cast<const unsigned char*>(b);
+        const int aTeam = *reinterpret_cast<const int*>(aBase + kTeamNumOffset);
+        const int bTeam = *reinterpret_cast<const int*>(bBase + kTeamNumOffset);
+        return (aTeam != 0 && aTeam == bTeam && IsEntityAlive(b));
+    };
+
+    C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
+    if (hitEnt && hitEnt != localPlayer && isSameTeamAlivePlayer(localPlayer, hitEnt))
+    {
+        // Default behavior: block when the aim ray hits a teammate.
+        bool friendlyHit = true;
+
+        // Special-case: if the teammate is currently pinned/controlled, attempt a second trace
+        // that ignores that teammate. If we hit a valid non-teammate behind them, allow firing
+        // so the user can shoot the attacker to free the teammate.
+        if (isPinnedOrControlledTeammate(hitEnt))
+        {
+            CGameTrace trace2;
+            Ray_t ray2;
+            CTraceFilterSkipTwoEntities tracefilter2((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, 0);
+            ray2.Init(origin, end);
+            m_Game->m_EngineTrace->TraceRay(ray2, STANDARD_TRACE_MASK, &tracefilter2, &trace2);
+
+            C_BaseEntity* hitEnt2 = reinterpret_cast<C_BaseEntity*>(trace2.m_pEnt);
+            if (hitEnt2 && hitEnt2 != localPlayer)
+            {
+                const unsigned char* myBase = reinterpret_cast<const unsigned char*>(localPlayer);
+                const unsigned char* hitBase2 = reinterpret_cast<const unsigned char*>(hitEnt2);
+                const int myTeam = *reinterpret_cast<const int*>(myBase + kTeamNumOffset);
+                const int hitTeam2 = *reinterpret_cast<const int*>(hitBase2 + kTeamNumOffset);
+
+                const bool isOtherTeamPlayer =
+                    (hitEnt2->IsPlayer() != nullptr) && (myTeam != 0 && hitTeam2 != 0 && hitTeam2 != myTeam);
+                const bool isAliveNPC = (hitEnt2->IsNPC() != nullptr) && IsEntityAlive(hitEnt2);
+
+                if (isOtherTeamPlayer || isAliveNPC)
+                    friendlyHit = false;
+            }
+        }
+
+        m_AimLineHitsFriendly = friendlyHit;
     }
 
     return m_AimLineHitsFriendly;

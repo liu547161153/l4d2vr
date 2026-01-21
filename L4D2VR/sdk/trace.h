@@ -210,10 +210,10 @@ public:
 class CTraceFilterSkipSelf : public CTraceFilter
 {
 public:
-	CTraceFilterSkipSelf(IHandleEntity* passentity, int collisionGroup)
-		: CTraceFilter(passentity, collisionGroup)
-	{
-	}
+    CTraceFilterSkipSelf(IHandleEntity* passentity, int collisionGroup)
+        : CTraceFilter(passentity, collisionGroup)
+    {
+    }
 
 	virtual bool ShouldHitEntity(IHandleEntity* pServerEntity, int contentsMask)
 	{
@@ -224,7 +224,33 @@ public:
 			return false;
 
 		return true;
-	}
+    }
+};
+
+// Skip two specific entities (typically the local player + one more).
+// Useful when you want to "see through" a teammate hit to find what is behind them.
+class CTraceFilterSkipTwoEntities : public CTraceFilter
+{
+public:
+    CTraceFilterSkipTwoEntities(IHandleEntity* passentity, IHandleEntity* skipentity, int collisionGroup)
+        : CTraceFilter(passentity, collisionGroup)
+        , m_pSkipEnt(skipentity)
+    {
+    }
+
+    virtual bool ShouldHitEntity(IHandleEntity* pServerEntity, int contentsMask)
+    {
+        if (!pServerEntity)
+            return true;
+
+        if (m_pPassEnt == pServerEntity || m_pSkipEnt == pServerEntity)
+            return false;
+
+        return true;
+    }
+
+private:
+    IHandleEntity* m_pSkipEnt;
 };
 
 class CTraceFilterSkipNPCsAndEntity : public CTraceFilter
