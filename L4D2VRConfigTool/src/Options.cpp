@@ -358,6 +358,18 @@ Option g_Options[] =
         "false"
     },
     {
+        "MouseModeAimFromHmd",
+        OptionType::Bool,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Aim From HMD", u8"从头显瞄准" },
+        { u8"When enabled, mouse-mode aiming is driven by the HMD center ray instead of the fixed viewmodel anchor.",
+          u8"开启后，键鼠模式的瞄准将改为使用头显中心射线，而不是固定的 viewmodel 锚点。" },
+        { u8"Recommended if you want to keep holding the gun/stocks naturally and use the headset to fine-aim.",
+          u8"适合希望保持握枪姿势不变、用头显做微调瞄准的场景。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
         "MouseModeYawSensitivity",
         OptionType::Float,
         { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
@@ -440,6 +452,42 @@ Option g_Options[] =
           u8"即使调整锚点，也能让瞄准线远处回到视野中心。常用 2048~4096。" },
         0.0f, 8192.0f,
         "2048"
+    },
+    {
+        "MouseModeScopeSensitivityScale",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Scoped Sensitivity Scale", u8"键鼠模式开镜灵敏度缩放" },
+        { u8"Scales aim sensitivity while the mouse-mode scope overlay is active.",
+          u8"键鼠模式的瞄准镜覆盖层开启时，对瞄准灵敏度进行缩放。" },
+        { u8"Accepts 0~1 or 0~100; supports comma list matching magnification steps. Example: 50,25,15,5.",
+          u8"支持 0~1 或 0~100；也支持逗号列表，对应倍率档位顺序。示例：50,25,15,5。" },
+        0.0f, 0.0f,
+        "50,25,15,5"
+    },
+    {
+        "MouseModeScopeToggleKey",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Scope Toggle Key", u8"键鼠模式开镜切换按键" },
+        { u8"Keyboard key used to toggle the mouse-mode scope overlay on/off.",
+          u8"用于开/关键鼠模式瞄准镜覆盖层的键盘按键。" },
+        { u8"Format: key:<name> (e.g., key:6, key:f9). Leave empty to disable.",
+          u8"格式：key:<按键名>（如 key:6、key:f9）。留空表示禁用。" },
+        0.0f, 0.0f,
+        "key:6"
+    },
+    {
+        "MouseModeScopeMagnificationKey",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Scope Magnification Key", u8"键鼠模式倍率切换按键" },
+        { u8"Keyboard key used to cycle magnification steps while mouse-mode scope is active.",
+          u8"键鼠模式开镜状态下，用于切换倍率档位的键盘按键。" },
+        { u8"Format: key:<name> (e.g., key:7, key:f10). Leave empty to disable.",
+          u8"格式：key:<按键名>（如 key:7、key:f10）。留空表示禁用。" },
+        0.0f, 0.0f,
+        "key:7"
     },
     {
         "ForceNonVRServerMovement",
