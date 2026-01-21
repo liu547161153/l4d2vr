@@ -4109,7 +4109,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         // Even when the aim line is hidden/disabled, still run the friendly-fire guard trace
         // if the user toggled it on.
         UpdateFriendlyFireAimHit(localPlayer);
-     
+
         return;
     }
 
@@ -4117,7 +4117,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     if (!canDraw)
     {
         UpdateFriendlyFireAimHit(localPlayer);
-   
+
         return;
     }
 
