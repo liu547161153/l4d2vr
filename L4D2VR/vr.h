@@ -565,11 +565,18 @@ public:
 	bool m_BlockFireOnFriendlyAimEnabled = false; // toggled by SteamVR binding
 	bool m_AimLineHitsFriendly = false;           // updated from a ray trace (aim ray)
 	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
-	// Latch suppression while attack is held (prevents flicker causing intermittent firing).
-	bool m_FriendlyFireGuardLatched = false;
+    // Latch suppression while attack is held (prevents flicker causing intermittent firing).
+    bool m_FriendlyFireGuardLatched = false;
 
-	// CTerrorPlayer netvars (from offsets.txt). These are used for a special-case in the
-	// friendly-fire aim guard: if the aim ray hits a teammate who is currently pinned/
+    // Auto ResetPosition after a level finishes loading.
+    // Config: AutoResetPositionAfterLoadSeconds (0 disables)
+    float m_AutoResetPositionAfterLoadSeconds = 5.0f;
+    bool m_AutoResetPositionPending = false;
+    std::chrono::steady_clock::time_point m_AutoResetPositionDueTime{};
+    bool m_AutoResetHadLocalPlayerPrev = false;
+
+    // CTerrorPlayer netvars (from offsets.txt). These are used for a special-case in the
+    // friendly-fire aim guard: if the aim ray hits a teammate who is currently pinned/
 	// controlled, we allow a "see-through" trace to hit the attacker behind them.
 	// NOTE: These offsets can change between game builds.
 	static constexpr int kIsIncapacitatedOffset = 0x1EA9; // DT_TerrorPlayer::m_isIncapacitated

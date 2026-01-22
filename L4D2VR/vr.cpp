@@ -432,6 +432,43 @@ void VR::Update()
         // Continue using the last known poses so smoothing and aim helpers stay active.
     }
 
+    // Auto ResetPosition shortly after a level finishes loading.
+    // We detect "level ready" by observing the local player entity become valid.
+    {
+        const bool inGame = m_Game->m_EngineClient->IsInGame();
+        if (!inGame)
+        {
+            m_AutoResetPositionPending = false;
+            m_AutoResetHadLocalPlayerPrev = false;
+        }
+        else
+        {
+            int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+            C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+            const bool hasLocalPlayer = (localPlayer != nullptr);
+
+            if (hasLocalPlayer && !m_AutoResetHadLocalPlayerPrev && m_AutoResetPositionAfterLoadSeconds > 0.0f)
+            {
+                m_AutoResetPositionPending = true;
+                const auto now = std::chrono::steady_clock::now();
+                const int ms = (int)std::max(0.0f, m_AutoResetPositionAfterLoadSeconds * 1000.0f);
+                m_AutoResetPositionDueTime = now + std::chrono::milliseconds(ms);
+            }
+
+            m_AutoResetHadLocalPlayerPrev = hasLocalPlayer;
+
+            if (m_AutoResetPositionPending && hasLocalPlayer)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= m_AutoResetPositionDueTime)
+                {
+                    ResetPosition();
+                    m_AutoResetPositionPending = false;
+                }
+            }
+        }
+    }
+
     UpdateTracking();
 
 
@@ -5662,6 +5699,11 @@ void VR::ParseConfigFile()
     m_RearMirrorSpecialWarningDistance = std::max(0.0f, getFloat("RearMirrorSpecialWarningDistance", m_RearMirrorSpecialWarningDistance));
     if (m_RearMirrorSpecialWarningDistance <= 0.0f)
         m_RearMirrorSpecialEnlargeActive = false;
+
+    // Auto reset tracking origin after a level loads (0 disables)
+    m_AutoResetPositionAfterLoadSeconds = std::clamp(
+        getFloat("AutoResetPositionAfterLoadSeconds", m_AutoResetPositionAfterLoadSeconds),
+        0.0f, 60.0f);
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 
