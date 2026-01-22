@@ -323,7 +323,7 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 	// NOTE: user request:
 	// - "倒地" (incapacitated) 不强制第三人称
 	// Keep other pinned/use/tongue states.
-	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned;
+	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -534,20 +534,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
 	C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
 
-	// Observer (spectator) camera state:
-	// When dead and spectating teammates, the engine uses m_iObserverMode/m_hObserverTarget
-	// to define camera mode. Our EyePosition()-based third-person heuristics break there
-	// (they think it's always 3P because the local corpse is far away).
-	const int obsMode = localPlayer ? ReadNetvar<int>(localPlayer, 0x1450) : 0;     // m_iObserverMode
-	const int obsTarget = localPlayer ? ReadNetvar<int>(localPlayer, 0x1454) : 0;   // m_hObserverTarget
-	const bool isObserving = localPlayer && (obsMode != 0) && HandleValid(obsTarget);
-	// Source-style observer modes (L4D2 matches these in practice).
-	constexpr int OBS_MODE_IN_EYE = 4;
-	const bool observerThirdPerson = isObserving && (obsMode != OBS_MODE_IN_EYE);
-	m_VR->m_ObserverThirdPerson = observerThirdPerson;
-
 	Vector eyeOrigin = setup.origin;
-	if (localPlayer && !isObserving)
+	if (localPlayer)
 		eyeOrigin = localPlayer->EyePosition();
 
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position.
@@ -567,21 +555,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition()
 	// even though we want to keep first-person VR rendering. Treat that as NOT third-person.
 	bool playerReviving = false;
-	if (localPlayer && !isObserving)
+	if (localPlayer)
 	{
 		const int reviveOwner = ReadNetvar<int>(localPlayer, 0x1f88);   // m_reviveOwner
 		const int reviveTarget = ReadNetvar<int>(localPlayer, 0x1f8c);  // m_reviveTarget
 		playerReviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
 	}
 
-	// Some VScript mods (e.g. slide mods) temporarily enable point_viewcontrol_survivor via
-	// CBasePlayer::m_hViewEntity. In that case, setup.origin can jump to an attachment-driven
-	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
-	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
-
-	bool engineThirdPersonNow = isObserving ? observerThirdPerson
-		: (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
-	if (!isObserving && playerReviving)
+	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	if (playerReviving)
 		engineThirdPersonNow = false;
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
@@ -604,79 +586,33 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Detect third-person by comparing rendered camera origin to the real eye origin.
 	// Use a small threshold + hysteresis to avoid flicker.
 	// Also expose a simple "player is pinned/controlled" flag so VR can disable jittery aim line.
-	m_VR->m_PlayerControlledBySI = (!isObserving) && IsPlayerControlledBySI(localPlayer);
+	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
-	bool stateWantsThirdPerson = false;
-	bool stateIsDead = false;
-	if (!isObserving)
-	{
-		stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
-		stateIsDead = tpStateDbg.dead;
-	}
+	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
+	const bool stateIsDead = tpStateDbg.dead;
 
-	if (isObserving)
-	{
-		// Observer mode: don't apply local-player state based third-person holds.
-		m_VR->m_ThirdPersonHoldFrames = 0;
-	}
-	else
-	{
-		constexpr int kEngineThirdPersonHoldFrames = 2;
-		constexpr int kStateThirdPersonHoldFrames = 2;
-		const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
-		// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
-		const bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDead || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
+	constexpr int kEngineThirdPersonHoldFrames = 2;
+	constexpr int kStateThirdPersonHoldFrames = 2;
+	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
+	// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
+	const bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDead || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
 
-		// 先按“状态”锁定（优先级最高）
-		if (allowStateThirdPerson)
-			m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
+	// 先按“状态”锁定（优先级最高）
+	if (allowStateThirdPerson)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
 
-		// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
-		constexpr int kWalkThirdPersonHoldFrames = 3;
-		if (customWalkThirdPersonNow)
-			m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kWalkThirdPersonHoldFrames);
+	// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
+	constexpr int kWalkThirdPersonHoldFrames = 3;
+	if (customWalkThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kWalkThirdPersonHoldFrames);
 
-		// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
-		if (engineThirdPersonNow)
-			m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
-		else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
-			m_VR->m_ThirdPersonHoldFrames--;
-	}
+	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
+	if (engineThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
+	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
+		m_VR->m_ThirdPersonHoldFrames--;
 
-	// Camera mode policy:
-	// - Default behavior: render third-person only when engine/state says so (plus a small hold).
-	// - Optional "ThirdPersonDefault": render third-person unless we explicitly whitelist first-person cases.
-	bool renderThirdPerson = false;
-	if (isObserving)
-	{
-		// Observer camera: respect the engine-selected mode (in-eye vs chase).
-		renderThirdPerson = observerThirdPerson;
-	}
-	else if (m_VR->m_ThirdPersonDefault)
-	{
-		// Policy: ONLY fall back to third-person when we're not in any explicitly-known first-person state.
-		// The bug we want to avoid: enabling ThirdPersonDefault shouldn't turn normal first-person gameplay
-		// (or "倒地" / incapacitated) into third-person rendering.
-		const bool isIncap = tpStateDbg.incap;
-		const bool explicitlyNormalFirstPerson =
-			!engineThirdPersonNow && !customWalkThirdPersonNow && !stateWantsThirdPerson && (m_VR->m_ThirdPersonHoldFrames <= 0);
-		// IMPORTANT:
-		// m_hViewEntity 通常表示引擎正在用 point_viewcontrol_survivor / 过场 / 固定机枪/机关等视角控制实体。
-		// 这种情况必须跟随引擎相机，否则会“过场没了/机关视角不对”。
-		if (hasViewEntityOverride)
-		{
-			renderThirdPerson = true;
-		}
-		else
-		{
-			const bool explicitFirstPerson = playerReviving || isIncap || explicitlyNormalFirstPerson;
-			renderThirdPerson = !explicitFirstPerson;
-		}
-	}
-	else
-	{
-		renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
-	}
+	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
 		static std::chrono::steady_clock::time_point s_lastTpDbg{};
@@ -713,16 +649,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// CBasePlayer::m_hViewEntity. In that case, setup.origin can jump to an attachment-driven
 	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
 	// So: only borrow setup.origin.z when the player has no active view-entity override.
-	m_VR->m_SetupOrigin = isObserving ? engineCamOrigin : eyeOrigin;
-	if (!isObserving && !renderThirdPerson && !hasViewEntityOverride)
+	m_VR->m_SetupOrigin = eyeOrigin;
+	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
+	if (!renderThirdPerson && !hasViewEntityOverride)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 
 	Vector leftOrigin, rightOrigin;
-	Vector viewAngles = isObserving
-		? Vector(engineCamAngles.x, engineCamAngles.y, engineCamAngles.z)
-		: m_VR->GetViewAngle();
+	Vector viewAngles = m_VR->GetViewAngle();
 
 	if (renderThirdPerson)
 	{
@@ -745,50 +680,26 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// If stateWantsThirdPerson is true, always synthesize from HMD to avoid camera "jumping"
 		// between setup.origin and HmdPosAbs.
 		Vector baseCenter;
-		if (isObserving)
+		if (stateWantsThirdPerson)
 		{
-			// In observer mode, setup.origin/engineCamOrigin already is the actual camera position.
-			// Don't apply extra VR third-person offsets here, or it will jitter/double-offset.
-			baseCenter = engineCamOrigin;
-		}
-		else if (stateWantsThirdPerson)
-		{
-			// Dead camera must follow engine view, not HMD position.
+			// Dead/observer camera must follow engine view, not HMD position.
 			baseCenter = stateIsDead ? engineCamOrigin : m_VR->m_HmdPosAbs;
 		}
 		else
 		{
 			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->m_HmdPosAbs;
 		}
-		Vector camCenter = baseCenter;
-		if (!isObserving)
-		{
-			camCenter = baseCenter + (fwd * (-eyeZ));
-			if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
-				camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
-		}
+		Vector camCenter = baseCenter + (fwd * (-eyeZ));
+		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
+			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
 	}
 	else
 	{
-		if (isObserving)
-		{
-			// Observer in-eye: render from the engine camera position, not the local HMD/corpse position.
-			QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
-			Vector fwd, right, up;
-			QAngle::AngleVectors(camAng, &fwd, &right, &up);
-			const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
-			Vector camCenter = engineCamOrigin;
-			leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
-			rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
-		}
-		else
-		{
-			// Normal VR first-person
-			leftOrigin = m_VR->GetViewOriginLeft();
-			rightOrigin = m_VR->GetViewOriginRight();
-		}
+		// Normal VR first-person
+		leftOrigin = m_VR->GetViewOriginLeft();
+		rightOrigin = m_VR->GetViewOriginRight();
 	}
 
 	leftEyeView.origin = leftOrigin;
@@ -1003,6 +914,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	static Vector s_nonvrMeleePrevCtrlPos = { 0,0,0 };
 	static Vector s_nonvrMeleePrevHmdPos = { 0,0,0 };
 
+	if (!cmd)
+		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
+
 	if (!cmd->command_number)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
@@ -1016,25 +930,6 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// We zero cmd->mousedx/y so Source doesn't also apply them to viewangles.
 		if (m_VR->m_MouseModeEnabled)
 		{
-			// Mouse mode scope triggers via CUserCmd::impulse (bindable from Source console).
-			// This is more reliable than polling Windows virtual keys (GetAsyncKeyState) and
-			// allows normal binds / alias chains.
-			if (cmd->impulse != 0)
-			{
-				const int imp = (int)cmd->impulse;
-				if (m_VR->m_MouseModeScopeToggleImpulse > 0 && imp == m_VR->m_MouseModeScopeToggleImpulse)
-				{
-					m_VR->ToggleMouseModeScope();
-					cmd->impulse = 0; // consume
-				}
-				else if (m_VR->m_MouseModeScopeMagnificationImpulse > 0 && imp == m_VR->m_MouseModeScopeMagnificationImpulse)
-				{
-					if (m_VR->IsMouseModeScopeActive())
-						m_VR->CycleScopeMagnification();
-					cmd->impulse = 0; // consume
-				}
-			}
-
 			// Mouse mode hotkeys (keyboard). Polled here because CreateMove runs at input tick rate.
 			auto pollKeyPressed = [&](const std::optional<WORD>& vk, bool& prevDown) -> bool
 				{
