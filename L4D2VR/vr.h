@@ -421,16 +421,11 @@ public:
 	// If non-zero, mouse mode will place the scope overlay using the HMD tracking pose
 	// so it won't disappear due to mismatched game-units vs meters when using absolute overlays.
 	Vector m_MouseModeScopeOverlayOffset = { 0.0f, 0.0f, 0.0f };
+	QAngle m_MouseModeScopeOverlayAngleOffset = { 0.0f, 0.0f, 0.0f };
+	bool   m_MouseModeScopeOverlayAngleOffsetSet = false;
 	// Mouse-mode scope hotkeys (keyboard). Format in config.txt: key:X, key:F1..F12 (see parseVirtualKey).
 	std::optional<WORD> m_MouseModeScopeToggleKey;
 	std::optional<WORD> m_MouseModeScopeMagnificationKey;
-	// Mouse-mode scope triggers via CUserCmd::impulse (bindable from the in-game console).
-	// Example binds:
-	//   bind q "impulse 202"   // toggle mouse-mode scope
-	//   bind z "impulse 203"   // cycle mouse-mode scope magnification
-	// Set to 0 to disable (do nothing).
-	int m_MouseModeScopeToggleImpulse = 202;
-	int m_MouseModeScopeMagnificationImpulse = 203;
 	bool m_MouseModeScopeToggleActive = false;
 	bool m_MouseModeScopeToggleKeyDownPrev = false;
 	bool m_MouseModeScopeMagnificationKeyDownPrev = false;
@@ -561,9 +556,9 @@ public:
 		Count
 	};
 
-    static constexpr int kZombieClassOffset = 0x1c90;
-    static constexpr int kLifeStateOffset = 0x147;
-    static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
+	static constexpr int kZombieClassOffset = 0x1c90;
+	static constexpr int kLifeStateOffset = 0x147;
+	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 
 	// Aim-line friendly-fire guard (client-side fire suppression)
 	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
@@ -571,18 +566,18 @@ public:
 	bool m_AimLineHitsFriendly = false;           // updated from a ray trace (aim ray)
 	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
 	// Latch suppression while attack is held (prevents flicker causing intermittent firing).
-    bool m_FriendlyFireGuardLatched = false;
+	bool m_FriendlyFireGuardLatched = false;
 
-    // CTerrorPlayer netvars (from offsets.txt). These are used for a special-case in the
-    // friendly-fire aim guard: if the aim ray hits a teammate who is currently pinned/
-    // controlled, we allow a "see-through" trace to hit the attacker behind them.
-    // NOTE: These offsets can change between game builds.
-    static constexpr int kIsIncapacitatedOffset = 0x1EA9; // DT_TerrorPlayer::m_isIncapacitated
-    static constexpr int kTongueOwnerOffset     = 0x1F6C; // DT_TerrorPlayer::m_tongueOwner
-    static constexpr int kPummelAttackerOffset  = 0x2720; // DT_TerrorPlayer::m_pummelAttacker
-    static constexpr int kCarryAttackerOffset   = 0x2714; // DT_TerrorPlayer::m_carryAttacker
-    static constexpr int kPounceAttackerOffset  = 0x272C; // DT_TerrorPlayer::m_pounceAttacker
-    static constexpr int kJockeyAttackerOffset  = 0x274C; // DT_TerrorPlayer::m_jockeyAttacker
+	// CTerrorPlayer netvars (from offsets.txt). These are used for a special-case in the
+	// friendly-fire aim guard: if the aim ray hits a teammate who is currently pinned/
+	// controlled, we allow a "see-through" trace to hit the attacker behind them.
+	// NOTE: These offsets can change between game builds.
+	static constexpr int kIsIncapacitatedOffset = 0x1EA9; // DT_TerrorPlayer::m_isIncapacitated
+	static constexpr int kTongueOwnerOffset = 0x1F6C; // DT_TerrorPlayer::m_tongueOwner
+	static constexpr int kPummelAttackerOffset = 0x2720; // DT_TerrorPlayer::m_pummelAttacker
+	static constexpr int kCarryAttackerOffset = 0x2714; // DT_TerrorPlayer::m_carryAttacker
+	static constexpr int kPounceAttackerOffset = 0x272C; // DT_TerrorPlayer::m_pounceAttacker
+	static constexpr int kJockeyAttackerOffset = 0x274C; // DT_TerrorPlayer::m_jockeyAttacker
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
