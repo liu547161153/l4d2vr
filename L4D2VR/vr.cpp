@@ -1044,7 +1044,7 @@ void VR::UpdateScopeOverlayTransform()
         overlayPos += parentBack * m_ScopeOverlayZOffset;
     }
 
-    const QAngle a = m_ScopeOverlayAngleOffset;
+    const QAngle a = (m_MouseModeScopeOverlayAngleOffsetSet ? m_MouseModeScopeOverlayAngleOffset : m_ScopeOverlayAngleOffset);
     const float cx = std::cos(DEG2RAD(a.x)), sx = std::sin(DEG2RAD(a.x));
     const float cy = std::cos(DEG2RAD(a.y)), sy = std::sin(DEG2RAD(a.y));
     const float cz = std::cos(DEG2RAD(a.z)), sz = std::sin(DEG2RAD(a.z));
@@ -1287,9 +1287,12 @@ void VR::RepositionOverlays(bool attachToControllers)
                             out[r][c] = a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c];
                 };
 
-            const float pitch = m_ScopeOverlayAngleOffset.x * deg2rad;
-            const float yaw = m_ScopeOverlayAngleOffset.y * deg2rad;
-            const float roll = m_ScopeOverlayAngleOffset.z * deg2rad;
+            const QAngle scopeAngle = (m_MouseModeEnabled && m_MouseModeScopeOverlayAngleOffsetSet)
+                 ? m_MouseModeScopeOverlayAngleOffset
+                 : m_ScopeOverlayAngleOffset;
+            const float pitch = scopeAngle.x * deg2rad;
+            const float yaw = scopeAngle.y * deg2rad;
+            const float roll = scopeAngle.z * deg2rad;
 
             const float cp = cosf(pitch), sp = sinf(pitch);
             const float cy = cosf(yaw), sy = sinf(yaw);
@@ -4040,46 +4043,46 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
 
     auto hasValidHandle = [](uint32_t h) -> bool
-    {
-        // EHANDLE / CBaseHandle is invalid when 0 or 0xFFFFFFFF (common patterns across Source builds).
-        return h != 0u && h != 0xFFFFFFFFu;
-    };
+        {
+            // EHANDLE / CBaseHandle is invalid when 0 or 0xFFFFFFFF (common patterns across Source builds).
+            return h != 0u && h != 0xFFFFFFFFu;
+        };
 
     auto isPinnedOrControlledTeammate = [&](C_BaseEntity* ent) -> bool
-    {
-        if (!ent)
-            return false;
+        {
+            if (!ent)
+                return false;
 
-        const unsigned char* base = reinterpret_cast<const unsigned char*>(ent);
-        const bool incapacitated = (*reinterpret_cast<const unsigned char*>(base + kIsIncapacitatedOffset)) != 0;
+            const unsigned char* base = reinterpret_cast<const unsigned char*>(ent);
+            const bool incapacitated = (*reinterpret_cast<const unsigned char*>(base + kIsIncapacitatedOffset)) != 0;
 
-        const uint32_t tongueOwner    = *reinterpret_cast<const uint32_t*>(base + kTongueOwnerOffset);
-        const uint32_t pummelAttacker = *reinterpret_cast<const uint32_t*>(base + kPummelAttackerOffset);
-        const uint32_t carryAttacker  = *reinterpret_cast<const uint32_t*>(base + kCarryAttackerOffset);
-        const uint32_t pounceAttacker = *reinterpret_cast<const uint32_t*>(base + kPounceAttackerOffset);
-        const uint32_t jockeyAttacker = *reinterpret_cast<const uint32_t*>(base + kJockeyAttackerOffset);
+            const uint32_t tongueOwner = *reinterpret_cast<const uint32_t*>(base + kTongueOwnerOffset);
+            const uint32_t pummelAttacker = *reinterpret_cast<const uint32_t*>(base + kPummelAttackerOffset);
+            const uint32_t carryAttacker = *reinterpret_cast<const uint32_t*>(base + kCarryAttackerOffset);
+            const uint32_t pounceAttacker = *reinterpret_cast<const uint32_t*>(base + kPounceAttackerOffset);
+            const uint32_t jockeyAttacker = *reinterpret_cast<const uint32_t*>(base + kJockeyAttackerOffset);
 
-        return incapacitated
-            || hasValidHandle(tongueOwner)
-            || hasValidHandle(pummelAttacker)
-            || hasValidHandle(carryAttacker)
-            || hasValidHandle(pounceAttacker)
-            || hasValidHandle(jockeyAttacker);
-    };
+            return incapacitated
+                || hasValidHandle(tongueOwner)
+                || hasValidHandle(pummelAttacker)
+                || hasValidHandle(carryAttacker)
+                || hasValidHandle(pounceAttacker)
+                || hasValidHandle(jockeyAttacker);
+        };
 
     auto isSameTeamAlivePlayer = [&](C_BaseEntity* a, C_BaseEntity* b) -> bool
-    {
-        if (!a || !b)
-            return false;
-        if (b->IsPlayer() == nullptr)
-            return false;
+        {
+            if (!a || !b)
+                return false;
+            if (b->IsPlayer() == nullptr)
+                return false;
 
-        const unsigned char* aBase = reinterpret_cast<const unsigned char*>(a);
-        const unsigned char* bBase = reinterpret_cast<const unsigned char*>(b);
-        const int aTeam = *reinterpret_cast<const int*>(aBase + kTeamNumOffset);
-        const int bTeam = *reinterpret_cast<const int*>(bBase + kTeamNumOffset);
-        return (aTeam != 0 && aTeam == bTeam && IsEntityAlive(b));
-    };
+            const unsigned char* aBase = reinterpret_cast<const unsigned char*>(a);
+            const unsigned char* bBase = reinterpret_cast<const unsigned char*>(b);
+            const int aTeam = *reinterpret_cast<const int*>(aBase + kTeamNumOffset);
+            const int bTeam = *reinterpret_cast<const int*>(bBase + kTeamNumOffset);
+            return (aTeam != 0 && aTeam == bTeam && IsEntityAlive(b));
+        };
 
     C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
     if (hitEnt && hitEnt != localPlayer && isSameTeamAlivePlayer(localPlayer, hitEnt))
@@ -4642,15 +4645,7 @@ bool VR::IsEntityAlive(const C_BaseEntity* entity) const
     return lifeState == 0;
 }
 
-// --- Special infected recognition / arrows / auto-aim / auto-evade ---
-//
-// This block is intentionally split out so that advanced users can drop
-// in an optional implementation file without impacting the rest of the build.
-//
-// If you *do* have "special_infected_features.cpp" next to this file, it will be
-// compiled by textual inclusion (non-ideal, but it avoids vcxproj edits and
-// allows the file to be missing). If it is absent, all related features
-// become no-ops / disabled.
+// Special infected recognition
 
 #if __has_include("special_infected_features.cpp")
 #define L4D2VR_HAS_SPECIAL_INFECTED_FEATURES 1
@@ -5477,7 +5472,6 @@ void VR::ParseConfigFile()
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
     m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
-    m_ThirdPersonDefault = getBool("ThirdPersonDefault", m_ThirdPersonDefault);
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
@@ -5517,6 +5511,7 @@ void VR::ParseConfigFile()
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
     m_AimLineConfigEnabled = m_AimLineEnabled;
+    m_BlockFireOnFriendlyAimEnabled = getBool("BlockFireOnFriendlyAimEnabled", m_BlockFireOnFriendlyAimEnabled);
     m_MeleeAimLineEnabled = getBool("MeleeAimLineEnabled", m_MeleeAimLineEnabled);
     auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
     m_AimLineColorR = aimColor[0];
@@ -5684,14 +5679,17 @@ void VR::ParseConfigFile()
     // Mouse-mode: if non-zero, place the scope overlay using the OpenVR HMD tracking pose
     // (meters in tracking space), so the overlay can't disappear due to unit mismatches.
     m_MouseModeScopeOverlayOffset = getVector3("MouseModeScopeOverlayOffset", m_MouseModeScopeOverlayOffset);
+    m_MouseModeScopeOverlayAngleOffsetSet = (userConfig.find("MouseModeScopeOverlayAngleOffset") != userConfig.end());
+    if (m_MouseModeScopeOverlayAngleOffsetSet)
+    {
+        Vector tmp = getVector3("MouseModeScopeOverlayAngleOffset", Vector{ m_MouseModeScopeOverlayAngleOffset.x, m_MouseModeScopeOverlayAngleOffset.y, m_MouseModeScopeOverlayAngleOffset.z });
+        m_MouseModeScopeOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z };
+    }
     m_MouseModeScopeToggleKey = parseVirtualKey(getString("MouseModeScopeToggleKey", "key:f9"));
     m_MouseModeScopeMagnificationKey = parseVirtualKey(getString("MouseModeScopeMagnificationKey", "key:f10"));
 
     // Optional bindable impulses for mouse-mode scope control.
     // Using impulses avoids GetAsyncKeyState issues and allows normal Source binds.
-    m_MouseModeScopeToggleImpulse = std::clamp(getInt("MouseModeScopeToggleImpulse", m_MouseModeScopeToggleImpulse), 0, 255);
-    m_MouseModeScopeMagnificationImpulse = std::clamp(getInt("MouseModeScopeMagnificationImpulse", m_MouseModeScopeMagnificationImpulse), 0, 255);
-
     auto mouseModeScopeSensitivityList = getFloatList("MouseModeScopeSensitivityScale", "100");
     if (mouseModeScopeSensitivityList.empty())
         mouseModeScopeSensitivityList.push_back(100.0f);
