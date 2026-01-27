@@ -566,7 +566,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// - XY threshold must be low enough to catch "near" third-person modes,
 	//   but still high enough to ignore stairs/step-smoothing Z deltas.
 	// - 3D is a fallback for edge cases.
-	constexpr float kThirdPersonXY = 35.0f; 
+	constexpr float kThirdPersonXY = 20.0f; 
 	constexpr float kThirdPerson3D = 90.0f;
 	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition()
 	// even though we want to keep first-person VR rendering. Treat that as NOT third-person.
