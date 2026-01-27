@@ -3964,7 +3964,7 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
         Ray_t rayH;
 		CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
 		CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-		ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
+		CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
         rayH.Init(eye, endEye);
         m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, pTraceFilter, &traceH);
 
@@ -4012,7 +4012,7 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     Ray_t rayP;
 	CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
 	CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-	ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
+	CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
     rayP.Init(origin, target);
     m_Game->m_EngineTrace->TraceRay(rayP, STANDARD_TRACE_MASK, pTraceFilter, &traceP);
 
@@ -4109,7 +4109,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     Ray_t ray;
 	CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
 	CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-	ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
+	CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
     ray.Init(origin, end);
     m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
 
@@ -4170,11 +4170,11 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
             Ray_t ray2;
 			// If we're on a mounted gun, also skip the mounted gun entity itself so we can "see through"
 			// both the teammate and the turret when checking what's behind them.
-            CTraceFilterSkipTwoEntities tracefilter2((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, 0);
+			CTraceFilterSkipTwoEntities tracefilter2((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, 0);
 			CTraceFilterSkipThreeEntities tracefilter3((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, (IHandleEntity*)mountedUseEnt, 0);
-			ITraceFilter* pTraceFilter2 = (mountedUseEnt && mountedUseEnt != hitEnt)
-				? static_cast<ITraceFilter*>(&tracefilter3)
-				: static_cast<ITraceFilter*>(&tracefilter2);
+			CTraceFilter* pTraceFilter2 = (mountedUseEnt && mountedUseEnt != hitEnt)
+				? static_cast<CTraceFilter*>(&tracefilter3)
+				: static_cast<CTraceFilter*>(&tracefilter2);
             ray2.Init(origin, end);
             m_Game->m_EngineTrace->TraceRay(ray2, STANDARD_TRACE_MASK, pTraceFilter2, &trace2);
 
@@ -4386,7 +4386,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 			C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
             CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
             CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-            ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
+            CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
 
             ray.Init(origin, target);
             m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
