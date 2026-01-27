@@ -433,7 +433,7 @@ void VR::Update()
     }
 
     // Auto ResetPosition shortly after a level finishes loading.
-    // We detect "level ready" by observing the local player entity become valid.
+ 
     {
         const bool inGame = m_Game->m_EngineClient->IsInGame();
         if (!inGame)
@@ -1325,8 +1325,8 @@ void VR::RepositionOverlays(bool attachToControllers)
                 };
 
             const QAngle scopeAngle = (m_MouseModeEnabled && m_MouseModeScopeOverlayAngleOffsetSet)
-                 ? m_MouseModeScopeOverlayAngleOffset
-                 : m_ScopeOverlayAngleOffset;
+                ? m_MouseModeScopeOverlayAngleOffset
+                : m_ScopeOverlayAngleOffset;
             const float pitch = scopeAngle.x * deg2rad;
             const float yaw = scopeAngle.y * deg2rad;
             const float roll = scopeAngle.z * deg2rad;
