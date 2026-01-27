@@ -3896,6 +3896,30 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     m_PrevHmdLocalPos = m_HmdPose.TrackedDevicePos;
 }
 
+bool VR::IsUsingMountedGun(const C_BasePlayer* localPlayer) const
+{
+	if (!localPlayer)
+		return false;
+
+	const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+	return (*reinterpret_cast<const unsigned char*>(base + kUsingMountedGunOffset)) != 0;
+}
+
+C_BaseEntity* VR::GetMountedGunUseEntity(C_BasePlayer* localPlayer) const
+{
+	if (!IsUsingMountedGun(localPlayer) || !m_Game || !m_Game->m_ClientEntityList)
+		return nullptr;
+
+	const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+	const uint32_t hUse = *reinterpret_cast<const uint32_t*>(base + kUseEntityHandleOffset);
+
+	// EHANDLE / CBaseHandle is invalid when 0 or 0xFFFFFFFF (common patterns across Source builds).
+	if (hUse == 0u || hUse == 0xFFFFFFFFu)
+		return nullptr;
+
+	return reinterpret_cast<C_BaseEntity*>(m_Game->m_ClientEntityList->GetClientEntityFromHandle(hUse));
+}
+
 void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
 {
     // Keep the previous solution alive if we throttle this frame.
@@ -3918,6 +3942,8 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     if (ShouldThrottle(s_lastSolve, kSolveMaxHz))
         return;
 
+	C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
+
     if (m_MouseModeEnabled)
     {
         const Vector eye = localPlayer->EyePosition();
@@ -3936,9 +3962,11 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
         Vector endEye = eye + eyeDir * maxDistance;
         CGameTrace traceH;
         Ray_t rayH;
-        CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+		CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
+		CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
+		ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
         rayH.Init(eye, endEye);
-        m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, &tracefilter, &traceH);
+        m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, pTraceFilter, &traceH);
 
         const Vector H = (traceH.fraction < 1.0f && traceH.fraction > 0.0f) ? traceH.endpos : endEye;
         m_NonVRAimHitPoint = H;
@@ -3982,9 +4010,11 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     // 1) Controller ray -> P
     CGameTrace traceP;
     Ray_t rayP;
-    CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+	CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
+	CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
+	ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
     rayP.Init(origin, target);
-    m_Game->m_EngineTrace->TraceRay(rayP, STANDARD_TRACE_MASK, &tracefilter, &traceP);
+    m_Game->m_EngineTrace->TraceRay(rayP, STANDARD_TRACE_MASK, pTraceFilter, &traceP);
 
     const Vector P = (traceP.fraction < 1.0f && traceP.fraction > 0.0f) ? traceP.endpos : target;
     m_NonVRAimDesiredPoint = P;
@@ -4003,7 +4033,7 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     CGameTrace traceH;
     Ray_t rayH;
     rayH.Init(eye, endEye);
-    m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, &tracefilter, &traceH);
+    m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, pTraceFilter, &traceH);
 
     const Vector H = (traceH.fraction < 1.0f && traceH.fraction > 0.0f) ? traceH.endpos : endEye;
     m_NonVRAimHitPoint = H;
@@ -4037,6 +4067,8 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     C_WeaponCSBase* activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
     if (!activeWeapon || IsThrowableWeapon(activeWeapon))
         return false;
+
+	C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
 
     const bool useMouse = m_MouseModeEnabled;
     Vector eyeDir{ 0.0f, 0.0f, 0.0f };
@@ -4075,9 +4107,11 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
     CGameTrace trace;
     Ray_t ray;
-    CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+	CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
+	CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
+	ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
     ray.Init(origin, end);
-    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
 
     auto hasValidHandle = [](uint32_t h) -> bool
         {
@@ -4134,9 +4168,15 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
         {
             CGameTrace trace2;
             Ray_t ray2;
+			// If we're on a mounted gun, also skip the mounted gun entity itself so we can "see through"
+			// both the teammate and the turret when checking what's behind them.
             CTraceFilterSkipTwoEntities tracefilter2((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, 0);
+			CTraceFilterSkipThreeEntities tracefilter3((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, (IHandleEntity*)mountedUseEnt, 0);
+			ITraceFilter* pTraceFilter2 = (mountedUseEnt && mountedUseEnt != hitEnt)
+				? static_cast<ITraceFilter*>(&tracefilter3)
+				: static_cast<ITraceFilter*>(&tracefilter2);
             ray2.Init(origin, end);
-            m_Game->m_EngineTrace->TraceRay(ray2, STANDARD_TRACE_MASK, &tracefilter2, &trace2);
+            m_Game->m_EngineTrace->TraceRay(ray2, STANDARD_TRACE_MASK, pTraceFilter2, &trace2);
 
             C_BaseEntity* hitEnt2 = reinterpret_cast<C_BaseEntity*>(trace2.m_pEnt);
             if (hitEnt2 && hitEnt2 != localPlayer)
@@ -4343,10 +4383,13 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         {
             CGameTrace trace;
             Ray_t ray;
-            CTraceFilterSkipSelf tracefilter((IHandleEntity*)localPlayer, 0);
+			C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
+            CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
+            CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
+            ITraceFilter* pTraceFilter = mountedUseEnt ? static_cast<ITraceFilter*>(&tracefilterTwo) : static_cast<ITraceFilter*>(&tracefilterSelf);
 
             ray.Init(origin, target);
-            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &tracefilter, &trace);
+            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
 
             m_AimConvergePoint = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : target;
             m_HasAimConvergePoint = true;

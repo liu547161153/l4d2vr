@@ -250,8 +250,37 @@ public:
     }
 
 private:
-    IHandleEntity* m_pSkipEnt;
+	IHandleEntity* m_pSkipEnt;
 };
+
+// Skip three specific entities (typically: local player + two additional entities).
+// Useful when you need to "see through" more than one blocker in a single trace.
+class CTraceFilterSkipThreeEntities : public CTraceFilter
+{
+public:
+	CTraceFilterSkipThreeEntities(IHandleEntity* passentity, IHandleEntity* skipentity1, IHandleEntity* skipentity2, int collisionGroup)
+		: CTraceFilter(passentity, collisionGroup)
+		, m_pSkipEnt1(skipentity1)
+		, m_pSkipEnt2(skipentity2)
+	{
+	}
+
+	virtual bool ShouldHitEntity(IHandleEntity* pServerEntity, int contentsMask)
+	{
+		if (!pServerEntity)
+			return true;
+
+		if (m_pPassEnt == pServerEntity || m_pSkipEnt1 == pServerEntity || m_pSkipEnt2 == pServerEntity)
+			return false;
+
+		return true;
+	}
+
+private:
+	IHandleEntity* m_pSkipEnt1;
+	IHandleEntity* m_pSkipEnt2;
+};
+
 
 class CTraceFilterSkipNPCsAndEntity : public CTraceFilter
 {
