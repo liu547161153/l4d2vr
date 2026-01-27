@@ -585,6 +585,13 @@ public:
 	static constexpr int kCarryAttackerOffset = 0x2714; // DT_TerrorPlayer::m_carryAttacker
 	static constexpr int kPounceAttackerOffset = 0x272C; // DT_TerrorPlayer::m_pounceAttacker
 	static constexpr int kJockeyAttackerOffset = 0x274C; // DT_TerrorPlayer::m_jockeyAttacker
+	// Mounted gun (fixed machine-gun / turret) support:
+	// When the player is using a mounted gun, their aim ray can intersect the gun/base itself,
+	// causing the aim line + third-person convergence point to jitter wildly.
+	// We treat the mounted-gun entity as "transparent" for aim traces by skipping the current use-entity.
+	// NOTE: These offsets can change between game builds.
+	static constexpr int kUsingMountedGunOffset = 0x1EBA;  // DT_TerrorPlayer::m_usingMountedGun
+	static constexpr int kUseEntityHandleOffset = 0x1480;  // DT_BasePlayer::m_hUseEntity
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
 	float m_SpecialInfectedArrowSize = 12.0f;
@@ -864,6 +871,10 @@ public:
 	// ticks and latch suppression until the user releases attack.
 	bool ShouldSuppressPrimaryFire(const CUserCmd* cmd, C_BasePlayer* localPlayer);
 	bool UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer);
+	// Mounted gun helper: returns the entity the player is currently "using" (turret/mounted gun) if any.
+	// Used to skip that entity in aim-related traces so the aim line doesn't collide with the gun platform.
+	bool IsUsingMountedGun(const C_BasePlayer* localPlayer) const;
+	C_BaseEntity* GetMountedGunUseEntity(C_BasePlayer* localPlayer) const;
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
