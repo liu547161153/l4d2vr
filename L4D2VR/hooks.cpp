@@ -269,7 +269,9 @@ struct ThirdPersonStateDebug
 	bool pinned = false;
 	bool doingUseAction = false;
 	bool reviving = false;
-
+	bool selfMedkit = false;
+	int useActionOwner = 0; 
+	int useActionTarget = 0; 
 	int tongueOwner = 0;
 	int carryAttacker = 0;
 	int pummelAttacker = 0;
@@ -280,7 +282,10 @@ struct ThirdPersonStateDebug
 	int reviveTarget = 0;
 };
 
-static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, ThirdPersonStateDebug* outDbg = nullptr)
+static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
+    IClientEntityList* entList,
+    const C_BasePlayer* localPlayer,
+    ThirdPersonStateDebug* outDbg = nullptr)
 {
 	if (outDbg)
 		*outDbg = ThirdPersonStateDebug{};
@@ -312,7 +317,17 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 
 	dbg.useAction = ReadNetvar<int>(player, 0x1ba8);               // m_iCurrentUseAction
 	dbg.doingUseAction = (dbg.useAction != 0);
-
+	 // Distinguish "being treated by teammate" vs "self-heal".
+    // We ONLY force third-person for self-heal; teammate-treatment should NOT force third-person
+    // (it causes flicker and is disorienting in VR).
+    dbg.useActionOwner = ReadNetvar<int>(player, 0x1ba4);          // m_useActionOwner
+    dbg.useActionTarget = ReadNetvar<int>(player, 0x1ba0);         // m_useActionTarget
+    if (dbg.useAction == 1 && entList && localPlayer && HandleValid(dbg.useActionOwner) && HandleValid(dbg.useActionTarget))
+    {
+        auto* ownerEnt  = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionOwner);
+        auto* targetEnt = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionTarget);
+        dbg.selfMedkit = (ownerEnt == localPlayer) && (targetEnt == localPlayer);
+    }
 	dbg.reviveOwner = ReadNetvar<int>(player, 0x1f88);             // m_reviveOwner
 	dbg.reviveTarget = ReadNetvar<int>(player, 0x1f8c);            // m_reviveTarget
 	dbg.reviving = HandleValid(dbg.reviveOwner) || HandleValid(dbg.reviveTarget);
@@ -323,7 +338,8 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player, Thi
 	// NOTE: user request:
 	// - "倒地" (incapacitated) 不强制第三人称
 	// Keep other pinned/use/tongue states.
-	return dbg.dead || dbg.ledge || dbg.tongue || dbg.pinned || dbg.doingUseAction;
+	// Keep other pinned/tongue states. Only self-heal forces third-person from useAction.
+	return  dbg.ledge || dbg.tongue || dbg.pinned || dbg.selfMedkit || dbg.doingUseAction;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -550,7 +566,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// - XY threshold must be low enough to catch "near" third-person modes,
 	//   but still high enough to ignore stairs/step-smoothing Z deltas.
 	// - 3D is a fallback for edge cases.
-	constexpr float kThirdPersonXY = 18.0f;  // was 30.0f
+	constexpr float kThirdPersonXY = 35.0f; 
 	constexpr float kThirdPerson3D = 90.0f;
 	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition()
 	// even though we want to keep first-person VR rendering. Treat that as NOT third-person.
@@ -588,19 +604,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Also expose a simple "player is pinned/controlled" flag so VR can disable jittery aim line.
 	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
-	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, &tpStateDbg);
+	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, m_Game->m_ClientEntityList, localPlayer, &tpStateDbg);
 	const bool stateIsDead = tpStateDbg.dead;
 
 	constexpr int kEngineThirdPersonHoldFrames = 2;
 	constexpr int kStateThirdPersonHoldFrames = 2;
+	constexpr int kSelfMedkitHoldFrames = 6; // stronger lock while self-healing
 	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
-	const bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDead || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
+	const bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDead || tpStateDbg.selfMedkit || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
 
 	// 先按“状态”锁定（优先级最高）
 	if (allowStateThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
-
+	if (tpStateDbg.selfMedkit)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kSelfMedkitHoldFrames);
 	// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
 	constexpr int kWalkThirdPersonHoldFrames = 3;
 	if (customWalkThirdPersonNow)
@@ -609,10 +627,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
 	if (engineThirdPersonNow)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
-	else if (!allowStateThirdPerson && m_VR->m_ThirdPersonHoldFrames > 0)
+	else if (!allowStateThirdPerson && !tpStateDbg.selfMedkit && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
-	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || tpStateDbg.selfMedkit || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
 		static std::chrono::steady_clock::time_point s_lastTpDbg{};
