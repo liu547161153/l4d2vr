@@ -1,12 +1,12 @@
 #pragma once
 #include <iostream>
 #include "MinHook.h"
-#include "usercmd.h" // for CUserCmd / QAngle (needed by inline helpers)
 
 class Game;
 class VR;
 class ITexture;
 class CViewSetup;
+class CUserCmd;
 class QAngle;
 class Vector;
 class edict_t;
@@ -83,26 +83,13 @@ typedef void(__thiscall* tPopRenderTargetAndViewport)(void* thisptr);
 typedef void(__thiscall* tVgui_Paint)(void* thisptr, int mode);
 typedef int(__cdecl* tIsSplitScreen)();
 typedef DWORD* (__thiscall* tPrePushRenderTarget)(void* thisptr, int a2);
-
+typedef bool(__thiscall* tIsInfoPanelAllowed)(void* thisptr);
+typedef void(__thiscall* tInfoPanelDisplayed)(void* thisptr);
+typedef bool(__thiscall* tIsHTMLInfoPanelAllowed)(void* thisptr);
 
 class Hooks
 {
 public:
-	// Console: impulse 204 -> QuickTurn (180 deg)
-	static constexpr int kImpulseQuickTurnCombo = 204;
-
-	// Apply a 180 deg yaw turn to the current usercmd viewangles, normalized to [-180, 180].
-	static inline void ApplyQuickTurn180(CUserCmd* cmd)
-	{
-		if (!cmd)
-			return;
-		cmd->viewangles.y += 180.0f;
-		if (cmd->viewangles.y > 180.0f)
-			cmd->viewangles.y -= 360.0f;
-		else if (cmd->viewangles.y < -180.0f)
-			cmd->viewangles.y += 360.0f;
-	}
-
 	static inline Game* m_Game;
 	static inline VR* m_VR;
 
@@ -134,6 +121,9 @@ public:
 	static inline Hook<tVgui_Paint> hkVgui_Paint;
 	static inline Hook<tIsSplitScreen> hkIsSplitScreen;
 	static inline Hook<tPrePushRenderTarget> hkPrePushRenderTarget;
+	static inline Hook<tIsInfoPanelAllowed> hkIsInfoPanelAllowed;
+	static inline Hook<tInfoPanelDisplayed> hkInfoPanelDisplayed;
+	static inline Hook<tIsHTMLInfoPanelAllowed> hkIsHTMLInfoPanelAllowed;
 	static bool s_ServerUnderstandsVR;
 
 	Hooks() {};
@@ -172,7 +162,10 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
-
+	// Blocks the game's Info/MOTD panel (default bind: H) when configured.
+	static bool __fastcall dIsInfoPanelAllowed(void* ecx, void* edx);
+	static void __fastcall dInfoPanelDisplayed(void* ecx, void* edx);
+	static bool __fastcall dIsHTMLInfoPanelAllowed(void* ecx, void* edx);
 	static inline int m_PushHUDStep;
 	static inline bool m_PushedHud;
 };
