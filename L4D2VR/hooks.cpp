@@ -262,6 +262,9 @@ struct ThirdPersonStateDebug
 {
 	bool dead = false;
 	int lifeState = 0;
+	bool goingToDie = false;
+	int observerMode = 0;
+	int observerTarget = 0;
 	bool incap = false;
 	bool ledge = false;
 	bool hangingTongue = false;
@@ -270,8 +273,8 @@ struct ThirdPersonStateDebug
 	bool doingUseAction = false;
 	bool reviving = false;
 	bool selfMedkit = false;
-	int useActionOwner = 0; 
-	int useActionTarget = 0; 
+	int useActionOwner = 0;
+	int useActionTarget = 0;
 	int tongueOwner = 0;
 	int carryAttacker = 0;
 	int pummelAttacker = 0;
@@ -283,9 +286,9 @@ struct ThirdPersonStateDebug
 };
 
 static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
-    IClientEntityList* entList,
-    const C_BasePlayer* localPlayer,
-    ThirdPersonStateDebug* outDbg = nullptr)
+	IClientEntityList* entList,
+	const C_BasePlayer* localPlayer,
+	ThirdPersonStateDebug* outDbg = nullptr)
 {
 	if (outDbg)
 		*outDbg = ThirdPersonStateDebug{};
@@ -298,12 +301,22 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
 	// When dead / dying / observer transitions happen, the engine camera can flicker
 	// between views for a few frames. Force third-person rendering to avoid VR flicker.
 	dbg.lifeState = (int)ReadNetvar<uint8_t>(player, 0x147); // m_lifeState
-	dbg.dead = (dbg.lifeState != 0);
+	dbg.goingToDie = ReadNetvar<uint8_t>(player, 0x1fb4) != 0;   // m_isGoingToDie
+	dbg.observerMode = ReadNetvar<int>(player, 0x1450);          // m_iObserverMode
+	dbg.observerTarget = ReadNetvar<int>(player, 0x1454);        // m_hObserverTarget
+
 
 	// Offsets are client netvars (see offsets.txt)
 	dbg.incap = ReadNetvar<uint8_t>(player, 0x1ea9) != 0;          // m_isIncapacitated
 	dbg.ledge = ReadNetvar<uint8_t>(player, 0x25ec) != 0;          // m_isHangingFromLedge
-
+	// IMPORTANT (L4D2):
+	// m_isGoingToDie can stay true for "near death / black&white / scripted transitions" while the player is alive
+	// (lifeState==0). Using it as "dead-ish" causes third-person latching after revive.
+	// Only use lifeState to decide dead/dying here.
+	// Typical Source: 0=ALIVE, 1=DYING, 2=DEAD.
+	const bool lifeDead  = (dbg.lifeState == 2);
+	const bool lifeDying = (dbg.lifeState == 1);
+	dbg.dead = lifeDead || (lifeDying && !dbg.incap);
 	dbg.tongueOwner = ReadNetvar<int>(player, 0x1f6c);             // m_tongueOwner
 	dbg.hangingTongue = ReadNetvar<uint8_t>(player, 0x1f84) != 0;  // m_isHangingFromTongue
 	dbg.tongue = dbg.hangingTongue || HandleValid(dbg.tongueOwner);
@@ -317,17 +330,17 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
 
 	dbg.useAction = ReadNetvar<int>(player, 0x1ba8);               // m_iCurrentUseAction
 	dbg.doingUseAction = (dbg.useAction != 0);
-	 // Distinguish "being treated by teammate" vs "self-heal".
-    // We ONLY force third-person for self-heal; teammate-treatment should NOT force third-person
-    // (it causes flicker and is disorienting in VR).
-    dbg.useActionOwner = ReadNetvar<int>(player, 0x1ba4);          // m_useActionOwner
-    dbg.useActionTarget = ReadNetvar<int>(player, 0x1ba0);         // m_useActionTarget
-    if (dbg.useAction == 1 && entList && localPlayer && HandleValid(dbg.useActionOwner) && HandleValid(dbg.useActionTarget))
-    {
-        auto* ownerEnt  = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionOwner);
-        auto* targetEnt = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionTarget);
-        dbg.selfMedkit = (ownerEnt == localPlayer) && (targetEnt == localPlayer);
-    }
+	// Distinguish "being treated by teammate" vs "self-heal".
+   // We ONLY force third-person for self-heal; teammate-treatment should NOT force third-person
+   // (it causes flicker and is disorienting in VR).
+	dbg.useActionOwner = ReadNetvar<int>(player, 0x1ba4);          // m_useActionOwner
+	dbg.useActionTarget = ReadNetvar<int>(player, 0x1ba0);         // m_useActionTarget
+	if (dbg.useAction == 1 && entList && localPlayer && HandleValid(dbg.useActionOwner) && HandleValid(dbg.useActionTarget))
+	{
+		auto* ownerEnt = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionOwner);
+		auto* targetEnt = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionTarget);
+		dbg.selfMedkit = (ownerEnt == localPlayer) && (targetEnt == localPlayer);
+	}
 	dbg.reviveOwner = ReadNetvar<int>(player, 0x1f88);             // m_reviveOwner
 	dbg.reviveTarget = ReadNetvar<int>(player, 0x1f8c);            // m_reviveTarget
 	dbg.reviving = HandleValid(dbg.reviveOwner) || HandleValid(dbg.reviveTarget);
@@ -339,7 +352,11 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
 	// - "倒地" (incapacitated) 不强制第三人称
 	// Keep other pinned/use/tongue states.
 	// Keep other pinned/tongue states. Only self-heal forces third-person from useAction.
-	return  dbg.ledge || dbg.tongue || dbg.pinned || dbg.selfMedkit || dbg.doingUseAction;
+	const bool observer = (dbg.observerMode != 0) && (dbg.dead || HandleValid(dbg.observerTarget));
+	// NOTE: m_iObserverMode can be transiently non-zero during revive/incap camera transitions.
+	// Guard it with either a dead-ish state or a valid observer target to avoid false third-person latching.
+	// NOTE: do NOT force 3P for generic useAction; it includes teammate revive/assistance/interaction and can latch 3P.
+	return dbg.dead || observer || dbg.ledge || dbg.tongue || dbg.pinned || dbg.selfMedkit;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -516,7 +533,19 @@ int Hooks::initSourceHooks()
 	}
 
 	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
+	// Optionally block the game's Info/MOTD panel (default bind: H).
+	// NOTE: CreateMove is hooked at vtable index 27. These indices are relative to that layout.
+	constexpr int kClientMode_IsInfoPanelAllowed = 50;
+	constexpr int kClientMode_InfoPanelDisplayed = 51;
+	constexpr int kClientMode_IsHTMLInfoPanelAllowed = 52;
 
+	if (clientModeVTable[kClientMode_IsInfoPanelAllowed])
+		hkIsInfoPanelAllowed.createHook(clientModeVTable[kClientMode_IsInfoPanelAllowed], dIsInfoPanelAllowed);
+	if (clientModeVTable[kClientMode_InfoPanelDisplayed])
+		hkInfoPanelDisplayed.createHook(clientModeVTable[kClientMode_InfoPanelDisplayed], dInfoPanelDisplayed);
+	if (clientModeVTable[kClientMode_IsHTMLInfoPanelAllowed])
+		hkIsHTMLInfoPanelAllowed.createHook(clientModeVTable[kClientMode_IsHTMLInfoPanelAllowed], dIsHTMLInfoPanelAllowed);
+ 
 	return 1;
 }
 
@@ -549,6 +578,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// ------------------------------
 	int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
 	C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
 
 	Vector eyeOrigin = setup.origin;
 	if (localPlayer)
@@ -566,7 +596,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// - XY threshold must be low enough to catch "near" third-person modes,
 	//   but still high enough to ignore stairs/step-smoothing Z deltas.
 	// - 3D is a fallback for edge cases.
-	constexpr float kThirdPersonXY = 20.0f; 
+	constexpr float kThirdPersonXY = 20.0f;
 	constexpr float kThirdPerson3D = 90.0f;
 	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition()
 	// even though we want to keep first-person VR rendering. Treat that as NOT third-person.
@@ -579,9 +609,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 
 	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	// Revive camera can temporarily offset setup.origin away from EyePosition() even though we want first-person VR rendering.
 	if (playerReviving)
 		engineThirdPersonNow = false;
+	// Mounted gun (.50cal/minigun): always force first-person rendering.
+	// The engine often runs these in third-person/shoulder cam, which feels wrong in VR
+	// and can poison our tracking anchors.
+	const bool usingMountedGun = m_VR->IsUsingMountedGun(localPlayer);
+	if (usingMountedGun)
+		engineThirdPersonNow = false;
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
+	// Some scripts/mods use point_viewcontrol_survivor via m_hViewEntity. During revive/incap transitions,
+	// this can look like a "fake" engine third-person and will latch our hold frames. Treat it as NOT third-person
+	// unless the user explicitly requested third-person via +walk.
+	if (hasViewEntityOverride && !customWalkThirdPersonNow)
+		engineThirdPersonNow = false;
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
 	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
 	if (engineThirdPersonNow)
@@ -605,20 +647,70 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
 	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, m_Game->m_ClientEntityList, localPlayer, &tpStateDbg);
-	const bool stateIsDead = tpStateDbg.dead;
-
+	const bool stateObserver = (tpStateDbg.observerMode != 0) && (tpStateDbg.dead || HandleValid(tpStateDbg.observerTarget));
+	const bool stateIsDeadOrObserver = tpStateDbg.dead || stateObserver;
+	// Death transition anti-flicker: the engine can oscillate between 1P/3P while dying -> observer.
+	// To avoid nauseating camera swaps in VR, lock to first-person for a short window right after death is detected.
+	static std::chrono::steady_clock::time_point s_deathFpLockUntil{};
+	static bool s_prevDead = false;
+	const bool nowDead = tpStateDbg.dead;
+	const bool nowObserver = stateObserver;
+	const auto nowTp = std::chrono::steady_clock::now();
+	// Revive recovery: getting up from incapacitated can leave the engine in a transient camera mode
+	// (observer/view-entity/shoulder cam). If we latch third-person during that window, it may never decay.
+	// Detect the incap -> standing edge and (optionally) force a short first-person recovery window.
+	// NOTE: if the player was already in third-person before getting incapacitated, don't force first-person
+	// after the revive; restore third-person immediately to match player expectation.
+	static bool s_prevIncap = false;
+	static bool s_incapEnteredThirdPerson = false;
+	static bool s_reviveForceFirstPerson = true;
+	static std::chrono::steady_clock::time_point s_reviveRecoverUntil{};
+	const bool nowIncap = tpStateDbg.incap;
+	if (!s_prevIncap && nowIncap)
+	{
+		// Capture the *previous* third-person intent/state so we can restore it after revive.
+		// m_IsThirdPersonCamera / HoldFrames reflect the last frame's decision.
+		const bool prevHadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
+		s_incapEnteredThirdPerson = prevHadThirdPerson || customWalkThirdPersonNow || engineThirdPersonNow;
+	}
+	if (s_prevIncap && !nowIncap)
+	{
+		s_reviveForceFirstPerson = !s_incapEnteredThirdPerson;
+		// Keep this window short; it's only meant to let transient camera state settle.
+		// If we entered incap in third-person, don't force first-person after revive.
+		if (s_reviveForceFirstPerson)
+			s_reviveRecoverUntil = nowTp + std::chrono::milliseconds(400);
+		else
+			s_reviveRecoverUntil = std::chrono::steady_clock::time_point{};
+		m_VR->m_ThirdPersonHoldFrames = 0;
+		m_VR->m_IsThirdPersonCamera = false;
+		s_engineTpCam.Reset();
+		m_VR->ResetPosition();
+	}
+	s_prevIncap = nowIncap;
+	const bool inReviveRecover = (s_reviveRecoverUntil.time_since_epoch().count() != 0) && (nowTp < s_reviveRecoverUntil);
+ 
+	if (nowDead && !s_prevDead)
+		s_deathFpLockUntil = nowTp + std::chrono::seconds(10);
+	s_prevDead = nowDead;
+	const bool forceFirstPersonAfterDeath =
+		(!nowObserver && (s_deathFpLockUntil.time_since_epoch().count() != 0) && (nowTp < s_deathFpLockUntil));
 	constexpr int kEngineThirdPersonHoldFrames = 2;
 	constexpr int kStateThirdPersonHoldFrames = 2;
 	constexpr int kSelfMedkitHoldFrames = 6; // stronger lock while self-healing
+	constexpr int kDeadOrObserverHoldFrames = 30; // avoid flicker during death/observer transitions
 	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
 	// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
-	const bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDead || tpStateDbg.selfMedkit || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
-
+	bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDeadOrObserver || tpStateDbg.selfMedkit || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
+	if (forceFirstPersonAfterDeath)
+		allowStateThirdPerson = false;
 	// 先按“状态”锁定（优先级最高）
 	if (allowStateThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
 	if (tpStateDbg.selfMedkit)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kSelfMedkitHoldFrames);
+	if (stateIsDeadOrObserver)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kDeadOrObserverHoldFrames);
 	// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
 	constexpr int kWalkThirdPersonHoldFrames = 3;
 	if (customWalkThirdPersonNow)
@@ -627,10 +719,29 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
 	if (engineThirdPersonNow)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
-	else if (!allowStateThirdPerson && !tpStateDbg.selfMedkit && m_VR->m_ThirdPersonHoldFrames > 0)
+	else if (localPlayer && !allowStateThirdPerson && !tpStateDbg.selfMedkit && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
-	const bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || tpStateDbg.selfMedkit || (m_VR->m_ThirdPersonHoldFrames > 0);
+	bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || tpStateDbg.selfMedkit || (m_VR->m_ThirdPersonHoldFrames > 0);
+	if (usingMountedGun)
+	{
+		// Hard override: mounted guns should never be third-person in VR.
+		renderThirdPerson = false;
+		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
+	// Post-revive recovery override: force first-person for a short window after getting up.
+	if (inReviveRecover && s_reviveForceFirstPerson && !usingMountedGun && !customWalkThirdPersonNow && !stateIsDeadOrObserver && !tpStateDbg.selfMedkit)
+	{
+		renderThirdPerson = false;
+		m_VR->m_ThirdPersonHoldFrames = 0;
+		s_engineTpCam.Reset();
+	}
+	// Death anti-flicker override (must run after all other third-person decisions).
+	if (forceFirstPersonAfterDeath)
+	{
+		renderThirdPerson = false;
+		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
 		static std::chrono::steady_clock::time_point s_lastTpDbg{};
@@ -644,6 +755,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			(renderThirdPerson != s_prevRenderTp) || (m_VR->m_ThirdPersonHoldFrames != s_prevHold);
 		const bool timeUp = (s_lastTpDbg.time_since_epoch().count() == 0) ||
 			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000);
+
+		s_prevEngineTp = engineThirdPersonNow;
+		s_prevStateTp = stateWantsThirdPerson;
+		s_prevRenderTp = renderThirdPerson;
+		s_prevHold = m_VR->m_ThirdPersonHoldFrames;
 	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
@@ -668,8 +784,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
 	// So: only borrow setup.origin.z when the player has no active view-entity override.
 	m_VR->m_SetupOrigin = eyeOrigin;
-	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
-	if (!renderThirdPerson && !hasViewEntityOverride)
+	if (!renderThirdPerson && !hasViewEntityOverride && !usingMountedGun)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
@@ -701,7 +816,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (stateWantsThirdPerson)
 		{
 			// Dead/observer camera must follow engine view, not HMD position.
-			baseCenter = stateIsDead ? engineCamOrigin : m_VR->m_HmdPosAbs;
+			baseCenter = stateIsDeadOrObserver ? engineCamOrigin : m_VR->m_HmdPosAbs;
 		}
 		else
 		{
@@ -918,6 +1033,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd)
 {
+	// When returning from spectator/observer back to a live player entity ("rescued"),
+	// VR origin can be desynced. Force a recenter/reset once on that transition.
+	// Netvars (client):
+	// - m_lifeState     @ 0x147
+	// - m_iObserverMode @ 0x1450
+	static bool s_prevSpectatorLike = false;
+	static bool s_prevSpectatorLikeInitialized = false;
+
 	// Non-VR server melee feel state (ForceNonVRServerMovement=true only)
 	static int s_nonvrMeleeHoldTicks = 0;
 	static bool s_nonvrMeleeArmed = true;
@@ -941,6 +1064,37 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	if (m_VR->m_IsVREnabled) {
+		// Detect observer -> live transition and recenter once.
+	   // In L4D2, the local player entity persists while dead and enters observer modes.
+	   // When rescued, m_iObserverMode usually returns to 0 and m_lifeState becomes 0.
+		{
+			const int lpIdx = (m_Game->m_EngineClient) ? m_Game->m_EngineClient->GetLocalPlayer() : -1;
+			C_BasePlayer* lp = (lpIdx > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx) : nullptr;
+			if (lp)
+			{
+				const int lifeState = (int)ReadNetvar<uint8_t>(lp, 0x147); // m_lifeState
+				const int observerMode = (int)ReadNetvar<int>(lp, 0x1450); // m_iObserverMode
+				const bool spectatorLikeNow = (lifeState != 0) || (observerMode != 0);
+
+				if (s_prevSpectatorLikeInitialized)
+				{
+					// Transition: was spectator-like -> now fully alive (not observer).
+					if (s_prevSpectatorLike && !spectatorLikeNow)
+					{
+						// Note: ResetPosition is expected to exist on VR (used by the input action).
+						m_VR->ResetPosition();
+					}
+				}
+
+				s_prevSpectatorLike = spectatorLikeNow;
+				s_prevSpectatorLikeInitialized = true;
+			}
+			else
+			{
+				// No local player entity yet; don't latch state.
+				s_prevSpectatorLikeInitialized = false;
+			}
+		}
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
 
 		// Mouse mode: consume raw mouse deltas to drive body yaw and independent aim pitch.
@@ -1374,6 +1528,102 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		}
 	}
 
+	// Auto-repeat for semi-auto / single-shot guns:
+	// Many L4D2 weapons require a fresh IN_ATTACK edge per shot (press/release).
+	// When enabled, we convert a held IN_ATTACK into short pulses for non-full-auto guns.
+	if (m_VR->m_AutoRepeatSemiAutoFire && m_Game && m_Game->m_EngineClient)
+	{
+		const int lpIdx2 = m_Game->m_EngineClient->GetLocalPlayer();
+		C_BasePlayer* lp2 = (lpIdx2 > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx2) : nullptr;
+		C_WeaponCSBase* wpn = lp2 ? (C_WeaponCSBase*)lp2->GetActiveWeapon() : nullptr;
+		const char* wpnNet = (wpn != nullptr) ? m_Game->GetNetworkClassName((uintptr_t*)wpn) : nullptr;
+
+		auto startsWith = [](const char* s, const char* prefix) -> bool {
+			if (!s || !prefix) return false;
+			while (*prefix)
+			{
+				if (*s++ != *prefix++) return false;
+			}
+			return true;
+		};
+		auto contains = [](const char* s, const char* sub) -> bool {
+			if (!s || !sub || !*sub) return false;
+			return std::strstr(s, sub) != nullptr;
+		};
+
+		// Heuristic: treat common full-auto weapons as full-auto and do NOT pulse them.
+		// Everything else that uses IN_ATTACK will either be unaffected, or benefit from pulsing.
+		const bool isFullAuto =
+			startsWith(wpnNet, "CWeaponSMG") ||
+			startsWith(wpnNet, "CWeaponRifle") ||
+			startsWith(wpnNet, "CWeaponAutoshotgun") ||
+			startsWith(wpnNet, "CWeaponShotgun_SPAS") ||
+			startsWith(wpnNet, "CWeaponM60") ||
+			startsWith(wpnNet, "CWeaponRifle_M60") ||
+			contains(wpnNet, "Minigun");
+
+		const bool holdingAttack = (cmd->buttons & (1 << 0)) != 0; // IN_ATTACK
+
+		// If the player is currently performing a "use action" (healing, giving ammo/upgrade pack,
+		// reviving, etc.), Source expects IN_ATTACK to be held continuously.
+		// Pulsing IN_ATTACK will interrupt the action.
+		const bool doingUseAction = lp2 ? (ReadNetvar<int>(lp2, 0x1ba8) != 0) : false; // m_iCurrentUseAction
+
+		// Items that require a continuous hold on IN_ATTACK (healing / ammo packs / upgrade packs).
+		// If we pulse IN_ATTACK here, these actions get interrupted and become unusable.
+		const bool isHoldToUseItem =
+			// First-aid kit
+			contains(wpnNet, "FirstAid") ||
+			contains(wpnNet, "FirstAidKit") ||
+			contains(wpnNet, "WeaponFirstAidKit") ||
+			contains(wpnNet, "AidKit") ||
+			// Defib
+			contains(wpnNet, "Defibrillator") ||
+			contains(wpnNet, "WeaponDefibrillator") ||
+			// Ammo/upgrade packs
+			contains(wpnNet, "AmmoPack") ||
+			contains(wpnNet, "DT_AmmoPack") ||
+			contains(wpnNet, "UpgradePack") ||
+			contains(wpnNet, "ItemBaseUpgradePack") ||
+			contains(wpnNet, "UpgradePackExplosive") ||
+			contains(wpnNet, "UpgradePackIncendiary");
+
+		// Only pulse when holding attack and weapon is NOT full-auto, and NOT a hold-to-use item.
+		// NOT a hold-to-use item, and NOT during a continuous use action.
+		if (holdingAttack && !isFullAuto && !isHoldToUseItem && !doingUseAction)
+		{
+			using namespace std::chrono;
+			const float hz = (m_VR->m_AutoRepeatSemiAutoFireHz > 0.0f) ? m_VR->m_AutoRepeatSemiAutoFireHz : 0.0f;
+			const auto now = steady_clock::now();
+
+			if (!m_VR->m_AutoRepeatHoldPrev)
+			{
+				// First tick of hold: fire immediately.
+				m_VR->m_AutoRepeatNextPulse = now;
+			}
+
+			bool pulseThisTick = (hz > 0.0f) && (now >= m_VR->m_AutoRepeatNextPulse);
+			if (pulseThisTick)
+			{
+				cmd->buttons |= (1 << 0); // IN_ATTACK
+				// Single-tick pulse; next tick will be cleared (unless next period elapsed).
+				const float clampedHz = std::max(1.0f, std::min(30.0f, hz));
+				m_VR->m_AutoRepeatNextPulse = now + duration_cast<steady_clock::duration>(duration<float>(1.0f / clampedHz));
+			}
+			else
+			{
+				cmd->buttons &= ~(1 << 0); // IN_ATTACK
+			}
+
+			m_VR->m_AutoRepeatHoldPrev = true;
+		}
+		else
+		{
+			m_VR->m_AutoRepeatHoldPrev = false;
+		}
+	}
+
+
 	// Aim-line friendly-fire guard:
 	// Compute teammate hit at input-tick rate (CreateMove) and latch suppression until attack is released.
 	C_BasePlayer* ffLocalPlayer = nullptr;
@@ -1383,13 +1633,42 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		if (ffIdx > 0)
 			ffLocalPlayer = (C_BasePlayer*)m_Game->GetClientEntity(ffIdx);
 	}
-	if (m_VR->ShouldSuppressPrimaryFire(cmd, ffLocalPlayer))
+
+	// Do NOT suppress IN_ATTACK while the player is performing a continuous "use action"
+	// (healing, giving ammo/upgrade pack, reviving, etc.). These actions intentionally target
+	// teammates and require holding IN_ATTACK.
+	const bool ffDoingUseAction = ffLocalPlayer ? (ReadNetvar<int>(ffLocalPlayer, 0x1ba8) != 0) : false; // m_iCurrentUseAction
+	if (!ffDoingUseAction && m_VR->ShouldSuppressPrimaryFire(cmd, ffLocalPlayer))
 	{
 		cmd->buttons &= ~(1 << 0); // IN_ATTACK
 	}
 
 	return result;
 }
+bool __fastcall Hooks::dIsInfoPanelAllowed(void* ecx, void* edx)
+{
+	// The "daily message" panel in L4D2 is the clientmode Info/MOTD panel (default bind: H).
+	// When disabled, return false so the engine never opens it (auto-popup or keybind).
+	if (m_VR && m_VR->m_DisableInfoPanel)
+		return false;
+	return hkIsInfoPanelAllowed.fOriginal(ecx);
+}
+
+void __fastcall Hooks::dInfoPanelDisplayed(void* ecx, void* edx)
+{
+	// If we block the panel, we also suppress the "displayed" callback.
+	if (m_VR && m_VR->m_DisableInfoPanel)
+		return;
+	hkInfoPanelDisplayed.fOriginal(ecx);
+}
+
+bool __fastcall Hooks::dIsHTMLInfoPanelAllowed(void* ecx, void* edx)
+{
+	if (m_VR && m_VR->m_DisableInfoPanel)
+		return false;
+	return hkIsHTMLInfoPanelAllowed.fOriginal(ecx);
+}
+ 
 
 void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 {
