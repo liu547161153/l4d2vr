@@ -128,6 +128,11 @@ public:
 	float m_HeightOffset = 0.0;
 	bool m_RoomscaleActive = false;
 	bool m_IsThirdPersonCamera = false;
+	// Death camera flicker guard: after we detect the local player has died,
+	// force first-person rendering for a short cooldown to avoid 1P<->3P thrash
+	// during Source's deathcam/freeze-cam transitions.
+	std::chrono::steady_clock::time_point m_DeathFirstPersonLockEnd{};
+	bool m_DeathWasAlivePrev = true;
 	// When a CustomAction is bound to +walk (press/release), we can optionally treat it
 	// as a signal that the gameplay camera has been forced into a third-person mode
 	// (e.g. slide mods that switch to 3P while +walk is held).
@@ -137,6 +142,8 @@ public:
 	// Only a small whitelist of explicitly-handled cases will remain first-person.
 	bool m_ThirdPersonDefault = false;
 	bool m_ObserverThirdPerson = false;
+	// Prevent the game's Info/MOTD panel (default bind: H) from popping up.
+	bool m_DisableInfoPanel = true;
 	int m_ThirdPersonHoldFrames = 0;
 	Vector m_ThirdPersonViewOrigin = { 0,0,0 };
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
@@ -188,9 +195,14 @@ public:
 	bool m_AimLineConfigEnabled = true;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
+	// Mounted gun (minigun/.50cal) state.
+	// We force first-person rendering while using the mounted gun (see hooks.cpp).
+	// On exit we do a one-shot ResetPosition to avoid accumulated anchor drift.
+	bool m_UsingMountedGunPrev = false;
+	bool m_ResetPositionAfterMountedGunExitPending = false;
 	// When the local player is pinned / controlled by special infected (smoked, pounced, jockey,
-// charger carry/pummel), the body animation can cause the aim line to jitter wildly.
-// Disable the aim line in those states.
+	// charger carry/pummel), the body animation can cause the aim line to jitter wildly.
+	// Disable the aim line in those states.
 	bool m_PlayerControlledBySI = false;
 	float m_AimLinePersistence = 0.02f;
 	float m_AimLineFrameDurationMultiplier = 2.0f;
@@ -559,6 +571,8 @@ public:
 	static constexpr int kZombieClassOffset = 0x1c90;
 	static constexpr int kLifeStateOffset = 0x147;
 	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
+	static constexpr int kObserverModeOffset = 0x1450; // C_BasePlayer::m_iObserverMode
+
 
 	// Aim-line friendly-fire guard (client-side fire suppression)
 	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
@@ -568,13 +582,34 @@ public:
 	// Latch suppression while attack is held (prevents flicker causing intermittent firing).
 	bool m_FriendlyFireGuardLatched = false;
 
+	// Auto-repeat semi-auto / single-shot guns while holding IN_ATTACK (client-side input pulse).
+	// Config: AutoRepeatSemiAutoFire (true/false)
+	//         AutoRepeatSemiAutoFireHz (float, pulses per second; 0 disables)
+	bool m_AutoRepeatSemiAutoFire = false;
+	float m_AutoRepeatSemiAutoFireHz = 12.0f;
+	bool m_AutoRepeatHoldPrev = false;
+	std::chrono::steady_clock::time_point m_AutoRepeatNextPulse{};
+
 	// Auto ResetPosition after a level finishes loading.
 	// Config: AutoResetPositionAfterLoadSeconds (0 disables)
 	float m_AutoResetPositionAfterLoadSeconds = 5.0f;
 	bool m_AutoResetPositionPending = false;
 	std::chrono::steady_clock::time_point m_AutoResetPositionDueTime{};
 	bool m_AutoResetHadLocalPlayerPrev = false;
-
+	// Spectator/observer camera behavior.
+	// When enabled, we try to switch the engine spectator camera to free-roaming
+	// (spec_mode 6) once per observer session, instead of default chase cam locked
+	// to a teammate.
+	// Config: ObserverDefaultFreeCam (true/false)
+	bool m_ObserverDefaultFreeCam = true;
+	bool m_ObserverWasActivePrev = false;
+	bool m_ObserverForcedFreeCamThisObserver = false;
+	// Some servers place the client into observer mode immediately on join, but
+	// early spec_mode commands can be ignored during connection/spawn. We retry a
+	// few times until the engine actually reports roaming (mode 6), then stop so
+	// the user can still manually change spectator mode afterwards.
+	std::chrono::steady_clock::time_point m_ObserverLastFreeCamAttempt{};
+	int m_ObserverFreeCamAttemptCount = 0;
 	// CTerrorPlayer netvars (from offsets.txt). These are used for a special-case in the
 	// friendly-fire aim guard: if the aim ray hits a teammate who is currently pinned/
 	// controlled, we allow a "see-through" trace to hit the attacker behind them.
@@ -591,6 +626,7 @@ public:
 	// We treat the mounted-gun entity as "transparent" for aim traces by skipping the current use-entity.
 	// NOTE: These offsets can change between game builds.
 	static constexpr int kUsingMountedGunOffset = 0x1EBA;  // DT_TerrorPlayer::m_usingMountedGun
+	static constexpr int kUsingMountedWeaponOffset = 0x1EBB;  // DT_TerrorPlayer::m_usingMountedWeapon (minigun/gatling uses this)
 	static constexpr int kUseEntityHandleOffset = 0x1480;  // DT_BasePlayer::m_hUseEntity
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
@@ -847,6 +883,9 @@ public:
 	Vector GetThirdPersonViewOrigin() const { return m_ThirdPersonViewOrigin; }
 	QAngle GetThirdPersonViewAngles() const { return m_ThirdPersonViewAngles; }
 	bool IsThirdPersonCameraActive() const { return m_IsThirdPersonCamera; }
+	// Death flicker guard (see m_DeathFirstPersonLockEnd).
+	void RefreshDeathFirstPersonLock(const C_BasePlayer* localPlayer);
+	bool IsDeathFirstPersonLockActive() const;
 	bool PressedDigitalAction(vr::VRActionHandle_t& actionHandle, bool checkIfActionChanged = false);
 	bool GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigitalActionData_t& digitalDataOut);
 	bool GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut);
