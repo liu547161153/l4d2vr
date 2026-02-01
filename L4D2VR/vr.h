@@ -214,6 +214,7 @@ public:
 	std::array<Vector, THROW_ARC_SEGMENTS + 1> m_LastThrowArcPoints{};
 	bool m_HasThrowArc = false;
 	bool m_LastAimWasThrowable = false;
+	bool m_LastAimWasGrenadeLauncher = false;
 	float m_ThrowArcBaseDistance = 500.0f;
 	float m_ThrowArcMinDistance = 20.0f;
 	float m_ThrowArcMaxDistance = 2200.0f;
@@ -233,6 +234,19 @@ public:
 
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
+
+	// Grenade launcher (M79) aim parabola (separate tuning from throwables)
+	std::array<Vector, THROW_ARC_SEGMENTS + 1> m_LastGrenadeLauncherArcPoints{};
+	bool m_HasGrenadeLauncherArc = false;
+	bool m_GrenadeLauncherArcEnabled = true;
+	float m_GrenadeLauncherArcBaseDistance = 1400.0f;
+	float m_GrenadeLauncherArcMinDistance = 50.0f;
+	float m_GrenadeLauncherArcMaxDistance = 6000.0f;
+	float m_GrenadeLauncherArcHeightRatio = 0.13f;
+	float m_GrenadeLauncherArcPitchScale = 3.0f;
+	float m_GrenadeLauncherArcLandingOffset = -40.0f;
+	float m_GrenadeLauncherArcMaxHz = 30.0f;
+	std::chrono::steady_clock::time_point m_LastGrenadeLauncherArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
 	mutable std::unordered_map<int, bool> m_LastSpecialInfectedTraceResult{};
@@ -922,6 +936,9 @@ public:
 	void DrawAimLine(const Vector& start, const Vector& end);
 	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
 	void DrawThrowArcFromCache(float duration);
+	float CalculateGrenadeLauncherArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
+	void DrawGrenadeLauncherArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
+	void DrawGrenadeLauncherArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
 	SpecialInfectedType GetSpecialInfectedType(const C_BaseEntity* entity) const;
 	SpecialInfectedType GetSpecialInfectedTypeFromModel(const std::string& modelName) const;
