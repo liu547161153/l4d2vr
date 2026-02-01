@@ -4421,7 +4421,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         m_HasAimLine = false;
         m_HasAimConvergePoint = false;
         m_HasThrowArc = false;
+        m_HasGrenadeLauncherArc = false;
         m_LastAimWasThrowable = false;
+        m_LastAimWasGrenadeLauncher = false;
 
         // Even when the aim line is hidden/disabled, still run the friendly-fire guard trace
         // if the user toggled it on.
@@ -4439,6 +4441,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
 
     bool isThrowable = IsThrowableWeapon(activeWeapon);
+    bool isGrenadeLauncher = (activeWeapon && activeWeapon->GetWeaponID() == C_WeaponCSBase::GRENADE_LAUNCHER);
     const bool useMouse = m_MouseModeEnabled;
 
     // Eye-center ray direction (mouse aim in mouse mode).
@@ -4480,6 +4483,12 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
                 return;
             }
 
+            if (m_LastAimWasGrenadeLauncher && m_HasGrenadeLauncherArc)
+            {
+                DrawGrenadeLauncherArcFromCache(duration);
+                return;
+            }
+
             if (!m_HasAimLine)
             {
                 m_AimLineHitsFriendly = false;
@@ -4493,11 +4502,13 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
         direction = m_LastAimDirection;
         isThrowable = m_LastAimWasThrowable;
+        isGrenadeLauncher = m_LastAimWasGrenadeLauncher;
     }
     else
     {
         m_LastAimDirection = direction;
         m_LastAimWasThrowable = isThrowable;
+        m_LastAimWasGrenadeLauncher = isGrenadeLauncher;
     }
     VectorNormalize(direction);
 
@@ -4531,6 +4542,23 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             pitchSource = m_HmdForward;
 
         DrawThrowArc(origin, direction, pitchSource);
+        return;
+    }
+
+    if (isGrenadeLauncher && m_GrenadeLauncherArcEnabled)
+    {
+        m_HasAimConvergePoint = false;
+
+        Vector pitchSource = direction;
+        if (useMouse && !eyeDir.IsZero())
+            pitchSource = eyeDir;
+        else if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
+            pitchSource = m_HmdForward;
+
+        // Keep the friendly-fire guard feedback up to date even though we're drawing an arc.
+        UpdateFriendlyFireAimHit(localPlayer);
+
+        DrawGrenadeLauncherArc(origin, direction, pitchSource);
         return;
     }
 
@@ -4578,6 +4606,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     m_AimLineEnd = target;
     m_HasAimLine = true;
     m_HasThrowArc = false;
+    m_HasGrenadeLauncherArc = false;
 
     if (canDraw)
         DrawAimLine(origin, target);
@@ -4733,6 +4762,25 @@ float VR::CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMa
     return clampedDistance;
 }
 
+float VR::CalculateGrenadeLauncherArcDistance(const Vector& pitchSource, bool* clampedToMax) const
+{
+    Vector direction = pitchSource;
+    if (direction.IsZero())
+        return m_GrenadeLauncherArcMinDistance;
+
+    VectorNormalize(direction);
+
+    const float pitchInfluence = direction.z * m_GrenadeLauncherArcPitchScale;
+    const float scaledDistance = m_GrenadeLauncherArcBaseDistance * (1.0f + pitchInfluence);
+    const float maxDistance = std::max(m_GrenadeLauncherArcMinDistance, m_GrenadeLauncherArcMaxDistance);
+    const float clampedDistance = std::clamp(scaledDistance, m_GrenadeLauncherArcMinDistance, maxDistance);
+
+    if (clampedToMax)
+        *clampedToMax = clampedDistance >= maxDistance;
+
+    return clampedDistance;
+}
+
 void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
     if (!m_AimLineEnabled)
@@ -4798,6 +4846,7 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector&
     }
 
     m_HasThrowArc = true;
+    m_HasGrenadeLauncherArc = false;
     m_HasAimLine = false;
 
     DrawThrowArcFromCache(duration);
@@ -4815,6 +4864,71 @@ void VR::DrawThrowArcFromCache(float duration)
     for (int i = 0; i < THROW_ARC_SEGMENTS; ++i)
     {
         DrawLineWithThickness(m_LastThrowArcPoints[i], m_LastThrowArcPoints[i + 1], duration);
+    }
+}
+
+void VR::DrawGrenadeLauncherArc(const Vector& origin, const Vector& forward, const Vector& pitchSource)
+{
+    if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
+        return;
+
+    Vector direction = forward;
+    if (direction.IsZero())
+        return;
+    VectorNormalize(direction);
+
+    Vector planarForward(direction.x, direction.y, 0.0f);
+    if (planarForward.IsZero())
+        planarForward = direction;
+    VectorNormalize(planarForward);
+
+    Vector distanceSource = pitchSource.IsZero() ? direction : pitchSource;
+    VectorNormalize(distanceSource);
+
+    bool clampedToMaxDistance = false;
+    const float distance = CalculateGrenadeLauncherArcDistance(distanceSource, &clampedToMaxDistance);
+    (void)clampedToMaxDistance;
+
+    // For grenade launcher we still draw when clamped (represents "max tuned range").
+    const float arcHeight = std::max(distance * m_GrenadeLauncherArcHeightRatio, m_GrenadeLauncherArcMinDistance * 0.5f);
+
+    Vector landingPoint = origin + planarForward * distance;
+    landingPoint.z += m_GrenadeLauncherArcLandingOffset;
+    Vector apex = origin + planarForward * distance * 0.5f;
+    apex.z += arcHeight;
+
+    auto lerp = [](const Vector& a, const Vector& b, float t)
+        {
+            return a + (b - a) * t;
+        };
+
+    const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+    for (int i = 0; i <= THROW_ARC_SEGMENTS; ++i)
+    {
+        const float t = static_cast<float>(i) / static_cast<float>(THROW_ARC_SEGMENTS);
+        Vector ab = lerp(origin, apex, t);
+        Vector bc = lerp(apex, landingPoint, t);
+        m_LastGrenadeLauncherArcPoints[i] = lerp(ab, bc, t);
+    }
+
+    m_HasGrenadeLauncherArc = true;
+    m_HasThrowArc = false;
+    m_HasAimLine = false;
+
+    DrawGrenadeLauncherArcFromCache(duration);
+}
+
+void VR::DrawGrenadeLauncherArcFromCache(float duration)
+{
+    if (!m_Game->m_DebugOverlay || !m_HasGrenadeLauncherArc)
+        return;
+
+    if (ShouldThrottle(m_LastGrenadeLauncherArcDrawTime, m_GrenadeLauncherArcMaxHz))
+        return;
+
+    for (int i = 0; i < THROW_ARC_SEGMENTS; ++i)
+    {
+        DrawLineWithThickness(m_LastGrenadeLauncherArcPoints[i], m_LastGrenadeLauncherArcPoints[i + 1], duration);
     }
 }
 
@@ -5812,6 +5926,16 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
+
+    // Grenade launcher (M79) aim parabola (separate tuning)
+    m_GrenadeLauncherArcEnabled = getBool("GrenadeLauncherArcEnabled", m_GrenadeLauncherArcEnabled);
+    m_GrenadeLauncherArcBaseDistance = std::max(0.0f, getFloat("GrenadeLauncherArcBaseDistance", m_GrenadeLauncherArcBaseDistance));
+    m_GrenadeLauncherArcMinDistance = std::max(0.0f, getFloat("GrenadeLauncherArcMinDistance", m_GrenadeLauncherArcMinDistance));
+    m_GrenadeLauncherArcMaxDistance = std::max(0.0f, getFloat("GrenadeLauncherArcMaxDistance", m_GrenadeLauncherArcMaxDistance));
+    m_GrenadeLauncherArcHeightRatio = std::clamp(getFloat("GrenadeLauncherArcHeightRatio", m_GrenadeLauncherArcHeightRatio), 0.0f, 2.0f);
+    m_GrenadeLauncherArcPitchScale = std::clamp(getFloat("GrenadeLauncherArcPitchScale", m_GrenadeLauncherArcPitchScale), 0.0f, 20.0f);
+    m_GrenadeLauncherArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("GrenadeLauncherArcLandingOffset", m_GrenadeLauncherArcLandingOffset)));
+    m_GrenadeLauncherArcMaxHz = std::max(0.0f, getFloat("GrenadeLauncherArcMaxHz", m_GrenadeLauncherArcMaxHz));
 
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
