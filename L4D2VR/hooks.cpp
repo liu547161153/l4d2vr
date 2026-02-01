@@ -314,7 +314,7 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
 	// (lifeState==0). Using it as "dead-ish" causes third-person latching after revive.
 	// Only use lifeState to decide dead/dying here.
 	// Typical Source: 0=ALIVE, 1=DYING, 2=DEAD.
-	const bool lifeDead  = (dbg.lifeState == 2);
+	const bool lifeDead = (dbg.lifeState == 2);
 	const bool lifeDying = (dbg.lifeState == 1);
 	dbg.dead = lifeDead || (lifeDying && !dbg.incap);
 	dbg.tongueOwner = ReadNetvar<int>(player, 0x1f6c);             // m_tongueOwner
@@ -545,7 +545,7 @@ int Hooks::initSourceHooks()
 		hkInfoPanelDisplayed.createHook(clientModeVTable[kClientMode_InfoPanelDisplayed], dInfoPanelDisplayed);
 	if (clientModeVTable[kClientMode_IsHTMLInfoPanelAllowed])
 		hkIsHTMLInfoPanelAllowed.createHook(clientModeVTable[kClientMode_IsHTMLInfoPanelAllowed], dIsHTMLInfoPanelAllowed);
- 
+
 	return 1;
 }
 
@@ -619,11 +619,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (usingMountedGun)
 		engineThirdPersonNow = false;
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
-	// Some scripts/mods use point_viewcontrol_survivor via m_hViewEntity. During revive/incap transitions,
-	// this can look like a "fake" engine third-person and will latch our hold frames. Treat it as NOT third-person
-	// unless the user explicitly requested third-person via +walk.
-	if (hasViewEntityOverride && !customWalkThirdPersonNow)
-		engineThirdPersonNow = false;
+
+	// Some scripts/mods use point_viewcontrol_survivor via m_hViewEntity.
+	// There are two very different cases:
+    //  1) Real cinematic/cutscene camera control (we MUST keep the engine camera, or you lose camera choreography).
+    //  2) Transitional revive/incap camera weirdness (can look like a "fake" third-person and will latch our hold frames).
+    //
+    // Heuristic: only ignore view-entity overrides during unstable revive/incap windows.
+    // Otherwise, treat it as a real external camera and let the engine camera drive rendering.
+	bool playerIncap = false;
+    if (localPlayer)
+        playerIncap = (ReadNetvar<int>(localPlayer, 0x1ea9) != 0); // m_isIncapacitated
+    if (hasViewEntityOverride && !customWalkThirdPersonNow)
+    {
+        const bool unstableViewEntity = playerReviving || playerIncap;
+        if (unstableViewEntity)
+            engineThirdPersonNow = false;
+    }
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
 	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
 	if (engineThirdPersonNow)
@@ -689,7 +701,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 	s_prevIncap = nowIncap;
 	const bool inReviveRecover = (s_reviveRecoverUntil.time_since_epoch().count() != 0) && (nowTp < s_reviveRecoverUntil);
- 
+
 	if (nowDead && !s_prevDead)
 		s_deathFpLockUntil = nowTp + std::chrono::seconds(10);
 	s_prevDead = nowDead;
@@ -1545,11 +1557,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				if (*s++ != *prefix++) return false;
 			}
 			return true;
-		};
+			};
 		auto contains = [](const char* s, const char* sub) -> bool {
 			if (!s || !sub || !*sub) return false;
 			return std::strstr(s, sub) != nullptr;
-		};
+			};
 
 		// Heuristic: treat common full-auto weapons as full-auto and do NOT pulse them.
 		// Everything else that uses IN_ATTACK will either be unaffected, or benefit from pulsing.
@@ -1587,10 +1599,23 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			contains(wpnNet, "ItemBaseUpgradePack") ||
 			contains(wpnNet, "UpgradePackExplosive") ||
 			contains(wpnNet, "UpgradePackIncendiary");
+			// Items that are *held* for a moment and released/thrown (or have their own continuous logic).
+			// Pulsing IN_ATTACK here feels bad and can cancel/bug the action (chainsaw, throwables).
+			const bool isChainsaw =
+				contains(wpnNet, "Chainsaw") ||
+				contains(wpnNet, "WeaponChainsaw") ||
+				startsWith(wpnNet, "CChainsaw");
+
+			const bool isThrowable =
+				contains(wpnNet, "Molotov") ||
+				contains(wpnNet, "PipeBomb") ||
+				contains(wpnNet, "VomitJar") ||
+				contains(wpnNet, "BaseCSGrenade") ||
+				(contains(wpnNet, "Grenade") && !contains(wpnNet, "GrenadeLauncher"));
 
 		// Only pulse when holding attack and weapon is NOT full-auto, and NOT a hold-to-use item.
 		// NOT a hold-to-use item, and NOT during a continuous use action.
-		if (holdingAttack && !isFullAuto && !isHoldToUseItem && !doingUseAction)
+			if (holdingAttack && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction)
 		{
 			using namespace std::chrono;
 			const float hz = (m_VR->m_AutoRepeatSemiAutoFireHz > 0.0f) ? m_VR->m_AutoRepeatSemiAutoFireHz : 0.0f;
@@ -1668,7 +1693,7 @@ bool __fastcall Hooks::dIsHTMLInfoPanelAllowed(void* ecx, void* edx)
 		return false;
 	return hkIsHTMLInfoPanelAllowed.fOriginal(ecx);
 }
- 
+
 
 void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 {
