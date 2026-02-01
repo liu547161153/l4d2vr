@@ -24,7 +24,7 @@
 #include <d3d9_vr.h>
 
 namespace
-{   
+{
     // NOTE: “被控放行”要宁可保守：只在「确实是控制者本人」且「目标非常贴近队友」时才放行。
     // Used by VR::UpdateFriendlyFireAimHit().
     constexpr float kAllowThroughControlledTeammateMaxDist = 64.0f; // units (conservative)
@@ -3003,66 +3003,66 @@ void VR::UpdateTracking()
     }
 
     // Spectator/observer: default to free-roaming camera (instead of chase cam locked to a teammate).
-	// We only do this once per observer session, so the user can still manually switch modes afterwards.
-	if (m_ObserverDefaultFreeCam)
-	{
-		const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
-		const int teamNum = *reinterpret_cast<const int*>(base + kTeamNumOffset);
-		const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+    // We only do this once per observer session, so the user can still manually switch modes afterwards.
+    if (m_ObserverDefaultFreeCam)
+    {
+        const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+        const int teamNum = *reinterpret_cast<const int*>(base + kTeamNumOffset);
+        const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
 
-		const bool isObserver = (teamNum == 1) || (lifeState != 0);
-		if (!isObserver)
-		{
-			m_ObserverWasActivePrev = false;
-			m_ObserverForcedFreeCamThisObserver = false;
+        const bool isObserver = (teamNum == 1) || (lifeState != 0);
+        if (!isObserver)
+        {
+            m_ObserverWasActivePrev = false;
+            m_ObserverForcedFreeCamThisObserver = false;
             m_ObserverFreeCamAttemptCount = 0;
             m_ObserverLastFreeCamAttempt = {};
-		}
-		else
-		{
-			if (!m_ObserverWasActivePrev)
-			{
-				// New observer session: allow one auto-switch.
-				m_ObserverForcedFreeCamThisObserver = false;
+        }
+        else
+        {
+            if (!m_ObserverWasActivePrev)
+            {
+                // New observer session: allow one auto-switch.
+                m_ObserverForcedFreeCamThisObserver = false;
                 m_ObserverFreeCamAttemptCount = 0;
                 m_ObserverLastFreeCamAttempt = {};
-			}
+            }
 
-			const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
-			// Source observer modes (typical):
-			//   1=deathcam, 2=freeze-cam, 3=fixed, 4=in-eye, 5=chase, 6=roaming/free.
-			// We avoid fighting 1/2, and we keep retrying spec_mode 6 a few times because
-			// some servers/joins ignore early client commands during connection/spawn.
-			if (obsMode == 6)
-			{
-				m_ObserverForcedFreeCamThisObserver = true; // success; stop retrying
-			}
-			else if (!m_ObserverForcedFreeCamThisObserver && m_Game->m_EngineClient->IsInGame() && obsMode >= 3)
-			{
-				constexpr int kMaxAttempts = 10;
-				constexpr auto kRetryInterval = std::chrono::milliseconds(350);
-				auto now = std::chrono::steady_clock::now();
-				if (m_ObserverFreeCamAttemptCount < kMaxAttempts && (now - m_ObserverLastFreeCamAttempt) >= kRetryInterval)
-				{
-					m_Game->ClientCmd_Unrestricted("spec_mode 6");
-					m_ObserverLastFreeCamAttempt = now;
-					m_ObserverFreeCamAttemptCount++;
-				}
-			}
+            const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
+            // Source observer modes (typical):
+            //   1=deathcam, 2=freeze-cam, 3=fixed, 4=in-eye, 5=chase, 6=roaming/free.
+            // We avoid fighting 1/2, and we keep retrying spec_mode 6 a few times because
+            // some servers/joins ignore early client commands during connection/spawn.
+            if (obsMode == 6)
+            {
+                m_ObserverForcedFreeCamThisObserver = true; // success; stop retrying
+            }
+            else if (!m_ObserverForcedFreeCamThisObserver && m_Game->m_EngineClient->IsInGame() && obsMode >= 3)
+            {
+                constexpr int kMaxAttempts = 10;
+                constexpr auto kRetryInterval = std::chrono::milliseconds(350);
+                auto now = std::chrono::steady_clock::now();
+                if (m_ObserverFreeCamAttemptCount < kMaxAttempts && (now - m_ObserverLastFreeCamAttempt) >= kRetryInterval)
+                {
+                    m_Game->ClientCmd_Unrestricted("spec_mode 6");
+                    m_ObserverLastFreeCamAttempt = now;
+                    m_ObserverFreeCamAttemptCount++;
+                }
+            }
 
-			m_ObserverWasActivePrev = true;
-		}
-	}
-   
-	// Mounted gun (.50cal/minigun):
-	// - Render hook forces first-person while mounted.
-	// - When we exit the mounted gun, do a one-shot ResetPosition to re-align anchors.
-	{
-		const bool usingMountedGunNow = IsUsingMountedGun(localPlayer);
-		if (m_UsingMountedGunPrev && !usingMountedGunNow)
-			m_ResetPositionAfterMountedGunExitPending = true;
-		m_UsingMountedGunPrev = usingMountedGunNow;
-	}
+            m_ObserverWasActivePrev = true;
+        }
+    }
+
+    // Mounted gun (.50cal/minigun):
+    // - Render hook forces first-person while mounted.
+    // - When we exit the mounted gun, do a one-shot ResetPosition to re-align anchors.
+    {
+        const bool usingMountedGunNow = IsUsingMountedGun(localPlayer);
+        if (m_UsingMountedGunPrev && !usingMountedGunNow)
+            m_ResetPositionAfterMountedGunExitPending = true;
+        m_UsingMountedGunPrev = usingMountedGunNow;
+    }
     m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
 
     // Scope: only render/show when holding a firearm
@@ -3344,9 +3344,9 @@ void VR::UpdateTracking()
     m_SetupOriginToHMD = m_HmdPosAbs - m_SetupOrigin;
     if (VectorLength(m_SetupOriginToHMD) > 150)
         ResetPosition();
-     // If we just exited a mounted gun (.50cal/minigun), re-align anchors.
-    // Do this here (after m_HmdPosAbs has been updated for this frame) so the
-    // reset uses the latest tracking pose.
+    // If we just exited a mounted gun (.50cal/minigun), re-align anchors.
+   // Do this here (after m_HmdPosAbs has been updated for this frame) so the
+   // reset uses the latest tracking pose.
     if (m_ResetPositionAfterMountedGunExitPending)
     {
         ResetPosition();
@@ -4159,13 +4159,16 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
 
     const bool useMouse = m_MouseModeEnabled;
+
+    // Eye-center ray direction (mouse aim in mouse mode).
     Vector eyeDir{ 0.0f, 0.0f, 0.0f };
     if (useMouse)
         GetMouseModeEyeRay(eyeDir);
 
-    Vector direction = m_RightControllerForward;
+    // ---- Build the "aim line" (gun/hand) ray (existing behavior) ----
+    Vector gunDir = m_RightControllerForward;
     if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-        direction = m_RightControllerForwardUnforced;
+        gunDir = m_RightControllerForwardUnforced;
 
     Vector gunOrigin = m_RightControllerPosAbs;
     if (useMouse)
@@ -4178,28 +4181,25 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
         const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
         Vector target = m_HmdPosAbs + eyeDir * convergeDist;
-        direction = target - gunOrigin;
+        gunDir = target - gunOrigin;
     }
 
-    if (direction.IsZero())
+    if (gunDir.IsZero())
         return false;
-    VectorNormalize(direction);
+    VectorNormalize(gunDir);
 
-    Vector originBase = gunOrigin;
+    Vector gunOriginBase = gunOrigin;
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-        originBase += camDelta;
+        gunOriginBase += camDelta;
 
-    Vector origin = originBase + direction * 2.0f;
-    Vector end = origin + direction * 8192.0f;
+    Vector gunStart = gunOriginBase + gunDir * 2.0f;
+    Vector gunEnd = gunStart + gunDir * 8192.0f;
 
-    CGameTrace trace;
-    Ray_t ray;
+    // Filters (shared across traces).
     CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
     CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
     CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
-    ray.Init(origin, end);
-    m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
 
     auto hasValidHandle = [](uint32_t h) -> bool
         {
@@ -4239,7 +4239,6 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
             h.jockeyAttacker = *reinterpret_cast<const uint32_t*>(base + kJockeyAttackerOffset);
             return h;
         };
- 
 
     auto isSameTeamAlivePlayer = [&](C_BaseEntity* a, C_BaseEntity* b) -> bool
         {
@@ -4256,61 +4255,118 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
         };
 
     auto resolveHandleEntity = [&](uint32_t h) -> C_BaseEntity*
-    {
-        if (!hasValidHandle(h) || !m_Game || !m_Game->m_ClientEntityList)
-            return nullptr;
-        return reinterpret_cast<C_BaseEntity*>(m_Game->m_ClientEntityList->GetClientEntityFromHandle(h));
-    };
-
-    C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
-    if (hitEnt && hitEnt != localPlayer && isSameTeamAlivePlayer(localPlayer, hitEnt))
-    {
-        // Default behavior: block when the aim ray hits a teammate.
-        bool friendlyHit = true;
-
-        // Tightened special-case (“被控队友放行”):
-        // Only when teammate is ACTUALLY controlled (tongue/pummel/carry/pounce/jockey),
-        // and the second trace hits the controller entity itself,
-        // and that hit point is very close to the teammate hit point.
-        const ControlHandles ctrl = getControlHandles(hitEnt);
-        if (hasAnyControlHandle(ctrl))
         {
-            CGameTrace trace2;
-            Ray_t ray2;
-            // If we're on a mounted gun, also skip the mounted gun entity itself so we can "see through"
-            // both the teammate and the turret when checking what's behind them.
-            CTraceFilterSkipTwoEntities tracefilter2((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, 0);
-            CTraceFilterSkipThreeEntities tracefilter3((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, (IHandleEntity*)mountedUseEnt, 0);
-            CTraceFilter* pTraceFilter2 = (mountedUseEnt && mountedUseEnt != hitEnt)
-                ? static_cast<CTraceFilter*>(&tracefilter3)
-                : static_cast<CTraceFilter*>(&tracefilter2);
-            ray2.Init(origin, end);
-            m_Game->m_EngineTrace->TraceRay(ray2, STANDARD_TRACE_MASK, pTraceFilter2, &trace2);
+            if (!hasValidHandle(h) || !m_Game || !m_Game->m_ClientEntityList)
+                return nullptr;
+            return reinterpret_cast<C_BaseEntity*>(m_Game->m_ClientEntityList->GetClientEntityFromHandle(h));
+        };
 
-            const Vector hitPos1 = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : hitEnt->GetAbsOrigin();
-            const Vector hitPos2 = (trace2.fraction < 1.0f && trace2.fraction > 0.0f) ? trace2.endpos : hitPos1;
-            const float distSqr = (hitPos2 - hitPos1).LengthSqr();
+    // Evaluate: does this trace mean "friendly is in the way"?
+    // IMPORTANT: In remote servers, the authoritative bullet trace is often closer to an EYE ray
+    // (plus lag compensation), while our aim line is a GUN/HAND ray. To reduce "first few shots"
+    // leaking through, we treat either ray hitting a teammate as a block.
+    auto evalFriendlyHitForTrace = [&](const CGameTrace& tr1, const Vector& start, const Vector& end) -> bool
+        {
+            C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(tr1.m_pEnt);
+            if (!hitEnt || hitEnt == localPlayer || !isSameTeamAlivePlayer(localPlayer, hitEnt))
+                return false;
 
-            if (distSqr <= (kAllowThroughControlledTeammateMaxDist * kAllowThroughControlledTeammateMaxDist))
+            // Default behavior: block when the ray hits a teammate.
+            bool friendlyHit = true;
+
+            // Tightened special-case (“被控队友放行”):
+            // Only when teammate is ACTUALLY controlled (tongue/pummel/carry/pounce/jockey),
+            // and the second trace hits the controller entity itself,
+            // and that hit point is very close to the teammate hit point.
+            const ControlHandles ctrl = getControlHandles(hitEnt);
+            if (hasAnyControlHandle(ctrl))
             {
-                C_BaseEntity* hitEnt2 = reinterpret_cast<C_BaseEntity*>(trace2.m_pEnt);
-                if (hitEnt2 && hitEnt2 != localPlayer)
+                CGameTrace tr2;
+                Ray_t ray2;
+
+                // If we're on a mounted gun, also skip the mounted gun entity itself so we can "see through"
+                // both the teammate and the turret when checking what's behind them.
+                CTraceFilterSkipTwoEntities tracefilter2((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, 0);
+                CTraceFilterSkipThreeEntities tracefilter3((IHandleEntity*)localPlayer, (IHandleEntity*)hitEnt, (IHandleEntity*)mountedUseEnt, 0);
+                CTraceFilter* pTraceFilter2 = (mountedUseEnt && mountedUseEnt != hitEnt)
+                    ? static_cast<CTraceFilter*>(&tracefilter3)
+                    : static_cast<CTraceFilter*>(&tracefilter2);
+
+                ray2.Init(start, end);
+                m_Game->m_EngineTrace->TraceRay(ray2, STANDARD_TRACE_MASK, pTraceFilter2, &tr2);
+
+                const Vector hitPos1 = (tr1.fraction < 1.0f && tr1.fraction > 0.0f) ? tr1.endpos : hitEnt->GetAbsOrigin();
+                const Vector hitPos2 = (tr2.fraction < 1.0f && tr2.fraction > 0.0f) ? tr2.endpos : hitPos1;
+                const float distSqr = (hitPos2 - hitPos1).LengthSqr();
+
+                if (distSqr <= (kAllowThroughControlledTeammateMaxDist * kAllowThroughControlledTeammateMaxDist))
                 {
-                    C_BaseEntity* a1 = resolveHandleEntity(ctrl.tongueOwner);
-                    C_BaseEntity* a2 = resolveHandleEntity(ctrl.pummelAttacker);
-                    C_BaseEntity* a3 = resolveHandleEntity(ctrl.carryAttacker);
-                    C_BaseEntity* a4 = resolveHandleEntity(ctrl.pounceAttacker);
-                    C_BaseEntity* a5 = resolveHandleEntity(ctrl.jockeyAttacker);
+                    C_BaseEntity* hitEnt2 = reinterpret_cast<C_BaseEntity*>(tr2.m_pEnt);
+                    if (hitEnt2 && hitEnt2 != localPlayer)
+                    {
+                        C_BaseEntity* a1 = resolveHandleEntity(ctrl.tongueOwner);
+                        C_BaseEntity* a2 = resolveHandleEntity(ctrl.pummelAttacker);
+                        C_BaseEntity* a3 = resolveHandleEntity(ctrl.carryAttacker);
+                        C_BaseEntity* a4 = resolveHandleEntity(ctrl.pounceAttacker);
+                        C_BaseEntity* a5 = resolveHandleEntity(ctrl.jockeyAttacker);
 
-                    if (hitEnt2 == a1 || hitEnt2 == a2 || hitEnt2 == a3 || hitEnt2 == a4 || hitEnt2 == a5)
-                        friendlyHit = false;
+                        if (hitEnt2 == a1 || hitEnt2 == a2 || hitEnt2 == a3 || hitEnt2 == a4 || hitEnt2 == a5)
+                            friendlyHit = false;
+                    }
                 }
-           }
-        }
+            }
 
-        m_AimLineHitsFriendly = friendlyHit;
+            return friendlyHit;
+        };
+
+    // 1) Gun/hand ray (aim line)
+    CGameTrace traceGun;
+    Ray_t rayGun;
+    rayGun.Init(gunStart, gunEnd);
+    m_Game->m_EngineTrace->TraceRay(rayGun, STANDARD_TRACE_MASK, pTraceFilter, &traceGun);
+    const bool friendlyGun = evalFriendlyHitForTrace(traceGun, gunStart, gunEnd);
+
+    // 2) Eye ray (closer to authoritative server bullets, esp. with lag compensation)
+    Vector eye = localPlayer->EyePosition();
+
+    // Keep NonVR aim solution fresh when enabled; this is throttled internally.
+    if (m_ForceNonVRServerMovement)
+        UpdateNonVRAimSolution(localPlayer);
+
+    Vector eyeTarget = gunEnd;
+
+    if (useMouse)
+    {
+        if (!eyeDir.IsZero())
+            eyeTarget = eye + eyeDir * 8192.0f;
+    }
+    else
+    {
+        // When ForceNonVRServerMovement is enabled, we already solved for a point P that the
+        // controller ray wants, and an eye-ray towards P that better matches server logic.
+        if (m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+            eyeTarget = m_NonVRAimDesiredPoint;
     }
 
+    Vector eyeDir2 = eyeTarget - eye;
+    if (!eyeDir2.IsZero())
+    {
+        VectorNormalize(eyeDir2);
+        Vector eyeStart = eye + eyeDir2 * 2.0f;
+        Vector eyeEnd = eyeStart + eyeDir2 * 8192.0f;
+
+        CGameTrace traceEye;
+        Ray_t rayEye;
+        rayEye.Init(eyeStart, eyeEnd);
+        m_Game->m_EngineTrace->TraceRay(rayEye, STANDARD_TRACE_MASK, pTraceFilter, &traceEye);
+
+        const bool friendlyEye = evalFriendlyHitForTrace(traceEye, eyeStart, eyeEnd);
+
+        m_AimLineHitsFriendly = (friendlyGun || friendlyEye);
+        return m_AimLineHitsFriendly;
+    }
+
+    m_AimLineHitsFriendly = friendlyGun;
     return m_AimLineHitsFriendly;
 }
 
