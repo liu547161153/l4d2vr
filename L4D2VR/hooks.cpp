@@ -622,20 +622,20 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Some scripts/mods use point_viewcontrol_survivor via m_hViewEntity.
 	// There are two very different cases:
-    //  1) Real cinematic/cutscene camera control (we MUST keep the engine camera, or you lose camera choreography).
-    //  2) Transitional revive/incap camera weirdness (can look like a "fake" third-person and will latch our hold frames).
-    //
-    // Heuristic: only ignore view-entity overrides during unstable revive/incap windows.
-    // Otherwise, treat it as a real external camera and let the engine camera drive rendering.
+	//  1) Real cinematic/cutscene camera control (we MUST keep the engine camera, or you lose camera choreography).
+	//  2) Transitional revive/incap camera weirdness (can look like a "fake" third-person and will latch our hold frames).
+	//
+	// Heuristic: only ignore view-entity overrides during unstable revive/incap windows.
+	// Otherwise, treat it as a real external camera and let the engine camera drive rendering.
 	bool playerIncap = false;
-    if (localPlayer)
-        playerIncap = (ReadNetvar<int>(localPlayer, 0x1ea9) != 0); // m_isIncapacitated
-    if (hasViewEntityOverride && !customWalkThirdPersonNow)
-    {
-        const bool unstableViewEntity = playerReviving || playerIncap;
-        if (unstableViewEntity)
-            engineThirdPersonNow = false;
-    }
+	if (localPlayer)
+		playerIncap = (ReadNetvar<int>(localPlayer, 0x1ea9) != 0); // m_isIncapacitated
+	if (hasViewEntityOverride && !customWalkThirdPersonNow)
+	{
+		const bool unstableViewEntity = playerReviving || playerIncap;
+		if (unstableViewEntity)
+			engineThirdPersonNow = false;
+	}
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
 	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
 	if (engineThirdPersonNow)
@@ -648,18 +648,26 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (s_engineTpCam.ShouldSmooth())
 		s_engineTpCam.GetSmoothed(engineCamOrigin, engineCamAngles);
 
-	// Always capture the view the engine is rendering this frame.
-	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
-	m_VR->m_ThirdPersonViewOrigin = engineCamOrigin;
-	m_VR->m_ThirdPersonViewAngles.Init(engineCamAngles.x, engineCamAngles.y, engineCamAngles.z);
-
-	// Detect third-person by comparing rendered camera origin to the real eye origin.
+	// Detect third-person by comparing rendered camera origin to the real eye origin
 	// Use a small threshold + hysteresis to avoid flicker.
 	// Also expose a simple "player is pinned/controlled" flag so VR can disable jittery aim line.
 	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
 	ThirdPersonStateDebug tpStateDbg;
-	const bool stateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, m_Game->m_ClientEntityList, localPlayer, &tpStateDbg);
-	const bool stateObserver = (tpStateDbg.observerMode != 0) && (tpStateDbg.dead || HandleValid(tpStateDbg.observerTarget));
+	const bool rawStateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, m_Game->m_ClientEntityList, localPlayer, &tpStateDbg);
+	const bool rawStateObserver = (tpStateDbg.observerMode != 0) && (tpStateDbg.dead || HandleValid(tpStateDbg.observerTarget));
+	bool stateWantsThirdPerson = rawStateWantsThirdPerson;
+	bool stateObserver = rawStateObserver;
+
+	// Map-load / reconnect stabilization:
+	// Right after joining/changing maps, the client can briefly report observer-like netvars even though
+	// the player is alive. If we treat that as true observer mode, we latch third-person for ~1-2s then snap back.
+	// Suppress *observer-driven* third-person in that window; other state reasons (ledge/tongue/pinned/self-heal) still apply.
+	const bool inMapLoadCooldown = m_VR->IsThirdPersonMapLoadCooldownActive();
+	if (inMapLoadCooldown && tpStateDbg.lifeState == 0 && rawStateObserver && !tpStateDbg.dead)
+	{
+		stateObserver = false;
+		stateWantsThirdPerson = tpStateDbg.dead || tpStateDbg.ledge || tpStateDbg.tongue || tpStateDbg.pinned || tpStateDbg.selfMedkit;
+	}
 	const bool stateIsDeadOrObserver = tpStateDbg.dead || stateObserver;
 	// Death transition anti-flicker: the engine can oscillate between 1P/3P while dying -> observer.
 	// To avoid nauseating camera swaps in VR, lock to first-person for a short window right after death is detected.
@@ -775,6 +783,71 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
+	// ------------------------------
+	// Third-person shake damping:
+	// Tank stomps / explosions can apply strong screen-shake to the engine camera.
+	// In VR third-person, that feels *way* worse than on a flat screen, so we apply an
+	// extra low-pass filter to the engine camera origin/angles while actively rendering 3P.
+	//
+	// Notes:
+	//  - Disabled for death/observer and view-entity cameras (cutscenes), to preserve intended choreography.
+	//  - Controlled by config: ThirdPersonCameraSmoothing (0..0.99). Higher = smoother (less shake).
+	// ------------------------------
+	static bool s_tpShakeInit = false;
+	static Vector s_tpShakeOrigin{ 0,0,0 };
+	static QAngle s_tpShakeAngles{ 0,0,0 };
+
+	auto ResetTpShake = [&]()
+	{
+		s_tpShakeInit = false;
+		s_tpShakeOrigin = { 0,0,0 };
+		s_tpShakeAngles = { 0,0,0 };
+	};
+
+	const float tpShakeSmooth = std::clamp(m_VR->m_ThirdPersonCameraSmoothing, 0.0f, 0.99f);
+
+	if (!renderThirdPerson || stateIsDeadOrObserver || hasViewEntityOverride || tpShakeSmooth <= 0.0f)
+	{
+		ResetTpShake();
+	}
+	else
+	{
+		const float lerpFactor = 1.0f - tpShakeSmooth;
+
+		if (!s_tpShakeInit)
+		{
+			s_tpShakeOrigin = engineCamOrigin;
+			s_tpShakeAngles = engineCamAngles;
+			s_tpShakeInit = true;
+		}
+		else
+		{
+			// Smooth origin (component-wise)
+			s_tpShakeOrigin.x += (engineCamOrigin.x - s_tpShakeOrigin.x) * lerpFactor;
+			s_tpShakeOrigin.y += (engineCamOrigin.y - s_tpShakeOrigin.y) * lerpFactor;
+			s_tpShakeOrigin.z += (engineCamOrigin.z - s_tpShakeOrigin.z) * lerpFactor;
+
+			// Smooth angles with wrap-around
+			auto smoothAngle = [&](float target, float& cur)
+			{
+				float diff = target - cur;
+				diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+				cur += diff * lerpFactor;
+			};
+
+			smoothAngle(engineCamAngles.x, s_tpShakeAngles.x);
+			smoothAngle(engineCamAngles.y, s_tpShakeAngles.y);
+			smoothAngle(engineCamAngles.z, s_tpShakeAngles.z);
+		}
+
+		engineCamOrigin = s_tpShakeOrigin;
+		engineCamAngles = s_tpShakeAngles;
+	}
+
+	// Always capture the view the engine is rendering this frame.
+	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
+	m_VR->m_ThirdPersonViewOrigin = engineCamOrigin;
+	m_VR->m_ThirdPersonViewAngles.Init(engineCamAngles.x, engineCamAngles.y, engineCamAngles.z);
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -1547,7 +1620,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	{
 		const int lpIdx2 = m_Game->m_EngineClient->GetLocalPlayer();
 		C_BasePlayer* lp2 = (lpIdx2 > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx2) : nullptr;
-		C_WeaponCSBase* wpn = lp2 ? (C_WeaponCSBase*)lp2->GetActiveWeapon() : nullptr;
+		C_BaseCombatWeapon* wpn = lp2 ? (C_BaseCombatWeapon*)lp2->GetActiveWeapon() : nullptr;
+		const char* wpnName = (wpn != nullptr) ? wpn->GetName() : nullptr;
 		const char* wpnNet = (wpn != nullptr) ? m_Game->GetNetworkClassName((uintptr_t*)wpn) : nullptr;
 
 		auto startsWith = [](const char* s, const char* prefix) -> bool {
@@ -1562,7 +1636,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			if (!s || !sub || !*sub) return false;
 			return std::strstr(s, sub) != nullptr;
 			};
-
+		// If we can't identify the active weapon, be conservative: do NOT pulse.
+		// (Some non-gun items can fail the network-name heuristic; pulsing breaks their hold/release behavior.)
+		const bool unknownWeapon = (!wpnName && !wpnNet);
 		// Heuristic: treat common full-auto weapons as full-auto and do NOT pulse them.
 		// Everything else that uses IN_ATTACK will either be unaffected, or benefit from pulsing.
 		const bool isFullAuto =
@@ -1599,23 +1675,31 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			contains(wpnNet, "ItemBaseUpgradePack") ||
 			contains(wpnNet, "UpgradePackExplosive") ||
 			contains(wpnNet, "UpgradePackIncendiary");
-			// Items that are *held* for a moment and released/thrown (or have their own continuous logic).
-			// Pulsing IN_ATTACK here feels bad and can cancel/bug the action (chainsaw, throwables).
-			const bool isChainsaw =
-				contains(wpnNet, "Chainsaw") ||
-				contains(wpnNet, "WeaponChainsaw") ||
-				startsWith(wpnNet, "CChainsaw");
+		// Items that are *held* for a moment and released/thrown (or have their own continuous logic).
+		// Pulsing IN_ATTACK here feels bad and can cancel/bug the action (chainsaw, throwables).
+		const bool isChainsaw =
+			(wpnName && (contains(wpnName, "chainsaw") || contains(wpnName, "weapon_chainsaw"))) ||
+			contains(wpnNet, "Chainsaw") ||
+			contains(wpnNet, "WeaponChainsaw") ||
+			startsWith(wpnNet, "CChainsaw");
 
-			const bool isThrowable =
-				contains(wpnNet, "Molotov") ||
-				contains(wpnNet, "PipeBomb") ||
-				contains(wpnNet, "VomitJar") ||
-				contains(wpnNet, "BaseCSGrenade") ||
-				(contains(wpnNet, "Grenade") && !contains(wpnNet, "GrenadeLauncher"));
+		const bool isThrowable =
+				(wpnName && (
+				// Be loose here: engine strings vary across builds/mods ("weapon_molotov" vs "molotov").
+				contains(wpnName, "molotov") ||
+				(contains(wpnName, "pipe") && contains(wpnName, "bomb")) ||
+				contains(wpnName, "vomit") ||
+				(contains(wpnName, "grenade") && !contains(wpnName, "grenade_launcher"))
+			)) ||
+			contains(wpnNet, "Molotov") ||
+			contains(wpnNet, "PipeBomb") ||
+			contains(wpnNet, "VomitJar") ||
+			contains(wpnNet, "BaseCSGrenade") ||
+			(contains(wpnNet, "Grenade") && !contains(wpnNet, "GrenadeLauncher"));
 
 		// Only pulse when holding attack and weapon is NOT full-auto, and NOT a hold-to-use item.
 		// NOT a hold-to-use item, and NOT during a continuous use action.
-			if (holdingAttack && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction)
+		if (holdingAttack && !unknownWeapon && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction)
 		{
 			using namespace std::chrono;
 			const float hz = (m_VR->m_AutoRepeatSemiAutoFireHz > 0.0f) ? m_VR->m_AutoRepeatSemiAutoFireHz : 0.0f;
