@@ -142,13 +142,21 @@ public:
 	// Only a small whitelist of explicitly-handled cases will remain first-person.
 	bool m_ThirdPersonDefault = false;
 	bool m_ObserverThirdPerson = false;
+	// Map-load / reconnect camera stabilization.
+	// Source can transiently report observer-like netvars right after joining/changing maps.
+	// If we treat that as "real" observer state, we briefly force third-person then snap back.
+	int m_ThirdPersonMapLoadCooldownMs = 1500;
+	bool m_ThirdPersonMapLoadCooldownPending = false;
+	bool m_HadLocalPlayerPrev = false;
+	bool m_WasInGamePrev = false;
+	std::chrono::steady_clock::time_point m_ThirdPersonMapLoadCooldownEnd{};
 	// Prevent the game's Info/MOTD panel (default bind: H) from popping up.
 	bool m_DisableInfoPanel = true;
 	int m_ThirdPersonHoldFrames = 0;
 	Vector m_ThirdPersonViewOrigin = { 0,0,0 };
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
-	float m_ThirdPersonCameraSmoothing = 0.5f;
+	float m_ThirdPersonCameraSmoothing = 0.85f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
@@ -886,6 +894,8 @@ public:
 	// Death flicker guard (see m_DeathFirstPersonLockEnd).
 	void RefreshDeathFirstPersonLock(const C_BasePlayer* localPlayer);
 	bool IsDeathFirstPersonLockActive() const;
+	// Map-load / reconnect cooldown: suppress observer-driven 3P latching for a short window.
+	bool IsThirdPersonMapLoadCooldownActive() const;
 	bool PressedDigitalAction(vr::VRActionHandle_t& actionHandle, bool checkIfActionChanged = false);
 	bool GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigitalActionData_t& digitalDataOut);
 	bool GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut);
