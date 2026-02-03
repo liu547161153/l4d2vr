@@ -2981,7 +2981,14 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
 void VR::UpdateTracking()
 {
     GetPoses();
-
+    // Map load / reconnect detection:
+	// - Some transitions briefly report observer-like netvars on the local player (even when alive).
+	// - We arm a short cooldown window whenever we (re)enter "in game" or we lose/regain the local player pointer.
+	// - The render hook will use this window to suppress observer-driven third-person latching.
+	const bool inGameNow = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+	if (!m_WasInGamePrev && inGameNow)
+		m_ThirdPersonMapLoadCooldownPending = true;
+	m_WasInGamePrev = inGameNow;
     int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
     if (!localPlayer) {
@@ -2990,9 +2997,29 @@ void VR::UpdateTracking()
         // clear mounted-gun edge tracking so we don't trigger a bogus reset later.
         m_UsingMountedGunPrev = false;
         m_ResetPositionAfterMountedGunExitPending = false;
+        m_HadLocalPlayerPrev = false;
+		m_ThirdPersonMapLoadCooldownPending = true;
+		m_ThirdPersonMapLoadCooldownEnd = {};
         return;
     }
-
+	// Rising edge: local player pointer recovered (after connect/disconnect/map load).
+	if (!m_HadLocalPlayerPrev)
+	{
+		m_HadLocalPlayerPrev = true;
+		if (m_ThirdPersonMapLoadCooldownPending && m_ThirdPersonMapLoadCooldownMs > 0)
+		{
+			const auto now = std::chrono::steady_clock::now();
+			m_ThirdPersonMapLoadCooldownEnd = now + std::chrono::milliseconds(m_ThirdPersonMapLoadCooldownMs);
+		}
+		else
+		{
+			m_ThirdPersonMapLoadCooldownEnd = {};
+		}
+		m_ThirdPersonMapLoadCooldownPending = false;
+		// Clear any latched third-person state from the previous map/session.
+		m_IsThirdPersonCamera = false;
+		m_ThirdPersonHoldFrames = 0;
+	}
     // Death flicker guard: latch a short first-person window on alive->dead transition.
     RefreshDeathFirstPersonLock(localPlayer);
     if (IsDeathFirstPersonLockActive())
@@ -4927,7 +4954,14 @@ bool VR::IsDeathFirstPersonLockActive() const
 
     return std::chrono::steady_clock::now() < m_DeathFirstPersonLockEnd;
 }
-
+bool VR::IsThirdPersonMapLoadCooldownActive() const
+{
+    if (m_ThirdPersonMapLoadCooldownMs <= 0)
+        return false;
+    if (m_ThirdPersonMapLoadCooldownEnd == std::chrono::steady_clock::time_point{})
+        return false;
+    return std::chrono::steady_clock::now() < m_ThirdPersonMapLoadCooldownEnd;
+}
 // Special infected recognition
 
 #if __has_include("special_infected_features.cpp")
@@ -5758,6 +5792,8 @@ void VR::ParseConfigFile()
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
+    m_ThirdPersonCameraSmoothing = std::clamp(getFloat("ThirdPersonCameraSmoothing", m_ThirdPersonCameraSmoothing), 0.0f, 0.99f);
+    m_ThirdPersonMapLoadCooldownMs = std::max(0, getInt("ThirdPersonMapLoadCooldownMs", m_ThirdPersonMapLoadCooldownMs));
     m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
