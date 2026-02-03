@@ -742,7 +742,7 @@ void VR::SubmitVRTextures()
 
                 Vector rayStart = m_RightControllerPosAbs;
                 Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-                if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+                if (!m_ThirdPersonAimLineFollowController && m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
                     rayStart += camDelta;
 
                 rayStart = rayStart + dir * 2.0f;
@@ -4114,7 +4114,7 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
 
     Vector originBase = m_RightControllerPosAbs;
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+    if (!m_ThirdPersonAimLineFollowController && m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
     Vector origin = originBase + direction * 2.0f;
@@ -4217,7 +4217,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
     Vector gunOriginBase = gunOrigin;
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+    if (!m_ThirdPersonAimLineFollowController && m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         gunOriginBase += camDelta;
 
     Vector gunStart = gunOriginBase + gunDir * 2.0f;
@@ -4541,7 +4541,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             + (m_HmdUp * (anchor.z * m_VRScale));
     }
     Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+    if (!m_ThirdPersonAimLineFollowController && m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
     Vector origin = originBase + direction * 2.0f;
@@ -5833,6 +5833,7 @@ void VR::ParseConfigFile()
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
+    m_ThirdPersonAimLineFollowController = getBool("ThirdPersonAimLineFollowController", m_ThirdPersonAimLineFollowController);
     m_AimLineConfigEnabled = m_AimLineEnabled;
     m_BlockFireOnFriendlyAimEnabled = getBool("BlockFireOnFriendlyAimEnabled", m_BlockFireOnFriendlyAimEnabled);
     m_AutoRepeatSemiAutoFire = getBool("AutoRepeatSemiAutoFire", m_AutoRepeatSemiAutoFire);

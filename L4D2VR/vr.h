@@ -200,6 +200,10 @@ public:
 	bool m_HasAimLine = false;
 	float m_AimLineThickness = 2.0f;
 	bool m_AimLineEnabled = true;
+	// Third-person aim line origin:
+	//  - false: translate the controller/gun origin into the rendered third-person camera frame (default, line stays near the player model).
+	//  - true : keep the origin in real controller space (behaves like first-person; may look "detached" from the model in third-person).
+	bool m_ThirdPersonAimLineFollowController = false;
 	bool m_AimLineConfigEnabled = true;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
