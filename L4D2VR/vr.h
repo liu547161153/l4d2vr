@@ -155,6 +155,9 @@ public:
 	int m_ThirdPersonHoldFrames = 0;
 	Vector m_ThirdPersonViewOrigin = { 0,0,0 };
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
+	// Center of the actual VR render camera used this frame (HMD-aimed 3P camera center).
+	// Used to keep aim line / overlays in sync when third-person camera is smoothed.
+	Vector m_ThirdPersonRenderCenter = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.85f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;

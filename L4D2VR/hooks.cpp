@@ -910,6 +910,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
+		// Expose the actual VR render camera center used for third-person this frame.
+		// This includes HMD-aim yaw and any VR camera offsets, and is used to keep aim line and overlays aligned.
+		m_VR->m_ThirdPersonRenderCenter = camCenter;
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
 	}
@@ -918,6 +921,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Normal VR first-person
 		leftOrigin = m_VR->GetViewOriginLeft();
 		rightOrigin = m_VR->GetViewOriginRight();
+		// Keep this sane even in 1P (unused there, but prevents stale deltas if 3P toggles).
+		m_VR->m_ThirdPersonRenderCenter = m_VR->m_SetupOrigin;
 	}
 
 	leftEyeView.origin = leftOrigin;

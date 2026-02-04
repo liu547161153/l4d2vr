@@ -741,7 +741,7 @@ void VR::SubmitVRTextures()
                 VectorNormalize(dir);
 
                 Vector rayStart = m_RightControllerPosAbs;
-                Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+                Vector camDelta = m_ThirdPersonRenderCenter - m_SetupOrigin;
                 if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
                     rayStart += camDelta;
 
@@ -4113,7 +4113,7 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     VectorNormalize(direction);
 
     Vector originBase = m_RightControllerPosAbs;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    Vector camDelta = m_ThirdPersonRenderCenter - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
@@ -4216,7 +4216,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     VectorNormalize(gunDir);
 
     Vector gunOriginBase = gunOrigin;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    Vector camDelta = m_ThirdPersonRenderCenter - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         gunOriginBase += camDelta;
 
@@ -4540,7 +4540,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             + (m_HmdRight * (anchor.y * m_VRScale))
             + (m_HmdUp * (anchor.z * m_VRScale));
     }
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    Vector camDelta = m_ThirdPersonRenderCenter - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
