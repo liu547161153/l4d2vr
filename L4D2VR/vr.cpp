@@ -741,7 +741,8 @@ void VR::SubmitVRTextures()
                 VectorNormalize(dir);
 
                 Vector rayStart = m_RightControllerPosAbs;
-                Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+                const Vector& camBase = (m_ThirdPersonUseRenderCenterDeltas ? m_ThirdPersonRenderCenter : m_ThirdPersonViewOrigin);
+                Vector camDelta = camBase - m_SetupOrigin;
                 if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
                     rayStart += camDelta;
 
@@ -4113,7 +4114,8 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     VectorNormalize(direction);
 
     Vector originBase = m_RightControllerPosAbs;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    const Vector& camBase = (m_ThirdPersonUseRenderCenterDeltas ? m_ThirdPersonRenderCenter : m_ThirdPersonViewOrigin);
+    Vector camDelta = camBase - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
@@ -4216,7 +4218,8 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     VectorNormalize(gunDir);
 
     Vector gunOriginBase = gunOrigin;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    const Vector& camBase = (m_ThirdPersonUseRenderCenterDeltas ? m_ThirdPersonRenderCenter : m_ThirdPersonViewOrigin);
+    Vector camDelta = camBase - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         gunOriginBase += camDelta;
 
@@ -4540,7 +4543,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             + (m_HmdRight * (anchor.y * m_VRScale))
             + (m_HmdUp * (anchor.z * m_VRScale));
     }
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    const Vector& camBase = (m_ThirdPersonUseRenderCenterDeltas ? m_ThirdPersonRenderCenter : m_ThirdPersonViewOrigin);
+    Vector camDelta = camBase - m_SetupOrigin;
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
@@ -5795,6 +5799,7 @@ void VR::ParseConfigFile()
     m_ThirdPersonCameraSmoothing = std::clamp(getFloat("ThirdPersonCameraSmoothing", m_ThirdPersonCameraSmoothing), 0.0f, 0.99f);
     m_ThirdPersonMapLoadCooldownMs = std::max(0, getInt("ThirdPersonMapLoadCooldownMs", m_ThirdPersonMapLoadCooldownMs));
     m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
+    m_ThirdPersonUseRenderCenterDeltas = getBool("ThirdPersonUseRenderCenterDeltas", m_ThirdPersonUseRenderCenterDeltas);
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
