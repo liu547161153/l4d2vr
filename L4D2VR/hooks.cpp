@@ -2530,7 +2530,16 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	if (m_VR->m_SuppressHudCapture)
 		return;
 
-	if (m_PushedHud)
+	bool paintingHudTarget = false;
+	if (m_Game && m_Game->m_MaterialSystem)
+	{
+		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+		// mat_queue_mode=2 can route VGUI paint through a different hook thread than Push/Pop.
+		// Detect HUD pass by the active RT as a fallback to avoid black HUD clears with no panel draw.
+		paintingHudTarget = renderContext && renderContext->GetRenderTarget() == m_VR->m_HUDTexture;
+	}
+
+	if (m_PushedHud || paintingHudTarget)
 		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
 
 	hkVgui_Paint.fOriginal(ecx, mode);
