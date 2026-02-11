@@ -956,6 +956,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudLeft.angles = viewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
+
+	// Multicore (mat_queue_mode=2) safety:
+	// RenderView may return before queued draw calls actually execute.
+	// We switch/use render targets immediately after; force the queue to drain here for correctness.
+	// NOTE: This reduces multicore rendering benefits; keep it as a minimal sync point.
+	if (m_Game && m_Game->m_MaterialSystem)
+		m_Game->m_MaterialSystem->FlushEb(true);
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -978,6 +985,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
+	// Multicore (mat_queue_mode=2) safety: see comment above (left eye).
+	if (m_Game && m_Game->m_MaterialSystem)
+		m_Game->m_MaterialSystem->FlushEb(true);
+
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
 		{
@@ -998,6 +1009,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+				// Multicore safety: offscreen RTTs are often consumed immediately after this call.
+				if (m_Game && m_Game->m_MaterialSystem)
+					m_Game->m_MaterialSystem->FlushEb(true);
 
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
@@ -1022,6 +1037,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+			// Multicore safety: offscreen RTTs are often consumed immediately after this call.
+			if (m_Game && m_Game->m_MaterialSystem)
+				m_Game->m_MaterialSystem->FlushEb(true);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
