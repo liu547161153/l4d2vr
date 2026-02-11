@@ -741,7 +741,10 @@ void VR::SubmitVRTextures()
                 VectorNormalize(dir);
 
                 Vector rayStart = m_RightControllerPosAbs;
-                Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+                // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
+                Vector camDelta = m_IsThirdPersonCamera
+                    ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
+                    : (m_ThirdPersonViewOrigin - m_SetupOrigin);
                 if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
                     rayStart += camDelta;
 
@@ -2982,13 +2985,13 @@ void VR::UpdateTracking()
 {
     GetPoses();
     // Map load / reconnect detection:
-	// - Some transitions briefly report observer-like netvars on the local player (even when alive).
-	// - We arm a short cooldown window whenever we (re)enter "in game" or we lose/regain the local player pointer.
-	// - The render hook will use this window to suppress observer-driven third-person latching.
-	const bool inGameNow = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
-	if (!m_WasInGamePrev && inGameNow)
-		m_ThirdPersonMapLoadCooldownPending = true;
-	m_WasInGamePrev = inGameNow;
+    // - Some transitions briefly report observer-like netvars on the local player (even when alive).
+    // - We arm a short cooldown window whenever we (re)enter "in game" or we lose/regain the local player pointer.
+    // - The render hook will use this window to suppress observer-driven third-person latching.
+    const bool inGameNow = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+    if (!m_WasInGamePrev && inGameNow)
+        m_ThirdPersonMapLoadCooldownPending = true;
+    m_WasInGamePrev = inGameNow;
     int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
     if (!localPlayer) {
@@ -2998,28 +3001,28 @@ void VR::UpdateTracking()
         m_UsingMountedGunPrev = false;
         m_ResetPositionAfterMountedGunExitPending = false;
         m_HadLocalPlayerPrev = false;
-		m_ThirdPersonMapLoadCooldownPending = true;
-		m_ThirdPersonMapLoadCooldownEnd = {};
+        m_ThirdPersonMapLoadCooldownPending = true;
+        m_ThirdPersonMapLoadCooldownEnd = {};
         return;
     }
-	// Rising edge: local player pointer recovered (after connect/disconnect/map load).
-	if (!m_HadLocalPlayerPrev)
-	{
-		m_HadLocalPlayerPrev = true;
-		if (m_ThirdPersonMapLoadCooldownPending && m_ThirdPersonMapLoadCooldownMs > 0)
-		{
-			const auto now = std::chrono::steady_clock::now();
-			m_ThirdPersonMapLoadCooldownEnd = now + std::chrono::milliseconds(m_ThirdPersonMapLoadCooldownMs);
-		}
-		else
-		{
-			m_ThirdPersonMapLoadCooldownEnd = {};
-		}
-		m_ThirdPersonMapLoadCooldownPending = false;
-		// Clear any latched third-person state from the previous map/session.
-		m_IsThirdPersonCamera = false;
-		m_ThirdPersonHoldFrames = 0;
-	}
+    // Rising edge: local player pointer recovered (after connect/disconnect/map load).
+    if (!m_HadLocalPlayerPrev)
+    {
+        m_HadLocalPlayerPrev = true;
+        if (m_ThirdPersonMapLoadCooldownPending && m_ThirdPersonMapLoadCooldownMs > 0)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            m_ThirdPersonMapLoadCooldownEnd = now + std::chrono::milliseconds(m_ThirdPersonMapLoadCooldownMs);
+        }
+        else
+        {
+            m_ThirdPersonMapLoadCooldownEnd = {};
+        }
+        m_ThirdPersonMapLoadCooldownPending = false;
+        // Clear any latched third-person state from the previous map/session.
+        m_IsThirdPersonCamera = false;
+        m_ThirdPersonHoldFrames = 0;
+    }
     // Death flicker guard: latch a short first-person window on alive->dead transition.
     RefreshDeathFirstPersonLock(localPlayer);
     if (IsDeathFirstPersonLockActive())
@@ -4113,7 +4116,10 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     VectorNormalize(direction);
 
     Vector originBase = m_RightControllerPosAbs;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
+    Vector camDelta = m_IsThirdPersonCamera
+        ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
+        : (m_ThirdPersonViewOrigin - m_SetupOrigin);
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
@@ -4180,6 +4186,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
         return false;
 
     C_WeaponCSBase* activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
+
     if (!activeWeapon || IsThrowableWeapon(activeWeapon))
         return false;
 
@@ -4216,7 +4223,10 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     VectorNormalize(gunDir);
 
     Vector gunOriginBase = gunOrigin;
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
+    Vector camDelta = m_IsThirdPersonCamera
+        ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
+        : (m_ThirdPersonViewOrigin - m_SetupOrigin);
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         gunOriginBase += camDelta;
 
@@ -4441,7 +4451,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     C_WeaponCSBase* activeWeapon = nullptr;
     if (localPlayer)
         activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
-
+    const bool allowAimLineDraw = ShouldDrawAimLine(activeWeapon);
     if (!ShouldShowAimLine(activeWeapon))
     {
         m_LastAimDirection = Vector{ 0.0f, 0.0f, 0.0f };
@@ -4514,7 +4524,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             }
 
 
-            DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
+            if (allowAimLineDraw)
+                DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
             return;
         }
 
@@ -4540,7 +4551,10 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             + (m_HmdRight * (anchor.y * m_VRScale))
             + (m_HmdUp * (anchor.z * m_VRScale));
     }
-    Vector camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+    // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
+    Vector camDelta = m_IsThirdPersonCamera
+        ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
+        : (m_ThirdPersonViewOrigin - m_SetupOrigin);
     if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
@@ -4606,8 +4620,63 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     m_HasAimLine = true;
     m_HasThrowArc = false;
 
-    if (canDraw)
+    if (canDraw && allowAimLineDraw)
         DrawAimLine(origin, target);
+}
+
+bool VR::IsWeaponLaserSightActive(C_WeaponCSBase* weapon) const
+{
+    if (!weapon)
+        return false;
+
+    // L4D2 uses an upgrade bit-vector on most firearms (client netvar: m_upgradeBitVec).
+    // We only care about whether the laser sight upgrade is active.
+    // NOTE: The offset is stable across the common firearm weapon classes; if it ever changes, update it here.
+    constexpr int kUpgradeBitVecOffset = 0xCF0;
+    constexpr int kLaserSightBit = (1 << 2);
+
+    const int bitVec = *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(weapon) + kUpgradeBitVecOffset);
+    return (bitVec & kLaserSightBit) != 0;
+}
+
+bool VR::ShouldDrawAimLine(C_WeaponCSBase* weapon) const
+{
+    if (!m_AimLineOnlyWhenLaserSight)
+        return true;
+
+    if (!weapon)
+        return false;
+
+    // Never suppress throwable arcs; those are handled separately and do not use DrawAimLine().
+    if (IsThrowableWeapon(weapon))
+        return false;
+
+    // Only show for firearms that have an active in-game laser sight.
+    switch (weapon->GetWeaponID())
+    {
+    case C_WeaponCSBase::PISTOL:
+    case C_WeaponCSBase::MAGNUM:
+    case C_WeaponCSBase::UZI:
+    case C_WeaponCSBase::PUMPSHOTGUN:
+    case C_WeaponCSBase::AUTOSHOTGUN:
+    case C_WeaponCSBase::M16A1:
+    case C_WeaponCSBase::HUNTING_RIFLE:
+    case C_WeaponCSBase::MAC10:
+    case C_WeaponCSBase::SHOTGUN_CHROME:
+    case C_WeaponCSBase::SCAR:
+    case C_WeaponCSBase::SNIPER_MILITARY:
+    case C_WeaponCSBase::SPAS:
+    case C_WeaponCSBase::AK47:
+    case C_WeaponCSBase::MP5:
+    case C_WeaponCSBase::SG552:
+    case C_WeaponCSBase::AWP:
+    case C_WeaponCSBase::SCOUT:
+    case C_WeaponCSBase::GRENADE_LAUNCHER:
+    case C_WeaponCSBase::M60:
+        return IsWeaponLaserSightActive(weapon);
+    default:
+        return false;
+    }
 }
 
 bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
@@ -4617,11 +4686,29 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
     if (m_PlayerControlledBySI)
         return false;
 
-    if (!m_AimLineEnabled || !weapon)
+    if (!weapon)
         return false;
 
     switch (weapon->GetWeaponID())
     {
+    case C_WeaponCSBase::TANK_CLAW:
+    case C_WeaponCSBase::HUNTER_CLAW:
+    case C_WeaponCSBase::CHARGER_CLAW:
+    case C_WeaponCSBase::BOOMER_CLAW:
+    case C_WeaponCSBase::SMOKER_CLAW:
+    case C_WeaponCSBase::SPITTER_CLAW:
+    case C_WeaponCSBase::JOCKEY_CLAW:
+    case C_WeaponCSBase::VOMIT:
+    case C_WeaponCSBase::SPLAT:
+    case C_WeaponCSBase::POUNCE:
+    case C_WeaponCSBase::LOUNGE:
+    case C_WeaponCSBase::PULL:
+    case C_WeaponCSBase::CHOKE:
+    case C_WeaponCSBase::ROCK:
+    case C_WeaponCSBase::MELEE:
+    case C_WeaponCSBase::CHAINSAW:
+        return m_MeleeAimLineEnabled;
+    // Firearms and throwables use the main aim-line toggle.
     case C_WeaponCSBase::PISTOL:
     case C_WeaponCSBase::MAGNUM:
     case C_WeaponCSBase::UZI:
@@ -4644,23 +4731,7 @@ bool VR::ShouldShowAimLine(C_WeaponCSBase* weapon) const
     case C_WeaponCSBase::MOLOTOV:
     case C_WeaponCSBase::PIPE_BOMB:
     case C_WeaponCSBase::VOMITJAR:
-    case C_WeaponCSBase::TANK_CLAW:
-    case C_WeaponCSBase::HUNTER_CLAW:
-    case C_WeaponCSBase::CHARGER_CLAW:
-    case C_WeaponCSBase::BOOMER_CLAW:
-    case C_WeaponCSBase::SMOKER_CLAW:
-    case C_WeaponCSBase::SPITTER_CLAW:
-    case C_WeaponCSBase::JOCKEY_CLAW:
-    case C_WeaponCSBase::VOMIT:
-    case C_WeaponCSBase::SPLAT:
-    case C_WeaponCSBase::POUNCE:
-    case C_WeaponCSBase::LOUNGE:
-    case C_WeaponCSBase::PULL:
-    case C_WeaponCSBase::CHOKE:
-    case C_WeaponCSBase::ROCK:
-    case C_WeaponCSBase::MELEE:
-    case C_WeaponCSBase::CHAINSAW:
-        return m_MeleeAimLineEnabled;
+        return m_AimLineEnabled;
     default:
         return false;
     }
@@ -5682,10 +5753,7 @@ void VR::ParseConfigFile()
     // Locomotion direction: default is HMD-yaw-based. Optional hand-yaw-based.
     m_MoveDirectionFromController = getBool("MoveDirectionFromController", m_MoveDirectionFromController);
     m_MoveDirectionFromController = getBool("MovementDirectionFromController", m_MoveDirectionFromController);
-    // UI / convenience: block the game's Info/MOTD panel (default bind: H).
-    m_DisableInfoPanel = getBool("DisableInfoPanel", m_DisableInfoPanel);
-    m_DisableInfoPanel = getBool("DisableDailyMessage", m_DisableInfoPanel);
-    m_DisableInfoPanel = getBool("DisableMOTD", m_DisableInfoPanel);
+
     m_InventoryGestureRange = getFloat("InventoryGestureRange", m_InventoryGestureRange);
     m_InventoryChestOffset = getVector3("InventoryChestOffset", m_InventoryChestOffset);
     m_InventoryBackOffset = getVector3("InventoryBackOffset", m_InventoryBackOffset);
@@ -5833,6 +5901,7 @@ void VR::ParseConfigFile()
     m_ViewmodelAdjustEnabled = getBool("ViewmodelAdjustEnabled", m_ViewmodelAdjustEnabled);
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
+    m_AimLineOnlyWhenLaserSight = getBool("AimLineOnlyWhenLaserSight", m_AimLineOnlyWhenLaserSight);
     m_AimLineConfigEnabled = m_AimLineEnabled;
     m_BlockFireOnFriendlyAimEnabled = getBool("BlockFireOnFriendlyAimEnabled", m_BlockFireOnFriendlyAimEnabled);
     m_AutoRepeatSemiAutoFire = getBool("AutoRepeatSemiAutoFire", m_AutoRepeatSemiAutoFire);
