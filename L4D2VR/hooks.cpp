@@ -956,6 +956,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudLeft.angles = viewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
+
+	// mat_queue_mode=2 safety:
+	// RenderView can return before queued work actually executes. We consume/swap RTs immediately after.
+	// Flush the render context (and kick the material queue) to force correct ordering.
+	if (rndrContext)
+		rndrContext->Flush(true);
+	if (m_Game && m_Game->m_MaterialSystem)
+		m_Game->m_MaterialSystem->ExecuteQueuedEv();
+
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -978,6 +987,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
+	// mat_queue_mode=2 safety: see left eye.
+	if (rndrContext)
+		rndrContext->Flush(true);
+	if (m_Game && m_Game->m_MaterialSystem)
+		m_Game->m_MaterialSystem->ExecuteQueuedEv();
+
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
 		{
@@ -998,6 +1013,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+				// Offscreen RTT is typically consumed immediately after; ensure work is executed before RT pop.
+				rc->Flush(true);
+				if (m_Game && m_Game->m_MaterialSystem)
+					m_Game->m_MaterialSystem->ExecuteQueuedEv();
 
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
@@ -1022,6 +1042,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+			// Same ordering fix for manual RT/viewport path.
+			rc->Flush(true);
+			if (m_Game && m_Game->m_MaterialSystem)
+				m_Game->m_MaterialSystem->ExecuteQueuedEv();
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
