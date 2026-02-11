@@ -150,11 +150,13 @@ public:
 	bool m_HadLocalPlayerPrev = false;
 	bool m_WasInGamePrev = false;
 	std::chrono::steady_clock::time_point m_ThirdPersonMapLoadCooldownEnd{};
-	// Prevent the game's Info/MOTD panel (default bind: H) from popping up.
-	bool m_DisableInfoPanel = true;
+
 	int m_ThirdPersonHoldFrames = 0;
 	Vector m_ThirdPersonViewOrigin = { 0,0,0 };
 	QAngle m_ThirdPersonViewAngles = { 0,0,0 };
+	// Center of the actual VR render camera used this frame (HMD-aimed 3P camera center).
+	// Used to keep aim line / overlays in sync when third-person camera is smoothed.
+	Vector m_ThirdPersonRenderCenter = { 0,0,0 };
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.85f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;
@@ -201,6 +203,7 @@ public:
 	float m_AimLineThickness = 2.0f;
 	bool m_AimLineEnabled = true;
 	bool m_AimLineConfigEnabled = true;
+	bool m_AimLineOnlyWhenLaserSight = false;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
 	// Mounted gun (minigun/.50cal) state.
@@ -928,6 +931,8 @@ public:
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
+	bool ShouldDrawAimLine(C_WeaponCSBase* weapon) const;
+	bool IsWeaponLaserSightActive(C_WeaponCSBase* weapon) const;
 	float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
 	void DrawAimLine(const Vector& start, const Vector& end);
 	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
