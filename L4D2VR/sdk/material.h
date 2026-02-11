@@ -165,7 +165,7 @@ public:
 	virtual void SetViewEPv() = 0; //CMaterialSystem::SetView(void *)
 	virtual void BeginFrameEf() = 0; //CMaterialSystem::BeginFrame(float)
 	virtual void EndFrameEv() = 0; //CMaterialSystem::EndFrame(void)
-	virtual void FlushEb() = 0; //CMaterialSystem::Flush(bool)
+	virtual void FlushEb(bool flushHardware = true) = 0; //CMaterialSystem::Flush(bool)
 	virtual void SwapBuffersEv() = 0; //CMaterialSystem::SwapBuffers(void)
 	virtual void EvictManagedResourcesEv() = 0; //CMaterialSystem::EvictManagedResources(void)
 	virtual void ReleaseResourcesEv() = 0; //CMaterialSystem::ReleaseResources(void)
