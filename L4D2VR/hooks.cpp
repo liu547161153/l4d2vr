@@ -533,19 +533,6 @@ int Hooks::initSourceHooks()
 	}
 
 	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
-	// Optionally block the game's Info/MOTD panel (default bind: H).
-	// NOTE: CreateMove is hooked at vtable index 27. These indices are relative to that layout.
-	constexpr int kClientMode_IsInfoPanelAllowed = 50;
-	constexpr int kClientMode_InfoPanelDisplayed = 51;
-	constexpr int kClientMode_IsHTMLInfoPanelAllowed = 52;
-
-	if (clientModeVTable[kClientMode_IsInfoPanelAllowed])
-		hkIsInfoPanelAllowed.createHook(clientModeVTable[kClientMode_IsInfoPanelAllowed], dIsInfoPanelAllowed);
-	if (clientModeVTable[kClientMode_InfoPanelDisplayed])
-		hkInfoPanelDisplayed.createHook(clientModeVTable[kClientMode_InfoPanelDisplayed], dInfoPanelDisplayed);
-	if (clientModeVTable[kClientMode_IsHTMLInfoPanelAllowed])
-		hkIsHTMLInfoPanelAllowed.createHook(clientModeVTable[kClientMode_IsHTMLInfoPanelAllowed], dIsHTMLInfoPanelAllowed);
-
 	return 1;
 }
 
@@ -798,11 +785,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	static QAngle s_tpShakeAngles{ 0,0,0 };
 
 	auto ResetTpShake = [&]()
-	{
-		s_tpShakeInit = false;
-		s_tpShakeOrigin = { 0,0,0 };
-		s_tpShakeAngles = { 0,0,0 };
-	};
+		{
+			s_tpShakeInit = false;
+			s_tpShakeOrigin = { 0,0,0 };
+			s_tpShakeAngles = { 0,0,0 };
+		};
 
 	const float tpShakeSmooth = std::clamp(m_VR->m_ThirdPersonCameraSmoothing, 0.0f, 0.99f);
 
@@ -829,11 +816,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 			// Smooth angles with wrap-around
 			auto smoothAngle = [&](float target, float& cur)
-			{
-				float diff = target - cur;
-				diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-				cur += diff * lerpFactor;
-			};
+				{
+					float diff = target - cur;
+					diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+					cur += diff * lerpFactor;
+				};
 
 			smoothAngle(engineCamAngles.x, s_tpShakeAngles.x);
 			smoothAngle(engineCamAngles.y, s_tpShakeAngles.y);
@@ -877,6 +864,31 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
 
+    // Recenter the VR anchors once per threshold when yaw turns left/right a lot.
+    // Requirement: if yaw turns beyond 60° (left or right), do a one-shot ResetPosition.
+    // Note: this now applies in both first-person and third-person rendering.
+	{
+        static bool s_yawResetInit = false;
+        static float s_yawResetBase = 0.0f;
+
+        if (!s_yawResetInit)
+        {
+            s_yawResetBase = viewAngles.y;
+            s_yawResetInit = true;
+        }
+        else
+        {
+            float diff = viewAngles.y - s_yawResetBase;
+            // Normalize to [-180, 180] to handle wrap-around.
+            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+            if (std::fabs(diff) >= 30.0f)
+             {
+                m_VR->ResetPosition();
+                s_yawResetBase = viewAngles.y;
+            }
+        }
+	}
+
 	if (renderThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
@@ -910,6 +922,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
+		// Expose the actual VR render camera center used for third-person this frame.
+		// This includes HMD-aim yaw and any VR camera offsets, and is used to keep aim line and overlays aligned.
+		m_VR->m_ThirdPersonRenderCenter = camCenter;
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
 	}
@@ -918,6 +933,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Normal VR first-person
 		leftOrigin = m_VR->GetViewOriginLeft();
 		rightOrigin = m_VR->GetViewOriginRight();
+		// Keep this sane even in 1P (unused there, but prevents stale deltas if 3P toggles).
+		m_VR->m_ThirdPersonRenderCenter = m_VR->m_SetupOrigin;
 	}
 
 	leftEyeView.origin = leftOrigin;
@@ -1623,7 +1640,13 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		C_BaseCombatWeapon* wpn = lp2 ? (C_BaseCombatWeapon*)lp2->GetActiveWeapon() : nullptr;
 		const char* wpnName = (wpn != nullptr) ? wpn->GetName() : nullptr;
 		const char* wpnNet = (wpn != nullptr) ? m_Game->GetNetworkClassName((uintptr_t*)wpn) : nullptr;
-
+		// Mounted guns (minigun / .50 cal etc.) require a continuous IN_ATTACK hold.
+		// While mounted, GetActiveWeapon() can still report the carried weapon, so our
+		// semi-auto pulse heuristic would incorrectly pulse IN_ATTACK and "stutter" fire.
+		const bool usingMountedWeapon = lp2 ? (
+			ReadNetvar<bool>(lp2, VR::kUsingMountedGunOffset) ||
+			ReadNetvar<bool>(lp2, VR::kUsingMountedWeaponOffset)
+		) : false;
 		auto startsWith = [](const char* s, const char* prefix) -> bool {
 			if (!s || !prefix) return false;
 			while (*prefix)
@@ -1684,13 +1707,13 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			startsWith(wpnNet, "CChainsaw");
 
 		const bool isThrowable =
-				(wpnName && (
+			(wpnName && (
 				// Be loose here: engine strings vary across builds/mods ("weapon_molotov" vs "molotov").
 				contains(wpnName, "molotov") ||
 				(contains(wpnName, "pipe") && contains(wpnName, "bomb")) ||
 				contains(wpnName, "vomit") ||
 				(contains(wpnName, "grenade") && !contains(wpnName, "grenade_launcher"))
-			)) ||
+				)) ||
 			contains(wpnNet, "Molotov") ||
 			contains(wpnNet, "PipeBomb") ||
 			contains(wpnNet, "VomitJar") ||
@@ -1699,7 +1722,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 		// Only pulse when holding attack and weapon is NOT full-auto, and NOT a hold-to-use item.
 		// NOT a hold-to-use item, and NOT during a continuous use action.
-		if (holdingAttack && !unknownWeapon && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction)
+		if (holdingAttack && !unknownWeapon && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction && !usingMountedWeapon)
 		{
 			using namespace std::chrono;
 			const float hz = (m_VR->m_AutoRepeatSemiAutoFireHz > 0.0f) ? m_VR->m_AutoRepeatSemiAutoFireHz : 0.0f;
@@ -1754,30 +1777,6 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 	return result;
 }
-bool __fastcall Hooks::dIsInfoPanelAllowed(void* ecx, void* edx)
-{
-	// The "daily message" panel in L4D2 is the clientmode Info/MOTD panel (default bind: H).
-	// When disabled, return false so the engine never opens it (auto-popup or keybind).
-	if (m_VR && m_VR->m_DisableInfoPanel)
-		return false;
-	return hkIsInfoPanelAllowed.fOriginal(ecx);
-}
-
-void __fastcall Hooks::dInfoPanelDisplayed(void* ecx, void* edx)
-{
-	// If we block the panel, we also suppress the "displayed" callback.
-	if (m_VR && m_VR->m_DisableInfoPanel)
-		return;
-	hkInfoPanelDisplayed.fOriginal(ecx);
-}
-
-bool __fastcall Hooks::dIsHTMLInfoPanelAllowed(void* ecx, void* edx)
-{
-	if (m_VR && m_VR->m_DisableInfoPanel)
-		return false;
-	return hkIsHTMLInfoPanelAllowed.fOriginal(ecx);
-}
-
 
 void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 {
