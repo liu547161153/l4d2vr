@@ -2530,19 +2530,45 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	if (m_VR->m_SuppressHudCapture)
 		return;
 
-	bool paintingHudTarget = false;
-	if (m_Game && m_Game->m_MaterialSystem)
-	{
-		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
-		// mat_queue_mode=2 can route VGUI paint through a different hook thread than Push/Pop.
-		// Detect HUD pass by the active RT as a fallback to avoid black HUD clears with no panel draw.
-		paintingHudTarget = renderContext && renderContext->GetRenderTarget() == m_VR->m_HUDTexture;
-	}
+	IMatRenderContext* renderContext = (m_Game && m_Game->m_MaterialSystem)
+		? m_Game->m_MaterialSystem->GetRenderContext()
+		: nullptr;
+	const bool paintingHudTarget = renderContext && renderContext->GetRenderTarget() == m_VR->m_HUDTexture;
 
 	if (m_PushedHud || paintingHudTarget)
-		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
+	{
+		hkVgui_Paint.fOriginal(ecx, PAINT_UIPANELS | PAINT_INGAMEPANELS);
+		return;
+	}
 
-	hkVgui_Paint.fOriginal(ecx, mode);
+	// mat_queue_mode=2 fallback: if Push/Pop/VGUI callbacks land on different threads,
+	// we can miss the engine HUD RT routing. Proactively paint HUD panels into m_HUDTexture.
+	if (!renderContext || !m_VR->m_HUDTexture || !hkGetViewport.fOriginal || !hkViewport.fOriginal)
+	{
+		hkVgui_Paint.fOriginal(ecx, mode);
+		return;
+	}
+
+	int oldX = 0, oldY = 0, oldW = 0, oldH = 0;
+	hkGetViewport.fOriginal(renderContext, oldX, oldY, oldW, oldH);
+	ITexture* oldRT = renderContext->GetRenderTarget();
+
+	const int hudW = std::max(1, m_VR->m_HUDTexture->GetActualWidth());
+	const int hudH = std::max(1, m_VR->m_HUDTexture->GetActualHeight());
+	renderContext->SetRenderTarget(m_VR->m_HUDTexture);
+	hkViewport.fOriginal(renderContext, 0, 0, hudW, hudH);
+
+	renderContext->ClearBuffers(false, true, true);
+	renderContext->OverrideAlphaWriteEnable(true, true);
+	renderContext->ClearColor4ub(0, 0, 0, 0);
+	renderContext->ClearBuffers(true, false);
+
+	hkVgui_Paint.fOriginal(ecx, PAINT_UIPANELS | PAINT_INGAMEPANELS);
+	m_VR->m_RenderedHud = true;
+
+	renderContext->OverrideAlphaWriteEnable(false, true);
+	renderContext->SetRenderTarget(oldRT);
+	hkViewport.fOriginal(renderContext, oldX, oldY, oldW, oldH);
 }
 
 int Hooks::dIsSplitScreen()
