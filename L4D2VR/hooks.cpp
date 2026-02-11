@@ -864,29 +864,29 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
 
-    // Recenter the VR anchors once per threshold when yaw turns left/right a lot.
-    // Requirement: if yaw turns beyond 60° (left or right), do a one-shot ResetPosition.
-    // Note: this now applies in both first-person and third-person rendering.
+	// Recenter the VR anchors once per threshold when yaw turns left/right a lot.
+	// Requirement: if yaw turns beyond 60° (left or right), do a one-shot ResetPosition.
+	// Note: this now applies in both first-person and third-person rendering.
 	{
-        static bool s_yawResetInit = false;
-        static float s_yawResetBase = 0.0f;
+		static bool s_yawResetInit = false;
+		static float s_yawResetBase = 0.0f;
 
-        if (!s_yawResetInit)
-        {
-            s_yawResetBase = viewAngles.y;
-            s_yawResetInit = true;
-        }
-        else
-        {
-            float diff = viewAngles.y - s_yawResetBase;
-            // Normalize to [-180, 180] to handle wrap-around.
-            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-            if (std::fabs(diff) >= 30.0f)
-             {
-                m_VR->ResetPosition();
-                s_yawResetBase = viewAngles.y;
-            }
-        }
+		if (!s_yawResetInit)
+		{
+			s_yawResetBase = viewAngles.y;
+			s_yawResetInit = true;
+		}
+		else
+		{
+			float diff = viewAngles.y - s_yawResetBase;
+			// Normalize to [-180, 180] to handle wrap-around.
+			diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+			if (std::fabs(diff) >= 30.0f)
+			{
+				m_VR->ResetPosition();
+				s_yawResetBase = viewAngles.y;
+			}
+		}
 	}
 
 	if (renderThirdPerson)
@@ -956,7 +956,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudLeft.angles = viewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
-	m_PushedHud = false;
+
+    // Multicore (mat_queue_mode=2) safety:
+    // RenderView may return before queued draw calls actually execute.
+    // We switch/use render targets immediately after; force the queue to drain here for correctness.
+    // NOTE: This reduces multicore rendering benefits; keep it as a minimal sync point.
+    if (m_Game && m_Game->m_MaterialSystem)
+        m_Game->m_MaterialSystem->FlushEb(true);
+    // m_PushedHud is thread-local and is cleared in dPopRenderTargetAndViewport on the render thread.
 
 	// Right eye CViewSetup
 	rightEyeView.x = 0;
@@ -978,6 +985,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
+	// Multicore (mat_queue_mode=2) safety: see comment above (left eye).
+	if (m_Game && m_Game->m_MaterialSystem)
+		m_Game->m_MaterialSystem->FlushEb(true);
+
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
 		{
@@ -998,6 +1009,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+				// Multicore safety: offscreen RTTs are often consumed immediately after this call.
+				if (m_Game && m_Game->m_MaterialSystem)
+					m_Game->m_MaterialSystem->FlushEb(true);
 
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
@@ -1022,6 +1037,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			m_Game->m_EngineClient->SetViewAngles(passAngles);
 
 			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+			// Multicore safety: offscreen RTTs are often consumed immediately after this call.
+			if (m_Game && m_Game->m_MaterialSystem)
+				m_Game->m_MaterialSystem->FlushEb(true);
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
@@ -1646,7 +1665,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		const bool usingMountedWeapon = lp2 ? (
 			ReadNetvar<bool>(lp2, VR::kUsingMountedGunOffset) ||
 			ReadNetvar<bool>(lp2, VR::kUsingMountedWeaponOffset)
-		) : false;
+			) : false;
 		auto startsWith = [](const char* s, const char* prefix) -> bool {
 			if (!s || !prefix) return false;
 			while (*prefix)
@@ -2430,6 +2449,10 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+	// Diagnostic mode: do not redirect HUD/VGUI into our HUD render target.
+	// This allows testing whether multicore rendering corruption is isolated to HUD capture.
+	if (m_VR->m_DisableHudRendering)
+		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
 	// Extra offscreen passes (scope RTT) must not hijack HUD capture
 	if (m_VR->m_SuppressHudCapture)
@@ -2493,13 +2516,16 @@ void Hooks::dPopRenderTargetAndViewport(void* ecx, void* edx)
 	}
 
 	hkPopRenderTargetAndViewport.fOriginal(ecx);
+	m_PushedHud = false;
 }
 
 void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkVgui_Paint.fOriginal(ecx, mode);
-
+	// Diagnostic mode: completely skip VGUI paint to remove HUD/UI from the scene.
+	if (m_VR->m_DisableHudRendering)
+		return;
 	// When scope RTT is rendering, don't redirect HUD/VGUI
 	if (m_VR->m_SuppressHudCapture)
 		return;
