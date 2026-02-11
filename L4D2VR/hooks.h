@@ -83,9 +83,7 @@ typedef void(__thiscall* tPopRenderTargetAndViewport)(void* thisptr);
 typedef void(__thiscall* tVgui_Paint)(void* thisptr, int mode);
 typedef int(__cdecl* tIsSplitScreen)();
 typedef DWORD* (__thiscall* tPrePushRenderTarget)(void* thisptr, int a2);
-typedef bool(__thiscall* tIsInfoPanelAllowed)(void* thisptr);
-typedef void(__thiscall* tInfoPanelDisplayed)(void* thisptr);
-typedef bool(__thiscall* tIsHTMLInfoPanelAllowed)(void* thisptr);
+
 
 class Hooks
 {
@@ -121,9 +119,6 @@ public:
 	static inline Hook<tVgui_Paint> hkVgui_Paint;
 	static inline Hook<tIsSplitScreen> hkIsSplitScreen;
 	static inline Hook<tPrePushRenderTarget> hkPrePushRenderTarget;
-	static inline Hook<tIsInfoPanelAllowed> hkIsInfoPanelAllowed;
-	static inline Hook<tInfoPanelDisplayed> hkInfoPanelDisplayed;
-	static inline Hook<tIsHTMLInfoPanelAllowed> hkIsHTMLInfoPanelAllowed;
 	static bool s_ServerUnderstandsVR;
 
 	Hooks() {};
@@ -163,9 +158,6 @@ public:
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
 	// Blocks the game's Info/MOTD panel (default bind: H) when configured.
-	static bool __fastcall dIsInfoPanelAllowed(void* ecx, void* edx);
-	static void __fastcall dInfoPanelDisplayed(void* ecx, void* edx);
-	static bool __fastcall dIsHTMLInfoPanelAllowed(void* ecx, void* edx);
 	static inline int m_PushHUDStep;
 	static inline bool m_PushedHud;
 };
