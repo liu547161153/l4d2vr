@@ -510,8 +510,14 @@ void VR::CreateVRTextures()
     m_CreatingTextureID = Texture_RightEye;
     m_RightEyeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("rightEye0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
     m_CreatingTextureID = Texture_HUD;
-    m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
+    // HUD alpha correctness (PC build):
+    // Backbuffer can be BGRX8888 (no alpha). Overlay compositing is sensitive to alpha semantics,
+    // so force an alpha-capable format for the HUD RT when needed.
+    ImageFormat hudFmt = m_Game->m_MaterialSystem->GetBackBufferFormat();
+    if (hudFmt == IMAGE_FORMAT_BGRX8888)
+        hudFmt = IMAGE_FORMAT_BGRA8888;
 
+    m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, hudFmt, MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
     // Square RTT for gun-mounted scope lens
     m_CreatingTextureID = Texture_Scope;
     m_ScopeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
@@ -616,21 +622,59 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
         };
+    const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
 
+    // Auto-protection: while in-game, disable the backbuffer/menu overlay fallback (desktop/window image)
+    // to avoid stutter when RenderFrame falls back.
+    // IMPORTANT: do NOT keep this latched after leaving the map, otherwise returning to the main menu can freeze.
+    m_BackbufferFallbackLatchedOff = inGame;
     //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
     {
+        const bool disableBackbufferFallbackEffective =
+			m_DisableBackbufferOverlayFallback || m_BackbufferFallbackLatchedOff;
         if (!m_BlankTexture)
             CreateVRTextures();
 
         if (!vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
             RepositionOverlays();
 
-        vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
-        vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
-        hideHudOverlays();
-        vr::VROverlay()->HideOverlay(m_ScopeHandle);
-        vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+		if (disableBackbufferFallbackEffective)
+		{
+			// Do NOT feed desktop/window backbuffer into VR. Keep stable by re-submitting last eye textures.
+			vr::VROverlay()->HideOverlay(m_MainMenuHandle);
+			hideHudOverlays();
+			vr::VROverlay()->HideOverlay(m_ScopeHandle);
+			vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+
+			if (inGame)
+			{
+				// In-game: keep VR stable by re-submitting the last eye textures (no backbuffer overlay).
+				submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+				submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+			}
+			else
+			{
+				// Out of game: submit blank textures so we don't show stale in-game frames.
+				submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+				submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+			}
+		}
+		else
+		{
+			// Original behavior: show menu/backbuffer overlay when no new frame is rendered.
+			vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
+			vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
+			hideHudOverlays();
+			vr::VROverlay()->HideOverlay(m_ScopeHandle);
+			vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+            if (!inGame)
+            {
+                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+            }
+		}
+
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
@@ -649,24 +693,34 @@ void VR::SubmitVRTextures()
 
 
     vr::VROverlay()->HideOverlay(m_MainMenuHandle);
-    applyHudTexture(m_HUDTopHandle, topBounds);
-    for (int i = 0; i < 4; ++i)
-    {
-        applyHudTexture(m_HUDBottomHandles[i], bottomBounds[i]);
-    }
-    if (m_Game->m_VguiSurface->IsCursorVisible())
-    {
-        vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
-        for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
-        {
-            if (i == 0 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) == vr::k_unTrackedDeviceIndexInvalid)
-                continue;
-            if (i == 3 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
-                continue;
+	if (m_DisableHudRendering)
+	{
+		// Diagnostic mode: completely hide HUD overlays. This helps isolate mat_queue_mode UI corruption.
+		vr::VROverlay()->HideOverlay(m_HUDTopHandle);
+		for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
+			vr::VROverlay()->HideOverlay(overlay);
+	}
+	else
+	{
+		applyHudTexture(m_HUDTopHandle, topBounds);
+		for (int i = 0; i < 4; ++i)
+		{
+			applyHudTexture(m_HUDBottomHandles[i], bottomBounds[i]);
+		}
+		if (m_Game->m_VguiSurface->IsCursorVisible())
+		{
+			vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
+			for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
+			{
+				if (i == 0 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand) == vr::k_unTrackedDeviceIndexInvalid)
+					continue;
+				if (i == 3 && m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand) == vr::k_unTrackedDeviceIndexInvalid)
+					continue;
 
-            vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
-        }
-    }
+				vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
+			}
+		}
+	}
 
     // Scope overlay independent of HUD cursor mode
     if (m_ScopeTexture && m_ScopeEnabled)
@@ -5873,7 +5927,17 @@ void VR::ParseConfigFile()
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
     m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
-    m_HudToggleState = m_HudAlwaysVisible;
+	m_DisableHudRendering = getBool("DisableHudRendering", m_DisableHudRendering);
+	if (m_DisableHudRendering)
+	{
+		// HUD fully disabled: keep toggle off regardless of other HUD options.
+		m_HudAlwaysVisible = false;
+		m_HudToggleState = false;
+	}
+	else
+	{
+		m_HudToggleState = m_HudAlwaysVisible;
+	}
     m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
