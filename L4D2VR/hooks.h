@@ -157,7 +157,12 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
-	// Blocks the game's Info/MOTD panel (default bind: H) when configured.
-	static inline int m_PushHUDStep;
-	static inline bool m_PushedHud;
+    // NOTE: These are used as a tiny state machine across IsSplitScreen/PrePush/Push/Pop/VGui_Paint
+    // to detect the engine's HUD/VGUI render target push and redirect it into our HUD texture.
+    //
+    // With multicore rendering (mat_queue_mode=2), these hook entry points can run on a separate
+    // render thread. Keeping this state global causes cross-thread interleaving, which can make us
+    // clear the HUD target but miss the actual draw calls (=> black HUD). Use thread-local state.
+    static inline thread_local int  m_PushHUDStep = -999;
+    static inline thread_local bool m_PushedHud   = false;
 };
