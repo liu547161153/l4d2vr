@@ -473,6 +473,9 @@ public:
 	bool m_ControllerHudCut = true;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
+	bool m_DisableHudRendering = false;
+	bool m_DisableBackbufferOverlayFallback = false;
+	bool m_BackbufferFallbackLatchedOff = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
 
 	float m_ControllerSmoothing = 0.0f;
