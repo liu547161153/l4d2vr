@@ -1150,6 +1150,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Restore engine angles immediately after our stereo render.
 	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame = true;
+	// Mark a fresh stereo frame ready for submit (submit happens from VR::Update()).
+	m_VR->m_RenderPoseSerial = m_VR->m_PoseSerial;
+	m_VR->m_SubmitPending = true;
 }
 
 bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd)

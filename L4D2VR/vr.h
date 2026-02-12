@@ -289,6 +289,19 @@ public:
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
+	// ---- Compositor pacing (mat_queue_mode=2 hardening) ----
+	// Two-phase frame loop:
+	//  1) Update() calls WaitGetPoses() to start a new pose cycle (m_PoseSerial++).
+	//  2) RenderView renders with those poses, then marks m_SubmitPending.
+	//  3) The next Update() submits exactly once, WITHOUT another WaitGetPoses in-between.
+	uint64_t m_PoseSerial = 0;
+	uint64_t m_RenderPoseSerial = 0;
+	uint64_t m_LastSubmittedPoseSerial = 0;
+	bool m_SubmitPending = false;
+	bool m_WasInGamePrev = false;
+	std::chrono::steady_clock::time_point m_SkipSubmitUntil{};
+	std::chrono::steady_clock::time_point m_SubmitCooldownEnd{};
+	std::chrono::steady_clock::time_point m_LastSubmitLog{};
 	bool m_RenderedHud = false;
 	bool m_CreatedVRTextures = false;
 	// Used by extra offscreen passes (scope RTT): prevents HUD hooks from hijacking RT stack

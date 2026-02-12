@@ -426,7 +426,57 @@ void VR::Update()
         }
     }
 
-    SubmitVRTextures();
+    // ------------------------------
+    // mat_queue_mode=2 hardening: two-phase frame loop
+    //   Phase A: WaitGetPoses (start pose cycle)
+    //   Phase B: After stereo RenderView completes, we submit exactly once (without another WaitGetPoses in-between)
+    // ------------------------------
+    const bool inGame = m_Game->m_EngineClient->IsInGame();
+    const auto now = std::chrono::steady_clock::now();
+
+    // Entering a map: compositor/driver can hard-stall Submit() during the first seconds
+    // (RT recreation, device resets, queue transitions). Skip Submit briefly to prevent freeze.
+    if (inGame && !m_WasInGamePrev)
+    {
+        m_SkipSubmitUntil = now + std::chrono::seconds(2);
+        m_SubmitPending = false;
+    }
+    m_WasInGamePrev = inGame;
+
+    // Menus/loading: RenderView may not run, so keep submitting from Update.
+    if (!inGame)
+    {
+        SubmitVRTextures();
+    }
+
+    // Phase B: submit a freshly rendered stereo frame (once per pose serial).
+    if (inGame && now >= m_SkipSubmitUntil && m_SubmitPending &&
+        m_RenderPoseSerial != 0 && m_RenderPoseSerial != m_LastSubmittedPoseSerial)
+    {
+        const bool inCooldown = (m_SubmitCooldownEnd.time_since_epoch().count() != 0) && (now < m_SubmitCooldownEnd);
+        if (!inCooldown)
+        {
+            auto t0 = now;
+            SubmitVRTextures();
+            auto t1 = std::chrono::steady_clock::now();
+
+            m_LastSubmittedPoseSerial = m_RenderPoseSerial;
+            m_SubmitPending = false;
+
+            const auto submitMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0);
+            if (submitMs.count() >= 20)
+            {
+                const long long cd = std::clamp<long long>(submitMs.count() * 2LL, 100LL, 500LL);
+                m_SubmitCooldownEnd = t1 + std::chrono::milliseconds(cd);
+                constexpr auto kLogCooldown = std::chrono::seconds(2);
+                if (t1 - m_LastSubmitLog > kLogCooldown)
+                {
+                    Game::logMsg("[VR] Compositor Submit stall: %lld ms (cooldown %lldms)", (long long)submitMs.count(), cd);
+                    m_LastSubmitLog = t1;
+                }
+            }
+        }
+    }
 
     bool posesValid = UpdatePosesAndActions();
 
@@ -558,6 +608,10 @@ void VR::SubmitVRTextures()
     bool successfulSubmit = false;
     bool timingDataSubmitted = false;
 
+    // Per-call eye de-dup and AlreadySubmitted(108) hardening.
+    bool eyeSubmitted[2] = { false, false };
+    auto eyeIndex = [](vr::EVREye eye) -> int { return (eye == vr::Eye_Left) ? 0 : 1; };
+
     auto ensureTimingData = [&]()
         {
             if (!m_CompositorExplicitTiming || timingDataSubmitted)
@@ -574,15 +628,25 @@ void VR::SubmitVRTextures()
 
     auto submitEye = [&](vr::EVREye eye, vr::Texture_t* texture, const vr::VRTextureBounds_t* bounds)
         {
+            const int idx = eyeIndex(eye);
+            if (eyeSubmitted[idx])
+                return true;
+
             ensureTimingData();
 
             vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
             if (submitError != vr::VRCompositorError_None)
             {
+                if (submitError == vr::VRCompositorError_AlreadySubmitted)
+                {
+                    eyeSubmitted[idx] = true;
+                    return true;
+                }
                 LogCompositorError("Submit", submitError);
                 return false;
             }
 
+            eyeSubmitted[idx] = true;
             successfulSubmit = true;
             return true;
         };
@@ -990,6 +1054,10 @@ void VR::SubmitVRTextures()
 void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)
 {
     if (error == vr::VRCompositorError_None || !action)
+        return;
+
+    // 108 = AlreadySubmitted: ignore (noise + can amplify stutter via logging).
+    if (error == vr::VRCompositorError_AlreadySubmitted)
         return;
 
     constexpr auto kLogCooldown = std::chrono::seconds(5);
@@ -1504,6 +1572,9 @@ bool VR::UpdatePosesAndActions()
 
     vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
     bool posesValid = (result == vr::VRCompositorError_None);
+
+    if (posesValid)
+        ++m_PoseSerial;
 
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;
