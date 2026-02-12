@@ -2524,9 +2524,8 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 					return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 				}
 
-				renderContext->ClearBuffers(false, true, true);
-
-				hkPushRenderTargetAndViewport.fOriginal(ecx, m_VR->m_HUDTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+				// IMPORTANT: do NOT pass the main scene depth to HUD RT, otherwise VGUI can be depth-culled -> black HUD.
+				hkPushRenderTargetAndViewport.fOriginal(ecx, m_VR->m_HUDTexture, nullptr, nViewX, nViewY, nViewW, nViewH);
 
 				renderContext->OverrideAlphaWriteEnable(true, true);
 				renderContext->ClearColor4ub(0, 0, 0, 0);
@@ -2572,13 +2571,13 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 			return hkPushRenderTargetAndViewport.fOriginal(ecx, originalTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 		}
 
-		renderContext->ClearBuffers(false, true, true);
-
-		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+		// IMPORTANT: HUD RT must not inherit the main depth buffer, or VGUI can be depth-culled -> black HUD.
+		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, nullptr, nViewX, nViewY, nViewW, nViewH);
 
 		renderContext->OverrideAlphaWriteEnable(true, true);
 		renderContext->ClearColor4ub(0, 0, 0, 0);
-		renderContext->ClearBuffers(true, false);
+		// Clear only color for HUD RT.
+		renderContext->ClearBuffers(true, false, false);
 
 		m_VR->m_RenderedHud = true;
 		m_PushedHud = true;
