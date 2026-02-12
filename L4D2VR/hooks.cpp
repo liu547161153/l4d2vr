@@ -2449,10 +2449,34 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-	// New HUD capture path: HUD is explicitly rendered in VGui_Paint into vrHUD.
-	// Do NOT attempt the legacy "guess HUD RT stack order" redirection (breaks under mat_queue_mode=2).
-	if (m_VR->m_HudCaptureViaVGuiPaint)
-		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+
+	// ------------------------------------------------------------
+	// HUD debug + fallback notes
+	//
+	// Symptom: VR HUD is black, but desktop HUD still renders.
+	// That almost always means we never successfully redirected the engine's HUD/VGUI pass into vrHUD.
+	//
+	// To avoid endless guessing, we log the first few render target names observed while we're
+	// still waiting for a HUD capture, and we also log when a redirect actually happens.
+	// ------------------------------------------------------------
+	static int s_HudRtNameLogBudget = 120;  // first N RT pushes while waiting for HUD
+	static int s_HudRedirectLogBudget = 16; // first N successful redirects
+
+	// Preferred HUD capture path is VGui_Paint -> vrHUD.
+	// However, if VGui_Paint hooking fails (offset mismatch, different code-path under mat_queue_mode=2, etc.),
+	// vrHUD will stay black while the desktop HUD continues to draw normally.
+	// Fallback: allow the legacy RT-stack redirection *only if* we haven't rendered HUD yet this frame.
+	const bool allowLegacyHudRedirect = (!m_VR->m_RenderedHud);
+
+	if (m_VR->m_HudCaptureViaVGuiPaint && allowLegacyHudRedirect && pTexture && s_HudRtNameLogBudget > 0)
+	{
+		const char* texName = pTexture->GetName();
+		if (texName && texName[0])
+		{
+			LOG("[HUDDBG] PushRT waiting HUD: %s (%dx%d)", texName, nViewW, nViewH);
+			--s_HudRtNameLogBudget;
+		}
+	}
 
 	// Diagnostic mode: do not redirect HUD/VGUI into our HUD render target.
 	// This allows testing whether multicore rendering corruption is isolated to HUD capture.
@@ -2462,6 +2486,64 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 	// Extra offscreen passes (scope RTT) must not hijack HUD capture
 	if (m_VR->m_SuppressHudCapture)
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+
+	// If the call-order heuristic fails under multicore, try a name-based heuristic.
+	// Source often uses a distinct render target name for the HUD/VGUI composite.
+	// We only run this when the new VGui_Paint path is enabled but hasn't produced HUD yet this frame.
+	if (m_VR->m_HudCaptureViaVGuiPaint && allowLegacyHudRedirect && pTexture)
+	{
+		auto containsNoCase = [](const char* haystack, const char* needle) -> bool
+			{
+				if (!haystack || !needle)
+					return false;
+
+				std::string h(haystack);
+				std::string n(needle);
+				std::transform(h.begin(), h.end(), h.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+				std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+				return h.find(n) != std::string::npos;
+			};
+
+		const char* texName = pTexture->GetName();
+		if (texName && texName[0])
+		{
+			const bool isOurRT = (pTexture == m_VR->m_HUDTexture) || (containsNoCase(texName, "vrhud"));
+			const bool looksLikeHudRT =
+				containsNoCase(texName, "vgui") ||
+				containsNoCase(texName, "hud") ||
+				containsNoCase(texName, "ui") ||
+				containsNoCase(texName, "overlay") ||
+				containsNoCase(texName, "panels");
+
+			if (!isOurRT && looksLikeHudRT)
+			{
+				IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+				if (!renderContext)
+				{
+					m_VR->HandleMissingRenderContext("Hooks::dPushRenderTargetAndViewport(name-heuristic)");
+					return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+				}
+
+				renderContext->ClearBuffers(false, true, true);
+
+				hkPushRenderTargetAndViewport.fOriginal(ecx, m_VR->m_HUDTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+
+				renderContext->OverrideAlphaWriteEnable(true, true);
+				renderContext->ClearColor4ub(0, 0, 0, 0);
+				renderContext->ClearBuffers(true, false, false);
+
+				m_VR->m_RenderedHud = true;
+				m_PushedHud = true;
+
+				if (s_HudRedirectLogBudget > 0)
+				{
+					LOG("[HUDDBG] Redirected HUD RT '%s' -> vrHUD", texName);
+					--s_HudRedirectLogBudget;
+				}
+				return;
+			}
+		}
+	}
 
 	if (m_PushHUDStep == 2)
 		++m_PushHUDStep;
@@ -2475,6 +2557,13 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 	{
 		ITexture* originalTexture = pTexture;
 		pTexture = m_VR->m_HUDTexture;
+
+		if (s_HudRedirectLogBudget > 0)
+		{
+			const char* origName = originalTexture ? originalTexture->GetName() : "(null)";
+			LOG("[HUDDBG] Call-order redirect (step==3) '%s' -> vrHUD", origName);
+			--s_HudRedirectLogBudget;
+		}
 
 		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
 		if (!renderContext)
@@ -2578,7 +2667,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 		m_VR->m_RenderedHud = true;
 		return;
 	}
- 
+
 	if (m_PushedHud)
 		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
 
