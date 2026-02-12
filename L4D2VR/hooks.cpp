@@ -957,13 +957,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
 
-    // Multicore (mat_queue_mode=2) safety:
-    // RenderView may return before queued draw calls actually execute.
-    // We switch/use render targets immediately after; force the queue to drain here for correctness.
-    // NOTE: This reduces multicore rendering benefits; keep it as a minimal sync point.
-    if (m_Game && m_Game->m_MaterialSystem)
-        m_Game->m_MaterialSystem->FlushEb(true);
-    // m_PushedHud is thread-local and is cleared in dPopRenderTargetAndViewport on the render thread.
+	// Multicore (mat_queue_mode=2) safety:
+	// RenderView may return before queued draw calls actually execute.
+	// We switch/use render targets immediately after; force the queue to drain here for correctness.
+	// NOTE: This reduces multicore rendering benefits; keep it as a minimal sync point.
+	if (m_Game && m_Game->m_MaterialSystem)
+		m_Game->m_MaterialSystem->FlushEb(true);
+	m_PushedHud = false;
 
 	// Right eye CViewSetup
 	rightEyeView.x = 0;
@@ -2449,6 +2449,11 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+	// New HUD capture path: HUD is explicitly rendered in VGui_Paint into vrHUD.
+	// Do NOT attempt the legacy "guess HUD RT stack order" redirection (breaks under mat_queue_mode=2).
+	if (m_VR->m_HudCaptureViaVGuiPaint)
+		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+
 	// Diagnostic mode: do not redirect HUD/VGUI into our HUD render target.
 	// This allows testing whether multicore rendering corruption is isolated to HUD capture.
 	if (m_VR->m_DisableHudRendering)
@@ -2516,7 +2521,6 @@ void Hooks::dPopRenderTargetAndViewport(void* ecx, void* edx)
 	}
 
 	hkPopRenderTargetAndViewport.fOriginal(ecx);
-	m_PushedHud = false;
 }
 
 void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
@@ -2529,7 +2533,52 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	// When scope RTT is rendering, don't redirect HUD/VGUI
 	if (m_VR->m_SuppressHudCapture)
 		return;
+	// Robust HUD capture path for multicore rendering:
+	// Render VGUI explicitly into our HUD render target (vrHUD), without touching main scene depth.
+	if (m_VR->m_HudCaptureViaVGuiPaint)
+	{
+		IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
+		if (!rc)
+		{
+			m_VR->HandleMissingRenderContext("Hooks::dVGui_Paint");
+			return;
+		}
 
+		// Prevent legacy HUD redirection from triggering during this explicit pass.
+		const bool prevSuppress = m_VR->m_SuppressHudCapture;
+		m_VR->m_SuppressHudCapture = true;
+
+		int hudWidth = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualWidth() : 0;
+		int hudHeight = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualHeight() : 0;
+		if (hudWidth <= 0 || hudHeight <= 0)
+			rc->GetWindowSize(hudWidth, hudHeight);
+
+		// Push our HUD RT; pass NULL depth so any buffer clears won't nuke the main scene depth.
+		hkPushRenderTargetAndViewport.fOriginal(rc, m_VR->m_HUDTexture, nullptr, 0, 0, hudWidth, hudHeight);
+
+		// Clear HUD RT to transparent.
+		rc->OverrideAlphaWriteEnable(true, true);
+		rc->ClearColor4ub(0, 0, 0, 0);
+		// Clear only color. Avoid clearing stencil: can cause black/blank HUD overlays under multicore + shared state.
+		rc->ClearBuffers(true, false, false);
+
+		// Force VGUI panels; otherwise some HUD layers may not paint.
+		const int forcedMode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
+		hkVgui_Paint.fOriginal(ecx, forcedMode);
+
+		// Make sure queued commands are finished before VR samples the HUD texture (important with mat_queue_mode=2).
+		if (m_Game && m_Game->m_MaterialSystem)
+			m_Game->m_MaterialSystem->FlushEb(true);
+
+		rc->OverrideAlphaWriteEnable(false, true);
+		rc->ClearColor4ub(0, 0, 0, 255);
+		hkPopRenderTargetAndViewport.fOriginal(rc);
+
+		m_VR->m_SuppressHudCapture = prevSuppress;
+		m_VR->m_RenderedHud = true;
+		return;
+	}
+ 
 	if (m_PushedHud)
 		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
 
