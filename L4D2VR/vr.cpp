@@ -594,13 +594,38 @@ void VR::SubmitVRTextures()
                 vr::VROverlay()->HideOverlay(overlay);
         };
 
-    const vr::VRTextureBounds_t topBounds{ 0.0f, 0.0f, 1.0f, 0.5f };
+    // HUD overlay bounds need to account for cases where the underlying render target
+    // is larger than the actual window/backbuffer size (common with some mat_queue_mode=2 paths).
+    // In that situation VGUI will draw into the top-left region, leaving the rest blank.
+    // Scale the texture bounds so overlays sample only the region that VGUI actually filled.
+    int windowWidth = 0, windowHeight = 0;
+    if (m_Game && m_Game->m_MaterialSystem)
+    {
+        if (IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext())
+            rc->GetWindowSize(windowWidth, windowHeight);
+    }
+
+    float uMax = 1.0f;
+    float vMax = 1.0f;
+    if (m_HUDTexture && windowWidth > 0 && windowHeight > 0)
+    {
+        const int texW = m_HUDTexture->GetActualWidth();
+        const int texH = m_HUDTexture->GetActualHeight();
+        if (texW > 0 && texH > 0)
+        {
+            uMax = std::min(1.0f, static_cast<float>(windowWidth) / static_cast<float>(texW));
+            vMax = std::min(1.0f, static_cast<float>(windowHeight) / static_cast<float>(texH));
+        }
+    }
+
+    const vr::VRTextureBounds_t topBounds{ 0.0f, 0.0f, uMax, vMax * 0.5f };
     const std::array<vr::VRTextureBounds_t, 4> bottomBounds{
-        vr::VRTextureBounds_t{ 0.0f, 0.5f, 0.25f, 1.0f },
-        vr::VRTextureBounds_t{ 0.25f, 0.5f, 0.5f, 1.0f },
-        vr::VRTextureBounds_t{ 0.5f, 0.5f, 0.75f, 1.0f },
-        vr::VRTextureBounds_t{ 0.75f, 0.5f, 1.0f, 1.0f }
+        vr::VRTextureBounds_t{ uMax * 0.0f,  vMax * 0.5f, uMax * 0.25f, vMax * 1.0f },
+        vr::VRTextureBounds_t{ uMax * 0.25f, vMax * 0.5f, uMax * 0.5f,  vMax * 1.0f },
+        vr::VRTextureBounds_t{ uMax * 0.5f,  vMax * 0.5f, uMax * 0.75f, vMax * 1.0f },
+        vr::VRTextureBounds_t{ uMax * 0.75f, vMax * 0.5f, uMax * 1.0f,  vMax * 1.0f }
     };
+
 
     auto applyHudTexture = [&](vr::VROverlayHandle_t overlay, const vr::VRTextureBounds_t& bounds)
         {
@@ -624,10 +649,30 @@ void VR::SubmitVRTextures()
         };
     const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
 
-    // Auto-protection: while in-game, disable the backbuffer/menu overlay fallback (desktop/window image)
-    // to avoid stutter when RenderFrame falls back.
-    // IMPORTANT: do NOT keep this latched after leaving the map, otherwise returning to the main menu can freeze.
-    m_BackbufferFallbackLatchedOff = inGame;
+    // Backbuffer/menu overlay fallback (desktop/window image) can cause severe stutter when RenderFrame falls back.
+    // However, auto-disabling it globally is undesirable: it should only be forced off for mat_queue_mode=2
+    // (queued + threaded rendering), where backbuffer transitions are also more prone to deadlock.
+    bool matQueueMode2 = false;
+    if (m_Game && m_Game->m_MaterialSystem)
+    {
+        const auto mode = m_Game->m_MaterialSystem->GetThreadMode();
+        matQueueMode2 = (mode == MATERIAL_QUEUED_THREADED);
+    }
+
+    // In mat_queue_mode=2, keep the fallback disabled while in-game, and for a short grace window
+    // after leaving a map to avoid freeze/deadlock during the transition back to the main menu.
+    const uint64_t nowMs = GetTickCount64();
+    if (matQueueMode2)
+    {
+        if (inGame)
+            m_BackbufferFallbackLatchUntilMs = nowMs + 2000; // 2s grace
+        m_BackbufferFallbackLatchedOff = inGame || (nowMs < m_BackbufferFallbackLatchUntilMs);
+    }
+    else
+    {
+        m_BackbufferFallbackLatchUntilMs = 0;
+        m_BackbufferFallbackLatchedOff = false;
+    }
     //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
     {
@@ -5927,6 +5972,7 @@ void VR::ParseConfigFile()
     m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
     m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
+    m_HudCaptureViaVGuiPaint = getBool("HudCaptureViaVGuiPaint", m_HudCaptureViaVGuiPaint);
 	m_DisableHudRendering = getBool("DisableHudRendering", m_DisableHudRendering);
 	if (m_DisableHudRendering)
 	{
