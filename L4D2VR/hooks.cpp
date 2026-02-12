@@ -962,7 +962,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// We switch/use render targets immediately after; force the queue to drain here for correctness.
 	// NOTE: This reduces multicore rendering benefits; keep it as a minimal sync point.
 	if (m_Game && m_Game->m_MaterialSystem)
-		m_Game->m_MaterialSystem->FlushEb(true);
+	{
+		// Flush() can deadlock in mat_queue_mode=2 during map transitions (enter/leave).
+		// Passing false avoids a full hardware flush while still pushing queued commands through.
+		const bool matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+		m_Game->m_MaterialSystem->FlushEb(!matQueueMode2);
+	}
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -987,7 +992,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Multicore (mat_queue_mode=2) safety: see comment above (left eye).
 	if (m_Game && m_Game->m_MaterialSystem)
-		m_Game->m_MaterialSystem->FlushEb(true);
+	{
+		const bool matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+		m_Game->m_MaterialSystem->FlushEb(!matQueueMode2);
+	}
 
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
@@ -1012,7 +1020,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 				// Multicore safety: offscreen RTTs are often consumed immediately after this call.
 				if (m_Game && m_Game->m_MaterialSystem)
-					m_Game->m_MaterialSystem->FlushEb(true);
+				{
+					const bool matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+					m_Game->m_MaterialSystem->FlushEb(!matQueueMode2);
+				}
 
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
@@ -1040,7 +1051,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 			// Multicore safety: offscreen RTTs are often consumed immediately after this call.
 			if (m_Game && m_Game->m_MaterialSystem)
-				m_Game->m_MaterialSystem->FlushEb(true);
+			{
+				const bool matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+				m_Game->m_MaterialSystem->FlushEb(!matQueueMode2);
+			}
 
 			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
@@ -2569,7 +2583,10 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
 		// Make sure queued commands are finished before VR samples the HUD texture (important with mat_queue_mode=2).
 		if (m_Game && m_Game->m_MaterialSystem)
-			m_Game->m_MaterialSystem->FlushEb(true);
+		{
+			const bool matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+			m_Game->m_MaterialSystem->FlushEb(!matQueueMode2);
+		}
 
 		rc->OverrideAlphaWriteEnable(false, true);
 		rc->ClearColor4ub(0, 0, 0, 255);
