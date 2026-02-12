@@ -473,9 +473,14 @@ public:
 	bool m_ControllerHudCut = true;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
+	// HUD capture method:
+	// true  = capture HUD/UI explicitly during VGui_Paint into vrHUD (robust under mat_queue_mode=2).
+	// false = legacy hook that redirects the engine's HUD RT stack (can break under multicore rendering).
+	bool m_HudCaptureViaVGuiPaint = true;
 	bool m_DisableHudRendering = false;
 	bool m_DisableBackbufferOverlayFallback = false;
 	bool m_BackbufferFallbackLatchedOff = false;
+	uint64_t m_BackbufferFallbackLatchUntilMs = 0;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
 
 	float m_ControllerSmoothing = 0.0f;
