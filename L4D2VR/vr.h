@@ -487,10 +487,9 @@ public:
 	bool m_ControllerHudCut = true;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
-	// HUD capture method:
-	// true  = capture HUD/UI explicitly during VGui_Paint into vrHUD (robust under mat_queue_mode=2).
-	// false = legacy hook that redirects the engine's HUD RT stack (can break under multicore rendering).
-	bool m_HudCaptureViaVGuiPaint = true;
+	// When enabled, attempt to capture HUD by explicitly rendering VGUI into vrHUD in Hooks::dVGui_Paint.
+    // This is only intended to be active for mat_queue_mode=2 (queued + threaded rendering).
+    bool m_HudCaptureViaVGuiPaint = false;
 	bool m_DisableHudRendering = false;
 	bool m_DisableBackbufferOverlayFallback = false;
 	bool m_BackbufferFallbackLatchedOff = false;
