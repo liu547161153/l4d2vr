@@ -66,8 +66,8 @@ public:
 	vr::IVRCompositor* m_Compositor = nullptr;
 
 	vr::VROverlayHandle_t m_MainMenuHandle;
-	vr::VROverlayHandle_t m_HUDTopHandle;
-	std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
+	// Single full HUD overlay (ControllerHudCut split overlays removed).
+	vr::VROverlayHandle_t m_HUDHandle = vr::k_ulOverlayHandleInvalid;
 	// Gun-mounted scope overlay (render-to-texture lens)
 	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
 	// Rear mirror overlay (off-hand)
@@ -481,14 +481,17 @@ public:
 	float m_FixedHudYOffset = 0.0f;
 	float m_FixedHudDistanceOffset = 0.0f;
 	float m_HudSize = 1.1;
-	float m_ControllerHudSize = 0.5f;
-	float m_ControllerHudYOffset = 0.12f;
-	float m_ControllerHudZOffset = 0.0f;
-	float m_ControllerHudRotation = 0.0f;
-	float m_ControllerHudXOffset = 0.0f;
-	bool m_ControllerHudCut = true;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
+	// HUD visibility <-> mat_queue_mode auto-switching (fixes mat_queue_mode 2 HUD corruption).
+	// - HUD needs to be visible => mat_queue_mode 1
+	// - HUD hidden             => mat_queue_mode 2
+	// Note: HudAlwaysVisible is forced off while this is enabled.
+	bool m_HudAutoMatQueueMode = true;
+	// True if m_HudToggleState was derived from HudAlwaysVisible (safe to override).
+	bool m_HudToggleStateFromAlwaysVisible = false;
+	// Cache to avoid spamming mat_queue_mode commands.
+	int m_LastRequestedMatQueueMode = -1;
 	// When enabled, attempt to capture HUD by explicitly rendering VGUI into vrHUD in Hooks::dVGui_Paint.
     // This is only intended to be active for mat_queue_mode=2 (queued + threaded rendering).
     bool m_HudCaptureViaVGuiPaint = false;
@@ -882,7 +885,8 @@ public:
 	void HandleMissingRenderContext(const char* location);
 	void SubmitVRTextures();
 	void LogCompositorError(const char* action, vr::EVRCompositorError error);
-	void RepositionOverlays(bool attachToControllers = true);
+	void RepositionOverlays();
+	void RequestMatQueueMode(int mode);
 	void UpdateRearMirrorOverlayTransform();
 	void UpdateScopeOverlayTransform();
 	void GetPoses();

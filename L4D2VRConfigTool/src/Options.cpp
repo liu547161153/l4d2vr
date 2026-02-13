@@ -492,72 +492,17 @@ Option g_Options[] =
         "true"
     },
 
-    // HUD (Controller)
     {
-        "ControllerHudCut",
+        "HudAutoMatQueueMode",
         OptionType::Bool,
-        { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"HUD clipping", u8"HUD裁切" },
-        { u8"cutting the HUD at the bottom-left and bottom-right corners to the controllers.",
-          u8"将左下角和右下角的hud裁切到手柄。" },
-        "false"
-     },
-    {
-        "ControllerHudSize",
-        OptionType::Float,
-        { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"Controller HUD Size", u8"手柄HUD大小" },
-        { u8"Size of the HUD attached to the controller.",
-          u8"附着在手柄上的HUD尺寸。" },
-        { u8"0.08~0.2 keeps it readable without blocking view.",
-          u8"0.08~0.2 既可读又不挡视线。" },
-        0.05f, 0.5f,
-        "0.1"
-    },
-    {
-        "ControllerHudXOffset",
-        OptionType::Float,
-        { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"Controller HUD X Offset", u8"手柄HUD X偏移" },
-        { u8"Left/right offset of controller HUD (meters).",
-          u8"手柄HUD左右偏移（米）。" },
-        { u8"", u8"" },
-        -0.5f, 0.5f,
-        "0.1"
-    },
-    {
-        "ControllerHudYOffset",
-        OptionType::Float,
-        { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"Controller HUD Y Offset", u8"手柄HUD Y偏移" },
-        { u8"Up/down offset of controller HUD (meters).",
-          u8"手柄HUD上下偏移（米）。" },
-        { u8"", u8"" },
-        -0.5f, 0.5f,
-        "0.1"
-    },
-    {
-        "ControllerHudZOffset",
-        OptionType::Float,
-        { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"Controller HUD Z Offset", u8"手柄HUD Z偏移" },
-        { u8"Forward/back offset of controller HUD (meters).",
-          u8"手柄HUD前后偏移（米）。" },
-        { u8"", u8"" },
-        -1.0f, 0.5f,
-        "-0.3"
-    },
-    {
-        "ControllerHudRotation",
-        OptionType::Float,
-        { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"Controller HUD Rotation", u8"手柄HUD 旋转角" },
-        { u8"Rotates the controller HUD around the grip.",
-          u8"围绕握把旋转手柄HUD。" },
-        { u8"Negative tilts inward for right-hand HUD.",
-          u8"负值向内倾斜（右手HUD）。" },
-        -180.0f, 180.0f,
-        "-60"
+        { u8"HUD (Main)", u8"HUD（主界面）" },
+        { u8"Auto mat_queue_mode for HUD", u8"HUD 自动切换 mat_queue_mode" },
+        { u8"When the HUD needs to be visible, force mat_queue_mode=1 so VGUI/HUD renders correctly.",
+          u8"当HUD需要显示时，强制 mat_queue_mode=1 以保证VGUI/HUD正常渲染。" },
+        { u8"When the HUD is hidden, switch back to mat_queue_mode=2 for performance. When enabled, HudAlwaysVisible will be forced off.",
+          u8"当HUD隐藏时自动切回 mat_queue_mode=2 提升性能。启用后会强制关闭 HudAlwaysVisible。" },
+        0.0f, 0.0f,
+        "true"
     },
 
     // Hands / Debug
