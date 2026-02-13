@@ -2574,6 +2574,8 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	if (!m_VR->m_CreatedVRTextures)
 		return hkVgui_Paint.fOriginal(ecx, mode);
 	bool matQueueMode2 = false;
+	if (m_Game && m_Game->m_MaterialSystem)
+		matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
 	// Diagnostic mode: completely skip VGUI paint to remove HUD/UI from the scene.
 	if (m_VR->m_DisableHudRendering)
 		return;
