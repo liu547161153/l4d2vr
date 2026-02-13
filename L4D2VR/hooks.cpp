@@ -21,6 +21,12 @@
 #endif
 #include <windows.h>
 
+// mat_queue_mode=2 safety: avoid changing render targets directly inside VGui_Paint.
+// Instead, piggy-back on the RT pushes that VGUI itself performs and redirect those to vrHUD.
+// thread_local because VGUI paint / material queue can involve worker threads.
+static thread_local bool tl_inVGuiPaint = false;
+static thread_local bool tl_hudClearedThisPaint = false;
+
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
 // - Then clamp pitch to [-89, 89].
@@ -2449,10 +2455,45 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-	// New HUD capture path: HUD is explicitly rendered in VGui_Paint into vrHUD.
-	// Do NOT attempt the legacy "guess HUD RT stack order" redirection (breaks under mat_queue_mode=2).
+	// mat_queue_mode=2 HUD capture:
+	// Do NOT change render targets directly inside VGui_Paint (that can cause global flicker).
+	// Instead, while inside VGUI paint, redirect *VGUI's own* RT pushes to vrHUD.
 	if (m_VR->m_HudCaptureViaVGuiPaint)
+	{
+		// Only hijack pushes occurring during VGUI paint, and only for full-size viewports.
+		if (tl_inVGuiPaint && !m_VR->m_DisableHudRendering && !m_VR->m_SuppressHudCapture && m_VR->m_HUDTexture)
+		{
+			IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
+			if (rc)
+			{
+				int winW = 0, winH = 0;
+				rc->GetWindowSize(winW, winH);
+				// Heuristic: VGUI HUD target is typically full-window sized.
+				if (winW > 0 && winH > 0 && nViewW >= (winW * 3) / 4 && nViewH >= (winH * 3) / 4)
+				{
+					pTexture = m_VR->m_HUDTexture;
+
+					hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+
+					// Clear once per VGUI paint so the HUD RT doesn't accumulate.
+					if (!tl_hudClearedThisPaint)
+					{
+						rc->OverrideAlphaWriteEnable(true, true);
+						rc->ClearColor4ub(0, 0, 0, 0);
+						rc->ClearBuffers(true, false, false);
+						tl_hudClearedThisPaint = true;
+					}
+
+					m_VR->m_RenderedHud = true;
+					m_PushedHud = true;
+					return;
+				}
+			}
+		}
+
+		// Outside VGUI paint, behave normally.
 		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+	}
 
 	// Diagnostic mode: do not redirect HUD/VGUI into our HUD render target.
 	// This allows testing whether multicore rendering corruption is isolated to HUD capture.
@@ -2534,73 +2575,19 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 	if (m_VR->m_SuppressHudCapture)
 		return;
 	// Robust HUD capture path for multicore rendering:
-	// Render VGUI explicitly into our HUD render target (vrHUD), without touching main scene depth.
+	// Render VGUI into our HUD render target (vrHUD) by redirecting VGUI's internal RT pushes.
 	if (m_VR->m_HudCaptureViaVGuiPaint)
 	{
-		IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
-		if (!rc)
-		{
-			m_VR->HandleMissingRenderContext("Hooks::dVGui_Paint");
-			return;
-		}
-
-		// Prevent legacy HUD redirection from triggering during this explicit pass.
-		const bool prevSuppress = m_VR->m_SuppressHudCapture;
-		m_VR->m_SuppressHudCapture = true;
-
-		int hudWidth = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualWidth() : 0;
-		int hudHeight = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualHeight() : 0;
-		if (hudWidth <= 0 || hudHeight <= 0)
-			rc->GetWindowSize(hudWidth, hudHeight);
-
-		// Use the direct SetRenderTarget + Viewport path for robustness.
-		// Some mat_queue_mode=2 paths get weird with the RT stack (Push/Pop), which can result in HUD
-		// only updating once (stale texture) even though desktop HUD keeps repainting.
-		int oldX = 0, oldY = 0, oldW = 0, oldH = 0;
-		ITexture* oldRT = nullptr;
-		const bool hasViewportHooks = (hkGetViewport.fOriginal && hkViewport.fOriginal);
-		if (hasViewportHooks)
-		{
-			hkGetViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
-			oldRT = rc->GetRenderTarget();
-			rc->SetRenderTarget(m_VR->m_HUDTexture);
-			hkViewport.fOriginal(rc, 0, 0, hudWidth, hudHeight);
-		}
-		else
-		{
-			// Fallback: use the RT stack if viewport hooks aren't available.
-			hkPushRenderTargetAndViewport.fOriginal(rc, m_VR->m_HUDTexture, nullptr, 0, 0, hudWidth, hudHeight);
-		}
-
-		// Clear HUD RT to transparent. Clear stencil too (but NOT depth) so VGUI mask layers don't accumulate.
-		rc->OverrideAlphaWriteEnable(true, true);
-		rc->ClearColor4ub(0, 0, 0, 0);
-		rc->ClearBuffers(true, false, true);
+		// mat_queue_mode=2: do NOT change render targets here.
+		// Redirect the RT pushes that VGUI performs internally (see dPushRenderTargetAndViewport).
+		tl_inVGuiPaint = true;
+		tl_hudClearedThisPaint = false;
 
 		// Force VGUI panels; otherwise some HUD layers may not paint.
-		// IMPORTANT: preserve any flags the engine requested (mat_queue_mode=2 can be picky about the paint mask).
+		// IMPORTANT: preserve any flags the engine requested.
 		const int forcedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
 		hkVgui_Paint.fOriginal(ecx, forcedMode);
-
-		// IMPORTANT (mat_queue_mode=2):
-		// Do NOT force FlushEb() here. VGui_Paint can happen in awkward phases relative to RenderView and
-		// draining the queue here can reorder work and cause global flicker (world + HUD).
-		// We already have sync points after stereo RenderView passes where it is safer.
-
-		rc->OverrideAlphaWriteEnable(false, true);
-		rc->ClearColor4ub(0, 0, 0, 255);
-
-		if (hasViewportHooks)
-		{
-			rc->SetRenderTarget(oldRT);
-			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
-		}
-		else
-		{
-			hkPopRenderTargetAndViewport.fOriginal(rc);
-		}
-
-		m_VR->m_SuppressHudCapture = prevSuppress;
+		tl_inVGuiPaint = false;
 		m_VR->m_RenderedHud = true;
 		return;
 	}
