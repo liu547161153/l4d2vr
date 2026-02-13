@@ -758,7 +758,7 @@ void VR::SubmitVRTextures()
         if (m_Game->m_VguiSurface->IsCursorVisible())
         {
             vr::VROverlay()->ShowOverlay(m_HUDHandle);
-            if (inGame)
+            if (inGame && m_HudMatQueueModeLinkEnabled)
                 RequestMatQueueMode(1);
         }
     }
@@ -2618,14 +2618,14 @@ void VR::ProcessInput()
         m_HudToggleStateFromAlwaysVisible = false;
     }
 
-    // If we are currently in mat_queue_mode=2, force HudAlwaysVisible off.
+    // If linkage is enabled and we are currently in mat_queue_mode=2, force HudAlwaysVisible off.
     bool matQueueMode2 = false;
-    if (m_Game && m_Game->m_MaterialSystem)
+    if (m_HudMatQueueModeLinkEnabled && m_Game && m_Game->m_MaterialSystem)
     {
         MaterialThreadMode_t threadMode = m_Game->m_MaterialSystem->GetThreadMode();
         matQueueMode2 = (threadMode == MATERIAL_QUEUED_THREADED);
     }
-    if (matQueueMode2 && m_HudAlwaysVisible)
+    if (m_HudMatQueueModeLinkEnabled && matQueueMode2 && m_HudAlwaysVisible)
     {
         m_HudAlwaysVisible = false;
         if (m_HudToggleStateFromAlwaysVisible)
@@ -2647,7 +2647,7 @@ void VR::ProcessInput()
     else
         m_Game->ClientCmd_Unrestricted("-showscores");
 
-    if (inGame)
+    if (m_HudMatQueueModeLinkEnabled && inGame)
     {
         if (wantsHudVisibility)
             RequestMatQueueMode(1);
@@ -2662,7 +2662,7 @@ void VR::ProcessInput()
     else
     {
         hideHud();
-        if (inGame && !wantsHudVisibility)
+        if (m_HudMatQueueModeLinkEnabled && inGame && !wantsHudVisibility)
             RequestMatQueueMode(2);
     }
 
@@ -2672,7 +2672,7 @@ void VR::ProcessInput()
     {
         m_Game->ClientCmd_Unrestricted("gameui_activate");
         RepositionOverlays();
-        if (inGame)
+        if (m_HudMatQueueModeLinkEnabled && inGame)
             RequestMatQueueMode(1);
         showHud();
     }
@@ -5835,9 +5835,10 @@ void VR::ParseConfigFile()
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
+    m_HudMatQueueModeLinkEnabled = getBool("HudMatQueueModeLinkEnabled", m_HudMatQueueModeLinkEnabled);
 
-    // mat_queue_mode=2 => force HudAlwaysVisible off (prevents corruption + keeps auto-switch meaningful)
-    if (m_Game && m_Game->m_MaterialSystem)
+    // mat_queue_mode=2 => force HudAlwaysVisible off when HUD<->mat_queue_mode linkage is enabled.
+    if (m_HudMatQueueModeLinkEnabled && m_Game && m_Game->m_MaterialSystem)
     {
         MaterialThreadMode_t threadMode = m_Game->m_MaterialSystem->GetThreadMode();
         if (threadMode == MATERIAL_QUEUED_THREADED)

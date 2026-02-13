@@ -484,6 +484,7 @@ public:
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	bool m_HudToggleStateFromAlwaysVisible = false;
+	bool m_HudMatQueueModeLinkEnabled = true;
 	int m_LastRequestedMatQueueMode = -1;
 	// When enabled, attempt to capture HUD by explicitly rendering VGUI into vrHUD in Hooks::dVGui_Paint.
     // This is only intended to be active for mat_queue_mode=2 (queued + threaded rendering).
