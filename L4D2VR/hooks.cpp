@@ -2548,32 +2548,57 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 		const bool prevSuppress = m_VR->m_SuppressHudCapture;
 		m_VR->m_SuppressHudCapture = true;
 
-        int hudWidth = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualWidth() : 0;
-        int hudHeight = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualHeight() : 0;
-        if (hudWidth <= 0 || hudHeight <= 0)
-            rc->GetWindowSize(hudWidth, hudHeight);
+		int hudWidth = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualWidth() : 0;
+		int hudHeight = m_VR->m_HUDTexture ? m_VR->m_HUDTexture->GetActualHeight() : 0;
+		if (hudWidth <= 0 || hudHeight <= 0)
+			rc->GetWindowSize(hudWidth, hudHeight);
 
-        // Push our HUD RT; pass NULL depth so clears can't touch main scene depth.
-        hkPushRenderTargetAndViewport.fOriginal(rc, m_VR->m_HUDTexture, nullptr, 0, 0, hudWidth, hudHeight);
- 
-		// Clear HUD RT to transparent.
+		// Use the direct SetRenderTarget + Viewport path for robustness.
+		// Some mat_queue_mode=2 paths get weird with the RT stack (Push/Pop), which can result in HUD
+		// only updating once (stale texture) even though desktop HUD keeps repainting.
+		int oldX = 0, oldY = 0, oldW = 0, oldH = 0;
+		ITexture* oldRT = nullptr;
+		const bool hasViewportHooks = (hkGetViewport.fOriginal && hkViewport.fOriginal);
+		if (hasViewportHooks)
+		{
+			hkGetViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+			oldRT = rc->GetRenderTarget();
+			rc->SetRenderTarget(m_VR->m_HUDTexture);
+			hkViewport.fOriginal(rc, 0, 0, hudWidth, hudHeight);
+		}
+		else
+		{
+			// Fallback: use the RT stack if viewport hooks aren't available.
+			hkPushRenderTargetAndViewport.fOriginal(rc, m_VR->m_HUDTexture, nullptr, 0, 0, hudWidth, hudHeight);
+		}
+
+		// Clear HUD RT to transparent. Clear stencil too (but NOT depth) so VGUI mask layers don't accumulate.
 		rc->OverrideAlphaWriteEnable(true, true);
 		rc->ClearColor4ub(0, 0, 0, 0);
-		// Clear only color. Avoid clearing stencil: with shared/deferred depth this can cause world/UI flicker.
-        rc->ClearBuffers(true, false, false);
+		rc->ClearBuffers(true, false, true);
 
-         // Force VGUI panels; otherwise some HUD layers may not paint.
-        // IMPORTANT: preserve any flags the engine requested (mat_queue_mode=2 can be picky about the paint mask).    
+		// Force VGUI panels; otherwise some HUD layers may not paint.
+		// IMPORTANT: preserve any flags the engine requested (mat_queue_mode=2 can be picky about the paint mask).
 		const int forcedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
 		hkVgui_Paint.fOriginal(ecx, forcedMode);
 
-		// Make sure queued commands are finished before VR samples the HUD texture (important with mat_queue_mode=2).
-		if (m_Game && m_Game->m_MaterialSystem)
-			m_Game->m_MaterialSystem->FlushEb(true);
+		// IMPORTANT (mat_queue_mode=2):
+		// Do NOT force FlushEb() here. VGui_Paint can happen in awkward phases relative to RenderView and
+		// draining the queue here can reorder work and cause global flicker (world + HUD).
+		// We already have sync points after stereo RenderView passes where it is safer.
 
 		rc->OverrideAlphaWriteEnable(false, true);
 		rc->ClearColor4ub(0, 0, 0, 255);
-		hkPopRenderTargetAndViewport.fOriginal(rc);
+
+		if (hasViewportHooks)
+		{
+			rc->SetRenderTarget(oldRT);
+			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+		}
+		else
+		{
+			hkPopRenderTargetAndViewport.fOriginal(rc);
+		}
 
 		m_VR->m_SuppressHudCapture = prevSuppress;
 		m_VR->m_RenderedHud = true;
