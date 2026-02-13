@@ -2608,16 +2608,6 @@ void VR::ProcessInput()
 
     if (m_HudAutoMatQueueMode)
     {
-        if (m_HudAlwaysVisible)
-        {
-            m_HudAlwaysVisible = false;
-            if (m_HudToggleStateFromAlwaysVisible)
-            {
-                m_HudToggleState = false;
-                m_HudToggleStateFromAlwaysVisible = false;
-            }
-        }
-
         if (inGame)
             RequestMatQueueMode(wantsHud ? 1 : 2);
         else
@@ -5843,12 +5833,6 @@ void VR::ParseConfigFile()
     }
     else
     {
-        if (m_HudAutoMatQueueMode && m_HudAlwaysVisible)
-        {
-            Game::logMsg("[VR] HudAutoMatQueueMode enabled: forcing HudAlwaysVisible=false");
-            m_HudAlwaysVisible = false;
-        }
-
         m_HudToggleState = m_HudAlwaysVisible;
         m_HudToggleStateFromAlwaysVisible = m_HudAlwaysVisible;
     }

@@ -486,7 +486,6 @@ public:
 	// HUD visibility <-> mat_queue_mode auto-switching (fixes mat_queue_mode 2 HUD corruption).
 	// - HUD needs to be visible => mat_queue_mode 1
 	// - HUD hidden             => mat_queue_mode 2
-	// Note: HudAlwaysVisible is forced off while this is enabled.
 	bool m_HudAutoMatQueueMode = true;
 	// True if m_HudToggleState was derived from HudAlwaysVisible (safe to override).
 	bool m_HudToggleStateFromAlwaysVisible = false;

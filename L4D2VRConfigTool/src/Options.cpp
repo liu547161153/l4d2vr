@@ -499,8 +499,8 @@ Option g_Options[] =
         { u8"Auto mat_queue_mode for HUD", u8"HUD 自动切换 mat_queue_mode" },
         { u8"When the HUD needs to be visible, force mat_queue_mode=1 so VGUI/HUD renders correctly.",
           u8"当HUD需要显示时，强制 mat_queue_mode=1 以保证VGUI/HUD正常渲染。" },
-        { u8"When the HUD is hidden, switch back to mat_queue_mode=2 for performance. When enabled, HudAlwaysVisible will be forced off.",
-          u8"当HUD隐藏时自动切回 mat_queue_mode=2 提升性能。启用后会强制关闭 HudAlwaysVisible。" },
+        { u8"When the HUD is hidden, switch back to mat_queue_mode=2 for performance.",
+          u8"当HUD隐藏时自动切回 mat_queue_mode=2 提升性能。" },
         0.0f, 0.0f,
         "true"
     },
