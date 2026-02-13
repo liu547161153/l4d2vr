@@ -562,7 +562,19 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
+	// Capture render-thread id for thread-affinity checks (mat_queue_mode=2 backbuffer safety).
+	m_VR->m_RenderThreadId = GetCurrentThreadId();
 
+	// Save the render target/viewport that the engine had bound when calling RenderView,
+	// so we can restore it after our stereo/offscreen passes.
+	ITexture* prevRT = rndrContext->GetRenderTarget();
+	int prevVPX = 0, prevVPY = 0, prevVPW = 0, prevVPH = 0;
+	bool havePrevViewport = false;
+	if (hkGetViewport.fOriginal && hkViewport.fOriginal)
+	{
+		hkGetViewport.fOriginal(rndrContext, prevVPX, prevVPY, prevVPW, prevVPH);
+		havePrevViewport = true;
+	}
 	// ------------------------------
 	// Third-person camera fix:
 	// If engine is in third-person, setup.origin is a shoulder camera,
@@ -1155,6 +1167,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Restore engine angles immediately after our stereo render.
 	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
+	// Restore engine render state for whatever comes after RenderView (menu/UI, post-processing, etc.).
+	rndrContext->SetRenderTarget(prevRT);
+	if (havePrevViewport)
+		hkViewport.fOriginal(rndrContext, prevVPX, prevVPY, prevVPW, prevVPH);
 	m_VR->m_RenderedNewFrame = true;
 }
 
@@ -2573,7 +2589,11 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkVgui_Paint.fOriginal(ecx, mode);
-	bool matQueueMode2 = false;
+    // Detect queued+threaded mode (mat_queue_mode=2)
+    bool matQueueMode2 = false;
+    if (m_Game && m_Game->m_MaterialSystem)
+        matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+
 	// Diagnostic mode: completely skip VGUI paint to remove HUD/UI from the scene.
 	if (m_VR->m_DisableHudRendering)
 		return;
@@ -2594,7 +2614,10 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 		const int forcedMode = mode | PAINT_UIPANELS | PAINT_INGAMEPANELS;
 		hkVgui_Paint.fOriginal(ecx, forcedMode);
 		tl_inVGuiPaint = false;
-		m_VR->m_RenderedHud = true;
+		// NOTE:
+        // m_VR->m_RenderedHud should only be set when we actually redirected a VGUI RT push
+        // (see dPushRenderTargetAndViewport). Setting it unconditionally keeps stale HUD
+        // textures visible and looks like "backbuffer fake frames".
 		return;
 	}
 
