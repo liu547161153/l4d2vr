@@ -294,6 +294,38 @@ public:
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
+	// === Render-frame snapshot ===
+	// Snapshot pose/state at start of stereo RenderView to keep camera and viewmodel stable (mat_queue_mode=2).
+	struct RenderFrameSnapshot
+	{
+		Vector hmdPosAbs{ 0,0,0 };
+		QAngle hmdAngAbs{ 0,0,0 };
+		Vector hmdForward{ 0,0,0 };
+		Vector hmdRight{ 0,0,0 };
+		Vector hmdUp{ 0,0,0 };
+
+		float vrScale = 1.0f;
+		float ipd = 0.0f;
+		float ipdScale = 1.0f;
+		float eyeZ = 0.0f;
+
+		bool mouseModeEnabled = false;
+		bool mouseModeScopeActive = false;
+		Vector mouseModeViewmodelAnchorOffset{ 0,0,0 };
+		Vector mouseModeScopedViewmodelAnchorOffset{ 0,0,0 };
+
+		Vector rightControllerPosAbs{ 0,0,0 };
+		QAngle rightControllerAngAbs{ 0,0,0 };
+
+		Vector viewmodelForward{ 0,0,0 };
+		Vector viewmodelRight{ 0,0,0 };
+		Vector viewmodelUp{ 0,0,0 };
+		Vector viewmodelPosOffset{ 0,0,0 };
+	};
+
+	RenderFrameSnapshot m_RenderFrameSnapshot{};
+	std::atomic<bool> m_RenderFrameSnapshotActive{ false };
+
 	// === Frame pacing / submit gating ===
 	// mat_queue_mode=2 can reorder Update() vs RenderView(). If we Submit() before a new stereo frame
 	// is actually rendered, SteamVR gets "old texture + new pose" which looks like ghosting/judder.
@@ -905,6 +937,10 @@ public:
 	// Mouse-mode: compute the eye-center ray used for aiming (mouse pitch+yaw or HMD-based, optionally sensitivity-scaled).
 	void GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut = nullptr);
 	void UpdateTracking();
+	// Render-frame snapshot: call at the start/end of our stereo RenderView hook.
+	void BeginRenderFrameSnapshot();
+	void EndRenderFrameSnapshot();
+	const RenderFrameSnapshot* GetActiveRenderFrameSnapshot() const;
 	void UpdateMotionGestures(C_BasePlayer* localPlayer);
 	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
 	Vector GetViewAngle();
