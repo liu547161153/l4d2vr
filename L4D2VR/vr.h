@@ -89,6 +89,8 @@ public:
 	// Guard against multi-threaded/re-entrant Update() calls (common with mat_queue_mode=2).
 	// OpenVR expects Submit(L/R) and WaitGetPoses() to happen once per frame (per thread).
 	std::atomic_flag m_UpdateInProgress = ATOMIC_FLAG_INIT;
+	// Render thread id captured from RenderView hook. Used to avoid touching backbuffer from the wrong thread in mat_queue_mode=2.
+	DWORD m_RenderThreadId = 0;
 	Vector m_EyeToHeadTransformPosLeft = { 0,0,0 };
 	Vector m_EyeToHeadTransformPosRight = { 0,0,0 };
 
