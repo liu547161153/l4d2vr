@@ -562,19 +562,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
-	// Capture render-thread id for thread-affinity checks (mat_queue_mode=2 backbuffer safety).
-	m_VR->m_RenderThreadId = GetCurrentThreadId();
 
-	// Save the render target/viewport that the engine had bound when calling RenderView,
-	// so we can restore it after our stereo/offscreen passes.
-	ITexture* prevRT = rndrContext->GetRenderTarget();
-	int prevVPX = 0, prevVPY = 0, prevVPW = 0, prevVPH = 0;
-	bool havePrevViewport = false;
-	if (hkGetViewport.fOriginal && hkViewport.fOriginal)
-	{
-		hkGetViewport.fOriginal(rndrContext, prevVPX, prevVPY, prevVPW, prevVPH);
-		havePrevViewport = true;
-	}
 	// ------------------------------
 	// Third-person camera fix:
 	// If engine is in third-person, setup.origin is a shoulder camera,
@@ -931,11 +919,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (stateWantsThirdPerson)
 		{
 			// Dead/observer camera must follow engine view, not HMD position.
-			baseCenter = stateIsDeadOrObserver ? engineCamOrigin : m_VR->m_HmdPosAbs;
+			baseCenter = stateIsDeadOrObserver ? engineCamOrigin : m_VR->GetHmdPosAbsSnapshot();
 		}
 		else
 		{
-			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->m_HmdPosAbs;
+			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->GetHmdPosAbsSnapshot();
 		}
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
@@ -949,8 +937,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else
 	{
 		// Normal VR first-person
-		leftOrigin = m_VR->GetViewOriginLeft();
-		rightOrigin = m_VR->GetViewOriginRight();
+		m_VR->GetStereoViewOrigins(leftOrigin, rightOrigin);
 		// Keep this sane even in 1P (unused there, but prevents stale deltas if 3P toggles).
 		m_VR->m_ThirdPersonRenderCenter = m_VR->m_SetupOrigin;
 	}
@@ -1167,10 +1154,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Restore engine angles immediately after our stereo render.
 	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
-	// Restore engine render state for whatever comes after RenderView (menu/UI, post-processing, etc.).
-	rndrContext->SetRenderTarget(prevRT);
-	if (havePrevViewport)
-		hkViewport.fOriginal(rndrContext, prevVPX, prevVPY, prevVPW, prevVPH);
 	m_VR->m_RenderedNewFrame = true;
 }
 
