@@ -970,7 +970,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else
 	{
 		// Normal VR first-person
-		m_VR->GetStereoViewOrigins(leftOrigin, rightOrigin);
+		leftOrigin = m_VR->GetViewOriginLeft();
+		rightOrigin = m_VR->GetViewOriginRight();
 		// Keep this sane even in 1P (unused there, but prevents stale deltas if 3P toggles).
 		m_VR->m_ThirdPersonRenderCenter = m_VR->m_SetupOrigin;
 	}
