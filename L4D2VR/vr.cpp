@@ -426,7 +426,12 @@ void VR::Update()
         }
     }
 
-    SubmitVRTextures();
+    // Under mat_queue_mode=2, Update() can run before the RenderView hook renders the eyes.
+    // Submitting unconditionally can push stale textures to SteamVR and cause judder/ghosting.
+    // In-game: only submit after RenderView has produced a new stereo frame.
+    // Menus/loading: RenderView may not run, so still submit here.
+    if (!m_Game->m_EngineClient->IsInGame() || m_RenderedNewFrame)
+        SubmitVRTextures();
 
     bool posesValid = UpdatePosesAndActions();
 
