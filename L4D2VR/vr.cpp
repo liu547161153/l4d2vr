@@ -713,6 +713,9 @@ void VR::SubmitVRTextures()
 		else
 		{
 			// Original behavior: show menu/backbuffer overlay when no new frame is rendered.
+            // Refresh the shared backbuffer handle each time, since DXVK rotates swapchain images.
+			if (g_D3DVR9)
+				g_D3DVR9->GetBackBufferData(&m_VKBackBuffer);
 			vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
 			vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
 			hideHudOverlays();
