@@ -409,23 +409,13 @@ void VR::Update()
         // Prevents crashing at menu
         if (!m_Game->m_EngineClient->IsInGame())
         {
-            // NOTE (mat_queue_mode=2): touching render targets from Update() can deadlock.
-            // Our RenderView hook restores the RT/viewport, so only do the old SetRenderTarget(NULL)
-            // in non-queued-threaded modes.
-            bool matQueueMode2 = false;
-            if (m_Game->m_MaterialSystem)
-                matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
-
-            if (!matQueueMode2)
+            IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
+            if (!rndrContext)
             {
-                IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
-                if (!rndrContext)
-                {
-                    HandleMissingRenderContext("VR::Update");
-                    return;
-                }
-                rndrContext->SetRenderTarget(NULL);
+                HandleMissingRenderContext("VR::Update");
+                return;
             }
+            rndrContext->SetRenderTarget(NULL);
 
             m_Game->m_CachedArmsModel = false;
             m_CreatedVRTextures = false; // Have to recreate textures otherwise some workshop maps won't render
@@ -677,18 +667,13 @@ void VR::SubmitVRTextures()
         const auto mode = m_Game->m_MaterialSystem->GetThreadMode();
         matQueueMode2 = (mode == MATERIAL_QUEUED_THREADED);
     }
-    // In mat_queue_mode=2, Update()/SubmitVRTextures can run off the render thread.
-    // Reading DXVK backbuffer from the wrong thread is a common deadlock trigger (especially during map->menu transitions).
-    const bool onRenderThread = (m_RenderThreadId != 0 && GetCurrentThreadId() == m_RenderThreadId);
-    const bool safeToUseBackbufferOverlay = (!matQueueMode2) || onRenderThread;
-
     // In mat_queue_mode=2, keep the fallback disabled while in-game, and for a short grace window
     // after leaving a map to avoid freeze/deadlock during the transition back to the main menu.
     const uint64_t nowMs = GetTickCount64();
     if (matQueueMode2)
     {
         if (inGame)
-            m_BackbufferFallbackLatchUntilMs = nowMs + 10000; // 10s grace
+            m_BackbufferFallbackLatchUntilMs = nowMs + 2000; // 2s grace
         m_BackbufferFallbackLatchedOff = inGame || (nowMs < m_BackbufferFallbackLatchUntilMs);
     }
     else
@@ -700,7 +685,7 @@ void VR::SubmitVRTextures()
     if (!m_RenderedNewFrame)
     {
         const bool disableBackbufferFallbackEffective =
-            m_DisableBackbufferOverlayFallback || m_BackbufferFallbackLatchedOff || !safeToUseBackbufferOverlay;
+            m_DisableBackbufferOverlayFallback || m_BackbufferFallbackLatchedOff;
         if (!m_BlankTexture)
             CreateVRTextures();
 
@@ -744,6 +729,12 @@ void VR::SubmitVRTextures()
                 submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
                 submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
             }
+        }
+
+        if (!m_Game->m_EngineClient->IsInGame())
+        {
+            submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+            submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
         }
 
         if (successfulSubmit && m_CompositorExplicitTiming)
