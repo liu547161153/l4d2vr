@@ -2612,8 +2612,8 @@ void VR::ProcessInput()
 
     const bool inGame = m_Game->m_EngineClient->IsInGame();
     const bool isControllerVertical =
-        (m_LeftController && m_LeftController->GetViewForward().y > 0.6f) ||
-        (m_RightController && m_RightController->GetViewForward().y > 0.6f);
+        m_RightControllerAngAbs.x > 60.0f || m_RightControllerAngAbs.x < -45.0f ||
+        m_LeftControllerAngAbs.x > 60.0f || m_LeftControllerAngAbs.x < -45.0f;
     const bool menuActive = m_Game->m_EngineClient->IsPaused();
     const bool cursorVisible = m_Game->m_VguiSurface->IsCursorVisible();
 
