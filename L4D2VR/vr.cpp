@@ -391,14 +391,15 @@ void VR::Update()
 {
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
-     // mat_queue_mode=2 can call Update() re-entrantly / from multiple threads.
-    // OpenVR expects Submit() and WaitGetPoses() to happen once per frame boundary.
+    // mat_queue_mode=2 can call Update() re-entrantly / from multiple threads.
+   // OpenVR expects Submit() and WaitGetPoses() to happen once per frame boundary.
     struct UpdateReentryGuard
     {
         std::atomic_flag& flag;
         bool acquired;
         explicit UpdateReentryGuard(std::atomic_flag& f)
-            : flag(f), acquired(!flag.test_and_set(std::memory_order_acquire)) {}
+            : flag(f), acquired(!flag.test_and_set(std::memory_order_acquire)) {
+        }
         ~UpdateReentryGuard() { if (acquired) flag.clear(std::memory_order_release); }
     } updateGuard(m_UpdateInProgress);
 
@@ -2812,38 +2813,64 @@ bool VR::CheckOverlayIntersectionForController(vr::VROverlayHandle_t overlayHand
 
 QAngle VR::GetRightControllerAbsAngle()
 {
+    if (const RenderFrameSnapshot* snap = GetActiveRenderFrameSnapshot())
+        return snap->rightControllerAngAbs;
     return m_RightControllerAngAbs;
 }
 
 Vector VR::GetRightControllerAbsPos()
 {
+    if (const RenderFrameSnapshot* snap = GetActiveRenderFrameSnapshot())
+        return snap->rightControllerPosAbs;
     return m_RightControllerPosAbs;
 }
 
 Vector VR::GetRecommendedViewmodelAbsPos()
 {
-    Vector viewmodelPos = GetRightControllerAbsPos();
-    if (m_MouseModeEnabled)
+    const RenderFrameSnapshot* snap = GetActiveRenderFrameSnapshot();
+
+    Vector viewmodelPos = snap ? snap->rightControllerPosAbs : m_RightControllerPosAbs;
+    const bool mouseModeEnabled = snap ? snap->mouseModeEnabled : m_MouseModeEnabled;
+
+    if (mouseModeEnabled)
     {
-        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
-        viewmodelPos = m_HmdPosAbs
-            + (m_HmdForward * (anchor.x * m_VRScale))
-            + (m_HmdRight * (anchor.y * m_VRScale))
-            + (m_HmdUp * (anchor.z * m_VRScale));
+        const bool mouseModeScopeActive = snap ? snap->mouseModeScopeActive : IsMouseModeScopeActive();
+        const Vector& anchor = mouseModeScopeActive
+            ? (snap ? snap->mouseModeScopedViewmodelAnchorOffset : m_MouseModeScopedViewmodelAnchorOffset)
+            : (snap ? snap->mouseModeViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset);
+
+        const Vector hmdPos = snap ? snap->hmdPosAbs : m_HmdPosAbs;
+        const Vector hmdForward = snap ? snap->hmdForward : m_HmdForward;
+        const Vector hmdRight = snap ? snap->hmdRight : m_HmdRight;
+        const Vector hmdUp = snap ? snap->hmdUp : m_HmdUp;
+        const float vrScale = snap ? snap->vrScale : m_VRScale;
+
+        viewmodelPos = hmdPos
+            + (hmdForward * (anchor.x * vrScale))
+            + (hmdRight * (anchor.y * vrScale))
+            + (hmdUp * (anchor.z * vrScale));
     }
-    viewmodelPos -= m_ViewmodelForward * m_ViewmodelPosOffset.x;
-    viewmodelPos -= m_ViewmodelRight * m_ViewmodelPosOffset.y;
-    viewmodelPos -= m_ViewmodelUp * m_ViewmodelPosOffset.z;
+
+    const Vector vmForward = snap ? snap->viewmodelForward : m_ViewmodelForward;
+    const Vector vmRight = snap ? snap->viewmodelRight : m_ViewmodelRight;
+    const Vector vmUp = snap ? snap->viewmodelUp : m_ViewmodelUp;
+    const Vector vmOffset = snap ? snap->viewmodelPosOffset : m_ViewmodelPosOffset;
+
+    viewmodelPos -= vmForward * vmOffset.x;
+    viewmodelPos -= vmRight * vmOffset.y;
+    viewmodelPos -= vmUp * vmOffset.z;
 
     return viewmodelPos;
 }
 
 QAngle VR::GetRecommendedViewmodelAbsAngle()
 {
+    const RenderFrameSnapshot* snap = GetActiveRenderFrameSnapshot();
+    const Vector vmForward = snap ? snap->viewmodelForward : m_ViewmodelForward;
+    const Vector vmUp = snap ? snap->viewmodelUp : m_ViewmodelUp;
+
     QAngle result{};
-
-    QAngle::VectorAngles(m_ViewmodelForward, m_ViewmodelUp, result);
-
+    QAngle::VectorAngles(vmForward, vmUp, result);
     return result;
 }
 
@@ -5076,8 +5103,56 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
     a = m_AimLineColorA;
 }
 
+const VR::RenderFrameSnapshot* VR::GetActiveRenderFrameSnapshot() const
+{
+    if (m_RenderFrameSnapshotActive.load(std::memory_order_acquire))
+        return &m_RenderFrameSnapshot;
+    return nullptr;
+}
+
+void VR::BeginRenderFrameSnapshot()
+{
+    RenderFrameSnapshot snap{};
+
+    snap.hmdPosAbs = m_HmdPosAbs;
+    snap.hmdAngAbs = m_HmdAngAbs;
+    snap.hmdForward = m_HmdForward;
+    snap.hmdRight = m_HmdRight;
+    snap.hmdUp = m_HmdUp;
+
+    snap.vrScale = m_VRScale;
+    snap.ipd = m_Ipd;
+    snap.ipdScale = m_IpdScale;
+    snap.eyeZ = m_EyeZ;
+
+    snap.mouseModeEnabled = m_MouseModeEnabled;
+    snap.mouseModeScopeActive = IsMouseModeScopeActive();
+    snap.mouseModeViewmodelAnchorOffset = m_MouseModeViewmodelAnchorOffset;
+    snap.mouseModeScopedViewmodelAnchorOffset = m_MouseModeScopedViewmodelAnchorOffset;
+
+    snap.rightControllerPosAbs = m_RightControllerPosAbs;
+    snap.rightControllerAngAbs = m_RightControllerAngAbs;
+
+    snap.viewmodelForward = m_ViewmodelForward;
+    snap.viewmodelRight = m_ViewmodelRight;
+    snap.viewmodelUp = m_ViewmodelUp;
+    snap.viewmodelPosOffset = m_ViewmodelPosOffset;
+
+    // Write snapshot first, then publish active flag.
+    m_RenderFrameSnapshot = snap;
+    m_RenderFrameSnapshotActive.store(true, std::memory_order_release);
+}
+
+void VR::EndRenderFrameSnapshot()
+{
+    m_RenderFrameSnapshotActive.store(false, std::memory_order_release);
+}
+
 Vector VR::GetViewAngle()
 {
+    if (const RenderFrameSnapshot* snap = GetActiveRenderFrameSnapshot())
+        return Vector(snap->hmdAngAbs.x, snap->hmdAngAbs.y, snap->hmdAngAbs.z);
+
     return Vector(m_HmdAngAbs.x, m_HmdAngAbs.y, m_HmdAngAbs.z);
 }
 
@@ -5106,21 +5181,33 @@ float VR::GetMovementYawDeg()
 
 Vector VR::GetViewOriginLeft()
 {
-    Vector viewOriginLeft;
+    const RenderFrameSnapshot* snap = GetActiveRenderFrameSnapshot();
+    const Vector hmdPos = snap ? snap->hmdPosAbs : m_HmdPosAbs;
+    const Vector hmdForward = snap ? snap->hmdForward : m_HmdForward;
+    const Vector hmdRight = snap ? snap->hmdRight : m_HmdRight;
+    const float vrScale = snap ? snap->vrScale : m_VRScale;
+    const float eyeZ = snap ? snap->eyeZ : m_EyeZ;
+    const float ipd = snap ? snap->ipd : m_Ipd;
+    const float ipdScale = snap ? snap->ipdScale : m_IpdScale;
 
-    viewOriginLeft = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
-    viewOriginLeft = viewOriginLeft + (m_HmdRight * (-((m_Ipd * m_IpdScale * m_VRScale) / 2)));
-
+    Vector viewOriginLeft = hmdPos + (hmdForward * (-(eyeZ * vrScale)));
+    viewOriginLeft = viewOriginLeft + (hmdRight * (-((ipd * ipdScale * vrScale) / 2)));
     return viewOriginLeft;
 }
 
 Vector VR::GetViewOriginRight()
 {
-    Vector viewOriginRight;
+    const RenderFrameSnapshot* snap = GetActiveRenderFrameSnapshot();
+    const Vector hmdPos = snap ? snap->hmdPosAbs : m_HmdPosAbs;
+    const Vector hmdForward = snap ? snap->hmdForward : m_HmdForward;
+    const Vector hmdRight = snap ? snap->hmdRight : m_HmdRight;
+    const float vrScale = snap ? snap->vrScale : m_VRScale;
+    const float eyeZ = snap ? snap->eyeZ : m_EyeZ;
+    const float ipd = snap ? snap->ipd : m_Ipd;
+    const float ipdScale = snap ? snap->ipdScale : m_IpdScale;
 
-    viewOriginRight = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
-    viewOriginRight = viewOriginRight + (m_HmdRight * (m_Ipd * m_IpdScale * m_VRScale) / 2);
-
+    Vector viewOriginRight = hmdPos + (hmdForward * (-(eyeZ * vrScale)));
+    viewOriginRight = viewOriginRight + (hmdRight * ((ipd * ipdScale * vrScale) / 2));
     return viewOriginRight;
 }
 
