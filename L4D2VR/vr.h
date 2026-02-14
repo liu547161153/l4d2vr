@@ -89,6 +89,8 @@ public:
 	// Guard against multi-threaded/re-entrant Update() calls (common with mat_queue_mode=2).
 	// OpenVR expects Submit(L/R) and WaitGetPoses() to happen once per frame (per thread).
 	std::atomic_flag m_UpdateInProgress = ATOMIC_FLAG_INIT;
+	// Guard against concurrent WaitGetPoses() from different threads (RenderView vs Present/Update).
+	std::atomic_flag m_WaitGetPosesInProgress = ATOMIC_FLAG_INIT;
 	// Render thread id captured from RenderView hook. Used to avoid touching backbuffer from the wrong thread in mat_queue_mode=2.
 	DWORD m_RenderThreadId = 0;
 	Vector m_EyeToHeadTransformPosLeft = { 0,0,0 };
@@ -332,9 +334,9 @@ public:
 	// Additionally, Submit() can intermittently block (compositor/GPU sync). We gate submits to:
 	//  - at most once per rendered stereo frame, and
 	//  - apply a short cooldown after a long blocking submit to avoid periodic hitch bursts.
-	uint64_t m_PoseSerial = 0;          // incremented after successful WaitGetPoses (defines compositor frame boundary)
-	uint64_t m_RenderPoseSerial = 0;    // PoseSerial used by the most recently completed stereo render
-	uint64_t m_SubmitSerial = 0;        // last RenderPoseSerial we attempted to submit
+	std::atomic<uint64_t> m_PoseSerial = 0;          // incremented after successful WaitGetPoses (defines compositor frame boundary)
+	std::atomic<uint64_t> m_RenderPoseSerial = 0;    // PoseSerial used by the most recently completed stereo render
+	std::atomic<uint64_t> m_SubmitSerial = 0;        // last RenderPoseSerial we attempted to submit
 	std::chrono::steady_clock::time_point m_SubmitCooldownEnd{};
 	std::chrono::steady_clock::time_point m_LastSubmitLog{};
 	bool m_RenderedHud = false;

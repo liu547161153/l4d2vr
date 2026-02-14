@@ -563,25 +563,40 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
 
+	const bool inGameNow = m_Game->m_EngineClient->IsInGame();
+	const bool matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+	const bool preferRenderThreadPoses = (inGameNow && matQueueMode2);
+
 	// Keep a consistent pose/state snapshot across both eyes and viewmodel (important for mat_queue_mode=2).
 	struct RenderFrameSnapshotGuard
 	{
 		VR* vr = nullptr;
 		bool active = false;
-		RenderFrameSnapshotGuard(VR* v) : vr(v)
+
+		RenderFrameSnapshotGuard(VR* v, bool doPoseUpdate) : vr(v)
 		{
 			if (vr && vr->m_IsVREnabled)
 			{
+				if (doPoseUpdate)
+				{
+					// In mat_queue_mode=2, Update() can be scheduled after Present on another thread.
+					// Grab poses at the render boundary to reduce extra pose latency/jitter.
+					vr->UpdatePosesAndActions();
+					vr->GetPoses();
+					vr->m_RenderPoseSerial.store(vr->m_PoseSerial.load());
+				}
 				vr->BeginRenderFrameSnapshot();
 				active = true;
 			}
 		}
 		~RenderFrameSnapshotGuard()
 		{
-			if (active)
+			if (active && vr)
+			{
 				vr->EndRenderFrameSnapshot();
+			}
 		}
-	} renderFrameSnapshotGuard(m_VR);
+	} renderFrameSnapshotGuard(m_VR, preferRenderThreadPoses);
 
 	// ------------------------------
 	// Third-person camera fix:

@@ -446,7 +446,23 @@ void VR::Update()
 
     SubmitVRTextures();
 
-    bool posesValid = UpdatePosesAndActions();
+    bool posesValid = false;
+
+    // In mat_queue_mode=2, Present/Update() timing can drift relative to RenderView.
+    // RenderView will call WaitGetPoses() at the render boundary to reduce pose latency/jitter.
+    const bool inGameNow = m_Game->m_EngineClient->IsInGame();
+    const bool matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+
+    if (inGameNow && matQueueMode2)
+    {
+        posesValid = m_Poses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid;
+        if (m_Input)
+            m_Input->UpdateActionState(&m_ActiveActionSet, sizeof(m_ActiveActionSet), 1);
+    }
+    else
+    {
+        posesValid = UpdatePosesAndActions();
+    }
 
     if (!posesValid)
     {
@@ -573,6 +589,29 @@ void VR::SubmitVRTextures()
     if (!m_Compositor)
         return;
 
+    // DXVK Vulkan interop: SteamVR uses the same VkQueue (provided via VRVulkanTextureData_t).
+    // Guard against concurrent queue submissions from DXVK while we transition/submit.
+    struct DxvkDeviceLockGuard
+    {
+        bool locked = false;
+        DxvkDeviceLockGuard()
+        {
+            if (g_D3DVR9)
+                locked = SUCCEEDED(g_D3DVR9->LockDevice());
+        }
+        ~DxvkDeviceLockGuard()
+        {
+            if (locked && g_D3DVR9)
+                g_D3DVR9->UnlockDevice();
+        }
+    } dxvkLockGuard;
+
+    auto transferSurface = [&](IDirect3DSurface9* surface)
+        {
+            if (g_D3DVR9 && surface)
+                g_D3DVR9->TransferSurface(surface, TRUE);
+        };
+
     bool successfulSubmit = false;
     bool timingDataSubmitted = false;
 
@@ -603,6 +642,12 @@ void VR::SubmitVRTextures()
 
             successfulSubmit = true;
             return true;
+        };
+
+    auto submitEyeSurface = [&](vr::EVREye eye, vr::Texture_t* texture, const vr::VRTextureBounds_t* bounds, IDirect3DSurface9* surface)
+        {
+            transferSurface(surface);
+            return submitEye(eye, texture, bounds);
         };
 
     auto hideHudOverlays = [&]()
@@ -639,18 +684,21 @@ void VR::SubmitVRTextures()
 
     auto applyHudTexture = [&](vr::VROverlayHandle_t overlay, const vr::VRTextureBounds_t& bounds)
         {
+            transferSurface(m_D9HUDSurface);
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKHUD.m_VRTexture);
         };
 
     auto applyScopeTexture = [&](vr::VROverlayHandle_t overlay)
         {
+            transferSurface(m_D9ScopeSurface);
             static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKScope.m_VRTexture);
         };
     auto applyRearMirrorTexture = [&](vr::VROverlayHandle_t overlay)
         {
+            transferSurface(m_D9RearMirrorSurface);
             vr::VRTextureBounds_t bounds{ 0.0f, 0.0f, 1.0f, 1.0f };
             if (m_RearMirrorFlipHorizontal)
                 std::swap(bounds.uMin, bounds.uMax);
@@ -704,14 +752,14 @@ void VR::SubmitVRTextures()
             if (inGame)
             {
                 // In-game: keep VR stable by re-submitting the last eye textures (no backbuffer overlay).
-                submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-                submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+                submitEyeSurface(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0], m_D9LeftEyeSurface);
+                submitEyeSurface(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1], m_D9RightEyeSurface);
             }
             else
             {
                 // Out of game: submit blank textures so we don't show stale in-game frames.
-                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitEyeSurface(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr, m_D9BlankSurface);
+                submitEyeSurface(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr, m_D9BlankSurface);
             }
         }
         else
@@ -727,15 +775,15 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
             if (!inGame)
             {
-                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitEyeSurface(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr, m_D9BlankSurface);
+                submitEyeSurface(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr, m_D9BlankSurface);
             }
         }
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
-            submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-            submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+            submitEyeSurface(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr, m_D9BlankSurface);
+            submitEyeSurface(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr, m_D9BlankSurface);
         }
 
         if (successfulSubmit && m_CompositorExplicitTiming)
@@ -971,8 +1019,8 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
     }
 
-    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+    submitEyeSurface(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0], m_D9LeftEyeSurface);
+    submitEyeSurface(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1], m_D9RightEyeSurface);
 
     if (successfulSubmit && m_CompositorExplicitTiming)
     {
@@ -1441,13 +1489,27 @@ bool VR::UpdatePosesAndActions()
     if (!m_Compositor)
         return false;
 
+    // Prevent concurrent WaitGetPoses from different threads (RenderView vs Present/Update).
+    if (m_WaitGetPosesInProgress.test_and_set(std::memory_order_acquire))
+        return false;
+
+    struct WaitGetPosesFlagGuard
+    {
+        std::atomic_flag& flag;
+        ~WaitGetPosesFlagGuard() { flag.clear(std::memory_order_release); }
+    } flagGuard{ m_WaitGetPosesInProgress };
+
     vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
     bool posesValid = (result == vr::VRCompositorError_None);
 
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;
 
-    m_Input->UpdateActionState(&m_ActiveActionSet, sizeof(vr::VRActiveActionSet_t), 1);
+    if (posesValid)
+        m_PoseSerial.fetch_add(1, std::memory_order_relaxed);
+
+    if (m_Input)
+        m_Input->UpdateActionState(&m_ActiveActionSet, sizeof(m_ActiveActionSet), 1);
     return posesValid;
 }
 
