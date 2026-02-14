@@ -563,6 +563,26 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
 
+	// Keep a consistent pose/state snapshot across both eyes and viewmodel (important for mat_queue_mode=2).
+	struct RenderFrameSnapshotGuard
+	{
+		VR* vr = nullptr;
+		bool active = false;
+		RenderFrameSnapshotGuard(VR* v) : vr(v)
+		{
+			if (vr && vr->m_IsVREnabled)
+			{
+				vr->BeginRenderFrameSnapshot();
+				active = true;
+			}
+		}
+		~RenderFrameSnapshotGuard()
+		{
+			if (active)
+				vr->EndRenderFrameSnapshot();
+		}
+	} renderFrameSnapshotGuard(m_VR);
+
 	// ------------------------------
 	// Third-person camera fix:
 	// If engine is in third-person, setup.origin is a shoulder camera,
@@ -900,14 +920,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Render from the engine-provided third-person camera (setup.origin),
 		// but aim the camera with the HMD so head look still works in third-person.
 		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
-		if (m_VR->m_HmdForward.IsZero())
+		const VR::RenderFrameSnapshot* snap = m_VR->GetActiveRenderFrameSnapshot();
+		const Vector hmdForward = snap ? snap->hmdForward : m_VR->m_HmdForward;
+		if (hmdForward.IsZero())
 			camAng = engineCamAngles;
 
 		Vector fwd, right, up;
 		QAngle::AngleVectors(camAng, &fwd, &right, &up);
 
-		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
-		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
+		const VR::RenderFrameSnapshot* snapParams = m_VR->GetActiveRenderFrameSnapshot();
+		const float vrScale = snapParams ? snapParams->vrScale : m_VR->m_VRScale;
+		const float ipdRaw = snapParams ? snapParams->ipd : m_VR->m_Ipd;
+		const float ipdScale = snapParams ? snapParams->ipdScale : m_VR->m_IpdScale;
+		const float eyeZRaw = snapParams ? snapParams->eyeZ : m_VR->m_EyeZ;
+		const float ipd = (ipdRaw * ipdScale * vrScale);
+		const float eyeZ = (eyeZRaw * vrScale);
 
 		// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
 		// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
@@ -919,11 +946,17 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (stateWantsThirdPerson)
 		{
 			// Dead/observer camera must follow engine view, not HMD position.
-			baseCenter = stateIsDeadOrObserver ? engineCamOrigin : m_VR->GetHmdPosAbsSnapshot();
+			{
+				const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
+				baseCenter = stateIsDeadOrObserver ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
+			}
 		}
 		else
 		{
-			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->GetHmdPosAbsSnapshot();
+			{
+				const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
+				baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
+			}
 		}
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
@@ -937,7 +970,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else
 	{
 		// Normal VR first-person
-		m_VR->GetStereoViewOrigins(leftOrigin, rightOrigin);
+		leftOrigin = m_VR->GetViewOriginLeft();
+		rightOrigin = m_VR->GetViewOriginRight();
 		// Keep this sane even in 1P (unused there, but prevents stale deltas if 3P toggles).
 		m_VR->m_ThirdPersonRenderCenter = m_VR->m_SetupOrigin;
 	}
@@ -2572,10 +2606,10 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 {
 	if (!m_VR->m_CreatedVRTextures)
 		return hkVgui_Paint.fOriginal(ecx, mode);
-    // Detect queued+threaded mode (mat_queue_mode=2)
-    bool matQueueMode2 = false;
-    if (m_Game && m_Game->m_MaterialSystem)
-        matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
+	// Detect queued+threaded mode (mat_queue_mode=2)
+	bool matQueueMode2 = false;
+	if (m_Game && m_Game->m_MaterialSystem)
+		matQueueMode2 = (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED);
 
 	// Diagnostic mode: completely skip VGUI paint to remove HUD/UI from the scene.
 	if (m_VR->m_DisableHudRendering)
@@ -2598,9 +2632,9 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 		hkVgui_Paint.fOriginal(ecx, forcedMode);
 		tl_inVGuiPaint = false;
 		// NOTE:
-        // m_VR->m_RenderedHud should only be set when we actually redirected a VGUI RT push
-        // (see dPushRenderTargetAndViewport). Setting it unconditionally keeps stale HUD
-        // textures visible and looks like "backbuffer fake frames".
+		// m_VR->m_RenderedHud should only be set when we actually redirected a VGUI RT push
+		// (see dPushRenderTargetAndViewport). Setting it unconditionally keeps stale HUD
+		// textures visible and looks like "backbuffer fake frames".
 		return;
 	}
 
