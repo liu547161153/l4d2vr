@@ -89,6 +89,18 @@ public:
 	// Guard against multi-threaded/re-entrant Update() calls (common with mat_queue_mode=2).
 	// OpenVR expects Submit(L/R) and WaitGetPoses() to happen once per frame (per thread).
 	std::atomic_flag m_UpdateInProgress = ATOMIC_FLAG_INIT;
+	// Guard against multi-threaded/re-entrant WaitGetPoses() calls.
+	// We also memoize the compositor frame index so multiple call sites (RenderView hook + Update())
+	// don't accidentally block twice per SteamVR frame.
+	std::atomic_flag m_WaitGetPosesInProgress = ATOMIC_FLAG_INIT;
+	std::atomic<uint32_t> m_LastWaitGetPosesFrameIndex{ 0 };
+	std::atomic<bool> m_HasWaitGetPosesFrameIndex{ false };
+	std::atomic<bool> m_LastWaitGetPosesValid{ false };
+
+	// Guard against duplicate UpdateTracking() within the same SteamVR frame (RenderView hook + Update()).
+	std::atomic_flag m_TrackingUpdateInProgress = ATOMIC_FLAG_INIT;
+	std::atomic<uint32_t> m_LastTrackingFrameIndex{ 0 };
+	std::atomic<bool> m_HasTrackingFrameIndex{ false };
 	// Render thread id captured from RenderView hook. Used to avoid touching backbuffer from the wrong thread in mat_queue_mode=2.
 	DWORD m_RenderThreadId = 0;
 	Vector m_EyeToHeadTransformPosLeft = { 0,0,0 };
@@ -269,19 +281,19 @@ public:
 		Texture_Blank
 	};
 
-	ITexture* m_LeftEyeTexture;
-	ITexture* m_RightEyeTexture;
-	ITexture* m_HUDTexture;
+	ITexture* m_LeftEyeTexture = nullptr;
+	ITexture * m_RightEyeTexture = nullptr;
+	ITexture * m_HUDTexture = nullptr;
 	ITexture* m_ScopeTexture = nullptr;
 	ITexture* m_RearMirrorTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
-	IDirect3DSurface9* m_D9LeftEyeSurface;
-	IDirect3DSurface9* m_D9RightEyeSurface;
-	IDirect3DSurface9* m_D9HUDSurface;
-	IDirect3DSurface9* m_D9ScopeSurface;
-	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
-	IDirect3DSurface9* m_D9BlankSurface;
+	IDirect3DSurface9* m_D9LeftEyeSurface = nullptr;
+	IDirect3DSurface9 * m_D9RightEyeSurface = nullptr;
+	IDirect3DSurface9 * m_D9HUDSurface = nullptr;
+	IDirect3DSurface9 * m_D9ScopeSurface = nullptr;
+	IDirect3DSurface9 * m_D9RearMirrorSurface = nullptr;
+	IDirect3DSurface9 * m_D9BlankSurface = nullptr;
 
 	SharedTextureHolder m_VKLeftEye;
 	SharedTextureHolder m_VKRightEye;
@@ -424,7 +436,11 @@ public:
 	float m_RotationOffset = 0;
 	std::chrono::steady_clock::time_point m_PrevFrameTime;
 	std::chrono::steady_clock::time_point m_LastCompositorErrorLog{};
-
+	// Track compositor frame submissions to avoid VRCompositorError_AlreadySubmitted (108).
+	uint32_t m_LastSubmitFrameIndex = 0;
+	bool m_SubmittedLeftForFrame = false;
+	bool m_SubmittedRightForFrame = false;
+	bool m_HasSubmitFrameIndex = false;
 	float m_TurnSpeed = 0.3;
 	bool m_SnapTurning = false;
 	float m_SnapTurnAngle = 45.0;
@@ -517,7 +533,11 @@ public:
 	bool m_HudToggleState = false;
 	bool m_HudToggleStateFromAlwaysVisible = false;
 	bool m_HudMatQueueModeLinkEnabled = true;
+	float m_HudMatQueueModeLinkThreadedFpsRatio = 0.80f;
 	int m_LastRequestedMatQueueMode = -1;
+	int m_LastRequestedFpsMax = -1;
+	float m_CachedSteamVRDisplayFrequencyHz = 0.0f;
+	uint64_t m_LastSteamVRDisplayFrequencyQueryMs = 0;
 	// When enabled, attempt to capture HUD by explicitly rendering VGUI into vrHUD in Hooks::dVGui_Paint.
 	// This is only intended to be active for mat_queue_mode=2 (queued + threaded rendering).
 	bool m_HudCaptureViaVGuiPaint = false;
@@ -914,6 +934,9 @@ public:
 	void RepositionOverlays();
 	// Avoid spamming mat_queue_mode console commands (we only send when the desired value changes).
 	void RequestMatQueueMode(int mode);
+	// When HudMatQueueModeLinkEnabled is on, we also clamp fps_max to a % of the SteamVR display refresh.
+	float GetSteamVRDisplayFrequencyHz(bool forceRefresh = false);
+	void ApplyLinkedFpsMaxForMatQueueMode(int matQueueMode);
 	void UpdateRearMirrorOverlayTransform();
 	void UpdateScopeOverlayTransform();
 	void GetPoses();
@@ -937,6 +960,7 @@ public:
 	// Mouse-mode: compute the eye-center ray used for aiming (mouse pitch+yaw or HMD-based, optionally sensitivity-scaled).
 	void GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut = nullptr);
 	void UpdateTracking();
+	void UpdateTrackingOncePerCompositorFrame();
 	// Render-frame snapshot: call at the start/end of our stereo RenderView hook.
 	void BeginRenderFrameSnapshot();
 	void EndRenderFrameSnapshot();
