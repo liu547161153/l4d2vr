@@ -21,20 +21,11 @@
 #endif
 #include <windows.h>
 
-// mat_queue_mode=2 safety: avoid changing render targets directly inside VGui_Paint.// Instead, piggy-back on the RT pushes that VGUI itself performs and redirect those to vrHUD.
-//
-// IMPORTANT:
-// In MATERIAL_QUEUED_THREADED (mat_queue_mode=2), VGui_Paint() often runs on the game thread,
-// while the actual material-system calls (PushRenderTargetAndViewport, etc.) execute later on
-// the render thread. Using only thread_local flags would miss the association and HUD capture
-// would never trigger.
-//
-// We keep a thread_local hint for non-queued paths, plus a cross-thread "pending" flag
-// with a short timeout for queued execution.
+// mat_queue_mode=2 safety: avoid changing render targets directly inside VGui_Paint.
+// Instead, piggy-back on the RT pushes that VGUI itself performs and redirect those to vrHUD.
+// thread_local because VGUI paint / material queue can involve worker threads.
 static thread_local bool tl_inVGuiPaint = false;
-static std::atomic<bool> g_VGuiPaintPending{ false };
-static std::atomic<uint64_t> g_VGuiPaintStartMs{ 0 };
-static std::atomic<bool> g_HudClearedThisPaint{ false };
+static thread_local bool tl_hudClearedThisPaint = false;
 
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
@@ -593,10 +584,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
-	if (m_VR->m_IsVREnabled)
+	// Late-latch poses on the render thread so head-turns don't smear under mat_queue_mode=2.
+	// Only do this for multicore rendering (mat_queue_mode=2 / MATERIAL_QUEUED_THREADED).
+	const MaterialThreadMode_t threadMode = (m_Game && m_Game->m_MaterialSystem)
+		? m_Game->m_MaterialSystem->GetThreadMode()
+		: MATERIAL_SINGLE_THREADED;
+	if (threadMode == MATERIAL_QUEUED_THREADED && m_VR->m_IsVREnabled)
 	{
-		// Late-latch poses on the render thread so head-turns don't smear under mat_queue_mode=2.
-		// This also keeps HUD/viewmodel transforms in lockstep with the same SteamVR pose snapshot.
 		m_VR->UpdatePosesAndActions();
 		m_VR->UpdateTrackingOncePerCompositorFrame();
 	}
@@ -2348,6 +2342,14 @@ void Hooks::dStartMeleeSwingServer(void* ecx, void* edx, void* player, bool a3)
 
 int Hooks::dPrimaryAttackServer(void* ecx, void* edx)
 {
+	if (m_VR)
+	{
+		CUserCmd* decisionCmd = m_RunCommandFromSecondaryPredict
+			? m_RunCommandSecondaryCmd
+			: m_RunCommandCurrentCmd;
+		m_VR->OnPrimaryAttackServerDecision(decisionCmd, m_RunCommandFromSecondaryPredict);
+	}
+
 	return hkPrimaryAttackServer.fOriginal(ecx);
 }
 
@@ -2363,10 +2365,41 @@ int Hooks::dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo)
 
 void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper)
 {
-	if (m_VR && cmd)
+	if (!cmd)
+	{
+		hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+		return;
+	}
+
+	// Keep the active command available to PrimaryAttackServer/Fire path hooks.
+	m_RunCommandCurrentCmd = cmd;
+	m_RunCommandSecondaryCmd = nullptr;
+
+	if (m_VR)
 		m_VR->OnPredictionRunCommand(cmd);
 
+	const bool canRunSecondaryPredict =
+		m_VR
+		&& !m_RunCommandInDetour
+		&& !m_RunCommandFromSecondaryPredict
+		&& m_VR->ShouldRunSecondaryPrediction(cmd);
+
+	if (canRunSecondaryPredict)
+	{
+		CUserCmd secondaryCmd = *cmd;
+		m_VR->PrepareSecondaryPredictionCmd(secondaryCmd);
+
+		m_RunCommandInDetour = true;
+		m_RunCommandFromSecondaryPredict = true;
+		m_RunCommandSecondaryCmd = &secondaryCmd;
+		hkRunCommand.fOriginal(ecx, player, &secondaryCmd, moveHelper);
+		m_RunCommandSecondaryCmd = nullptr;
+		m_RunCommandFromSecondaryPredict = false;
+		m_RunCommandInDetour = false;
+	}
+
 	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+	m_RunCommandCurrentCmd = nullptr;
 }
 
 Vector* Hooks::dEyePosition(void* ecx, void* edx, Vector* eyePos)
@@ -2543,93 +2576,30 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 	// Instead, while inside VGUI paint, redirect *VGUI's own* RT pushes to vrHUD.
 	if (m_VR->m_HudCaptureViaVGuiPaint && matQueueMode2)
 	{
-		// In mat_queue_mode=2, VGui_Paint enqueues material commands that may execute later on the render thread.
-		// So we gate on (thread_local in-paint) OR a cross-thread pending flag with a short timeout.
-		const uint64_t nowMs = GetTickCount64();
-		if (g_VGuiPaintPending.load(std::memory_order_acquire))
-		{
-			const uint64_t startMs = g_VGuiPaintStartMs.load(std::memory_order_acquire);
-			// Safety: if the queued commands never arrive, don't keep hijacking future RT pushes.
-			if (startMs != 0 && (nowMs - startMs) > 250)
-			{
-				g_VGuiPaintPending.store(false, std::memory_order_release);
-				g_HudClearedThisPaint.store(false, std::memory_order_release);
-			}
-		}
-
-		const bool inVGuiPaint = tl_inVGuiPaint || g_VGuiPaintPending.load(std::memory_order_acquire);
-		if (inVGuiPaint && !m_VR->m_DisableHudRendering && !m_VR->m_SuppressHudCapture && m_VR->m_HUDTexture)
- 
+		// Only hijack pushes occurring during VGUI paint, and only for full-size viewports.
+		if (tl_inVGuiPaint && !m_VR->m_DisableHudRendering && !m_VR->m_SuppressHudCapture && m_VR->m_HUDTexture)
 		{
 			IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
 			if (rc)
 			{
 				int winW = 0, winH = 0;
 				rc->GetWindowSize(winW, winH);
-				const int hudTexW = m_VR->m_HUDTexture->GetActualWidth();
-				const int hudTexH = m_VR->m_HUDTexture->GetActualHeight();
-
-				// Hints:
-				// 1) Full-size viewport push (typical case)
-				const bool fullViewport = (winW > 0 && winH > 0 && nViewW >= (winW * 3) / 4 && nViewH >= (winH * 3) / 4);
-				// 2) Full-size RT push (some paths keep viewport smaller but RT is full window)
-				bool fullRT = false;
-				if (pTexture && winW > 0 && winH > 0)
-					fullRT = (pTexture->GetActualWidth() >= (winW * 3) / 4) && (pTexture->GetActualHeight() >= (winH * 3) / 4);
-				// 3) Name hint (engine RT names often contain vgui/fullframe)
-				bool nameHint = false;
-				if (pTexture)
+				// Heuristic: VGUI HUD target is typically full-window sized.
+				if (winW > 0 && winH > 0 && nViewW >= (winW * 3) / 4 && nViewH >= (winH * 3) / 4)
 				{
-					std::string n = pTexture->GetName() ? pTexture->GetName() : "";
-					for (char& c : n) if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
-					nameHint = (n.find("vgui") != std::string::npos)
-						|| (n.find("fullframe") != std::string::npos)
-						|| (n.find("framebuffer") != std::string::npos);
-				}
-
-				if (fullViewport || fullRT || nameHint)
-				{
-					const char* srcName = pTexture ? pTexture->GetName() : nullptr;
 					pTexture = m_VR->m_HUDTexture;
 
-					int viewX = nViewX;
-					int viewY = nViewY;
-					int viewW = nViewW;
-					int viewH = nViewH;
-					if (hudTexW > 0 && hudTexH > 0)
-					{
-						if (viewX < 0) viewX = 0;
-						if (viewY < 0) viewY = 0;
-						if (viewX >= hudTexW) viewX = 0;
-						if (viewY >= hudTexH) viewY = 0;
-						viewW = std::min(viewW, hudTexW - viewX);
-						viewH = std::min(viewH, hudTexH - viewY);
-					}
-
-					hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, viewX, viewY, viewW, viewH);
+					hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
 					// Clear once per VGUI paint so the HUD RT doesn't accumulate.
-					if (!g_HudClearedThisPaint.exchange(true, std::memory_order_acq_rel))
+					if (!tl_hudClearedThisPaint)
 					{
 						rc->OverrideAlphaWriteEnable(true, true);
 						rc->ClearColor4ub(0, 0, 0, 0);
 						rc->ClearBuffers(true, false, false);
-		
+						tl_hudClearedThisPaint = true;
 					}
-					// We successfully redirected at least one HUD push for this paint.
-					g_VGuiPaintPending.store(false, std::memory_order_release);
-					{
-						static uint64_t s_lastLogMs = 0;
-						if ((nowMs - s_lastLogMs) > 1500)
-						{
-							Game::logMsg("[VR][HUD] Redirected VGUI RT push -> vrHUD (src=%s view=%dx%d win=%dx%d hud=%dx%d)",
-								srcName ? srcName : "<null>",
-								nViewW, nViewH,
-								winW, winH,
-								hudTexW, hudTexH);
-							s_lastLogMs = nowMs;
-						}
-					}
+
 					m_VR->m_RenderedHud = true;
 					m_PushedHud = true;
 					return;
@@ -2732,9 +2702,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 		// mat_queue_mode=2: do NOT change render targets here.
 		// Redirect the RT pushes that VGUI performs internally (see dPushRenderTargetAndViewport).
 		tl_inVGuiPaint = true;
-		g_VGuiPaintPending.store(true, std::memory_order_release);
-		g_VGuiPaintStartMs.store(GetTickCount64(), std::memory_order_release);
-		g_HudClearedThisPaint.store(false, std::memory_order_release);
+		tl_hudClearedThisPaint = false;
 
 		// Force VGUI panels; otherwise some HUD layers may not paint.
 		// IMPORTANT: preserve any flags the engine requested.
