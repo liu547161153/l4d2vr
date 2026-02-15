@@ -2339,6 +2339,14 @@ void Hooks::dStartMeleeSwingServer(void* ecx, void* edx, void* player, bool a3)
 
 int Hooks::dPrimaryAttackServer(void* ecx, void* edx)
 {
+	if (m_VR)
+	{
+		CUserCmd* decisionCmd = m_RunCommandFromSecondaryPredict
+			? m_RunCommandSecondaryCmd
+			: m_RunCommandCurrentCmd;
+		m_VR->OnPrimaryAttackServerDecision(decisionCmd, m_RunCommandFromSecondaryPredict);
+	}
+
 	return hkPrimaryAttackServer.fOriginal(ecx);
 }
 
@@ -2354,10 +2362,41 @@ int Hooks::dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo)
 
 void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper)
 {
-	if (m_VR && cmd)
+	if (!cmd)
+	{
+		hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+		return;
+	}
+
+	// Keep the active command available to PrimaryAttackServer/Fire path hooks.
+	m_RunCommandCurrentCmd = cmd;
+	m_RunCommandSecondaryCmd = nullptr;
+
+	if (m_VR)
 		m_VR->OnPredictionRunCommand(cmd);
 
+	const bool canRunSecondaryPredict =
+		m_VR
+		&& !m_RunCommandInDetour
+		&& !m_RunCommandFromSecondaryPredict
+		&& m_VR->ShouldRunSecondaryPrediction(cmd);
+
+	if (canRunSecondaryPredict)
+	{
+		CUserCmd secondaryCmd = *cmd;
+		m_VR->PrepareSecondaryPredictionCmd(secondaryCmd);
+
+		m_RunCommandInDetour = true;
+		m_RunCommandFromSecondaryPredict = true;
+		m_RunCommandSecondaryCmd = &secondaryCmd;
+		hkRunCommand.fOriginal(ecx, player, &secondaryCmd, moveHelper);
+		m_RunCommandSecondaryCmd = nullptr;
+		m_RunCommandFromSecondaryPredict = false;
+		m_RunCommandInDetour = false;
+	}
+
 	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+	m_RunCommandCurrentCmd = nullptr;
 }
 
 Vector* Hooks::dEyePosition(void* ecx, void* edx, Vector* eyePos)

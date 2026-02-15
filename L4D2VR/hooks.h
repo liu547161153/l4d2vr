@@ -167,6 +167,11 @@ public:
     // With multicore rendering (mat_queue_mode=2), these hook entry points can run on a separate
     // render thread. Keeping this state global causes cross-thread interleaving, which can make us
     // clear the HUD target but miss the actual draw calls (=> black HUD). Use thread-local state.
-    static inline thread_local int  m_PushHUDStep = -999;
-    static inline thread_local bool m_PushedHud   = false;
+	static inline thread_local int  m_PushHUDStep = -999;
+	static inline thread_local bool m_PushedHud   = false;
+	// RunCommand prediction context (thread-local to avoid render/input thread interleave issues).
+	static inline thread_local bool m_RunCommandInDetour = false;
+	static inline thread_local bool m_RunCommandFromSecondaryPredict = false;
+	static inline thread_local CUserCmd* m_RunCommandCurrentCmd = nullptr;
+	static inline thread_local CUserCmd* m_RunCommandSecondaryCmd = nullptr;
 };

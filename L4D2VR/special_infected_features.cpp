@@ -542,6 +542,59 @@ void VR::OnPredictionRunCommand(CUserCmd* cmd)
         + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(window));
 }
 
+bool VR::ShouldRunSecondaryPrediction(const CUserCmd* cmd) const
+{
+    if (!cmd || !m_SpecialInfectedRunCommandSecondaryPredictEnabled)
+        return false;
+
+    if (!m_SpecialInfectedPreWarningAutoAimEnabled)
+        return false;
+
+    if (!m_SpecialInfectedPreWarningActive || !m_SpecialInfectedPreWarningInRange)
+        return false;
+
+    const bool hasAttack = (cmd->buttons & (1 << 0)) != 0; // IN_ATTACK
+    if (m_SpecialInfectedRunCommandSecondaryForceAttack)
+        return !hasAttack;
+
+    return true;
+}
+
+void VR::PrepareSecondaryPredictionCmd(CUserCmd& cmd) const
+{
+    // Keep this synthetic command inert, except for the fields needed to drive attack prediction.
+    cmd.forwardmove = 0.0f;
+    cmd.sidemove = 0.0f;
+    cmd.upmove = 0.0f;
+    cmd.impulse = 0;
+    cmd.hasbeenpredicted = false;
+
+    if (m_SpecialInfectedRunCommandSecondaryForceAttack)
+        cmd.buttons |= (1 << 0); // IN_ATTACK
+
+    Vector toTarget = m_SpecialInfectedPreWarningTarget - m_RightControllerPosAbs;
+    if (!toTarget.IsZero())
+    {
+        VectorNormalize(toTarget);
+        QAngle desiredAngles;
+        QAngle::VectorAngles(toTarget, m_HmdUp, desiredAngles);
+        cmd.viewangles = desiredAngles;
+    }
+}
+
+void VR::OnPrimaryAttackServerDecision(CUserCmd* cmd, bool fromSecondaryPrediction)
+{
+    if (!cmd)
+        return;
+
+    // "FireProjectile 决策点"在 L4D2VR 中用 PrimaryAttackServer 近似。
+    // 这里仅在我们自己的二次预测触发路径上刷新 shot-window，避免误触普通攻击逻辑。
+    if (!fromSecondaryPrediction)
+        return;
+
+    OnPredictionRunCommand(cmd);
+}
+
 void VR::StartSpecialInfectedWarningAction()
 {
     if (!m_SpecialInfectedWarningActionEnabled)

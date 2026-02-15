@@ -5269,6 +5269,9 @@ void VR::UpdateSpecialInfectedPreWarningState()
 }
 
 void VR::OnPredictionRunCommand(CUserCmd* /*cmd*/) {}
+bool VR::ShouldRunSecondaryPrediction(const CUserCmd* /*cmd*/) const { return false; }
+void VR::PrepareSecondaryPredictionCmd(CUserCmd& /*cmd*/) const {}
+void VR::OnPrimaryAttackServerDecision(CUserCmd* /*cmd*/, bool /*fromSecondaryPrediction*/) {}
 void VR::StartSpecialInfectedWarningAction() {}
 void VR::UpdateSpecialInfectedWarningAction() {}
 void VR::ResetSpecialInfectedWarningAction()
@@ -6431,6 +6434,13 @@ void VR::ParseConfigFile()
     m_SpecialInfectedRunCommandShotLerp = m_SpecialInfectedDebug
         ? std::max(0.0f, runCommandShotLerp)
         : std::clamp(runCommandShotLerp, 0.0f, 1.0f);
+
+    m_SpecialInfectedRunCommandSecondaryPredictEnabled = getBool(
+        "SpecialInfectedRunCommandSecondaryPredictEnabled",
+        m_SpecialInfectedRunCommandSecondaryPredictEnabled);
+    m_SpecialInfectedRunCommandSecondaryForceAttack = getBool(
+        "SpecialInfectedRunCommandSecondaryForceAttack",
+        m_SpecialInfectedRunCommandSecondaryForceAttack);
 
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
