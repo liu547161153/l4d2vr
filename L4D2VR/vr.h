@@ -177,6 +177,9 @@ public:
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.85f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;
+	// If true, during third-person rendering we render from the player's head/eye origin (bind to head)
+	// instead of the engine-provided shoulder camera. Helps avoid seeing your own head while moving.
+	bool m_ThirdPersonCameraBindToHead = false;
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
 	Vector m_RightControllerPosAbs;
@@ -262,8 +265,8 @@ public:
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
-	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
-	mutable std::unordered_map<int, bool> m_LastSpecialInfectedTraceResult{};
+	mutable std::vector<std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
+	mutable std::vector<std::uint8_t> m_LastSpecialInfectedTraceResult{};
 
 	float m_Ipd;
 	float m_EyeZ;
@@ -282,18 +285,18 @@ public:
 	};
 
 	ITexture* m_LeftEyeTexture = nullptr;
-	ITexture * m_RightEyeTexture = nullptr;
-	ITexture * m_HUDTexture = nullptr;
+	ITexture* m_RightEyeTexture = nullptr;
+	ITexture* m_HUDTexture = nullptr;
 	ITexture* m_ScopeTexture = nullptr;
 	ITexture* m_RearMirrorTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
 	IDirect3DSurface9* m_D9LeftEyeSurface = nullptr;
-	IDirect3DSurface9 * m_D9RightEyeSurface = nullptr;
-	IDirect3DSurface9 * m_D9HUDSurface = nullptr;
-	IDirect3DSurface9 * m_D9ScopeSurface = nullptr;
-	IDirect3DSurface9 * m_D9RearMirrorSurface = nullptr;
-	IDirect3DSurface9 * m_D9BlankSurface = nullptr;
+	IDirect3DSurface9* m_D9RightEyeSurface = nullptr;
+	IDirect3DSurface9* m_D9HUDSurface = nullptr;
+	IDirect3DSurface9* m_D9ScopeSurface = nullptr;
+	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
+	IDirect3DSurface9* m_D9BlankSurface = nullptr;
 
 	SharedTextureHolder m_VKLeftEye;
 	SharedTextureHolder m_VKRightEye;
