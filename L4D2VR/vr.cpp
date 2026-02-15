@@ -446,20 +446,20 @@ void VR::Update()
     }
 
     SubmitVRTextures();
-   // Periodically re-sync fps_max in case the SteamVR refresh rate changes (e.g., 72/80/90/120).
-   // We intentionally keep this lightweight and rate-limited.
-   if (m_HudMatQueueModeLinkEnabled && m_Game && m_Game->m_MaterialSystem && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame())
-   {
-       static uint64_t s_lastFpsSyncMs = 0;
-       const uint64_t nowMs = GetTickCount64();
-       if ((nowMs - s_lastFpsSyncMs) > 2000)
-       {
-           s_lastFpsSyncMs = nowMs;
-           const MaterialThreadMode_t threadMode = m_Game->m_MaterialSystem->GetThreadMode();
-           const int mqm = (threadMode == MATERIAL_QUEUED_THREADED) ? 2 : 1;
-           ApplyLinkedFpsMaxForMatQueueMode(mqm);
-       }
-   }
+    // Periodically re-sync fps_max in case the SteamVR refresh rate changes (e.g., 72/80/90/120).
+    // We intentionally keep this lightweight and rate-limited.
+    if (m_HudMatQueueModeLinkEnabled && m_Game && m_Game->m_MaterialSystem && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame())
+    {
+        static uint64_t s_lastFpsSyncMs = 0;
+        const uint64_t nowMs = GetTickCount64();
+        if ((nowMs - s_lastFpsSyncMs) > 2000)
+        {
+            s_lastFpsSyncMs = nowMs;
+            const MaterialThreadMode_t threadMode = m_Game->m_MaterialSystem->GetThreadMode();
+            const int mqm = (threadMode == MATERIAL_QUEUED_THREADED) ? 2 : 1;
+            ApplyLinkedFpsMaxForMatQueueMode(mqm);
+        }
+    }
     bool posesValid = UpdatePosesAndActions();
 
     if (!posesValid)
@@ -504,7 +504,14 @@ void VR::Update()
         }
     }
 
-    UpdateTrackingOncePerCompositorFrame();
+    const MaterialThreadMode_t threadMode = (m_Game && m_Game->m_MaterialSystem)
+        ? m_Game->m_MaterialSystem->GetThreadMode()
+        : MATERIAL_SINGLE_THREADED;
+    if (threadMode == MATERIAL_QUEUED_THREADED)
+        UpdateTrackingOncePerCompositorFrame();
+    else
+        UpdateTracking();
+ 
 
     if (m_Game->m_VguiSurface->IsCursorVisible())
         ProcessMenuInput();
@@ -1518,15 +1525,29 @@ bool VR::UpdatePosesAndActions()
 {
     if (!m_Compositor || !m_Input)
         return false;
+    const bool threaded = (m_Game && m_Game->m_MaterialSystem &&
+        (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED));
+     // Single-threaded / non-multicore: keep legacy behavior (always block once per call).
+    if (!threaded)
+    {
+        vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
+        const bool posesValid = (result == vr::VRCompositorError_None);
+
+        if (!posesValid && m_CompositorExplicitTiming)
+            m_CompositorNeedsHandoff = false;
+
+        m_Input->UpdateActionState(&m_ActiveActionSet, sizeof(vr::VRActiveActionSet_t), 1);
+        return posesValid;
+    }
 
     auto QueryFrameIndex = [this]() -> uint32_t
-    {
+        {
             vr::Compositor_FrameTiming timing{};
             timing.m_nSize = sizeof(timing);
             if (!m_Compositor->GetFrameTiming(&timing, 0))
                 return 0;
             return timing.m_nFrameIndex;
-    };
+        };
 
     const uint32_t beforeIdx = QueryFrameIndex();
     if (beforeIdx != 0 && m_HasWaitGetPosesFrameIndex.load(std::memory_order_acquire) &&
@@ -1536,10 +1557,20 @@ bool VR::UpdatePosesAndActions()
     }
 
     // Multiple call sites may want poses (RenderView hook + Update). Never block twice in the same SteamVR frame.
-    if (m_WaitGetPosesInProgress.test_and_set(std::memory_order_acquire))
+    struct FlagGuard
+    {
+        std::atomic_flag& flag;
+        bool acquired;
+        explicit FlagGuard(std::atomic_flag& f)
+            : flag(f), acquired(!flag.test_and_set(std::memory_order_acquire)) {}
+        ~FlagGuard() { if (acquired) flag.clear(std::memory_order_release); }
+    } waitGuard(m_WaitGetPosesInProgress);
+
+    if (!waitGuard.acquired)
         return m_LastWaitGetPosesValid.load(std::memory_order_acquire);
+
     vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
-    const bool posesValid = (result == vr::VRCompositorError_None);
+    bool posesValid = (result == vr::VRCompositorError_None);
 
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;
@@ -1554,8 +1585,6 @@ bool VR::UpdatePosesAndActions()
     }
 
     m_LastWaitGetPosesValid.store(posesValid, std::memory_order_release);
-
-    m_WaitGetPosesInProgress.clear(std::memory_order_release);
     return posesValid;
 }
 
@@ -2004,6 +2033,68 @@ void VR::ProcessInput()
     bool primaryAttackDown = false;
     bool primaryAttackJustPressed = false;
     getActionState(&m_ActionPrimaryAttack, primaryAttackActionData, primaryAttackDown, primaryAttackJustPressed);
+    // Some game states (fresh join / AFK idle) show a "Press mouse1" prompt and ignore VR input.
+    // Use PrimaryAttack as a synthetic left-click to resume, but don't actually fire on that press.
+    bool consumedPrimaryAttackForResume = false;
+    if (m_ResumeFromIdleWithPrimaryAttack && primaryAttackJustPressed && m_Game && m_Game->m_EngineClient && m_Game->m_VguiInput)
+    {
+        const bool inGame = m_Game->m_EngineClient->IsInGame();
+        if (inGame)
+        {
+            const bool menuActive = m_Game->m_EngineClient->IsPaused();
+            const bool cursorVisible = (m_Game->m_VguiSurface) ? m_Game->m_VguiSurface->IsCursorVisible() : false;
+
+            // Also handle the common case where the game window simply lost focus (needs a click).
+            auto getValveWindow = []() -> HWND
+                {
+                    static HWND cached = nullptr;
+                    if (!cached || !IsWindow(cached))
+                        cached = FindWindowA("Valve001", nullptr);
+                    return cached;
+                };
+
+            const HWND valveHwnd = getValveWindow();
+            const bool isForeground = (valveHwnd != nullptr) && (GetForegroundWindow() == valveHwnd);
+
+            const bool shouldResume = menuActive || cursorVisible || !isForeground;
+            if (shouldResume)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (now - m_LastResumeFromIdleClick > std::chrono::milliseconds(250))
+                {
+                    m_LastResumeFromIdleClick = now;
+
+                    if (valveHwnd && !isForeground)
+                    {
+                        SetForegroundWindow(valveHwnd);
+                        SetFocus(valveHwnd);
+                    }
+
+                    // Hide GameUI if it is active (safe even if already hidden).
+                    if (menuActive || cursorVisible)
+                        m_Game->ClientCmd_Unrestricted("gameui_hide");
+
+                    // Synthetic "mouse1".
+                    m_Game->m_VguiInput->InternalMousePressed(ButtonCode_t::MOUSE_LEFT);
+                    m_Game->m_VguiInput->InternalMouseReleased(ButtonCode_t::MOUSE_LEFT);
+
+                    consumedPrimaryAttackForResume = true;
+                }
+            }
+        }
+    }
+
+    if (consumedPrimaryAttackForResume)
+    {
+        // Don't fire on the same press used to resume.
+        primaryAttackDown = false;
+        if (m_PrimaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack");
+            m_PrimaryAttackCmdOwned = false;
+        }
+    }
+
     m_PrimaryAttackDown = primaryAttackDown;
 
     vr::InputDigitalActionData_t jumpActionData{};
@@ -2482,6 +2573,7 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
         m_SpecialInfectedAutoAimCooldownEnd = {};
+        m_SpecialInfectedRunCommandShotAimUntil = {};
     }
     else if (autoAimToggleJustPressed)
     {
@@ -2493,6 +2585,7 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
         m_SpecialInfectedAutoAimCooldownEnd = {};
+        m_SpecialInfectedRunCommandShotAimUntil = {};
     }
 
     if (nonVrServerMovementToggleJustPressed)
@@ -2771,7 +2864,7 @@ void VR::ProcessInput()
     if (cursorVisible)
         m_HudChatVisibleUntil = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     const bool chatRecent = std::chrono::steady_clock::now() < m_HudChatVisibleUntil;
- 
+
     if (PressedDigitalAction(m_ToggleHUD, true))
     {
         m_HudToggleState = !m_HudToggleState;
@@ -3135,9 +3228,19 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
     if (eyeAngOut)
         *eyeAngOut = eyeAng;
 }
- 
+
 void VR::UpdateTrackingOncePerCompositorFrame()
 {
+    // This helper is only intended for multicore rendering (mat_queue_mode=2 / MATERIAL_QUEUED_THREADED).
+    // In single-threaded modes, preserve original behavior.
+    const bool threaded = (m_Game && m_Game->m_MaterialSystem &&
+        (m_Game->m_MaterialSystem->GetThreadMode() == MATERIAL_QUEUED_THREADED));
+    if (!threaded)
+    {
+        UpdateTracking();
+        return;
+    }
+
     if (!m_Compositor)
     {
         UpdateTracking();
@@ -3154,7 +3257,16 @@ void VR::UpdateTrackingOncePerCompositorFrame()
         return;
     }
 
-    if (m_TrackingUpdateInProgress.test_and_set(std::memory_order_acquire))
+    struct FlagGuard
+    {
+        std::atomic_flag& flag;
+        bool acquired;
+        explicit FlagGuard(std::atomic_flag& f)
+            : flag(f), acquired(!flag.test_and_set(std::memory_order_acquire)) {}
+        ~FlagGuard() { if (acquired) flag.clear(std::memory_order_release); }
+    } trackingGuard(m_TrackingUpdateInProgress);
+
+    if (!trackingGuard.acquired)
         return;
 
     UpdateTracking();
@@ -3168,8 +3280,6 @@ void VR::UpdateTrackingOncePerCompositorFrame()
         m_LastTrackingFrameIndex.store(storeIdx, std::memory_order_release);
         m_HasTrackingFrameIndex.store(true, std::memory_order_release);
     }
-
-    m_TrackingUpdateInProgress.clear(std::memory_order_release);
 }
 
 void VR::UpdateTracking()
@@ -3721,9 +3831,13 @@ void VR::UpdateTracking()
         if (!toTarget.IsZero())
         {
             VectorNormalize(toTarget);
+            float lerpSetting = m_SpecialInfectedAutoAimLerp;
+            if (std::chrono::steady_clock::now() < m_SpecialInfectedRunCommandShotAimUntil)
+                lerpSetting = std::max(lerpSetting, m_SpecialInfectedRunCommandShotLerp);
+
             const float lerpFactor = m_SpecialInfectedDebug
-                ? std::max(0.0f, m_SpecialInfectedAutoAimLerp)
-                : std::clamp(m_SpecialInfectedAutoAimLerp, 0.0f, 0.4f);
+                ? std::max(0.0f, lerpSetting)
+                : std::clamp(lerpSetting, 0.0f, 1.0f);
             if (m_SpecialInfectedAutoAimDirection.IsZero())
                 m_SpecialInfectedAutoAimDirection = toTarget;
             else
@@ -5262,6 +5376,10 @@ void VR::UpdateSpecialInfectedPreWarningState()
     m_SpecialInfectedAutoAimCooldownEnd = {};
 }
 
+void VR::OnPredictionRunCommand(CUserCmd* /*cmd*/) {}
+bool VR::ShouldRunSecondaryPrediction(const CUserCmd* /*cmd*/) const { return false; }
+void VR::PrepareSecondaryPredictionCmd(CUserCmd& /*cmd*/) const {}
+void VR::OnPrimaryAttackServerDecision(CUserCmd* /*cmd*/, bool /*fromSecondaryPrediction*/) {}
 void VR::StartSpecialInfectedWarningAction() {}
 void VR::UpdateSpecialInfectedWarningAction() {}
 void VR::ResetSpecialInfectedWarningAction()
@@ -6416,6 +6534,22 @@ void VR::ParseConfigFile()
     m_SpecialInfectedAutoAimCooldown = m_SpecialInfectedDebug
         ? std::max(0.0f, autoAimCooldown)
         : std::max(0.5f, autoAimCooldown);
+
+    const float runCommandShotWindow = getFloat("SpecialInfectedRunCommandShotWindow", m_SpecialInfectedRunCommandShotWindow);
+    m_SpecialInfectedRunCommandShotWindow = std::max(0.0f, runCommandShotWindow);
+
+    const float runCommandShotLerp = getFloat("SpecialInfectedRunCommandShotLerp", m_SpecialInfectedRunCommandShotLerp);
+    m_SpecialInfectedRunCommandShotLerp = m_SpecialInfectedDebug
+        ? std::max(0.0f, runCommandShotLerp)
+        : std::clamp(runCommandShotLerp, 0.0f, 1.0f);
+
+    m_SpecialInfectedRunCommandSecondaryPredictEnabled = getBool(
+        "SpecialInfectedRunCommandSecondaryPredictEnabled",
+        m_SpecialInfectedRunCommandSecondaryPredictEnabled);
+    m_SpecialInfectedRunCommandSecondaryForceAttack = getBool(
+        "SpecialInfectedRunCommandSecondaryForceAttack",
+        m_SpecialInfectedRunCommandSecondaryForceAttack);
+
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
     m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));
