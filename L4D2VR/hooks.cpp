@@ -2367,6 +2367,10 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 
 	bool hideArms = m_Game->m_IsMeleeWeaponActive || m_VR->m_HideArms;
 
+	// Optional per-draw override.
+	const ModelRenderInfo_t* drawInfo = &info;
+	ModelRenderInfo_t infoOverride;
+
 	std::string modelName;
 	if (info.pModel)
 	{
@@ -2390,6 +2394,28 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			if (isPlayerClass)
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
+			}
+		}
+
+		// -----------------------------------------------------------------
+		// Third-person: hide local player head (best-effort bodygroup override)
+		// -----------------------------------------------------------------
+		if (isPlayerClass && m_VR->m_IsVREnabled && m_VR->m_ThirdPersonHideLocalHead && m_VR->IsThirdPersonCameraActive()
+			&& m_Game && m_Game->m_EngineClient)
+		{
+			const int lpIdx = m_Game->m_EngineClient->GetLocalPlayer();
+			if (lpIdx > 0 && info.entity_index == lpIdx && m_VR->m_ThirdPersonLocalHeadBodyMask != 0)
+			{
+				const int oldBody = info.body;
+				const int mask = m_VR->m_ThirdPersonLocalHeadBodyMask;
+				const int val  = m_VR->m_ThirdPersonLocalHeadBodyValue;
+				const int newBody = (oldBody & ~mask) | (val & mask);
+				if (newBody != oldBody)
+				{
+					infoOverride = info;
+					infoOverride.body = newBody;
+					drawInfo = &infoOverride;
+				}
 			}
 		}
 
@@ -2496,12 +2522,12 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		m_Game->m_ArmsMaterial->SetMaterialVarFlag(MATERIAL_VAR_NO_DRAW, true);
 		m_Game->m_ModelRender->ForcedMaterialOverride(m_Game->m_ArmsMaterial);
-		hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
+		hkDrawModelExecute.fOriginal(ecx, state, *drawInfo, pCustomBoneToWorld);
 		m_Game->m_ModelRender->ForcedMaterialOverride(NULL);
 		return;
 	}
 
-	hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
+	hkDrawModelExecute.fOriginal(ecx, state, *drawInfo, pCustomBoneToWorld);
 }
 
 void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTexture, ITexture* pDepthTexture, int nViewX, int nViewY, int nViewW, int nViewH)
