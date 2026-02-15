@@ -89,15 +89,14 @@ public:
 	// Guard against multi-threaded/re-entrant Update() calls (common with mat_queue_mode=2).
 	// OpenVR expects Submit(L/R) and WaitGetPoses() to happen once per frame (per thread).
 	std::atomic_flag m_UpdateInProgress = ATOMIC_FLAG_INIT;
-	// Guard against multi-threaded/re-entrant WaitGetPoses() calls.
-	// We also memoize the compositor frame index so multiple call sites (RenderView hook + Update())
-	// don't accidentally block twice per SteamVR frame.
+	// Guard against multi-threaded/re-entrant WaitGetPoses() calls (RenderView hook + Update()) in mat_queue_mode=2.
+	// We memoize the compositor frame index so we don't accidentally block twice in the same SteamVR frame.
 	std::atomic_flag m_WaitGetPosesInProgress = ATOMIC_FLAG_INIT;
 	std::atomic<uint32_t> m_LastWaitGetPosesFrameIndex{ 0 };
 	std::atomic<bool> m_HasWaitGetPosesFrameIndex{ false };
 	std::atomic<bool> m_LastWaitGetPosesValid{ false };
 
-	// Guard against duplicate UpdateTracking() within the same SteamVR frame (RenderView hook + Update()).
+	// Guard against duplicate UpdateTracking() within the same SteamVR frame (RenderView hook + Update()) in mat_queue_mode=2.
 	std::atomic_flag m_TrackingUpdateInProgress = ATOMIC_FLAG_INIT;
 	std::atomic<uint32_t> m_LastTrackingFrameIndex{ 0 };
 	std::atomic<bool> m_HasTrackingFrameIndex{ false };
@@ -366,6 +365,8 @@ public:
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
 	bool m_PrimaryAttackDown = false;
+	bool m_ResumeFromIdleWithPrimaryAttack = true;
+	std::chrono::steady_clock::time_point m_LastResumeFromIdleClick{};
 	// We drive +attack/+attack2 via ClientCmd for VR actions. In mouse-mode, spamming "-attack"
 	// every frame prevents real mouse buttons from working, so we only send +/- when VR actually
 	// changes state, and only release if we were the one who pressed.
@@ -761,6 +762,11 @@ public:
 	float m_SpecialInfectedAutoAimLerp = 0.4f;
 	float m_SpecialInfectedAutoAimCooldown = 0.5f;
 	std::chrono::steady_clock::time_point m_SpecialInfectedAutoAimCooldownEnd{};
+	float m_SpecialInfectedRunCommandShotWindow = 0.10f;
+	float m_SpecialInfectedRunCommandShotLerp = 1.0f;
+	std::chrono::steady_clock::time_point m_SpecialInfectedRunCommandShotAimUntil{};
+	bool m_SpecialInfectedRunCommandSecondaryPredictEnabled = false;
+	bool m_SpecialInfectedRunCommandSecondaryForceAttack = true;
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
 		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
@@ -1033,6 +1039,10 @@ public:
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
+	void OnPredictionRunCommand(CUserCmd* cmd);
+	bool ShouldRunSecondaryPrediction(const CUserCmd* cmd) const;
+	void PrepareSecondaryPredictionCmd(CUserCmd& cmd) const;
+	void OnPrimaryAttackServerDecision(CUserCmd* cmd, bool fromSecondaryPrediction);
 	void StartSpecialInfectedWarningAction();
 	void UpdateSpecialInfectedWarningAction();
 	void ResetSpecialInfectedWarningAction();
