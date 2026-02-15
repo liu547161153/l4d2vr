@@ -1,4 +1,5 @@
 
+
 #include "vr.h"
 #include <Windows.h>
 #include "sdk.h"
@@ -445,7 +446,20 @@ void VR::Update()
     }
 
     SubmitVRTextures();
-
+   // Periodically re-sync fps_max in case the SteamVR refresh rate changes (e.g., 72/80/90/120).
+   // We intentionally keep this lightweight and rate-limited.
+   if (m_HudMatQueueModeLinkEnabled && m_Game && m_Game->m_MaterialSystem && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame())
+   {
+       static uint64_t s_lastFpsSyncMs = 0;
+       const uint64_t nowMs = GetTickCount64();
+       if ((nowMs - s_lastFpsSyncMs) > 2000)
+       {
+           s_lastFpsSyncMs = nowMs;
+           const MaterialThreadMode_t threadMode = m_Game->m_MaterialSystem->GetThreadMode();
+           const int mqm = (threadMode == MATERIAL_QUEUED_THREADED) ? 2 : 1;
+           ApplyLinkedFpsMaxForMatQueueMode(mqm);
+       }
+   }
     bool posesValid = UpdatePosesAndActions();
 
     if (!posesValid)
@@ -490,8 +504,7 @@ void VR::Update()
         }
     }
 
-    UpdateTracking();
-
+    UpdateTrackingOncePerCompositorFrame();
 
     if (m_Game->m_VguiSurface->IsCursorVisible())
         ProcessMenuInput();
@@ -573,7 +586,35 @@ void VR::SubmitVRTextures()
     if (!m_Compositor)
         return;
 
-    bool successfulSubmit = false;
+    // Guard against VRCompositorError_AlreadySubmitted (108): the compositor rejects submitting
+    // the same eye twice within a single compositor frame (before the frame index advances).
+    // Some Source engine paths (notably mat_queue_mode=2) can call into Update/Submit multiple
+    // times per compositor frame, especially during no-present/menu periods.
+    bool hasFrameTiming = false;
+    uint32_t frameIndex = 0;
+    {
+        vr::Compositor_FrameTiming timing{};
+        timing.m_nSize = sizeof(timing);
+        if (m_Compositor->GetFrameTiming(&timing, 0))
+        {
+            hasFrameTiming = true;
+            frameIndex = timing.m_nFrameIndex;
+
+            if (!m_HasSubmitFrameIndex || frameIndex != m_LastSubmitFrameIndex)
+            {
+                m_LastSubmitFrameIndex = frameIndex;
+                m_SubmittedLeftForFrame = false;
+                m_SubmittedRightForFrame = false;
+                m_HasSubmitFrameIndex = true;
+            }
+
+            // If both eyes were already submitted for this compositor frame, do nothing.
+            if (m_SubmittedLeftForFrame && m_SubmittedRightForFrame)
+                return;
+        }
+    }
+
+    bool submittedAnyThisCall = false;
     bool timingDataSubmitted = false;
 
     auto ensureTimingData = [&]()
@@ -593,6 +634,12 @@ void VR::SubmitVRTextures()
     auto submitEye = [&](vr::EVREye eye, vr::Texture_t* texture, const vr::VRTextureBounds_t* bounds)
         {
             ensureTimingData();
+            if (hasFrameTiming)
+            {
+                bool& eyeSubmitted = (eye == vr::Eye_Left) ? m_SubmittedLeftForFrame : m_SubmittedRightForFrame;
+                if (eyeSubmitted)
+                    return true;
+            }
 
             vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
             if (submitError != vr::VRCompositorError_None)
@@ -600,8 +647,12 @@ void VR::SubmitVRTextures()
                 LogCompositorError("Submit", submitError);
                 return false;
             }
-
-            successfulSubmit = true;
+            submittedAnyThisCall = true;
+            if (hasFrameTiming)
+            {
+                bool& eyeSubmitted = (eye == vr::Eye_Left) ? m_SubmittedLeftForFrame : m_SubmittedRightForFrame;
+                eyeSubmitted = true;
+            }
             return true;
         };
 
@@ -685,6 +736,9 @@ void VR::SubmitVRTextures()
     //     ֡û       ݣ    ߲˵ /Overlay ·  
     if (!m_RenderedNewFrame)
     {
+        bool leftOk = false;
+        bool rightOk = false;
+        bool successfulSubmit = false;
         const bool disableBackbufferFallbackEffective =
             m_DisableBackbufferOverlayFallback || m_BackbufferFallbackLatchedOff;
         if (!m_BlankTexture)
@@ -704,14 +758,14 @@ void VR::SubmitVRTextures()
             if (inGame)
             {
                 // In-game: keep VR stable by re-submitting the last eye textures (no backbuffer overlay).
-                submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-                submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+                leftOk = submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+                rightOk = submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
             }
             else
             {
                 // Out of game: submit blank textures so we don't show stale in-game frames.
-                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+                leftOk = submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+                rightOk = submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
             }
         }
         else
@@ -727,17 +781,17 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
             if (!inGame)
             {
-                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+                leftOk = submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+                rightOk = submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
             }
         }
 
         if (!m_Game->m_EngineClient->IsInGame())
         {
-            submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-            submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+            leftOk = submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+            rightOk = submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
         }
-
+        successfulSubmit = leftOk && rightOk;
         if (successfulSubmit && m_CompositorExplicitTiming)
         {
             m_CompositorNeedsHandoff = true;
@@ -971,10 +1025,13 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
     }
 
-    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+    const bool leftOk = submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+    const bool rightOk = submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
 
-    if (successfulSubmit && m_CompositorExplicitTiming)
+    const bool successfulSubmit = leftOk && rightOk;
+
+    // Only perform the explicit timing handoff after a complete stereo submit (both eyes).
+    if (successfulSubmit && m_CompositorExplicitTiming && submittedAnyThisCall)
     {
         m_CompositorNeedsHandoff = true;
         FinishFrame();
@@ -982,6 +1039,27 @@ void VR::SubmitVRTextures()
 
 
     m_RenderedNewFrame = false;
+}
+
+static const char* CompositorErrorName(vr::EVRCompositorError error)
+{
+    switch (error)
+    {
+    case vr::VRCompositorError_None: return "None";
+    case vr::VRCompositorError_RequestFailed: return "RequestFailed";
+    case vr::VRCompositorError_IncompatibleVersion: return "IncompatibleVersion";
+    case vr::VRCompositorError_DoNotHaveFocus: return "DoNotHaveFocus";
+    case vr::VRCompositorError_InvalidTexture: return "InvalidTexture";
+    case vr::VRCompositorError_IsNotSceneApplication: return "IsNotSceneApplication";
+    case vr::VRCompositorError_TextureIsOnWrongDevice: return "TextureIsOnWrongDevice";
+    case vr::VRCompositorError_TextureUsesUnsupportedFormat: return "TextureUsesUnsupportedFormat";
+    case vr::VRCompositorError_SharedTexturesNotSupported: return "SharedTexturesNotSupported";
+    case vr::VRCompositorError_IndexOutOfRange: return "IndexOutOfRange";
+    case vr::VRCompositorError_AlreadySubmitted: return "AlreadySubmitted";
+    case vr::VRCompositorError_InvalidBounds: return "InvalidBounds";
+    case vr::VRCompositorError_AlreadySet: return "AlreadySet";
+    default: return "Unknown";
+    }
 }
 
 void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)
@@ -995,7 +1073,7 @@ void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)
     if (now - m_LastCompositorErrorLog < kLogCooldown)
         return;
 
-    Game::logMsg("[VR] %s failed with VRCompositorError %d", action, static_cast<int>(error));
+    Game::logMsg("[VR] %s failed: %s (%d)", action, CompositorErrorName(error), static_cast<int>(error));
     m_LastCompositorErrorLog = now;
 }
 
@@ -1438,16 +1516,46 @@ void VR::GetPoses()
 
 bool VR::UpdatePosesAndActions()
 {
-    if (!m_Compositor)
+    if (!m_Compositor || !m_Input)
         return false;
 
+    auto QueryFrameIndex = [this]() -> uint32_t
+    {
+            vr::Compositor_FrameTiming timing{};
+            timing.m_nSize = sizeof(timing);
+            if (!m_Compositor->GetFrameTiming(&timing, 0))
+                return 0;
+            return timing.m_nFrameIndex;
+    };
+
+    const uint32_t beforeIdx = QueryFrameIndex();
+    if (beforeIdx != 0 && m_HasWaitGetPosesFrameIndex.load(std::memory_order_acquire) &&
+        beforeIdx == m_LastWaitGetPosesFrameIndex.load(std::memory_order_acquire))
+    {
+        return m_LastWaitGetPosesValid.load(std::memory_order_acquire);
+    }
+
+    // Multiple call sites may want poses (RenderView hook + Update). Never block twice in the same SteamVR frame.
+    if (m_WaitGetPosesInProgress.test_and_set(std::memory_order_acquire))
+        return m_LastWaitGetPosesValid.load(std::memory_order_acquire);
     vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
-    bool posesValid = (result == vr::VRCompositorError_None);
+    const bool posesValid = (result == vr::VRCompositorError_None);
 
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;
 
     m_Input->UpdateActionState(&m_ActiveActionSet, sizeof(vr::VRActiveActionSet_t), 1);
+    const uint32_t afterIdx = QueryFrameIndex();
+    const uint32_t storeIdx = (afterIdx != 0) ? afterIdx : beforeIdx;
+    if (storeIdx != 0)
+    {
+        m_LastWaitGetPosesFrameIndex.store(storeIdx, std::memory_order_release);
+        m_HasWaitGetPosesFrameIndex.store(true, std::memory_order_release);
+    }
+
+    m_LastWaitGetPosesValid.store(posesValid, std::memory_order_release);
+
+    m_WaitGetPosesInProgress.clear(std::memory_order_release);
     return posesValid;
 }
 
@@ -1462,6 +1570,57 @@ void VR::RequestMatQueueMode(int mode)
     sprintf_s(cmd, sizeof(cmd), "mat_queue_mode %d", mode);
     m_Game->ClientCmd_Unrestricted(cmd);
     m_LastRequestedMatQueueMode = mode;
+    // If HUD linkage is enabled, also clamp fps_max relative to SteamVR's display refresh rate.
+    // This helps avoid CPU/GPU timing weirdness when switching between mat_queue_mode=2 and single-thread modes.
+    if (m_HudMatQueueModeLinkEnabled)
+        ApplyLinkedFpsMaxForMatQueueMode(mode);
+}
+
+float VR::GetSteamVRDisplayFrequencyHz(bool forceRefresh)
+{
+    if (!m_System)
+        return m_CachedSteamVRDisplayFrequencyHz;
+
+    const uint64_t nowMs = GetTickCount64();
+    // Refresh at most twice a second unless forced.
+    if (!forceRefresh && m_CachedSteamVRDisplayFrequencyHz > 0.0f && (nowMs - m_LastSteamVRDisplayFrequencyQueryMs) < 500)
+        return m_CachedSteamVRDisplayFrequencyHz;
+
+    vr::ETrackedPropertyError err = vr::TrackedProp_Success;
+    const float hz = m_System->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
+        vr::Prop_DisplayFrequency_Float, &err);
+    m_LastSteamVRDisplayFrequencyQueryMs = nowMs;
+    if (err == vr::TrackedProp_Success && hz > 1.0f)
+        m_CachedSteamVRDisplayFrequencyHz = hz;
+
+    return m_CachedSteamVRDisplayFrequencyHz;
+}
+
+void VR::ApplyLinkedFpsMaxForMatQueueMode(int matQueueMode)
+{
+    if (!m_Game || !m_Game->m_EngineClient)
+        return;
+    if (!m_Game->m_EngineClient->IsInGame())
+        return;
+
+    const float hz = GetSteamVRDisplayFrequencyHz(false);
+    if (hz <= 1.0f)
+        return;
+
+    // mat_queue_mode=2 (MATERIAL_QUEUED_THREADED) => cap to 80% of HMD refresh.
+    // other modes => cap to 100%.
+    const float ratio = (matQueueMode == 2) ? m_HudMatQueueModeLinkThreadedFpsRatio : 1.00f;
+    int target = (int)std::lround(hz * ratio);
+    // Source treats <=0 as "uncapped"; don't do that here.
+    target = std::clamp(target, 30, 1000);
+
+    if (m_LastRequestedFpsMax == target)
+        return;
+
+    char cmd[64] = {};
+    sprintf_s(cmd, sizeof(cmd), "fps_max %d", target);
+    m_Game->ClientCmd_Unrestricted(cmd);
+    m_LastRequestedFpsMax = target;
 }
 
 void VR::GetViewParameters()
@@ -2612,7 +2771,7 @@ void VR::ProcessInput()
     if (cursorVisible)
         m_HudChatVisibleUntil = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     const bool chatRecent = std::chrono::steady_clock::now() < m_HudChatVisibleUntil;
-
+ 
     if (PressedDigitalAction(m_ToggleHUD, true))
     {
         m_HudToggleState = !m_HudToggleState;
@@ -2663,6 +2822,7 @@ void VR::ProcessInput()
     else
     {
         hideHud();
+        // Only allow switching back to mat_queue_mode=2 when HUD is hidden AND we are not in first-person render.
         if (m_HudMatQueueModeLinkEnabled && inGame && !wantsHudVisibility)
             RequestMatQueueMode(2);
     }
@@ -2974,6 +3134,42 @@ void VR::GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut)
 
     if (eyeAngOut)
         *eyeAngOut = eyeAng;
+}
+ 
+void VR::UpdateTrackingOncePerCompositorFrame()
+{
+    if (!m_Compositor)
+    {
+        UpdateTracking();
+        return;
+    }
+
+    vr::Compositor_FrameTiming timing{};
+    timing.m_nSize = sizeof(timing);
+    const uint32_t frameIdx = m_Compositor->GetFrameTiming(&timing, 0) ? timing.m_nFrameIndex : 0;
+
+    if (frameIdx != 0 && m_HasTrackingFrameIndex.load(std::memory_order_acquire) &&
+        frameIdx == m_LastTrackingFrameIndex.load(std::memory_order_acquire))
+    {
+        return;
+    }
+
+    if (m_TrackingUpdateInProgress.test_and_set(std::memory_order_acquire))
+        return;
+
+    UpdateTracking();
+
+    vr::Compositor_FrameTiming timingAfter{};
+    timingAfter.m_nSize = sizeof(timingAfter);
+    const uint32_t afterIdx = m_Compositor->GetFrameTiming(&timingAfter, 0) ? timingAfter.m_nFrameIndex : 0;
+    const uint32_t storeIdx = (afterIdx != 0) ? afterIdx : frameIdx;
+    if (storeIdx != 0)
+    {
+        m_LastTrackingFrameIndex.store(storeIdx, std::memory_order_release);
+        m_HasTrackingFrameIndex.store(true, std::memory_order_release);
+    }
+
+    m_TrackingUpdateInProgress.clear(std::memory_order_release);
 }
 
 void VR::UpdateTracking()
@@ -5923,8 +6119,7 @@ void VR::ParseConfigFile()
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HudMatQueueModeLinkEnabled = getBool("HudMatQueueModeLinkEnabled", m_HudMatQueueModeLinkEnabled);
-
-    // mat_queue_mode=2 => force HudAlwaysVisible off when HUD<->mat_queue_mode linkage is enabled.
+    // Note: when linkage is enabled, we also force mat_queue_mode=1 during first-person rendering.
     if (m_HudMatQueueModeLinkEnabled && m_Game && m_Game->m_MaterialSystem)
     {
         MaterialThreadMode_t threadMode = m_Game->m_MaterialSystem->GetThreadMode();
@@ -6190,6 +6385,7 @@ void VR::ParseConfigFile()
     m_SpecialInfectedPreWarningAutoAimConfigEnabled = getBool("SpecialInfectedPreWarningAutoAimEnabled", m_SpecialInfectedPreWarningAutoAimConfigEnabled);
     m_SpecialInfectedPreWarningEvadeDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningEvadeDistance", m_SpecialInfectedPreWarningEvadeDistance));
     m_SpecialInfectedPreWarningEvadeCooldown = std::max(0.0f, getFloat("SpecialInfectedPreWarningEvadeCooldown", m_SpecialInfectedPreWarningEvadeCooldown));
+    m_HudMatQueueModeLinkThreadedFpsRatio = std::clamp(getFloat("HudMatQueueModeLinkThreadedFpsRatio", m_HudMatQueueModeLinkThreadedFpsRatio), 0.10f, 1.00f);
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
     m_SpecialInfectedPreWarningDistance = std::max(0.0f, getFloat("SpecialInfectedPreWarningDistance", m_SpecialInfectedPreWarningDistance));
