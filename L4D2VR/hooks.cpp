@@ -11,6 +11,8 @@
 #include <string>
 #include <cstring>
 #include <algorithm> // std::clamp
+#include <array>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #ifndef WIN32_LEAN_AND_MEAN
@@ -942,45 +944,37 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const float ipd = (ipdRaw * ipdScale * vrScale);
 		const float eyeZ = (eyeZRaw * vrScale);
 
-		// Optional mode: bind the third-person render camera to the player's head/eye origin.
-		// This prevents the local head from sliding into view during movement when the engine uses a shoulder cam.
-		const bool headBoundCam = m_VR->m_ThirdPersonCameraBindToHead && !stateIsDeadOrObserver && !hasViewEntityOverride;
-
-		Vector camCenter;
-		if (headBoundCam)
+		// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
+		// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
+		// IMPORTANT:
+		// engineThirdPersonNow can flicker during pinned/incap/use actions.
+		// If stateWantsThirdPerson is true, always synthesize from HMD to avoid camera "jumping"
+		// between setup.origin and HmdPosAbs.
+		Vector baseCenter;
+		if (stateWantsThirdPerson)
 		{
-			// eyeOrigin is the player's EyePosition() in world space.
-			// We intentionally skip eye-to-head and extra 3P offsets here so the camera stays glued to the head.
-			camCenter = eyeOrigin;
+			// Dead/observer camera must follow engine view, not HMD position.
+			{
+				const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
+				baseCenter = stateIsDeadOrObserver ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
+			}
 		}
 		else
 		{
-			// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
-			// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
-			// IMPORTANT:
-			// engineThirdPersonNow can flicker during pinned/incap/use actions.
-			// If stateWantsThirdPerson is true, always synthesize from HMD to avoid camera "jumping"
-			// between setup.origin and HmdPosAbs.
-			Vector baseCenter;
-			if (stateWantsThirdPerson)
 			{
-				// Dead/observer camera must follow engine view, not HMD position.
-				{
-					const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
-					baseCenter = stateIsDeadOrObserver ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
-				}
+				const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
+				baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
 			}
-			else
-			{
-				{
-					const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
-					baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
-				}
-			}
-			camCenter = baseCenter + (fwd * (-eyeZ));
-			if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
-				camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		}
+
+		// Optional: bind the synthesized third-person VR camera center to the animated head (EyePosition)
+		// so the local head mesh doesn't slide into the camera while moving.
+		// Do not override cinematic cameras controlled via m_hViewEntity.
+		if (m_VR->m_ThirdPersonCameraBindToHead && !hasViewEntityOverride && localPlayer && !stateIsDeadOrObserver)
+			baseCenter = eyeOrigin;
+		Vector camCenter = baseCenter + (fwd * (-eyeZ));
+		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
+			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		// Expose the actual VR render camera center used for third-person this frame.
 		// This includes HMD-aim yaw and any VR camera offsets, and is used to keep aim line and overlays aligned.
 		m_VR->m_ThirdPersonRenderCenter = camCenter;
@@ -2366,6 +2360,7 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		m_Game->m_CachedArmsModel = false;
 
 	bool hideArms = m_Game->m_IsMeleeWeaponActive || m_VR->m_HideArms;
+	void* boneToWorldForDraw = pCustomBoneToWorld;
 
 	std::string modelName;
 	if (info.pModel)
@@ -2390,6 +2385,70 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			if (isPlayerClass)
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
+			}
+		}
+
+		// Local head clipping guard (third-person):
+		// When "ThirdPersonCameraBindToHead" is enabled, the camera follows EyePosition() (animated head).
+		// Some player models still clip into view while moving, so we hide the *local* head by pushing the
+		// highest/center-most bones far outside the far plane for this draw call.
+		if (m_VR->m_IsVREnabled && m_VR->m_ThirdPersonCameraBindToHead && m_VR->IsThirdPersonCameraActive()
+			&& isPlayerClass && pCustomBoneToWorld && m_Game->m_EngineClient
+			&& info.entity_index == m_Game->m_EngineClient->GetLocalPlayer())
+		{
+			constexpr int kMaxStudioBones = 128;
+			constexpr size_t kFloatsPerBone = 12;
+			constexpr size_t kBytes = sizeof(float) * kFloatsPerBone * kMaxStudioBones;
+			alignas(16) static thread_local std::array<unsigned char, kBytes> tl_localHeadBoneOverride;
+			std::memcpy(tl_localHeadBoneOverride.data(), pCustomBoneToWorld, kBytes);
+			float* m = reinterpret_cast<float*>(tl_localHeadBoneOverride.data());
+
+			// Find the highest valid bone (by world Z).
+			float maxZ = -FLT_MAX;
+			bool any = false;
+			for (int i = 0; i < kMaxStudioBones; ++i)
+			{
+				const float x = m[i * 12 + 3];
+				const float y = m[i * 12 + 7];
+				const float z = m[i * 12 + 11];
+				if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+					continue;
+				// Ignore completely-zero rows (uninitialized bones).
+				if (x == 0.0f && y == 0.0f && z == 0.0f)
+					continue;
+				any = true;
+				if (z > maxZ) maxZ = z;
+			}
+
+			if (any)
+			{
+				// Heuristic: head/face bones are usually among the highest bones and near the model center in XY.
+				const Vector origin = info.origin;
+				constexpr float kTopZ = 28.0f;     // inches (Source units) below top-most bone
+				constexpr float kRadius = 24.0f;   // inches around model origin
+				constexpr float kPush = 200000.0f; // far outside typical far clip
+				const float r2 = kRadius * kRadius;
+				const float zCut = maxZ - kTopZ;
+				for (int i = 0; i < kMaxStudioBones; ++i)
+				{
+					const float x = m[i * 12 + 3];
+					const float y = m[i * 12 + 7];
+					const float z = m[i * 12 + 11];
+					if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+						continue;
+					if (x == 0.0f && y == 0.0f && z == 0.0f)
+						continue;
+					if (z < zCut)
+						continue;
+					const float dx = x - origin.x;
+					const float dy = y - origin.y;
+					if ((dx * dx + dy * dy) > r2)
+						continue;
+					m[i * 12 + 3] = origin.x + kPush;
+					m[i * 12 + 7] = origin.y + kPush;
+					m[i * 12 + 11] = origin.z + kPush;
+				}
+				boneToWorldForDraw = tl_localHeadBoneOverride.data();
 			}
 		}
 
@@ -2496,12 +2555,12 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		m_Game->m_ArmsMaterial->SetMaterialVarFlag(MATERIAL_VAR_NO_DRAW, true);
 		m_Game->m_ModelRender->ForcedMaterialOverride(m_Game->m_ArmsMaterial);
-		hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
+		hkDrawModelExecute.fOriginal(ecx, state, info, boneToWorldForDraw);
 		m_Game->m_ModelRender->ForcedMaterialOverride(NULL);
 		return;
 	}
 
-	hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
+	hkDrawModelExecute.fOriginal(ecx, state, info, boneToWorldForDraw);
 }
 
 void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTexture, ITexture* pDepthTexture, int nViewX, int nViewY, int nViewW, int nViewH)
