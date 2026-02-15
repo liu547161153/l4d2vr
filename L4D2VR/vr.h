@@ -180,13 +180,6 @@ public:
 	// If true, during third-person rendering we render from the player's head/eye origin (bind to head)
 	// instead of the engine-provided shoulder camera. Helps avoid seeing your own head while moving.
 	bool m_ThirdPersonCameraBindToHead = false;
-	// Hide the local player head while third-person rendering is active.
-	// Implemented as a bodygroup override in DrawModelExecute for the local CTerrorPlayer.
-	bool m_ThirdPersonHideLocalHead = false;
-	// Bodygroup override for hiding local head: newBody = (oldBody & ~mask) | value.
-	// Defaults target the most common "head/body" first bodygroup layout.
-	int m_ThirdPersonLocalHeadBodyMask = 1;
-	int m_ThirdPersonLocalHeadBodyValue = 1;
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
 	Vector m_RightControllerPosAbs;

@@ -6115,9 +6115,6 @@ void VR::ParseConfigFile()
     m_ThirdPersonMapLoadCooldownMs = std::max(0, getInt("ThirdPersonMapLoadCooldownMs", m_ThirdPersonMapLoadCooldownMs));
     m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
     m_ThirdPersonCameraBindToHead = getBool("ThirdPersonCameraBindToHead", m_ThirdPersonCameraBindToHead);
-    m_ThirdPersonHideLocalHead = getBool("ThirdPersonHideLocalHead", m_ThirdPersonHideLocalHead);
-    m_ThirdPersonLocalHeadBodyMask = std::max(0, getInt("ThirdPersonLocalHeadBodyMask", m_ThirdPersonLocalHeadBodyMask));
-    m_ThirdPersonLocalHeadBodyValue = std::max(0, getInt("ThirdPersonLocalHeadBodyValue", m_ThirdPersonLocalHeadBodyValue));
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
