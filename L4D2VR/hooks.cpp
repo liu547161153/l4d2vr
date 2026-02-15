@@ -562,7 +562,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
-
+	if (m_VR->m_IsVREnabled)
+	{
+		// Late-latch poses on the render thread so head-turns don't smear under mat_queue_mode=2.
+		// This also keeps HUD/viewmodel transforms in lockstep with the same SteamVR pose snapshot.
+		m_VR->UpdatePosesAndActions();
+		m_VR->UpdateTrackingOncePerCompositorFrame();
+	}
 	// Keep a consistent pose/state snapshot across both eyes and viewmodel (important for mat_queue_mode=2).
 	struct RenderFrameSnapshotGuard
 	{
