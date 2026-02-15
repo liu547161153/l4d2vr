@@ -942,31 +942,45 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const float ipd = (ipdRaw * ipdScale * vrScale);
 		const float eyeZ = (eyeZRaw * vrScale);
 
-		// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
-		// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
-		// IMPORTANT:
-		// engineThirdPersonNow can flicker during pinned/incap/use actions.
-		// If stateWantsThirdPerson is true, always synthesize from HMD to avoid camera "jumping"
-		// between setup.origin and HmdPosAbs.
-		Vector baseCenter;
-		if (stateWantsThirdPerson)
+		// Optional mode: bind the third-person render camera to the player's head/eye origin.
+		// This prevents the local head from sliding into view during movement when the engine uses a shoulder cam.
+		const bool headBoundCam = m_VR->m_ThirdPersonCameraBindToHead && !stateIsDeadOrObserver && !hasViewEntityOverride;
+
+		Vector camCenter;
+		if (headBoundCam)
 		{
-			// Dead/observer camera must follow engine view, not HMD position.
-			{
-				const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
-				baseCenter = stateIsDeadOrObserver ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
-			}
+			// eyeOrigin is the player's EyePosition() in world space.
+			// We intentionally skip eye-to-head and extra 3P offsets here so the camera stays glued to the head.
+			camCenter = eyeOrigin;
 		}
 		else
 		{
+			// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
+			// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
+			// IMPORTANT:
+			// engineThirdPersonNow can flicker during pinned/incap/use actions.
+			// If stateWantsThirdPerson is true, always synthesize from HMD to avoid camera "jumping"
+			// between setup.origin and HmdPosAbs.
+			Vector baseCenter;
+			if (stateWantsThirdPerson)
 			{
-				const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
-				baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
+				// Dead/observer camera must follow engine view, not HMD position.
+				{
+					const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
+					baseCenter = stateIsDeadOrObserver ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
+				}
 			}
+			else
+			{
+				{
+					const VR::RenderFrameSnapshot* snapCenter = m_VR->GetActiveRenderFrameSnapshot();
+					baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : (snapCenter ? snapCenter->hmdPosAbs : m_VR->m_HmdPosAbs);
+				}
+			}
+			camCenter = baseCenter + (fwd * (-eyeZ));
+			if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
+				camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		}
-		Vector camCenter = baseCenter + (fwd * (-eyeZ));
-		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
-			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		// Expose the actual VR render camera center used for third-person this frame.
 		// This includes HMD-aim yaw and any VR camera offsets, and is used to keep aim line and overlays aligned.
 		m_VR->m_ThirdPersonRenderCenter = camCenter;

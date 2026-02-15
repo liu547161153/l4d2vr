@@ -177,6 +177,9 @@ public:
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.85f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;
+	// If true, during third-person rendering we render from the player's head/eye origin (bind to head)
+	// instead of the engine-provided shoulder camera. Helps avoid seeing your own head while moving.
+	bool m_ThirdPersonCameraBindToHead = false;
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
 	Vector m_RightControllerPosAbs;

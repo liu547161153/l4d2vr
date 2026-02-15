@@ -6114,6 +6114,7 @@ void VR::ParseConfigFile()
     m_ThirdPersonCameraSmoothing = std::clamp(getFloat("ThirdPersonCameraSmoothing", m_ThirdPersonCameraSmoothing), 0.0f, 0.99f);
     m_ThirdPersonMapLoadCooldownMs = std::max(0, getInt("ThirdPersonMapLoadCooldownMs", m_ThirdPersonMapLoadCooldownMs));
     m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
+    m_ThirdPersonCameraBindToHead = getBool("ThirdPersonCameraBindToHead", m_ThirdPersonCameraBindToHead);
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);

@@ -277,6 +277,19 @@ Option g_Options[] =
         0.8f, 1.2f,
         "1.0"
     },
+
+    {
+        "ThirdPersonCameraBindToHead",
+        OptionType::Bool,
+        { u8"Camera / Third Person", u8"相机 / 第三人称" },
+        { u8"Bind 3P render camera to head", u8"第三人称相机绑定头部" },
+        { u8"When third-person rendering is active, render from the player head/eye position instead of the engine shoulder camera. This helps prevent seeing your own head while moving.",
+          u8"第三人称渲染时，使用玩家头部/眼睛位置作为相机，而不是引擎提供的肩部相机。可避免移动时看到自己头部。" },
+        { u8"Disabled for death/observer and view-entity cutscenes.",
+          u8"死亡/观察者与视角实体（过场镜头）时不会启用。" },
+        0.0f, 0.0f,
+        "false"
+    },
     // Input / Turning
     {
         "LeftHanded",
