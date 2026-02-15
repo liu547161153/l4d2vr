@@ -761,6 +761,9 @@ public:
 	float m_SpecialInfectedAutoAimLerp = 0.4f;
 	float m_SpecialInfectedAutoAimCooldown = 0.5f;
 	std::chrono::steady_clock::time_point m_SpecialInfectedAutoAimCooldownEnd{};
+	float m_SpecialInfectedRunCommandShotWindow = 0.10f;
+	float m_SpecialInfectedRunCommandShotLerp = 1.0f;
+	std::chrono::steady_clock::time_point m_SpecialInfectedRunCommandShotAimUntil{};
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
 		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
@@ -1033,6 +1036,7 @@ public:
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
+	void OnPredictionRunCommand(CUserCmd* cmd);
 	void StartSpecialInfectedWarningAction();
 	void UpdateSpecialInfectedWarningAction();
 	void ResetSpecialInfectedWarningAction();

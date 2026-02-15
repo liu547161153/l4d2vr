@@ -400,6 +400,8 @@ Hooks::Hooks(Game* game)
 	hkPrimaryAttackServer.enableHook();
 	hkItemPostFrameServer.enableHook();
 	hkGetPrimaryAttackActivity.enableHook();
+	if (hkRunCommand.pTarget)
+		hkRunCommand.enableHook();
 	hkEyePosition.enableHook();
 	hkDrawModelExecute.enableHook();
 	hkRenderView.enableHook();
@@ -539,6 +541,26 @@ int Hooks::initSourceHooks()
 	}
 
 	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
+
+	// Hook CPrediction::RunCommand via prediction interface vtable.
+	void* prediction = m_Game->GetInterface("client.dll", "VClientPrediction001");
+	if (!prediction)
+		prediction = m_Game->GetInterface("client.dll", "VClientPrediction002");
+	if (prediction)
+	{
+		void*** predictionPtr = reinterpret_cast<void***>(prediction);
+		void** predictionVTable = predictionPtr ? *predictionPtr : nullptr;
+		constexpr size_t kRunCommandIndex = 17;
+		if (predictionVTable && predictionVTable[kRunCommandIndex])
+			hkRunCommand.createHook(predictionVTable[kRunCommandIndex], dRunCommand);
+		else
+			Game::logMsg("RunCommand hook skipped: prediction vtable index %zu unavailable", kRunCommandIndex);
+	}
+	else
+	{
+		Game::logMsg("RunCommand hook skipped: VClientPrediction interface not found");
+	}
+
 	return 1;
 }
 
@@ -2328,6 +2350,14 @@ void Hooks::dItemPostFrameServer(void* ecx, void* edx)
 int Hooks::dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo)
 {
 	return hkGetPrimaryAttackActivity.fOriginal(ecx, meleeInfo);
+}
+
+void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper)
+{
+	if (m_VR && cmd)
+		m_VR->OnPredictionRunCommand(cmd);
+
+	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
 }
 
 Vector* Hooks::dEyePosition(void* ecx, void* edx, Vector* eyePos)
