@@ -2482,6 +2482,7 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
         m_SpecialInfectedAutoAimCooldownEnd = {};
+        m_SpecialInfectedRunCommandShotAimUntil = {};
     }
     else if (autoAimToggleJustPressed)
     {
@@ -2493,6 +2494,7 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
         m_SpecialInfectedAutoAimCooldownEnd = {};
+        m_SpecialInfectedRunCommandShotAimUntil = {};
     }
 
     if (nonVrServerMovementToggleJustPressed)
@@ -3721,9 +3723,13 @@ void VR::UpdateTracking()
         if (!toTarget.IsZero())
         {
             VectorNormalize(toTarget);
+            float lerpSetting = m_SpecialInfectedAutoAimLerp;
+            if (std::chrono::steady_clock::now() < m_SpecialInfectedRunCommandShotAimUntil)
+                lerpSetting = std::max(lerpSetting, m_SpecialInfectedRunCommandShotLerp);
+
             const float lerpFactor = m_SpecialInfectedDebug
-                ? std::max(0.0f, m_SpecialInfectedAutoAimLerp)
-                : std::clamp(m_SpecialInfectedAutoAimLerp, 0.0f, 0.4f);
+                ? std::max(0.0f, lerpSetting)
+                : std::clamp(lerpSetting, 0.0f, 1.0f);
             if (m_SpecialInfectedAutoAimDirection.IsZero())
                 m_SpecialInfectedAutoAimDirection = toTarget;
             else
@@ -5262,6 +5268,10 @@ void VR::UpdateSpecialInfectedPreWarningState()
     m_SpecialInfectedAutoAimCooldownEnd = {};
 }
 
+void VR::OnPredictionRunCommand(CUserCmd* /*cmd*/) {}
+bool VR::ShouldRunSecondaryPrediction(const CUserCmd* /*cmd*/) const { return false; }
+void VR::PrepareSecondaryPredictionCmd(CUserCmd& /*cmd*/) const {}
+void VR::OnPrimaryAttackServerDecision(CUserCmd* /*cmd*/, bool /*fromSecondaryPrediction*/) {}
 void VR::StartSpecialInfectedWarningAction() {}
 void VR::UpdateSpecialInfectedWarningAction() {}
 void VR::ResetSpecialInfectedWarningAction()
@@ -6416,6 +6426,22 @@ void VR::ParseConfigFile()
     m_SpecialInfectedAutoAimCooldown = m_SpecialInfectedDebug
         ? std::max(0.0f, autoAimCooldown)
         : std::max(0.5f, autoAimCooldown);
+
+    const float runCommandShotWindow = getFloat("SpecialInfectedRunCommandShotWindow", m_SpecialInfectedRunCommandShotWindow);
+    m_SpecialInfectedRunCommandShotWindow = std::max(0.0f, runCommandShotWindow);
+
+    const float runCommandShotLerp = getFloat("SpecialInfectedRunCommandShotLerp", m_SpecialInfectedRunCommandShotLerp);
+    m_SpecialInfectedRunCommandShotLerp = m_SpecialInfectedDebug
+        ? std::max(0.0f, runCommandShotLerp)
+        : std::clamp(runCommandShotLerp, 0.0f, 1.0f);
+
+    m_SpecialInfectedRunCommandSecondaryPredictEnabled = getBool(
+        "SpecialInfectedRunCommandSecondaryPredictEnabled",
+        m_SpecialInfectedRunCommandSecondaryPredictEnabled);
+    m_SpecialInfectedRunCommandSecondaryForceAttack = getBool(
+        "SpecialInfectedRunCommandSecondaryForceAttack",
+        m_SpecialInfectedRunCommandSecondaryForceAttack);
+
     m_SpecialInfectedWarningSecondaryHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningSecondaryHoldDuration", m_SpecialInfectedWarningSecondaryHoldDuration));
     m_SpecialInfectedWarningPostAttackDelay = std::max(0.0f, getFloat("SpecialInfectedWarningPostAttackDelay", m_SpecialInfectedWarningPostAttackDelay));
     m_SpecialInfectedWarningJumpHoldDuration = std::max(0.0f, getFloat("SpecialInfectedWarningJumpHoldDuration", m_SpecialInfectedWarningJumpHoldDuration));

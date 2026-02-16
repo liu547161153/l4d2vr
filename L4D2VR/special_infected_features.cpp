@@ -153,12 +153,8 @@ bool VR::HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entit
     {
         if (idx <= 0)
             return;
-        const size_t need = static_cast<size_t>(idx) + 1;
-        if (m_LastSpecialInfectedTraceTime.size() < need)
-        {
-            m_LastSpecialInfectedTraceTime.resize(need);
-            m_LastSpecialInfectedTraceResult.resize(need, 0);
-        }
+        m_LastSpecialInfectedTraceTime.try_emplace(idx, std::chrono::steady_clock::time_point{});
+        m_LastSpecialInfectedTraceResult.try_emplace(idx, 0);
     };
     // Cache expensive TraceRay calls per-entity to avoid spikes when DrawModelExecute fires many times.
     // Re-check LOS faster when the cached result is false to avoid "sticky" misses when an obstruction
@@ -437,6 +433,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningEvadeArmed = true;
         m_LastSpecialInfectedEvadeEntityIndex = -1;
         m_SpecialInfectedPreWarningEvadeCooldownEnd = {};
+        m_SpecialInfectedRunCommandShotAimUntil = {};
         return;
     }
 
@@ -451,6 +448,7 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningEvadeArmed = true;
         m_LastSpecialInfectedEvadeEntityIndex = -1;
         m_SpecialInfectedPreWarningEvadeCooldownEnd = {};
+        m_SpecialInfectedRunCommandShotAimUntil = {};
         return;
     }
 
@@ -518,6 +516,79 @@ void VR::UpdateSpecialInfectedPreWarningState()
         m_SpecialInfectedPreWarningTargetIsPlayer = false;
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
     }
+}
+
+void VR::OnPredictionRunCommand(CUserCmd* cmd)
+{
+    if (!cmd || !m_SpecialInfectedPreWarningAutoAimEnabled)
+        return;
+
+    if ((cmd->buttons & (1 << 0)) == 0) // IN_ATTACK
+        return;
+
+    if (!m_SpecialInfectedPreWarningActive || !m_SpecialInfectedPreWarningInRange)
+        return;
+
+    const float window = std::max(0.0f, m_SpecialInfectedRunCommandShotWindow);
+    if (window <= 0.0f)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    m_SpecialInfectedRunCommandShotAimUntil = now
+        + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(window));
+}
+
+bool VR::ShouldRunSecondaryPrediction(const CUserCmd* cmd) const
+{
+    if (!cmd || !m_SpecialInfectedRunCommandSecondaryPredictEnabled)
+        return false;
+
+    if (!m_SpecialInfectedPreWarningAutoAimEnabled)
+        return false;
+
+    if (!m_SpecialInfectedPreWarningActive || !m_SpecialInfectedPreWarningInRange)
+        return false;
+
+    const bool hasAttack = (cmd->buttons & (1 << 0)) != 0; // IN_ATTACK
+    if (m_SpecialInfectedRunCommandSecondaryForceAttack)
+        return !hasAttack;
+
+    return true;
+}
+
+void VR::PrepareSecondaryPredictionCmd(CUserCmd& cmd) const
+{
+    // Keep this synthetic command inert, except for the fields needed to drive attack prediction.
+    cmd.forwardmove = 0.0f;
+    cmd.sidemove = 0.0f;
+    cmd.upmove = 0.0f;
+    cmd.impulse = 0;
+    cmd.hasbeenpredicted = false;
+
+    if (m_SpecialInfectedRunCommandSecondaryForceAttack)
+        cmd.buttons |= (1 << 0); // IN_ATTACK
+
+    Vector toTarget = m_SpecialInfectedPreWarningTarget - m_RightControllerPosAbs;
+    if (!toTarget.IsZero())
+    {
+        VectorNormalize(toTarget);
+        QAngle desiredAngles;
+        QAngle::VectorAngles(toTarget, m_HmdUp, desiredAngles);
+        cmd.viewangles = desiredAngles;
+    }
+}
+
+void VR::OnPrimaryAttackServerDecision(CUserCmd* cmd, bool fromSecondaryPrediction)
+{
+    if (!cmd)
+        return;
+
+    // "FireProjectile 决策点"在 L4D2VR 中用 PrimaryAttackServer 近似。
+    // 这里仅在我们自己的二次预测触发路径上刷新 shot-window，避免误触普通攻击逻辑。
+    if (!fromSecondaryPrediction)
+        return;
+
+    OnPredictionRunCommand(cmd);
 }
 
 void VR::StartSpecialInfectedWarningAction()

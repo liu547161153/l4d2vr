@@ -11,6 +11,7 @@ class QAngle;
 class Vector;
 class edict_t;
 class ModelRenderInfo_t;
+class C_BasePlayer;
 
 
 template <typename T>
@@ -76,6 +77,7 @@ typedef void(__thiscall* tStartMeleeSwing)(void* thisptr, void* player, bool a3)
 typedef int(__thiscall* tPrimaryAttack)(void* thisptr);
 typedef void(__thiscall* tItemPostFrame)(void* thisptr);
 typedef int(__thiscall* tGetPrimaryAttackActivity)(void* thisptr, void* meleeInfo);
+typedef void(__thiscall* tRunCommand)(void* thisptr, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper);
 typedef Vector* (__thiscall* tEyePosition)(void* thisptr, Vector* eyePos);
 typedef void(__thiscall* tDrawModelExecute)(void* thisptr, void* state, const ModelRenderInfo_t& info, void* pCustomBoneToWorld);
 typedef void(__thiscall* tPushRenderTargetAndViewport)(void* thisptr, ITexture* pTexture, ITexture* pDepthTexture, int nViewX, int nViewY, int nViewW, int nViewH);
@@ -112,6 +114,7 @@ public:
 	static inline Hook<tPrimaryAttack> hkPrimaryAttackServer;
 	static inline Hook<tItemPostFrame> hkItemPostFrameServer;
 	static inline Hook<tGetPrimaryAttackActivity> hkGetPrimaryAttackActivity;
+	static inline Hook<tRunCommand> hkRunCommand;
 	static inline Hook<tEyePosition> hkEyePosition;
 	static inline Hook<tDrawModelExecute> hkDrawModelExecute;
 	static inline Hook<tPushRenderTargetAndViewport> hkPushRenderTargetAndViewport;
@@ -150,6 +153,7 @@ public:
 	static int __fastcall dPrimaryAttackServer(void* ecx, void* edx);
 	static void __fastcall dItemPostFrameServer(void* ecx, void* edx);
 	static int __fastcall dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo);
+	static void __fastcall dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper);
 	static Vector* __fastcall dEyePosition(void* ecx, void* edx, Vector* eyePos);
 	static void __fastcall dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRenderInfo_t& info, void* pCustomBoneToWorld);
 	static void __fastcall dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTexture, ITexture* pDepthTexture, int nViewX, int nViewY, int nViewW, int nViewH);
@@ -163,6 +167,11 @@ public:
     // With multicore rendering (mat_queue_mode=2), these hook entry points can run on a separate
     // render thread. Keeping this state global causes cross-thread interleaving, which can make us
     // clear the HUD target but miss the actual draw calls (=> black HUD). Use thread-local state.
-    static inline thread_local int  m_PushHUDStep = -999;
-    static inline thread_local bool m_PushedHud   = false;
+	static inline thread_local int  m_PushHUDStep = -999;
+	static inline thread_local bool m_PushedHud   = false;
+	// RunCommand prediction context (thread-local to avoid render/input thread interleave issues).
+	static inline thread_local bool m_RunCommandInDetour = false;
+	static inline thread_local bool m_RunCommandFromSecondaryPredict = false;
+	static inline thread_local CUserCmd* m_RunCommandCurrentCmd = nullptr;
+	static inline thread_local CUserCmd* m_RunCommandSecondaryCmd = nullptr;
 };

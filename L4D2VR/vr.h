@@ -265,8 +265,8 @@ public:
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
-	mutable std::vector<std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
-	mutable std::vector<std::uint8_t> m_LastSpecialInfectedTraceResult{};
+	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
+	mutable std::unordered_map<int, std::uint8_t> m_LastSpecialInfectedTraceResult{};
 
 	float m_Ipd;
 	float m_EyeZ;
@@ -761,6 +761,11 @@ public:
 	float m_SpecialInfectedAutoAimLerp = 0.4f;
 	float m_SpecialInfectedAutoAimCooldown = 0.5f;
 	std::chrono::steady_clock::time_point m_SpecialInfectedAutoAimCooldownEnd{};
+	float m_SpecialInfectedRunCommandShotWindow = 0.10f;
+	float m_SpecialInfectedRunCommandShotLerp = 1.0f;
+	std::chrono::steady_clock::time_point m_SpecialInfectedRunCommandShotAimUntil{};
+	bool m_SpecialInfectedRunCommandSecondaryPredictEnabled = false;
+	bool m_SpecialInfectedRunCommandSecondaryForceAttack = true;
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
 		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
@@ -1033,6 +1038,10 @@ public:
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
+	void OnPredictionRunCommand(CUserCmd* cmd);
+	bool ShouldRunSecondaryPrediction(const CUserCmd* cmd) const;
+	void PrepareSecondaryPredictionCmd(CUserCmd& cmd) const;
+	void OnPrimaryAttackServerDecision(CUserCmd* cmd, bool fromSecondaryPrediction);
 	void StartSpecialInfectedWarningAction();
 	void UpdateSpecialInfectedWarningAction();
 	void ResetSpecialInfectedWarningAction();
