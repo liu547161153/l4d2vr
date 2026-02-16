@@ -245,8 +245,8 @@ public:
 	std::chrono::steady_clock::time_point m_LastAimLineDrawTime{};
 	std::chrono::steady_clock::time_point m_LastThrowArcDrawTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
-	mutable std::vector<std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
-	mutable std::vector<std::uint8_t> m_LastSpecialInfectedTraceResult{};
+	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
+	mutable std::unordered_map<int, bool> m_LastSpecialInfectedTraceResult{};
 
 	float m_Ipd;
 	float m_EyeZ;
