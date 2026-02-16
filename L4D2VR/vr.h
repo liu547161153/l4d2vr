@@ -465,12 +465,6 @@ public:
 	float m_FixedHudYOffset = 0.0f;
 	float m_FixedHudDistanceOffset = 0.0f;
 	float m_HudSize = 1.1;
-	float m_ControllerHudSize = 0.5f;
-	float m_ControllerHudYOffset = 0.12f;
-	float m_ControllerHudZOffset = 0.0f;
-	float m_ControllerHudRotation = 0.0f;
-	float m_ControllerHudXOffset = 0.0f;
-	bool m_ControllerHudCut = true;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
@@ -864,7 +858,7 @@ public:
 	void HandleMissingRenderContext(const char* location);
 	void SubmitVRTextures();
 	void LogCompositorError(const char* action, vr::EVRCompositorError error);
-	void RepositionOverlays(bool attachToControllers = true);
+	void RepositionOverlays();
 	void UpdateRearMirrorOverlayTransform();
 	void UpdateScopeOverlayTransform();
 	void GetPoses();

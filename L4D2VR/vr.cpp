@@ -1175,7 +1175,7 @@ bool VR::ShouldUpdateRearMirrorRTT()
     // The rear mirror is a full extra scene render. Throttling this can significantly reduce CPU spikes.
     return !ShouldThrottle(m_LastScopeRTTRenderTime, m_ScopeRTTMaxHz);
 }
-void VR::RepositionOverlays(bool attachToControllers)
+void VR::RepositionOverlays()
 {
     vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
     vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
@@ -1268,46 +1268,13 @@ void VR::RepositionOverlays(bool attachToControllers)
     {
         vr::VROverlayHandle_t overlay = m_HUDBottomHandles[i];
 
-        // Bottom 1 & 4 attach to controllers, 2-3 stay fixed in front
-        if (attachToControllers && (i == 0 || i == 3))
-        {
-            vr::ETrackedControllerRole controllerRole = (i == 0) ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
-            vr::TrackedDeviceIndex_t controllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(controllerRole);
-
-            if (controllerIndex != vr::k_unTrackedDeviceIndexInvalid)
-            {
-                // m_ControllerHudRotation is in degrees; allow any magnitude (e.g., 15, 90, 360+) for easier tuning.
-                const float controllerHudRotationRad = m_ControllerHudRotation * (3.14159265358979323846f / 180.0f);
-                const float cosRotation = cosf(controllerHudRotationRad);
-                const float sinRotation = sinf(controllerHudRotationRad);
-
-                const float controllerHudXOffset = (i == 0) ? -m_ControllerHudXOffset : m_ControllerHudXOffset;
-
-                vr::HmdMatrix34_t relativeTransform =
-                {
-                    1.0f, 0.0f, 0.0f, controllerHudXOffset,
-                    0.0f, cosRotation, -sinRotation, m_ControllerHudYOffset - hudHalfStackOffset,
-                    0.0f, sinRotation,  cosRotation, m_ControllerHudZOffset
-                };
-
-                vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(overlay, controllerIndex, &relativeTransform);
-                vr::VROverlay()->SetOverlayWidthInMeters(overlay, m_ControllerHudSize);
-            }
-            else
-            {
-                vr::VROverlay()->HideOverlay(overlay);
-            }
-        }
-        else
-        {
-            const float segmentIndexOffset = static_cast<float>(i) - 1.5f;
-            Vector offset = hudRight * (segmentIndexOffset * segmentWidth);
-            Vector segmentPos = hudCenterPos + offset;
-            segmentPos.y -= hudHalfStackOffset;
-            vr::HmdMatrix34_t segmentTransform = buildFacingTransform(segmentPos);
-            vr::VROverlay()->SetOverlayTransformAbsolute(overlay, trackingOrigin, &segmentTransform);
-            vr::VROverlay()->SetOverlayWidthInMeters(overlay, segmentWidth);
-        }
+        const float segmentIndexOffset = static_cast<float>(i) - 1.5f;
+        Vector offset = hudRight * (segmentIndexOffset * segmentWidth);
+        Vector segmentPos = hudCenterPos + offset;
+        segmentPos.y -= hudHalfStackOffset;
+        vr::HmdMatrix34_t segmentTransform = buildFacingTransform(segmentPos);
+        vr::VROverlay()->SetOverlayTransformAbsolute(overlay, trackingOrigin, &segmentTransform);
+        vr::VROverlay()->SetOverlayWidthInMeters(overlay, segmentWidth);
     }
 
     // Reposition scope overlay relative to the gun-hand controller.
@@ -2628,82 +2595,10 @@ void VR::ProcessInput()
             vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
         };
 
-    auto controllerHudTooClose = [&](size_t overlayIndex, vr::TrackedDeviceIndex_t controllerIndex)
-        {
-            if (!m_ControllerHudCut || controllerIndex == vr::k_unTrackedDeviceIndexInvalid || (overlayIndex != 0 && overlayIndex != 3))
-                return false;
-
-            const vr::TrackedDevicePose_t& controllerPose = m_Poses[controllerIndex];
-            const vr::TrackedDevicePose_t& hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
-
-            if (!controllerPose.bPoseIsValid || !hmdPose.bPoseIsValid)
-                return false;
-
-            vr::HmdMatrix34_t controllerMat = controllerPose.mDeviceToAbsoluteTracking;
-            vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
-
-            int windowWidth, windowHeight;
-            m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
-            const float hudAspect = static_cast<float>(windowHeight) / static_cast<float>(windowWidth);
-            const float hudHalfStackOffset = (m_HudSize * hudAspect) * 0.25f;
-
-            const float controllerHudRotationRad = m_ControllerHudRotation * (3.14159265358979323846f / 180.0f);
-            const float cosRotation = cosf(controllerHudRotationRad);
-            const float sinRotation = sinf(controllerHudRotationRad);
-            const float controllerHudXOffset = (overlayIndex == 0) ? -m_ControllerHudXOffset : m_ControllerHudXOffset;
-
-            vr::HmdMatrix34_t relativeTransform =
-            {
-                1.0f, 0.0f, 0.0f, controllerHudXOffset,
-                0.0f, cosRotation, -sinRotation, m_ControllerHudYOffset - hudHalfStackOffset,
-                0.0f, sinRotation,  cosRotation, m_ControllerHudZOffset
-            };
-
-            auto multiplyTransform = [](const vr::HmdMatrix34_t& parent, const vr::HmdMatrix34_t& child)
-                {
-                    vr::HmdMatrix34_t result = {};
-                    for (int row = 0; row < 3; ++row)
-                    {
-                        result.m[row][0] = parent.m[row][0] * child.m[0][0] + parent.m[row][1] * child.m[1][0] + parent.m[row][2] * child.m[2][0];
-                        result.m[row][1] = parent.m[row][0] * child.m[0][1] + parent.m[row][1] * child.m[1][1] + parent.m[row][2] * child.m[2][1];
-                        result.m[row][2] = parent.m[row][0] * child.m[0][2] + parent.m[row][1] * child.m[1][2] + parent.m[row][2] * child.m[2][2];
-                        result.m[row][3] = parent.m[row][0] * child.m[0][3] + parent.m[row][1] * child.m[1][3] + parent.m[row][2] * child.m[2][3] + parent.m[row][3];
-                    }
-                    return result;
-                };
-
-            vr::HmdMatrix34_t worldTransform = multiplyTransform(controllerMat, relativeTransform);
-            Vector overlayPos = { worldTransform.m[0][3], worldTransform.m[1][3], worldTransform.m[2][3] };
-            Vector hmdPos = { hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3] };
-            Vector controllerPos = { controllerMat.m[0][3], controllerMat.m[1][3], controllerMat.m[2][3] };
-
-            const float overlayDistance = VectorLength(overlayPos - hmdPos);
-            const float controllerDistance = VectorLength(controllerPos - hmdPos);
-
-            constexpr float overlayCutoff = 0.35f;
-            constexpr float controllerCutoff = 0.25f;
-
-            return overlayDistance < overlayCutoff || controllerDistance < controllerCutoff;
-        };
-
-    auto showControllerHud = [&](bool attachToControllers)
+    auto showControllerHud = [&]()
         {
             for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
             {
-                if (attachToControllers && (i == 0 || i == 3))
-                {
-                    vr::ETrackedControllerRole controllerRole = (i == 0) ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
-                    vr::TrackedDeviceIndex_t controllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(controllerRole);
-
-                    if (controllerIndex == vr::k_unTrackedDeviceIndexInvalid)
-                        continue;
-                    if (controllerHudTooClose(i, controllerIndex))
-                    {
-                        vr::VROverlay()->HideOverlay(m_HUDBottomHandles[i]);
-                        continue;
-                    }
-                }
-
                 vr::VROverlay()->ShowOverlay(m_HUDBottomHandles[i]);
             }
         };
@@ -2734,10 +2629,9 @@ void VR::ProcessInput()
 
     bool wantsTopHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
     bool wantsControllerHud = m_RenderedHud;
-    const bool attachControllerHud = m_ControllerHudCut && !menuActive;
     if ((wantsTopHud && m_RenderedHud) || menuActive)
     {
-        RepositionOverlays(attachControllerHud);
+        RepositionOverlays();
 
         if (PressedDigitalAction(m_Scoreboard))
             m_Game->ClientCmd_Unrestricted("+showscores");
@@ -2753,7 +2647,7 @@ void VR::ProcessInput()
 
     if (wantsControllerHud)
     {
-        showControllerHud(attachControllerHud);
+        showControllerHud();
     }
     else
     {
@@ -2764,9 +2658,9 @@ void VR::ProcessInput()
     if (PressedDigitalAction(m_Pause, true))
     {
         m_Game->ClientCmd_Unrestricted("gameui_activate");
-        RepositionOverlays(false);
+        RepositionOverlays();
         showTopHud();
-        showControllerHud(false);
+        showControllerHud();
     }
 }
 
@@ -5932,12 +5826,6 @@ void VR::ParseConfigFile()
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
-    m_ControllerHudSize = getFloat("ControllerHudSize", m_ControllerHudSize);
-    m_ControllerHudYOffset = getFloat("ControllerHudYOffset", m_ControllerHudYOffset);
-    m_ControllerHudZOffset = getFloat("ControllerHudZOffset", m_ControllerHudZOffset);
-    m_ControllerHudRotation = getFloat("ControllerHudRotation", m_ControllerHudRotation);
-    m_ControllerHudXOffset = getFloat("ControllerHudXOffset", m_ControllerHudXOffset);
-    m_ControllerHudCut = getBool("ControllerHudCut", m_ControllerHudCut);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HudToggleState = m_HudAlwaysVisible;
     m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
