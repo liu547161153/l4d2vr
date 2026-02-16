@@ -13,12 +13,6 @@ HudAlwaysVisible=true
 FixedHudYOffset=0.25
 FixedHudDistanceOffset=0.25
 
-ControllerHudCut=false
-ControllerHudSize=0.1
-ControllerHudXOffset=0.1
-ControllerHudYOffset=0.1
-ControllerHudZOffset=-0.3
-ControllerHudRotation=-60
 ControllerSmoothing=0.0
 
 HideArms=false
