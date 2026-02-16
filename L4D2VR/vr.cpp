@@ -2305,9 +2305,9 @@ void VR::ProcessInput()
     if (isObserverOrIdle && m_Game->m_EngineClient->IsInGame())
     {
         if (secondaryAttackJustPressed)
-            m_Game->ClientCmd_Unrestricted("spec_next");
-        if (primaryAttackJustPressed)
             m_Game->ClientCmd_Unrestricted("spec_prev");
+        if (primaryAttackJustPressed)
+            m_Game->ClientCmd_Unrestricted("spec_next");
         if (jumpJustPressed)
             m_Game->ClientCmd_Unrestricted("spec_mode");
     }
