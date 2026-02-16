@@ -1,4 +1,4 @@
-﻿
+
 #include "hooks.h"
 #include "game.h"
 #include "texture.h"
@@ -394,6 +394,8 @@ Hooks::Hooks(Game* game)
 	hkPrimaryAttackServer.enableHook();
 	hkItemPostFrameServer.enableHook();
 	hkGetPrimaryAttackActivity.enableHook();
+	if (hkRunCommand.pTarget)
+		hkRunCommand.enableHook();
 	hkEyePosition.enableHook();
 	hkDrawModelExecute.enableHook();
 	hkRenderView.enableHook();
@@ -533,6 +535,25 @@ int Hooks::initSourceHooks()
 	}
 
 	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
+
+	// Hook CPrediction::RunCommand via prediction interface vtable.
+	void* prediction = m_Game->GetInterface("client.dll", "VClientPrediction001");
+	if (!prediction)
+		prediction = m_Game->GetInterface("client.dll", "VClientPrediction002");
+	if (prediction)
+	{
+		void*** predictionPtr = reinterpret_cast<void***>(prediction);
+		void** predictionVTable = predictionPtr ? *predictionPtr : nullptr;
+		constexpr size_t kRunCommandIndex = 17;
+		if (predictionVTable && predictionVTable[kRunCommandIndex])
+			hkRunCommand.createHook(predictionVTable[kRunCommandIndex], dRunCommand);
+		else
+			Game::logMsg("RunCommand hook skipped: prediction vtable index %zu unavailable", kRunCommandIndex);
+	}
+	else
+	{
+		Game::logMsg("RunCommand hook skipped: VClientPrediction interface not found");
+	}
 	return 1;
 }
 
@@ -2253,8 +2274,16 @@ void Hooks::dStartMeleeSwingServer(void* ecx, void* edx, void* player, bool a3)
 
 int Hooks::dPrimaryAttackServer(void* ecx, void* edx)
 {
+	if (m_VR)
+	{
+		CUserCmd* decisionCmd = m_RunCommandFromSecondaryPredict
+			? m_RunCommandSecondaryCmd
+			: m_RunCommandCurrentCmd;
+		m_VR->OnPrimaryAttackServerDecision(decisionCmd, m_RunCommandFromSecondaryPredict);
+	}
 	return hkPrimaryAttackServer.fOriginal(ecx);
 }
+
 
 void Hooks::dItemPostFrameServer(void* ecx, void* edx)
 {
@@ -2264,6 +2293,45 @@ void Hooks::dItemPostFrameServer(void* ecx, void* edx)
 int Hooks::dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo)
 {
 	return hkGetPrimaryAttackActivity.fOriginal(ecx, meleeInfo);
+}
+
+void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper)
+{
+	if (!cmd)
+	{
+		hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+		return;
+	}
+
+	// Keep the active command available to PrimaryAttackServer/Fire path hooks.
+	m_RunCommandCurrentCmd = cmd;
+	m_RunCommandSecondaryCmd = nullptr;
+
+	if (m_VR)
+		m_VR->OnPredictionRunCommand(cmd);
+
+	const bool canRunSecondaryPredict =
+		m_VR
+		&& !m_RunCommandInDetour
+		&& !m_RunCommandFromSecondaryPredict
+		&& m_VR->ShouldRunSecondaryPrediction(cmd);
+
+	if (canRunSecondaryPredict)
+	{
+		CUserCmd secondaryCmd = *cmd;
+		m_VR->PrepareSecondaryPredictionCmd(secondaryCmd);
+
+		m_RunCommandInDetour = true;
+		m_RunCommandFromSecondaryPredict = true;
+		m_RunCommandSecondaryCmd = &secondaryCmd;
+		hkRunCommand.fOriginal(ecx, player, &secondaryCmd, moveHelper);
+		m_RunCommandSecondaryCmd = nullptr;
+		m_RunCommandFromSecondaryPredict = false;
+		m_RunCommandInDetour = false;
+	}
+
+	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+	m_RunCommandCurrentCmd = nullptr;
 }
 
 Vector* Hooks::dEyePosition(void* ecx, void* edx, Vector* eyePos)
