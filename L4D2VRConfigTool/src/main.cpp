@@ -1,4 +1,4 @@
-// main.cpp
+﻿// main.cpp
 // L4D2VR Config Tool
 // Reads/writes <exe>/vr/config.txt directly
 
@@ -125,7 +125,7 @@ static bool IsChineseUILanguage()
 {
     auto is_zh = [](LANGID lang) {
         return PRIMARYLANGID(lang) == LANG_CHINESE;
-    };
+        };
 
     LANGID userLang = GetUserDefaultUILanguage();
     if (is_zh(userLang)) return true;
@@ -252,7 +252,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         std::string s(len - 1, '\0');
         WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, s.data(), len, nullptr, nullptr);
         return s;
-    };
+        };
 
     wchar_t winDir[MAX_PATH] = { 0 };
     GetWindowsDirectoryW(winDir, MAX_PATH);
@@ -264,7 +264,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
             return nullptr;
         std::string path = WideToUtf8(wpath);
         return io.Fonts->AddFontFromFileTTF(path.c_str(), 18.0f, nullptr, io.Fonts->GetGlyphRangesChineseFull());
-    };
+        };
 
     // Prefer Microsoft YaHei when showing Chinese. Always ensure we have Chinese glyphs even in English UI.
     if (g_UseChinese)
@@ -290,7 +290,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
                 return false;
             std::string path = WideToUtf8(wpath);
             return io.Fonts->AddFontFromFileTTF(path.c_str(), 16.0f, &cfg, io.Fonts->GetGlyphRangesChineseFull()) != nullptr;
-        };
+            };
         if (!merge(L"msyh.ttc"))
             if (!merge(L"msyhbd.ttc"))
                 if (!merge(L"simhei.ttf"))

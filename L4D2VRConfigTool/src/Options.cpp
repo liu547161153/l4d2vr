@@ -1,4 +1,4 @@
-#include "Options.h"
+﻿#include "Options.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -235,7 +235,7 @@ static void DrawHelp(const Option& opt)
         // Keep tooltip width stable between different options to avoid size flicker.
         ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 0.0f), ImVec2(480.0f, FLT_MAX));
         ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 38.0f);
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextDisabled("Key: %s", opt.key);
         const char* desc = L(opt.desc);
         const char* tip = L(opt.tip);
@@ -260,9 +260,9 @@ Option g_Options[] =
         { u8"World Scale", u8"世界缩放" },
         { u8"Adjusts overall world scale (distance and size perception).",
           u8"调整整体世界尺度（距离与大小感知）。" },
-        { u8"Keep close to real-world meter scale. 43~55 covers most play spaces.",
-          u8"尽量保持与真实世界接近。43~55 一般最合适。" },
-        30.0f, 70.0f,
+        { u8"Keep close to real-world meter scale. 43.2 covers most play spaces.",
+          u8"尽量保持与真实世界接近。43.2一般最合适。" },
+        30.0f, 55.0f,
         "43.2"
     },
     {
@@ -277,19 +277,6 @@ Option g_Options[] =
         0.8f, 1.2f,
         "1.0"
     },
-    {
-        "HeadSmoothing",
-        OptionType::Float,
-        { u8"View / Scale", u8"视角 / 尺度" },
-        { u8"Head Tracking Smoothing", u8"头部追踪平滑" },
-        { u8"Applies smoothing to head tracking to reduce jitter at the cost of a little latency.",
-          u8"为头部追踪添加平滑以减少抖动，但会增加少量延迟。" },
-        { u8"0 keeps latency lowest; 0.05~0.15 helps shaky tracking.",
-          u8"0 延迟最低，0.05~0.15 可缓解抖动。" },
-        0.0f, 0.3f,
-        "0.0"
-    },
-
     // Input / Turning
     {
         "LeftHanded",
@@ -301,6 +288,13 @@ Option g_Options[] =
         { u8"Toggle if you primarily aim with the left controller.",
           u8"如果主要用左手瞄准，请开启。" },
         0.0f, 0.0f,
+        "false"
+    },
+    {
+        "MoveDirectionFromController",
+        OptionType::Bool,
+        { u8"Input / Turning", u8"输入 / 转向" },
+        { u8"Controller determines the direction of movement", u8"手柄决定前进方向" },
         "false"
     },
     {
@@ -352,6 +346,150 @@ Option g_Options[] =
         "0.0"
     },
     {
+        "MouseModeEnabled",
+        OptionType::Bool,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Enable Mouse Mode", u8"启用键鼠模式" },
+        { u8"Enables desktop-style mouse aiming while staying in VR rendering.",
+          u8"启用桌面式键鼠瞄准，但仍保持VR渲染。" },
+        { u8"Mouse X turns your body; mouse Y aims (and optionally tilts view).",
+          u8"鼠标X控制转身；鼠标Y控制俯仰（可选同时带动视角）。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "MouseModeAimFromHmd",
+        OptionType::Bool,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Aim From HMD", u8"从头显瞄准" },
+        { u8"When enabled, mouse-mode aiming is driven by the HMD center ray instead of the fixed viewmodel anchor.",
+          u8"开启后，键鼠模式的瞄准将改为使用头显中心射线，而不是固定的 viewmodel 锚点。" },
+        { u8"Recommended if you want to keep holding the gun/stocks naturally and use the headset to fine-aim.",
+          u8"适合希望保持握枪姿势不变、用头显做微调瞄准的场景。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "MouseModeYawSensitivity",
+        OptionType::Float,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Yaw Sensitivity", u8"鼠标水平灵敏度" },
+        { u8"How much mouse X rotates yaw per count.",
+          u8"鼠标水平每个计数导致的转向幅度。" },
+        { u8"Negative values invert direction.",
+          u8"负值可反向。" },
+        -0.2f, 0.2f,
+        "0.022"
+    },
+    {
+        "MouseModePitchSensitivity",
+        OptionType::Float,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Pitch Sensitivity", u8"鼠标垂直灵敏度" },
+        { u8"How much mouse Y changes pitch per count.",
+          u8"鼠标垂直每个计数导致的俯仰变化。" },
+        { u8"Negative values invert direction.",
+          u8"负值可反向。" },
+        -0.2f, 0.2f,
+        "0.022"
+    },
+    {
+        "MouseModePitchAffectsView",
+        OptionType::Bool,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Pitch Tilts View", u8"鼠标俯仰带动视角" },
+        { u8"When enabled, mouse Y also tilts the rendered view up/down (adds a pitch offset on top of HMD tracking).",
+          u8"开启后，鼠标Y也会带动渲染视角上下俯仰（在头显追踪基础上叠加俯仰偏移）。" },
+        { u8"Useful if aiming at high/low targets is difficult without moving your head. May increase motion sickness.",
+          u8"适合不想抬头/低头也能全方向瞄准的场景，但可能更容易晕。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "MouseModeTurnSmoothing",
+        OptionType::Float,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Yaw Smoothing (seconds)", u8"水平平滑 (秒)" },
+        { u8"Smooths mouse-driven yaw (turning) to avoid 'stepping' when CreateMove rate < VR refresh.",
+          u8"对鼠标驱动的水平转向做平滑，避免 CreateMove 频率低于 VR 刷新率时出现台阶感。" },
+        { u8"0 disables smoothing. Typical: 0.03~0.08.",
+          u8"0 关闭平滑。常用：0.03~0.08。" },
+        0.0f, 0.25f,
+        "0.05"
+    },
+    {
+        "MouseModePitchSmoothing",
+        OptionType::Float,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Pitch Smoothing (seconds)", u8"垂直平滑 (秒)" },
+        { u8"Smooths mouse-driven pitch (aim up/down) to avoid stutter when CreateMove rate < VR refresh.",
+          u8"对鼠标驱动的垂直瞄准做平滑，避免 CreateMove 频率低于 VR 刷新率时出现卡顿/台阶。" },
+        { u8"0 disables smoothing. Typical: 0.03~0.08.",
+          u8"0 关闭平滑。常用：0.03~0.08。" },
+        0.0f, 0.25f,
+        "0.05"
+    },
+    {
+        "MouseModeViewmodelAnchorOffset",
+        OptionType::Vec3,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Viewmodel Anchor Offset (m)", u8"鼠标模式 Viewmodel 锚点偏移 (米)" },
+        { u8"HMD-local offset for the fixed viewmodel/aim origin (meters).",
+          u8"基于 HMD 的固定 viewmodel/瞄准起点偏移（米制）。" },
+        { u8"X=forward, Y=right, Z=up. Tune so the gun sits where you want.",
+          u8"X=前方，Y=右方，Z=上方。调到枪在你想要的位置。" },
+        -1.0f, 1.0f,
+        "0.22,0.00,-0.18"
+    },
+    {
+        "MouseModeAimConvergeDistance",
+        OptionType::Float,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Convergence Distance (units)", u8"鼠标模式汇聚距离 (单位)" },
+        { u8"Scheme B: viewmodel ray is steered to intersect the HMD-center ray at this distance (Source units).",
+          u8"方案B：让 viewmodel 发出的瞄准射线在该距离与视线中心射线相交（Source 单位）。" },
+        { u8"Helps keep the aim line near screen center even if you move the anchor. 2048~4096 is common.",
+          u8"即使调整锚点，也能让瞄准线远处回到视野中心。常用 2048~4096。" },
+        0.0f, 8192.0f,
+        "2048"
+    },
+    {
+        "MouseModeScopeSensitivityScale",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Scoped Sensitivity Scale", u8"键鼠模式开镜灵敏度缩放" },
+        { u8"Scales aim sensitivity while the mouse-mode scope overlay is active.",
+          u8"键鼠模式的瞄准镜覆盖层开启时，对瞄准灵敏度进行缩放。" },
+        { u8"Accepts 0~1 or 0~100; supports comma list matching magnification steps. Example: 50,25,15,5.",
+          u8"支持 0~1 或 0~100；也支持逗号列表，对应倍率档位顺序。示例：50,25,15,5。" },
+        0.0f, 0.0f,
+        "50,25,15,5"
+    },
+    {
+        "MouseModeScopeToggleKey",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Scope Toggle Key", u8"键鼠模式开镜切换按键" },
+        { u8"Keyboard key used to toggle the mouse-mode scope overlay on/off.",
+          u8"用于开/关键鼠模式瞄准镜覆盖层的键盘按键。" },
+        { u8"Format: key:<name> (e.g., key:6, key:f9). Leave empty to disable.",
+          u8"格式：key:<按键名>（如 key:6、key:f9）。留空表示禁用。" },
+        0.0f, 0.0f,
+        "key:6"
+    },
+    {
+        "MouseModeScopeMagnificationKey",
+        OptionType::String,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse Mode Scope Magnification Key", u8"键鼠模式倍率切换按键" },
+        { u8"Keyboard key used to cycle magnification steps while mouse-mode scope is active.",
+          u8"键鼠模式开镜状态下，用于切换倍率档位的键盘按键。" },
+        { u8"Format: key:<name> (e.g., key:7, key:f10). Leave empty to disable.",
+          u8"格式：key:<按键名>（如 key:7、key:f10）。留空表示禁用。" },
+        0.0f, 0.0f,
+        "key:7"
+    },
+    {
         "ForceNonVRServerMovement",
         OptionType::Bool,
         { u8"Multiplayer / Server", u8"多人 / 服务器" },
@@ -359,11 +497,10 @@ Option g_Options[] =
         { u8"Converts VR movement/interaction to be more acceptable to standard servers.",
           u8"将VR移动与交互转换为更符合传统服务器的形式。" },
         { u8"Recommended for public multiplayer servers.",
-          u8"公共多人服务器建议开启。" },
+          u8"非自己建房多必须开启。" },
         0.0f, 0.0f,
         "false"
     },
-
     // HUD (Main)
     {
         "HudDistance",
@@ -401,44 +538,17 @@ Option g_Options[] =
         0.0f, 0.0f,
         "true"
     },
-    {
-        "FixedHudYOffset",
-        OptionType::Float,
-        { u8"HUD (Main)", u8"HUD（主界面）" },
-        { u8"HUD Vertical Offset", u8"HUD 垂直偏移" },
-        { u8"Moves the HUD up or down relative to the head.",
-          u8"相对头部上下移动HUD。" },
-        { u8"Fine-tune to keep HUD out of the weapon view.",
-          u8"微调避免挡住武器视线。" },
-        -0.5f, 0.5f,
-        "0.25"
-    },
-    {
-        "FixedHudDistanceOffset",
-        OptionType::Float,
-        { u8"HUD (Main)", u8"HUD（主界面）" },
-        { u8"HUD Distance Offset", u8"HUD 距离偏移" },
-        { u8"Adjusts HUD distance without changing size.",
-          u8"调整HUD距离但不改变大小。" },
-        { u8"Use small steps to avoid eyestrain.",
-          u8"小幅调整以避免眼疲劳。" },
-        -1.0f, 1.0f,
-        "0.25"
-    },
 
     // HUD (Controller)
     {
         "ControllerHudCut",
         OptionType::Bool,
         { u8"HUD (Controller)", u8"HUD（手柄）" },
-        { u8"Hide Controller HUD Near Camera", u8"近距离裁剪手柄HUD" },
-        { u8"Cuts the controller HUD when it would overlap the camera.",
-          u8"当手柄HUD靠近相机时自动隐藏。" },
-        { u8"Prevents UI from clipping into the face.",
-          u8"避免UI穿入视野。" },
-        0.0f, 0.0f,
-        "true"
-    },
+        { u8"HUD clipping", u8"HUD裁切" },
+        { u8"cutting the HUD at the bottom-left and bottom-right corners to the controllers.",
+          u8"将左下角和右下角的hud裁切到手柄。" },
+        "false"
+     },
     {
         "ControllerHudSize",
         OptionType::Float,
@@ -510,30 +620,6 @@ Option g_Options[] =
         0.0f, 0.0f,
         "false"
     },
-    {
-        "DebugHandsEnabled",
-        OptionType::Bool,
-        { u8"Hands / Debug", u8"手部 / 调试" },
-        { u8"Show Debug Hands", u8"显示调试手模型" },
-        { u8"Renders simplified debug hands for troubleshooting alignment.",
-          u8"渲染简化的调试手，用于校准和排查。" },
-        { u8"Disable for full immersion.",
-          u8"追求沉浸感可关闭。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "DebugHandColor",
-        OptionType::Color,
-        { u8"Hands / Debug", u8"手部 / 调试" },
-        { u8"Debug Hand Color", u8"调试手颜色" },
-        { u8"RGBA color for debug hand rendering (supports 0~1 or 0~255).",
-          u8"调试手渲染的RGBA颜色（支持 0~1 或 0~255）。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "0,200,255,255"
-    },
-
     // Interaction / Combos
     {
         "RequireSecondaryAttackForItemSwitch",
@@ -544,7 +630,7 @@ Option g_Options[] =
           u8"需要按住副攻击键才切换物品，避免误触。" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "true"
+        "false"
     },
     {
         "VoiceRecordCombo",
@@ -593,7 +679,32 @@ Option g_Options[] =
         0.0f, 0.0f,
         "Reload+SecondaryAttack"
     },
-
+    // Weapons / Fire
+    {
+        "AutoRepeatSemiAutoFire",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Hold-to-Fire for Semi-Auto", u8"单发枪长按连发" },
+        { u8"Converts a held primary-fire input into pulses so semi-auto / single-shot guns keep firing while you hold the trigger.",
+          u8"把持续按住的主开火输入变成“点射脉冲”，让半自动/单发武器在按住扳机时也能连续射击。" },
+        { u8"Does not affect full-auto weapons. Use AutoRepeatSemiAutoFireHz to adjust click rate.",
+          u8"不影响全自动武器。可用 AutoRepeatSemiAutoFireHz 调整“连点”频率。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "AutoRepeatSemiAutoFireHz",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Auto-Repeat Rate (Hz)", u8"连点频率 (Hz)" },
+        { u8"How many fire pulses per second to generate while holding the trigger.",
+          u8"按住扳机时每秒生成多少次开火脉冲。" },
+        { u8"Higher can feel snappier, but the weapon's real fire rate still limits shots.",
+          u8"调高会更“跟手”，但实际射速仍受武器本身限制。" },
+        1.0f, 30.0f,
+        "12.0"
+    },
+ 
     // Aim Assist
     {
         "AimLineEnabled",
@@ -608,6 +719,18 @@ Option g_Options[] =
         "true"
     },
     {
+        "AimLineOnlyWhenLaserSight",
+        OptionType::Bool,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Show Aim Line Only With Laser Sight", u8"仅在激光瞄准开启时显示瞄准线" },
+        { u8"When enabled, the VR aim line is hidden unless your firearm has the in-game laser sight upgrade active.",
+          u8"开启后，除非枪械已激活游戏内的激光瞄准升级，否则隐藏VR瞄准线。" },
+        { u8"Throwable trajectory arcs are not affected.",
+          u8"投掷物抛物线不受影响。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
         "MeleeAimLineEnabled",
         OptionType::Bool,
         { u8"Aim Assist", u8"辅助瞄准" },
@@ -617,6 +740,18 @@ Option g_Options[] =
         { u8"", u8"" },
         0.0f, 0.0f,
         "true"
+    },
+    {
+        "BlockFireOnFriendlyAimEnabled",
+        OptionType::Bool,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Friendly-fire Aim Guard ", u8"禁止向队友开火" },
+        { u8"Suppresses firing when your aim line is on a teammate.",
+         u8"当瞄准线指向队友时抑制开火。" },
+        { u8"This is the startup default; you can still toggle it at runtime via SteamVR binding.",
+        u8"这是启动时的默认值；运行中仍可用 SteamVR 绑定开关切换。" },
+        0.0f, 0.0f,
+        "false"
     },
     {
         "AimLineThickness",
@@ -629,18 +764,6 @@ Option g_Options[] =
           u8"0.15~0.5 通常足够清晰。" },
         0.05f, 1.0f,
         "0.3"
-    },
-    {
-        "AimLineFrameDurationMultiplier",
-        OptionType::Float,
-        { u8"Aim Assist", u8"辅助瞄准" },
-        { u8"Aim Line Persistence", u8"瞄准线保留时间" },
-        { u8"Controls how long the aim line trail lingers.",
-          u8"控制瞄准线拖尾停留时间。" },
-        { u8"1.0~2.0 keeps a short trail; higher values look smeared.",
-          u8"1.0~2.0 拖尾较短，过高会显得糊。" },
-        0.2f, 3.0f,
-        "1.5"
     },
     {
         "AimLineColor",
@@ -723,29 +846,28 @@ Option g_Options[] =
         0.0f, 1.0f,
         "0.2"
     },
-
     // Inventory Anchors
     {
         "InventoryGestureRange",
         OptionType::Float,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Inventory Gesture Range", u8"物品手势触发距离" },
-        { u8"How far the hand can move from the body to trigger inventory gestures (meters).",
-          u8"手部离身体多远触发物品手势（米）。" },
-        { u8"0.15~0.35 works for most arm lengths.",
-          u8"0.15~0.35 适合大多数身材。" },
+        { u8"Inventory Gesture Activation Range", u8"道具锚点抓取的有效范围" },
+        { u8"Distance from the inventory anchor within which grabbing is allowed (meters).",
+          u8"手部靠近道具栏多近时，允许触发物品抓取（米）。" },
+        { u8"Grab is triggered by pressing the grip when the hand is inside this range.",
+          u8"手进入范围后按下握键即可抓取道具。" },
         0.1f, 0.5f,
-        "0.23"
+        "0.16"
     },
     {
         "InventoryChestOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Chest Anchor Offset (x,y,z)", u8"胸前锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to chest anchor in meters.",
-          u8"从头部到胸前锚点的米制偏移。" },
-        { u8"Adjust per body size. Positive X = forward.",
-          u8"根据体型调整。X 正为前方。" },
+        { u8"Chest Anchor Offset (x,y,z)", u8"医疗包锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the medkit anchor (meters).",
+          u8"从胸口基准点到医疗包锚点的米制偏移。" },
+        { u8"Default position is directly in front of the head, centered.",
+          u8"默认位于头顶正前方中央位置。" },
         -0.6f, 0.6f,
         "0.20,0.0,-0.20"
     },
@@ -753,10 +875,11 @@ Option g_Options[] =
         "InventoryBackOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Back Anchor Offset (x,y,z)", u8"背部锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to back anchor in meters.",
-          u8"从头部到背部锚点的米制偏移。" },
-        { u8"", u8"" },
+        { u8"Weapon Switch Anchor Offset (x,y,z)", u8"主/副武器切换锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the weapon switch anchor (meters).",
+          u8"从胸口基准点到武器切换锚点的米制偏移。" },
+        { u8"By default, this anchor is still located at the chest.",
+          u8"默认仍位于胸口位置。" },
         -0.6f, 0.6f,
         "-0.25,0.0,-0.10"
     },
@@ -764,10 +887,11 @@ Option g_Options[] =
         "InventoryLeftWaistOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Left Waist Anchor Offset (x,y,z)", u8"左腰锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to left waist anchor in meters.",
-          u8"从头部到左腰锚点的米制偏移。" },
-        { u8"", u8"" },
+        { u8"Left Waist Anchor Offset (x,y,z)", u8"投掷物锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the throwable item anchor (meters).",
+          u8"从胸口基准点到投掷物锚点的米制偏移。" },
+        { u8"Default position is in front of the head, to the left.",
+          u8"默认位于头顶左前方区域。" },
         -0.6f, 0.6f,
         "0.05,-0.25,-0.50"
     },
@@ -775,10 +899,11 @@ Option g_Options[] =
         "InventoryRightWaistOffset",
         OptionType::Vec3,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Right Waist Anchor Offset (x,y,z)", u8"右腰锚点偏移 (x,y,z)" },
-        { u8"Offset from headset to right waist anchor in meters.",
-          u8"从头部到右腰锚点的米制偏移。" },
-        { u8"", u8"" },
+        { u8"Right Waist Anchor Offset (x,y,z)", u8"药片/兴奋剂锚点偏移 (x,y,z)" },
+        { u8"Offset from the chest reference point to the pills/adrenaline anchor (meters).",
+          u8"从胸口基准点到药片/兴奋剂锚点的米制偏移。" },
+        { u8"Default position is in front of the head, to the right.",
+          u8"默认位于头顶右前方区域。" },
         -0.6f, 0.6f,
         "0.05,0.25,-0.50"
     },
@@ -786,37 +911,220 @@ Option g_Options[] =
         "ShowInventoryAnchors",
         OptionType::Bool,
         { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Show Inventory Anchor Gizmos", u8"显示锚点辅助图" },
-        { u8"Draws visual anchors for debugging inventory positions.",
-          u8"绘制锚点辅助图以调试物品位置。" },
-        { u8"", u8"" },
+        { u8"Show Inventory Grab Zones",
+          u8"显示道具栏抓取区域（不熟悉位置时建议开启）" },
+        { u8"Draws visible grab zones for inventory anchors.",
+          u8"在世界中绘制可视化的道具栏抓取区域。" },
+        { u8"Recommended for learning anchor positions; can be disabled once familiar.",
+          u8"熟悉各锚点位置后可关闭以减少视觉干扰。" },
         0.0f, 0.0f,
         "false"
     },
-    {
-        "InventoryAnchorColor",
-        OptionType::Color,
-        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
-        { u8"Inventory Anchor Color", u8"锚点颜色" },
-        { u8"RGBA color for anchor gizmos (supports 0~1 or 0~255).",
-          u8"锚点辅助图的RGBA颜色（支持 0~1 或 0~255）。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "0,255,255,150"
-    },
-
+    // Optics (Scope / Rear Mirror)
+ {
+     "ScopeEnabled",
+     OptionType::Bool,
+     { u8"Optics", u8"光学" },
+     { u8"Enable Gun Scope", u8"启用枪械瞄准镜" },
+     { u8"Renders a gun-mounted scope view to an overlay.",
+       u8"将枪械瞄准镜画面渲染到一个覆盖层上。" },
+     { u8"If disabled, scope rendering and overlay are skipped.",
+       u8"关闭后将不再渲染瞄准镜及其覆盖层。" },
+     0.0f, 0.0f,
+     "true"
+ },
+ {
+     "ScopeRTTSize",
+     OptionType::Int,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Render Texture Size", u8"瞄准镜渲染分辨率" },
+     { u8"Render target size (pixels) for the scope view.",
+       u8"瞄准镜画面渲染目标尺寸（像素）。" },
+     { u8"Higher is sharper but costs more GPU time.",
+       u8"越高越清晰，但GPU开销更大。" },
+     128.f, 1024.f,
+     "512"
+ },
+ {
+     "ScopeFov",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Field of View", u8"瞄准镜视野(FOV)" },
+     { u8"Camera FOV used when rendering through the scope (degrees).",
+       u8"瞄准镜渲染相机使用的视野角（度）。" },
+     { u8"Smaller FOV = higher magnification.",
+       u8"FOV 越小 = 倍率越高。" },
+     5.0f, 45.0f,
+     "30"
+ },
+ {
+     "ScopeMagnification",
+     OptionType::String,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Magnification Steps (FOV list)", u8"瞄准镜倍率档位（FOV列表）" },
+     { u8"Comma-separated list of scope FOV values used as toggle steps.SteamVR button binding to toggle Scope Magnification.",
+       u8"用逗号分隔的一组瞄准镜FOV，用于切换倍率档位。Steamvr按键绑定选择Toggle Scope Magnification使用" },
+     { u8"Example: 20,15,10,5. Values are clamped to 5~45.",
+       u8"示例：20,15,10,5。数值会被限制在 5~45。" },
+     0.0f, 0.0f,
+     "20,15,10,5"
+ },
+ {
+     "ScopeAimSensitivityScale",
+     OptionType::String,
+     { u8"Scope", u8"瞄准镜" },
+     { u8"Scoped Aim Sensitivity Scale", u8"开镜灵敏度缩放" },
+     { u8"Scales controller aim delta when scope is active (ADS / zoom sensitivity).",
+       u8"瞄准镜触发时按比例降低手柄瞄准灵敏度（类似开镜灵敏度）。" },
+     { u8"Accepts 0~1 or 0~100; supports comma list matching ScopeMagnification.",
+       u8"支持 0~1 或 0~100；也支持逗号列表，对应 ScopeMagnification 的档位顺序。" },
+     0.0f, 0.0f,
+     "100,100,100,100"
+  },
+ {
+     "ScopeZNear",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Camera Near Plane", u8"瞄准镜近裁剪面" },
+     { u8"Near clip distance for the scope camera.",
+       u8"瞄准镜相机的近裁剪距离。" },
+     { u8"Increase if the scope camera clips through nearby geometry.",
+       u8"如果近处几何体被裁剪/穿模，可适当调大。" },
+     0.1f, 6.0f,
+     "2"
+ },
+ {
+     "ScopeOverlayWidthMeters",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Overlay Width", u8"瞄准镜覆盖层宽度" },
+     { u8"Physical width of the scope overlay quad (meters).",
+       u8"瞄准镜覆盖层平面的物理宽度（米）。" },
+     { u8"Adjust to match your scope model size.",
+       u8"调到与瞄准镜模型大小一致即可。" },
+     0.01f, 0.3f,
+     "0.15"
+ },
+ {
+     "ScopeOverlayXOffset",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Overlay X Offset", u8"瞄准镜覆盖层X偏移" },
+     { u8"Overlay offset along controller forward axis (meters).",
+       u8"覆盖层沿控制器前方轴的偏移（米）。" },
+     { u8"Positive moves it forward.",
+       u8"正数更靠前。" },
+     -0.1f, 0.1f,
+     "0.02"
+ },
+ {
+     "ScopeOverlayYOffset",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Overlay Y Offset", u8"瞄准镜覆盖层Y偏移" },
+     { u8"Overlay offset along controller right axis (meters).",
+       u8"覆盖层沿控制器右侧轴的偏移（米）。" },
+     { u8"Positive moves it to the right.",
+       u8"正数更靠右。" },
+     -0.1f, 0.1f,
+     "0.04"
+ },
+ {
+     "ScopeOverlayZOffset",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Overlay Z Offset", u8"瞄准镜覆盖层Z偏移" },
+     { u8"Overlay offset along controller up axis (meters).",
+       u8"覆盖层沿控制器上方轴的偏移（米）。" },
+     { u8"Positive moves it up.",
+       u8"正数更靠上。" },
+     -0.1f, 0.1f,
+     "-0.06"
+ },
+ {
+     "ScopeOverlayAngleOffset",
+     OptionType::Vec3,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Overlay Angle Offset (pitch,yaw,roll)", u8"瞄准镜覆盖层角度偏移 (俯仰,偏航,翻滚)" },
+     { u8"Additional rotation for the scope overlay quad (degrees).",
+       u8"瞄准镜覆盖层平面的额外旋转（度）。" },
+     { u8"Use this to make the scope face your eye correctly.",
+       u8"用于让瞄准镜平面正确朝向眼睛。" },
+     -180.f, 180.f,
+     "-65,-5,-5"
+ },
+ {
+     "ScopeRequireLookThrough",
+     OptionType::Bool,
+     { u8"Optics", u8"光学" },
+     { u8"Require Looking Through Scope", u8"需要贴近瞄准镜才显示" },
+     { u8"Only shows the scope overlay when your eye is close and aligned.",
+       u8"仅在眼睛靠近并对准时才显示瞄准镜覆盖层。" },
+     { u8"Disabling makes the overlay always visible (useful for testing).",
+       u8"关闭后覆盖层总显示（便于调试）。" },
+     0.0f, 0.0f,
+     "true"
+ },
+ {
+     "ScopeLookThroughDistanceMeters",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Look-Through Distance", u8"贴近距离" },
+     { u8"Max eye-to-scope distance to count as looking through (meters).",
+       u8"眼睛到瞄准镜的最大距离（米），小于该值才算在看镜。" },
+     { u8"Larger is more forgiving.",
+       u8"越大越宽松。" },
+     0.01f, 2.0f,
+     "0.5"
+ },
+ {
+     "ScopeLookThroughAngleDeg",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Look-Through Angle", u8"贴近角度" },
+     { u8"Max angle off the scope axis to count as looking through (degrees).",
+       u8"视线偏离瞄准镜轴线的最大角度（度）。" },
+     { u8"Smaller is stricter; larger is more forgiving.",
+       u8"越小越严格，越大越宽松。" },
+     1.0f, 89.0f,
+     "60"
+ },
+ {
+     "ScopeOverlayAlwaysVisible",
+     OptionType::Bool,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Overlay Always Visible", u8"瞄准镜覆盖层始终可见" },
+     { u8"Keeps the scope overlay visible even when not looking through.",
+       u8"即使没有贴近瞄准镜，也保持覆盖层可见。" },
+     { u8"Useful for aligning/previewing the overlay.",
+       u8"用于对齐/预览覆盖层位置。" },
+     0.0f, 0.0f,
+     "false"
+ },
+ {
+     "ScopeOverlayIdleAlpha",
+     OptionType::Float,
+     { u8"Optics", u8"光学" },
+     { u8"Scope Idle Alpha", u8"瞄准镜闲置透明度" },
+     { u8"Overlay alpha when not looking through (0~1).",
+       u8"未贴近时覆盖层透明度（0~1）。" },
+     { u8"0 = invisible, 1 = fully opaque.",
+       u8"0=完全透明，1=完全不透明。" },
+     0.0f, 1.0f,
+     "0.5"
+ },
     // Custom Actions
     {
         "CustomAction1Command",
         OptionType::String,
         { u8"Custom Actions", u8"自定义动作" },
         { u8"Custom Action 1 Command", u8"自定义动作1指令" },
-        { u8"Console command or \"key:X\"/\"hold:key:X\" binding.",
-          u8"可填控制台指令，或 \"key:X\"/\"hold:key:X\" 键盘映射。" },
+        { u8"Console command",
+          u8"可填控制台指令" },
         { u8"Mapped to VR custom action slot 1.",
           u8"对应VR自定义动作槽1。" },
         0.0f, 0.0f,
-        "+l4n_lookat"
+        "thirdpersonshoulder"
     },
     {
         "CustomAction2Command",
@@ -826,7 +1134,7 @@ Option g_Options[] =
         { u8"", u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "thirdpersonshoulder"
+        "say !buy"
     },
     {
         "CustomAction3Command",
@@ -836,7 +1144,7 @@ Option g_Options[] =
         { u8"", u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "say /drop"
+        ""
     },
     {
         "CustomAction4Command",
@@ -846,7 +1154,7 @@ Option g_Options[] =
         { u8"", u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
-        "+alt2"
+        ""
     },
     {
         "CustomAction5Command",
@@ -857,428 +1165,6 @@ Option g_Options[] =
         { u8"", u8"" },
         0.0f, 0.0f,
         ""
-    },
-
-    // Special Infected Indicators
-    {
-        "SpecialInfectedArrowEnabled",
-        OptionType::Bool,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Enable Overhead Arrow", u8"启用头顶箭头" },
-        { u8"Shows an arrow above special infected.",
-          u8"在特感头顶显示箭头。" },
-        { u8"Useful when visibility is low.",
-          u8"能见度低时有帮助。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "SpecialInfectedArrowSize",
-        OptionType::Float,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Size", u8"箭头大小" },
-        { u8"Base size of the overhead arrow.",
-          u8"头顶箭头的基础尺寸。" },
-        { u8"", u8"" },
-        5.0f, 60.0f,
-        "20.0"
-    },
-    {
-        "SpecialInfectedArrowHeight",
-        OptionType::Float,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Height", u8"箭头高度" },
-        { u8"Height above the infected head (world units).",
-          u8"箭头离特感头部的高度（游戏单位）。" },
-        { u8"", u8"" },
-        10.0f, 200.0f,
-        "90.0"
-    },
-    {
-        "SpecialInfectedArrowThickness",
-        OptionType::Float,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Line Thickness", u8"箭头线条粗细" },
-        { u8"Visual thickness of the arrow outline.",
-          u8"箭头轮廓的视觉粗细。" },
-        { u8"", u8"" },
-        0.0f, 2.0f,
-        "0.4"
-    },
-    {
-        "SpecialInfectedArrowColor",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Arrow Color (Global)", u8"箭头颜色（全局）" },
-        { u8"Default arrow color applied to all when per-type colors are unset.",
-          u8"未单独设置时应用于所有特感的默认颜色。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,64,0,255"
-    },
-    {
-        "SpecialInfectedArrowColorBoomer",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Boomer Arrow Color", u8"胖子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,222,173,255"
-    },
-    {
-        "SpecialInfectedArrowColorSmoker",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Smoker Arrow Color", u8"舌头箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "205,85,85,255"
-    },
-    {
-        "SpecialInfectedArrowColorHunter",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Hunter Arrow Color", u8"猎人箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "208,32,144,255"
-    },
-    {
-        "SpecialInfectedArrowColorSpitter",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Spitter Arrow Color", u8"喷子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "127,255,0,255"
-    },
-    {
-        "SpecialInfectedArrowColorJockey",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Jockey Arrow Color", u8"猴子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,140,20,255"
-    },
-    {
-        "SpecialInfectedArrowColorCharger",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Charger Arrow Color", u8"牛子箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "0,200,200,255"
-    },
-    {
-        "SpecialInfectedArrowColorTank",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Tank Arrow Color", u8"坦克箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,0,0,255"
-    },
-    {
-        "SpecialInfectedArrowColorWitch",
-        OptionType::Color,
-        { u8"Special Infected Indicators", u8"特感提示箭头" },
-        { u8"Witch Arrow Color", u8"女巫箭头颜色" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "255,0,0,255"
-    },
-
-    // Special Infected Assist
-    {
-        "SpecialInfectedAutoEvade",
-        OptionType::Bool,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Auto Evade / Warn", u8"自动规避 / 预警" },
-        { u8"Automatically issues evasion inputs when a special infected attacks.",
-          u8"特感攻击时自动执行规避输入。" },
-        { u8"Assist feature—use responsibly.",
-          u8"属于辅助功能，请合理使用。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "SpecialInfectedBlindSpotDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Blind Spot Warning Distance", u8"盲区预警距离" },
-        { u8"Distance for behind-the-back warning checks (units).",
-          u8"背后预警检查的距离（游戏单位）。" },
-        { u8"", u8"" },
-        30.0f, 200.0f,
-        "120.0"
-    },
-    {
-        "SpecialInfectedPreWarningDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Pre-Warning Distance", u8"特感预警距离" },
-        { u8"Triggers warning/auto-aim logic when within this range (units).",
-          u8"特感进入此距离时触发预警/辅助（游戏单位）。" },
-        { u8"Extend for more reaction time; shorten to reduce assists.",
-          u8"想要更长反应时间可调大，想少辅助可调小。" },
-        300.0f, 1200.0f,
-        "850.0"
-    },
-    {
-        "SpecialInfectedPreWarningAutoAimEnabled",
-        OptionType::Bool,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Enable Pre-Warning Auto Aim", u8"启用预警自动瞄准" },
-        { u8"Allows the pre-warning system to gently steer aim toward threats.",
-          u8"允许预警系统轻微引导瞄准至威胁目标。" },
-        { u8"Disable for pure warnings only.",
-          u8"若只想要预警，可关闭。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "SpecialInfectedAutoAimLerp",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Auto Aim Lerp", u8"自动瞄准插值" },
-        { u8"How quickly auto aim blends toward the target (0 = off).",
-          u8"自动瞄准向目标插值的速度（0 表示关闭）。" },
-        { u8"Kept within the in-game clamp of 0~0.3.",
-          u8"与游戏内限制一致（0~0.3）。" },
-        0.0f, 0.3f,
-        "0.3"
-    },
-    {
-        "SpecialInfectedAutoAimCooldown",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Auto Aim Cooldown", u8"自动瞄准冷却" },
-        { u8"Minimum seconds between auto-aim assists.",
-          u8"两次自动瞄准辅助之间的最小秒数。" },
-        { u8"Game enforces at least 0.5s.",
-          u8"游戏最少强制 0.5 秒。" },
-        0.5f, 2.0f,
-        "0.5"
-    },
-    {
-        "SpecialInfectedPreWarningAimAngle",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Aim Assist Angle", u8"瞄准辅助角度" },
-        { u8"Maximum angular offset allowed for auto-aim to engage.",
-          u8"自动瞄准可介入的最大角度偏移。" },
-        { u8"Clamped by game to 0~10 degrees.",
-          u8"游戏会限制在 0~10 度。" },
-        0.0f, 10.0f,
-        "5.0"
-    },
-    {
-        "SpecialInfectedPreWarningAimSnapDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Aim Snap Distance", u8"瞄准锁定距离" },
-        { u8"Distance at which aim lock starts (units).",
-          u8"开始瞄准锁定的距离（游戏单位）。" },
-        { u8"Kept within game clamp 0~20.",
-          u8"遵循游戏 0~20 的限制。" },
-        0.0f, 20.0f,
-        "18.0"
-    },
-    {
-        "SpecialInfectedPreWarningAimReleaseDistance",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Aim Release Distance", u8"瞄准释放距离" },
-        { u8"Distance where auto aim stops (>= snap distance).",
-          u8"自动瞄准停止的距离（需 ≥ 锁定距离）。" },
-        { u8"Game clamps to 0~30.",
-          u8"游戏限制 0~30。" },
-        0.0f, 30.0f,
-        "28.0"
-    },
-    {
-        "SpecialInfectedPreWarningTargetUpdateInterval",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Target Update Interval", u8"目标更新间隔" },
-        { u8"Seconds between pre-warning target refreshes.",
-          u8"预警目标刷新间隔（秒）。" },
-        { u8"", u8"" },
-        0.05f, 0.5f,
-        "0.1"
-    },
-    {
-        "SpecialInfectedWarningSecondaryHoldDuration",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Secondary Hold Duration", u8"副攻击按住时间" },
-        { u8"Seconds to hold secondary attack during auto-evade.",
-          u8"自动规避时按住副攻击的秒数。" },
-        { u8"", u8"" },
-        0.0f, 0.5f,
-        "0.05"
-    },
-    {
-        "SpecialInfectedWarningPostAttackDelay",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Post-Attack Delay", u8"攻击后延迟" },
-        { u8"Delay after a special infected attack before controls resume (seconds).",
-          u8"特感攻击后恢复控制前的延迟（秒）。" },
-        { u8"", u8"" },
-        0.0f, 0.5f,
-        "0.1"
-    },
-    {
-        "SpecialInfectedWarningJumpHoldDuration",
-        OptionType::Float,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Jump Hold Duration", u8"跳跃按住时间" },
-        { u8"Seconds jump is held during auto-evade.",
-          u8"自动规避时按住跳跃的秒数。" },
-        { u8"", u8"" },
-        0.0f, 1.0f,
-        "0.5"
-    },
-    {
-        "SpecialInfectedDebug",
-        OptionType::Bool,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Debug Mode", u8"调试模式" },
-        { u8"Disables safety clamps for tuning/diagnostics.",
-          u8"关闭安全限制，便于调试和极端设置。" },
-        { u8"Use only when testing.",
-          u8"仅用于测试。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetBoomer",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Boomer Aim Offset (x,y,z)", u8"胖子瞄准偏移 (x,y,z)" },
-        { u8"Offset applied when auto-aiming at a Boomer (units).",
-          u8"自动瞄准胖子时的偏移量（游戏单位）。" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,40"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetSmoker",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Smoker Aim Offset (x,y,z)", u8"舌头瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "3,0,42"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetHunter",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Hunter Aim Offset (x,y,z)", u8"猎人瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,20"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetSpitter",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Spitter Aim Offset (x,y,z)", u8"喷子瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "3,0,42"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetJockey",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Jockey Aim Offset (x,y,z)", u8"猴子瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "10,0,20"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetCharger",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Charger Aim Offset (x,y,z)", u8"牛子瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "3,0,48"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetTank",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Tank Aim Offset (x,y,z)", u8"坦克瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,45"
-    },
-    {
-        "SpecialInfectedPreWarningAimOffsetWitch",
-        OptionType::Vec3,
-        { u8"Special Infected Assist", u8"特感辅助" },
-        { u8"Witch Aim Offset (x,y,z)", u8"女巫瞄准偏移 (x,y,z)" },
-        { u8"", u8"" },
-        { u8"", u8"" },
-        -60.0f, 60.0f,
-        "5,0,25"
-    },
-
-    // Performance Limits
-    {
-        "ThrowArcMaxHz",
-        OptionType::Int,
-        { u8"Performance / Rates", u8"性能 / 频率" },
-        { u8"Throw Trajectory Update Rate", u8"投掷轨迹刷新率" },
-        { u8"Limits how frequently the throw trajectory is updated.",
-          u8"限制投掷轨迹的更新频率。" },
-        { u8"Match headset FPS for smooth arcs; reduce for performance.",
-          u8"与头显帧率一致更平滑，性能不足可降低。" },
-        30.f, 120.f,
-        "60"
-    },
-    {
-        "SpecialInfectedOverlayMaxHz",
-        OptionType::Int,
-        { u8"Performance / Rates", u8"性能 / 频率" },
-        { u8"Special Infected Overlay Rate", u8"特感叠加刷新率" },
-        { u8"Refresh rate cap for special infected overlays.",
-          u8"特感叠加效果的刷新率上限。" },
-        { u8"Lower on slower GPUs.",
-          u8"GPU 较弱时可调低。" },
-        10.f, 120.f,
-        "30"
-    },
-    {
-        "SpecialInfectedTraceMaxHz",
-        OptionType::Int,
-        { u8"Performance / Rates", u8"性能 / 频率" },
-        { u8"Special Infected Trace Rate", u8"特感检测刷新率" },
-        { u8"Limits detection traces per second to reduce CPU cost.",
-          u8"限制特感检测追踪的每秒次数以降低CPU开销。" },
-        { u8"60~120 is usually plenty.",
-          u8"60~120 通常足够。" },
-        30.f, 180.f,
-        "90"
     }
 };
 
