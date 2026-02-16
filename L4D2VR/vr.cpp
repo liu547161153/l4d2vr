@@ -1751,18 +1751,46 @@ void VR::ProcessInput()
     // Movement via console commands disabled; handled in Hooks::dCreateMove via CUserCmd.
 #endif
 
-    const bool jumpGestureActive = currentTime < m_JumpGestureHoldUntil;
-
-    const bool wantJump = PressedDigitalAction(m_ActionJump) || jumpGestureActive;
-    if (wantJump && !m_JumpCmdOwned)
+    // Detect spectator / observer / idle state early so we can re-route some inputs.
+    C_BasePlayer* localPlayer = nullptr;
     {
-        m_Game->ClientCmd_Unrestricted("+jump");
-        m_JumpCmdOwned = true;
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
     }
-    else if (!wantJump && m_JumpCmdOwned)
+
+    bool isObserverOrIdle = false;
+    if (localPlayer)
     {
-        m_Game->ClientCmd_Unrestricted("-jump");
-        m_JumpCmdOwned = false;
+        const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+        const int teamNum = *reinterpret_cast<const int*>(base + kTeamNumOffset);
+        const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+        const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
+        isObserverOrIdle = (teamNum == 1) || (lifeState != 0) || (obsMode != 0);
+    }
+
+    const bool jumpGestureActive = currentTime < m_JumpGestureHoldUntil;
+    if (isObserverOrIdle)
+    {
+        // Avoid leaving +jump latched while spectating.
+        if (m_JumpCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-jump");
+            m_JumpCmdOwned = false;
+        }
+    }
+    else
+    {
+        const bool wantJump = PressedDigitalAction(m_ActionJump) || jumpGestureActive;
+        if (wantJump && !m_JumpCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("+jump");
+            m_JumpCmdOwned = true;
+        }
+        else if (!wantJump && m_JumpCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-jump");
+            m_JumpCmdOwned = false;
+        }
     }
 
     const bool wantUse = PressedDigitalAction(m_ActionUse);
@@ -1839,7 +1867,7 @@ void VR::ProcessInput()
 
     vr::InputDigitalActionData_t secondaryAttackActionData{};
     bool secondaryAttackActive = false;
-    [[maybe_unused]] bool secondaryAttackJustPressed = false;
+    bool secondaryAttackJustPressed = false;
     bool secondaryAttackDataValid = getActionState(&m_ActionSecondaryAttack, secondaryAttackActionData, secondaryAttackActive, secondaryAttackJustPressed);
 
     const bool gestureSecondaryAttackActive = currentTime < m_SecondaryAttackGestureHoldUntil;
@@ -1864,12 +1892,6 @@ void VR::ProcessInput()
     [[maybe_unused]] bool scopeMagnificationToggleDown = false;
     bool scopeMagnificationToggleJustPressed = false;
     [[maybe_unused]] bool scopeMagnificationToggleDataValid = getActionState(&m_ActionScopeMagnificationToggle, scopeMagnificationToggleActionData, scopeMagnificationToggleDown, scopeMagnificationToggleJustPressed);
-
-    C_BasePlayer* localPlayer = nullptr;
-    {
-        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
-        localPlayer = static_cast<C_BasePlayer*>(m_Game->GetClientEntity(playerIndex));
-    }
 
     auto getWeaponSlot = [](C_WeaponCSBase* weapon) -> int
         {
@@ -2278,6 +2300,18 @@ void VR::ProcessInput()
         suppressIfNeeded(resetActionData, vr::TrackedControllerRole_RightHand, m_SuppressActionsUntilGripReleaseRight, resetButtonDown, resetJustPressed);
     }
 
+    // Spectator/idle: map VR buttons to Source observer controls.
+    // SecondaryAttack -> spec_next, PrimaryAttack -> spec_prev, Jump -> spec_mode.
+    if (isObserverOrIdle && m_Game->m_EngineClient->IsInGame())
+    {
+        if (secondaryAttackJustPressed)
+            m_Game->ClientCmd_Unrestricted("spec_next");
+        if (primaryAttackJustPressed)
+            m_Game->ClientCmd_Unrestricted("spec_prev");
+        if (jumpJustPressed)
+            m_Game->ClientCmd_Unrestricted("spec_mode");
+    }
+
     if (!m_SpecialInfectedPreWarningAutoAimConfigEnabled)
     {
         m_SpecialInfectedPreWarningAutoAimEnabled = false;
@@ -2313,15 +2347,27 @@ void VR::ProcessInput()
 
     // Drive +attack only from the VR action state. IMPORTANT: do NOT spam "-attack" every frame,
     // otherwise real mouse1 cannot work in MouseMode (mouse1 triggers +attack, but we instantly cancel it).
-    if (primaryAttackDown && !m_PrimaryAttackCmdOwned)
+    if (isObserverOrIdle)
     {
-        m_Game->ClientCmd_Unrestricted("+attack");
-        m_PrimaryAttackCmdOwned = true;
+        // Don't hold +attack while spectating.
+        if (m_PrimaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack");
+            m_PrimaryAttackCmdOwned = false;
+        }
     }
-    else if (!primaryAttackDown && m_PrimaryAttackCmdOwned)
+    else
     {
-        m_Game->ClientCmd_Unrestricted("-attack");
-        m_PrimaryAttackCmdOwned = false;
+        if (primaryAttackDown && !m_PrimaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("+attack");
+            m_PrimaryAttackCmdOwned = true;
+        }
+        else if (!primaryAttackDown && m_PrimaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack");
+            m_PrimaryAttackCmdOwned = false;
+        }
     }
 
     vr::InputDigitalActionData_t voicePrimaryData{};
@@ -2425,15 +2471,27 @@ void VR::ProcessInput()
 
     {
         const bool wantAttack2 = secondaryAttackActive && !adjustViewmodelActive;
-        if (wantAttack2 && !m_SecondaryAttackCmdOwned)
+        if (isObserverOrIdle)
         {
-            m_Game->ClientCmd_Unrestricted("+attack2");
-            m_SecondaryAttackCmdOwned = true;
+            // Don't hold +attack2 while spectating.
+            if (m_SecondaryAttackCmdOwned)
+            {
+                m_Game->ClientCmd_Unrestricted("-attack2");
+                m_SecondaryAttackCmdOwned = false;
+            }
         }
-        else if (!wantAttack2 && m_SecondaryAttackCmdOwned)
+        else
         {
-            m_Game->ClientCmd_Unrestricted("-attack2");
-            m_SecondaryAttackCmdOwned = false;
+            if (wantAttack2 && !m_SecondaryAttackCmdOwned)
+            {
+                m_Game->ClientCmd_Unrestricted("+attack2");
+                m_SecondaryAttackCmdOwned = true;
+            }
+            else if (!wantAttack2 && m_SecondaryAttackCmdOwned)
+            {
+                m_Game->ClientCmd_Unrestricted("-attack2");
+                m_SecondaryAttackCmdOwned = false;
+            }
         }
     }
 
