@@ -157,7 +157,7 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
-
+	// Blocks the game's Info/MOTD panel (default bind: H) when configured.
 	static inline int m_PushHUDStep;
 	static inline bool m_PushedHud;
 };

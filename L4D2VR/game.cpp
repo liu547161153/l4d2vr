@@ -149,7 +149,7 @@ void Game::logMsg(const char* fmt, ...)
 
     printf("\n");
 
-    const char* logFiles[] = { "vrmod_log.txt", "test.log" };
+    const char* logFiles[] = { "vrmod_log.txt"};
     for (const char* logFile : logFiles)
     {
         FILE* file = fopen(logFile, "a");

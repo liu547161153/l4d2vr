@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "texture.h"
@@ -157,7 +158,7 @@ public:
 	virtual void SupportsMSAAModeEi() = 0; //CMaterialSystem::SupportsMSAAMode(int)
 	virtual void GetVideoCardIdentifierEv() = 0; //CMaterialSystem::GetVideoCardIdentifier(void)
 	virtual void SpewDriverInfoEv() = 0; //CMaterialSystem::SpewDriverInfo(void)
-	virtual void GetBackBufferDimensions(int &, int &) = 0; //CMaterialSystem::GetBackBufferDimensions(int &,int &)
+	virtual void GetBackBufferDimensions(int&, int&) = 0; //CMaterialSystem::GetBackBufferDimensions(int &,int &)
 	virtual ImageFormat GetBackBufferFormat() = 0; //CMaterialSystem::GetBackBufferFormat(void)
 	virtual void SupportsHDRModeE9HDRType_t() = 0; //CMaterialSystem::SupportsHDRMode(HDRType_t)
 	virtual void AddViewEPv() = 0; //CMaterialSystem::AddView(void *)
@@ -198,7 +199,7 @@ public:
 	virtual void ReloadTexturesEv() = 0; //CMaterialSystem::ReloadTextures(void)
 	virtual void ReloadMaterialsEPKc() = 0; //CMaterialSystem::ReloadMaterials(char const*)
 	virtual void CreateMaterialEPKcP9KeyValues() = 0; //CMaterialSystem::CreateMaterial(char const*,KeyValues *)
-	virtual IMaterial *FindMaterial(char const *pMaterialName, const char *pTextureGroupName, bool complain = true, const char *pComplainPrefix = NULL) = 0; //CMaterialSystem::FindMaterial(char const*,char const*,bool,char const*)
+	virtual IMaterial* FindMaterial(char const* pMaterialName, const char* pTextureGroupName, bool complain = true, const char* pComplainPrefix = NULL) = 0; //CMaterialSystem::FindMaterial(char const*,char const*,bool,char const*)
 	virtual void FirstMaterialEv() = 0; //CMaterialSystem::FirstMaterial(void)
 	virtual void NextMaterialEt() = 0; //CMaterialSystem::NextMaterial(ushort)
 	virtual void InvalidMaterialEv() = 0; //CMaterialSystem::InvalidMaterial(void)
@@ -209,24 +210,24 @@ public:
 	virtual void CreateProceduralTextureEPKcS1_ii11ImageFormati() = 0; //CMaterialSystem::CreateProceduralTexture(char const*,char const*,int,int,ImageFormat,int)
 	virtual void BeginRenderTargetAllocation() = 0; //CMaterialSystem::BeginRenderTargetAllocation(void)
 	virtual void EndRenderTargetAllocation() = 0; //CMaterialSystem::EndRenderTargetAllocation(void)
-	virtual void *CreateRenderTargetTexture(int, int, RenderTargetSizeMode_t, ImageFormat, MaterialRenderTargetDepth_t) = 0; //CMaterialSystem::CreateRenderTargetTexture(int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t)
-	virtual ITexture *CreateNamedRenderTargetTextureEx(const char *pRTName,				// Pass in NULL here for an unnamed render target.
-														int w,
-														int h,
-														RenderTargetSizeMode_t sizeMode,	// Controls how size is generated (and regenerated on video mode change).
-														ImageFormat format,
-														MaterialRenderTargetDepth_t depth = MATERIAL_RT_DEPTH_SHARED,
-														unsigned int textureFlags = TEXTUREFLAGS_CLAMPS | TEXTUREFLAGS_CLAMPT,
-														unsigned int renderTargetFlags = 0) = 0; //CMaterialSystem::CreateNamedRenderTargetTextureEx(char const*,int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t,uint,uint)
-	virtual void *CreateNamedRenderTargetTexture(char const *, int, int, RenderTargetSizeMode_t, ImageFormat, MaterialRenderTargetDepth_t, bool, bool) = 0; //CMaterialSystem::CreateNamedRenderTargetTexture(char const*,int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t,bool,bool)
-	virtual ITexture *CreateNamedRenderTargetTextureEx2(const char *pRTName,				// Pass in NULL here for an unnamed render target.
-														int w,
-														int h,
-														RenderTargetSizeMode_t sizeMode,	// Controls how size is generated (and regenerated on video mode change).
-														ImageFormat format,
-														MaterialRenderTargetDepth_t depth = MATERIAL_RT_DEPTH_SHARED,
-														unsigned int textureFlags = TEXTUREFLAGS_CLAMPS | TEXTUREFLAGS_CLAMPT,
-														unsigned int renderTargetFlags = 0) = 0; //CMaterialSystem::CreateNamedRenderTargetTextureEx2(char const*,int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t,uint,uint)
+	virtual void* CreateRenderTargetTexture(int, int, RenderTargetSizeMode_t, ImageFormat, MaterialRenderTargetDepth_t) = 0; //CMaterialSystem::CreateRenderTargetTexture(int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t)
+	virtual ITexture* CreateNamedRenderTargetTextureEx(const char* pRTName,				// Pass in NULL here for an unnamed render target.
+		int w,
+		int h,
+		RenderTargetSizeMode_t sizeMode,	// Controls how size is generated (and regenerated on video mode change).
+		ImageFormat format,
+		MaterialRenderTargetDepth_t depth = MATERIAL_RT_DEPTH_SHARED,
+		unsigned int textureFlags = TEXTUREFLAGS_CLAMPS | TEXTUREFLAGS_CLAMPT,
+		unsigned int renderTargetFlags = 0) = 0; //CMaterialSystem::CreateNamedRenderTargetTextureEx(char const*,int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t,uint,uint)
+	virtual void* CreateNamedRenderTargetTexture(char const*, int, int, RenderTargetSizeMode_t, ImageFormat, MaterialRenderTargetDepth_t, bool, bool) = 0; //CMaterialSystem::CreateNamedRenderTargetTexture(char const*,int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t,bool,bool)
+	virtual ITexture* CreateNamedRenderTargetTextureEx2(const char* pRTName,				// Pass in NULL here for an unnamed render target.
+		int w,
+		int h,
+		RenderTargetSizeMode_t sizeMode,	// Controls how size is generated (and regenerated on video mode change).
+		ImageFormat format,
+		MaterialRenderTargetDepth_t depth = MATERIAL_RT_DEPTH_SHARED,
+		unsigned int textureFlags = TEXTUREFLAGS_CLAMPS | TEXTUREFLAGS_CLAMPT,
+		unsigned int renderTargetFlags = 0) = 0; //CMaterialSystem::CreateNamedRenderTargetTextureEx2(char const*,int,int,RenderTargetSizeMode_t,ImageFormat,MaterialRenderTargetDepth_t,uint,uint)
 	virtual void BeginLightmapAllocationEv() = 0; //CMaterialSystem::BeginLightmapAllocation(void)
 	virtual void EndLightmapAllocationEv() = 0; //CMaterialSystem::EndLightmapAllocation(void)
 	virtual void AllocateLightmapEiiPiP9IMaterial() = 0; //CMaterialSystem::AllocateLightmap(int,int,int *,IMaterial *)
@@ -237,10 +238,9 @@ public:
 	virtual void GetLightmapPageSizeEiPiS0_() = 0; //CMaterialSystem::GetLightmapPageSize(int,int *,int *)
 	virtual void ResetMaterialLightmapPageInfoEv() = 0; //CMaterialSystem::ResetMaterialLightmapPageInfo(void)
 	virtual void ClearBuffersEbbb() = 0; //CMaterialSystem::ClearBuffers(bool,bool,bool)
-	virtual IMatRenderContext *GetRenderContext() = 0; //CMaterialSystem::GetRenderContext(void)
-	
+	virtual IMatRenderContext* GetRenderContext() = 0; //CMaterialSystem::GetRenderContext(void)
+
 	char pad_0004[10932]; //0x0004
 	bool isGameRunning; //0x2AB8
 }; //Size: 0x2ABC
 static_assert(sizeof(IMaterialSystem) == 0x2ABC);
-

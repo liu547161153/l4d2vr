@@ -779,11 +779,11 @@ enum
 // The header declares Vector2D::Dot / Vector::Dot but doesn't define them.
 // Provide inline bodies here so any TU can use them without requiring a .cpp.
 // ------------------------------------------------------------------
-FORCEINLINE vec_t Vector2D::Dot(const Vector2D & vOther) const
+FORCEINLINE vec_t Vector2D::Dot(const Vector2D& vOther) const
 {
 	return (x * vOther.x + y * vOther.y);
 }
-FORCEINLINE vec_t Vector::Dot(const Vector & vOther) const
+FORCEINLINE vec_t Vector::Dot(const Vector& vOther) const
 {
 	return (x * vOther.x + y * vOther.y + z * vOther.z);
 }
@@ -1156,4 +1156,57 @@ inline VMatrix VMatrix::InverseTR() const
 	VMatrix result;
 	InverseTR(result);
 	return result;
+}
+
+inline bool QAngle::operator==(const QAngle& v) const
+{
+	return (x == v.x) && (y == v.y) && (z == v.z);
+}
+
+inline bool QAngle::operator!=(const QAngle& v) const
+{
+	return !(*this == v);
+}
+
+inline QAngle& QAngle::operator+=(const QAngle& v)
+{
+	x += v.x;
+	y += v.y;
+	z += v.z;
+	return *this;
+}
+
+inline QAngle& QAngle::operator-=(const QAngle& v)
+{
+	x -= v.x;
+	y -= v.y;
+	z -= v.z;
+	return *this;
+}
+
+inline QAngle& QAngle::operator*=(float s)
+{
+	x *= s;
+	y *= s;
+	z *= s;
+	return *this;
+}
+
+inline QAngle& QAngle::operator/=(float s)
+{
+	const float inv = 1.0f / s;
+	x *= inv;
+	y *= inv;
+	z *= inv;
+	return *this;
+}
+
+inline vec_t QAngle::Length() const
+{
+	return static_cast<vec_t>(sqrt(x * x + y * y + z * z));
+}
+
+inline vec_t QAngle::LengthSqr() const
+{
+	return (x * x + y * y + z * z);
 }

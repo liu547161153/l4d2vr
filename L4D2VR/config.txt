@@ -4,7 +4,7 @@ TurnSpeed=0.2
 SnapTurning=false
 SnapTurnAngle=45.0
 LeftHanded=false
-AntiAliasing=0
+AntiAliasing=2
 ForceNonVRServerMovement=false
 
 HudDistance=1.3

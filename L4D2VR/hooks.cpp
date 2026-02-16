@@ -1,4 +1,5 @@
-﻿#include "hooks.h"
+﻿
+#include "hooks.h"
 #include "game.h"
 #include "texture.h"
 #include "sdk.h"
@@ -9,9 +10,16 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
-#include <algorithm>
+#include <algorithm> // std::clamp
 #include <chrono>
 #include <cmath>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 // Normalize Source-style angles:
 // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 and then clamped to 89).
@@ -25,6 +33,330 @@ static inline void NormalizeAndClampViewAngles(QAngle& a)
 	a.z = 0.f;
 	if (a.x > 89.f) a.x = 89.f;
 	if (a.x < -89.f) a.x = -89.f;
+}
+
+// ------------------------------------------------------------
+// Engine third-person camera smoothing
+//
+// Some camera mods (e.g. slide) switch to an engine-controlled third-person camera
+// that updates at tick rate (30/60Hz) while we still render at HMD rate (90Hz+).
+// That produces a "feels like 30fps" stutter even when frametime is stable.
+//
+// We blend from prev tick camera to curr tick camera over an estimated tick interval.
+// Only enabled when tick interval > ~16ms (~<60Hz) to avoid adding lag to 90Hz paths.
+// ------------------------------------------------------------
+static inline float AngleDeltaDeg(float to, float from)
+{
+	float delta = std::fmod(to - from, 360.0f);
+	if (delta > 180.0f) delta -= 360.0f;
+	if (delta < -180.0f) delta += 360.0f;
+	return delta;
+}
+
+static inline float AngleLerpDeg(float a, float b, float t)
+{
+	return a + AngleDeltaDeg(b, a) * t;
+}
+
+static inline float SmoothStep01(float t)
+{
+	t = std::clamp(t, 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+struct EngineThirdPersonCamSmoother
+{
+	bool valid = false;
+	Vector prevOrigin{ 0,0,0 };
+	Vector currOrigin{ 0,0,0 };
+	QAngle prevAngles{ 0,0,0 };
+	QAngle currAngles{ 0,0,0 };
+	std::chrono::steady_clock::time_point lastRawUpdate{};
+	std::chrono::steady_clock::time_point blendStart{};
+	float tickIntervalSec = (1.0f / 30.0f); // pessimistic default
+
+	void Reset()
+	{
+		valid = false;
+	}
+
+	void PushRaw(const Vector& rawOrigin, const QAngle& rawAngles)
+	{
+		const auto now = std::chrono::steady_clock::now();
+
+		if (!valid)
+		{
+			valid = true;
+			prevOrigin = currOrigin = rawOrigin;
+			prevAngles = currAngles = rawAngles;
+			lastRawUpdate = now;
+			blendStart = now;
+			return;
+		}
+
+		// Detect a new tick camera sample.
+		const float posDeltaSqr = (rawOrigin - currOrigin).LengthSqr();
+		const float angDelta =
+			std::fabs(AngleDeltaDeg(rawAngles.x, currAngles.x)) +
+			std::fabs(AngleDeltaDeg(rawAngles.y, currAngles.y)) +
+			std::fabs(AngleDeltaDeg(rawAngles.z, currAngles.z));
+		const bool changed = (posDeltaSqr > (0.25f * 0.25f)) || (angDelta > 0.25f);
+
+		if (changed)
+		{
+			const float dt = std::chrono::duration<float>(now - lastRawUpdate).count();
+			const float clamped = std::clamp(dt, 0.008f, 0.100f);
+			tickIntervalSec = (tickIntervalSec * 0.8f) + (clamped * 0.2f);
+
+			prevOrigin = currOrigin;
+			prevAngles = currAngles;
+			currOrigin = rawOrigin;
+			currAngles = rawAngles;
+			lastRawUpdate = now;
+			blendStart = now;
+		}
+	}
+
+	bool ShouldSmooth() const
+	{
+		// Only smooth when camera updates are slower than ~60Hz.
+		return valid && (tickIntervalSec > 0.016f);
+	}
+
+	void GetSmoothed(Vector& outOrigin, QAngle& outAngles) const
+	{
+		if (!valid)
+		{
+			outOrigin = { 0,0,0 };
+			outAngles = { 0,0,0 };
+			return;
+		}
+
+		if (!ShouldSmooth())
+		{
+			outOrigin = currOrigin;
+			outAngles = currAngles;
+			return;
+		}
+
+		const auto now = std::chrono::steady_clock::now();
+		const float tRaw = std::chrono::duration<float>(now - blendStart).count() / std::max(0.001f, tickIntervalSec);
+		const float t = SmoothStep01(tRaw);
+
+		outOrigin = prevOrigin + (currOrigin - prevOrigin) * t;
+		outAngles.x = AngleLerpDeg(prevAngles.x, currAngles.x, t);
+		outAngles.y = AngleLerpDeg(prevAngles.y, currAngles.y, t);
+		outAngles.z = AngleLerpDeg(prevAngles.z, currAngles.z, t);
+	}
+};
+
+
+// ------------------------------------------------------------
+// Third-person render stability helpers (netvars from offsets.txt)
+// When the player is pinned / incapacitated / using certain actions,
+// the engine can momentarily "snap" between first/third-person.
+// We treat those states as "force third-person rendering" to avoid flicker.
+// ------------------------------------------------------------
+template <typename T>
+static inline T ReadNetvar(const void* base, int ofs)
+{
+	return *reinterpret_cast<const T*>(reinterpret_cast<const uint8_t*>(base) + ofs);
+}
+
+static inline bool HandleValid(int h)
+{
+	return (h != 0 && h != -1);
+}
+
+// Mouse-mode aiming helpers (mouse+keyboard play; no controllers required)
+static inline Vector GetMouseModeGunOriginAbs(const VR* vr)
+{
+	return vr->m_HmdPosAbs
+		+ (vr->m_HmdForward * (vr->m_MouseModeViewmodelAnchorOffset.x * vr->m_VRScale))
+		+ (vr->m_HmdRight * (vr->m_MouseModeViewmodelAnchorOffset.y * vr->m_VRScale))
+		+ (vr->m_HmdUp * (vr->m_MouseModeViewmodelAnchorOffset.z * vr->m_VRScale));
+}
+
+static inline Vector GetMouseModeEyeDir(const VR* vr)
+{
+	Vector eyeDir{ 0.0f, 0.0f, 0.0f };
+	if (vr->m_MouseModeAimFromHmd)
+	{
+		eyeDir = vr->m_HmdForward;
+	}
+	else
+	{
+		const float pitch = std::clamp(vr->m_MouseAimPitchOffset, -89.f, 89.f);
+		const float yaw = vr->m_RotationOffset;
+		QAngle eyeAng(pitch, yaw, 0.f);
+		NormalizeAndClampViewAngles(eyeAng);
+
+		Vector right, up;
+		QAngle::AngleVectors(eyeAng, &eyeDir, &right, &up);
+	}
+
+	if (!eyeDir.IsZero())
+		VectorNormalize(eyeDir);
+	return eyeDir;
+}
+
+static inline Vector GetMouseModeDefaultTargetAbs(const VR* vr)
+{
+	Vector eyeDir = GetMouseModeEyeDir(vr);
+	const float dist = (vr->m_MouseModeAimConvergeDistance > 0.0f) ? vr->m_MouseModeAimConvergeDistance : 8192.0f;
+	return vr->m_HmdPosAbs + eyeDir * dist;
+}
+
+static inline bool GetMouseModeAimAnglesToTarget(const VR* vr, const Vector& from, const Vector& target, QAngle& outAngles)
+{
+	Vector to = target - from;
+	if (to.IsZero())
+		return false;
+	VectorNormalize(to);
+	QAngle ang;
+	QAngle::VectorAngles(to, ang);
+	NormalizeAndClampViewAngles(ang);
+	outAngles = ang;
+	return true;
+}
+
+static inline QAngle GetMouseModeFallbackAimAngles(const VR* vr)
+{
+	Vector eyeDir = GetMouseModeEyeDir(vr);
+	if (eyeDir.IsZero())
+	{
+		QAngle a(std::clamp(vr->m_MouseAimPitchOffset, -89.f, 89.f), vr->m_RotationOffset, 0.f);
+		NormalizeAndClampViewAngles(a);
+		return a;
+	}
+	QAngle a;
+	QAngle::VectorAngles(eyeDir, a);
+	NormalizeAndClampViewAngles(a);
+	return a;
+}
+
+// Returns true if the local player is currently pinned/controlled by special infected.
+// Used to disable jittery aim line while being dragged / pinned.
+static inline bool IsPlayerControlledBySI(const C_BasePlayer* player)
+{
+	if (!player)
+		return false;
+
+	// Smoker
+	const int tongueOwner = ReadNetvar<int>(player, 0x1f6c);              // m_tongueOwner
+	const bool hangingTongue = ReadNetvar<uint8_t>(player, 0x1f84) != 0;  // m_isHangingFromTongue
+	const bool tongue = hangingTongue || HandleValid(tongueOwner);
+
+	// Hunter / Charger / Jockey pins
+	const int carryAttacker = ReadNetvar<int>(player, 0x2714);           // m_carryAttacker
+	const int pummelAttacker = ReadNetvar<int>(player, 0x2720);           // m_pummelAttacker
+	const int pounceAttacker = ReadNetvar<int>(player, 0x272c);           // m_pounceAttacker
+	const int jockeyAttacker = ReadNetvar<int>(player, 0x274c);           // m_jockeyAttacker
+	const bool pinned = HandleValid(carryAttacker) || HandleValid(pummelAttacker) ||
+		HandleValid(pounceAttacker) || HandleValid(jockeyAttacker);
+
+	return tongue || pinned;
+}
+
+struct ThirdPersonStateDebug
+{
+	bool dead = false;
+	int lifeState = 0;
+	bool goingToDie = false;
+	int observerMode = 0;
+	int observerTarget = 0;
+	bool incap = false;
+	bool ledge = false;
+	bool hangingTongue = false;
+	bool tongue = false;
+	bool pinned = false;
+	bool doingUseAction = false;
+	bool reviving = false;
+	bool selfMedkit = false;
+	int useActionOwner = 0;
+	int useActionTarget = 0;
+	int tongueOwner = 0;
+	int carryAttacker = 0;
+	int pummelAttacker = 0;
+	int pounceAttacker = 0;
+	int jockeyAttacker = 0;
+	int useAction = 0;
+	int reviveOwner = 0;
+	int reviveTarget = 0;
+};
+
+static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
+	IClientEntityList* entList,
+	const C_BasePlayer* localPlayer,
+	ThirdPersonStateDebug* outDbg = nullptr)
+{
+	if (outDbg)
+		*outDbg = ThirdPersonStateDebug{};
+
+	if (!player)
+		return false;
+
+	ThirdPersonStateDebug dbg{};
+
+	// When dead / dying / observer transitions happen, the engine camera can flicker
+	// between views for a few frames. Force third-person rendering to avoid VR flicker.
+	dbg.lifeState = (int)ReadNetvar<uint8_t>(player, 0x147); // m_lifeState
+	dbg.goingToDie = ReadNetvar<uint8_t>(player, 0x1fb4) != 0;   // m_isGoingToDie
+	dbg.observerMode = ReadNetvar<int>(player, 0x1450);          // m_iObserverMode
+	dbg.observerTarget = ReadNetvar<int>(player, 0x1454);        // m_hObserverTarget
+
+
+	// Offsets are client netvars (see offsets.txt)
+	dbg.incap = ReadNetvar<uint8_t>(player, 0x1ea9) != 0;          // m_isIncapacitated
+	dbg.ledge = ReadNetvar<uint8_t>(player, 0x25ec) != 0;          // m_isHangingFromLedge
+	// IMPORTANT (L4D2):
+	// m_isGoingToDie can stay true for "near death / black&white / scripted transitions" while the player is alive
+	// (lifeState==0). Using it as "dead-ish" causes third-person latching after revive.
+	// Only use lifeState to decide dead/dying here.
+	// Typical Source: 0=ALIVE, 1=DYING, 2=DEAD.
+	const bool lifeDead = (dbg.lifeState == 2);
+	const bool lifeDying = (dbg.lifeState == 1);
+	dbg.dead = lifeDead || (lifeDying && !dbg.incap);
+	dbg.tongueOwner = ReadNetvar<int>(player, 0x1f6c);             // m_tongueOwner
+	dbg.hangingTongue = ReadNetvar<uint8_t>(player, 0x1f84) != 0;  // m_isHangingFromTongue
+	dbg.tongue = dbg.hangingTongue || HandleValid(dbg.tongueOwner);
+
+	dbg.carryAttacker = ReadNetvar<int>(player, 0x2714);           // m_carryAttacker
+	dbg.pummelAttacker = ReadNetvar<int>(player, 0x2720);          // m_pummelAttacker
+	dbg.pounceAttacker = ReadNetvar<int>(player, 0x272c);          // m_pounceAttacker
+	dbg.jockeyAttacker = ReadNetvar<int>(player, 0x274c);          // m_jockeyAttacker
+	dbg.pinned = HandleValid(dbg.carryAttacker) || HandleValid(dbg.pummelAttacker) ||
+		HandleValid(dbg.pounceAttacker) || HandleValid(dbg.jockeyAttacker);
+
+	dbg.useAction = ReadNetvar<int>(player, 0x1ba8);               // m_iCurrentUseAction
+	dbg.doingUseAction = (dbg.useAction != 0);
+	// Distinguish "being treated by teammate" vs "self-heal".
+   // We ONLY force third-person for self-heal; teammate-treatment should NOT force third-person
+   // (it causes flicker and is disorienting in VR).
+	dbg.useActionOwner = ReadNetvar<int>(player, 0x1ba4);          // m_useActionOwner
+	dbg.useActionTarget = ReadNetvar<int>(player, 0x1ba0);         // m_useActionTarget
+	if (dbg.useAction == 1 && entList && localPlayer && HandleValid(dbg.useActionOwner) && HandleValid(dbg.useActionTarget))
+	{
+		auto* ownerEnt = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionOwner);
+		auto* targetEnt = (C_BaseEntity*)entList->GetClientEntityFromHandle(dbg.useActionTarget);
+		dbg.selfMedkit = (ownerEnt == localPlayer) && (targetEnt == localPlayer);
+	}
+	dbg.reviveOwner = ReadNetvar<int>(player, 0x1f88);             // m_reviveOwner
+	dbg.reviveTarget = ReadNetvar<int>(player, 0x1f8c);            // m_reviveTarget
+	dbg.reviving = HandleValid(dbg.reviveOwner) || HandleValid(dbg.reviveTarget);
+
+	if (outDbg)
+		*outDbg = dbg;
+
+	// NOTE: user request:
+	// - "倒地" (incapacitated) 不强制第三人称
+	// Keep other pinned/use/tongue states.
+	// Keep other pinned/tongue states. Only self-heal forces third-person from useAction.
+	const bool observer = (dbg.observerMode != 0) && (dbg.dead || HandleValid(dbg.observerTarget));
+	// NOTE: m_iObserverMode can be transiently non-zero during revive/incap camera transitions.
+	// Guard it with either a dead-ish state or a valid observer target to avoid false third-person latching.
+	// NOTE: do NOT force 3P for generic useAction; it includes teammate revive/assistance/interaction and can latch 3P.
+	return dbg.dead || observer || dbg.ledge || dbg.tongue || dbg.pinned || dbg.selfMedkit;
 }
 
 bool Hooks::s_ServerUnderstandsVR = false;
@@ -201,7 +533,6 @@ int Hooks::initSourceHooks()
 	}
 
 	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
-
 	return 1;
 }
 
@@ -214,6 +545,8 @@ ITexture* __fastcall Hooks::dGetRenderTarget(void* ecx, void* edx)
 
 void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CViewSetup& hudViewSetup, int nClearFlags, int whatToDraw)
 {
+	static EngineThirdPersonCamSmoother s_engineTpCam;
+
 	if (!m_VR->m_CreatedVRTextures)
 		m_VR->CreateVRTextures();
 
@@ -232,29 +565,276 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// ------------------------------
 	int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
 	C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
 
 	Vector eyeOrigin = setup.origin;
 	if (localPlayer)
 		eyeOrigin = localPlayer->EyePosition();
 
-	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position
-	const float camDist = (setup.origin - eyeOrigin).Length();
-	const bool engineThirdPersonNow = (localPlayer && camDist > 5.0f);
-	// Always capture the view the engine is rendering this frame.
-	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
-	m_VR->m_ThirdPersonViewOrigin = setup.origin;
-	m_VR->m_ThirdPersonViewAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position.
+	// IMPORTANT: stairs/step-smoothing can create large Z deltas between setup.origin and EyePosition().
+	// So prefer XY distance for "real" third-person detection.
+	Vector camDelta = (setup.origin - eyeOrigin);
+	const float camDist3D = camDelta.Length();
+	const float camDz = camDelta.z;
+	camDelta.z = 0.0f;
+	const float camDistXY = camDelta.Length();
 
-	// Detect third-person by comparing rendered camera origin to the real eye origin.
-	// Use a small threshold + hysteresis to avoid flicker.
+	// - XY threshold must be low enough to catch "near" third-person modes,
+	//   but still high enough to ignore stairs/step-smoothing Z deltas.
+	// - 3D is a fallback for edge cases.
+	constexpr float kThirdPersonXY = 20.0f;
+	constexpr float kThirdPerson3D = 90.0f;
+	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition()
+	// even though we want to keep first-person VR rendering. Treat that as NOT third-person.
+	bool playerReviving = false;
+	if (localPlayer)
+	{
+		const int reviveOwner = ReadNetvar<int>(localPlayer, 0x1f88);   // m_reviveOwner
+		const int reviveTarget = ReadNetvar<int>(localPlayer, 0x1f8c);  // m_reviveTarget
+		playerReviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
+	}
+
+	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+	// Revive camera can temporarily offset setup.origin away from EyePosition() even though we want first-person VR rendering.
+	if (playerReviving)
+		engineThirdPersonNow = false;
+	// Mounted gun (.50cal/minigun): always force first-person rendering.
+	// The engine often runs these in third-person/shoulder cam, which feels wrong in VR
+	// and can poison our tracking anchors.
+	const bool usingMountedGun = m_VR->IsUsingMountedGun(localPlayer);
+	if (usingMountedGun)
+		engineThirdPersonNow = false;
+	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
+
+	// Some scripts/mods use point_viewcontrol_survivor via m_hViewEntity.
+	// There are two very different cases:
+	//  1) Real cinematic/cutscene camera control (we MUST keep the engine camera, or you lose camera choreography).
+	//  2) Transitional revive/incap camera weirdness (can look like a "fake" third-person and will latch our hold frames).
+	//
+	// Heuristic: only ignore view-entity overrides during unstable revive/incap windows.
+	// Otherwise, treat it as a real external camera and let the engine camera drive rendering.
+	bool playerIncap = false;
+	if (localPlayer)
+		playerIncap = (ReadNetvar<int>(localPlayer, 0x1ea9) != 0); // m_isIncapacitated
+	if (hasViewEntityOverride && !customWalkThirdPersonNow)
+	{
+		const bool unstableViewEntity = playerReviving || playerIncap;
+		if (unstableViewEntity)
+			engineThirdPersonNow = false;
+	}
+	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
+	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
 	if (engineThirdPersonNow)
-		m_VR->m_ThirdPersonHoldFrames = 2;
-	else if (m_VR->m_ThirdPersonHoldFrames > 0)
+		s_engineTpCam.PushRaw(setup.origin, rawSetupAngles);
+	else
+		s_engineTpCam.Reset();
+
+	Vector engineCamOrigin = setup.origin;
+	QAngle engineCamAngles = rawSetupAngles;
+	if (s_engineTpCam.ShouldSmooth())
+		s_engineTpCam.GetSmoothed(engineCamOrigin, engineCamAngles);
+
+	// Detect third-person by comparing rendered camera origin to the real eye origin
+	// Use a small threshold + hysteresis to avoid flicker.
+	// Also expose a simple "player is pinned/controlled" flag so VR can disable jittery aim line.
+	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
+	ThirdPersonStateDebug tpStateDbg;
+	const bool rawStateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, m_Game->m_ClientEntityList, localPlayer, &tpStateDbg);
+	const bool rawStateObserver = (tpStateDbg.observerMode != 0) && (tpStateDbg.dead || HandleValid(tpStateDbg.observerTarget));
+	bool stateWantsThirdPerson = rawStateWantsThirdPerson;
+	bool stateObserver = rawStateObserver;
+
+	// Map-load / reconnect stabilization:
+	// Right after joining/changing maps, the client can briefly report observer-like netvars even though
+	// the player is alive. If we treat that as true observer mode, we latch third-person for ~1-2s then snap back.
+	// Suppress *observer-driven* third-person in that window; other state reasons (ledge/tongue/pinned/self-heal) still apply.
+	const bool inMapLoadCooldown = m_VR->IsThirdPersonMapLoadCooldownActive();
+	if (inMapLoadCooldown && tpStateDbg.lifeState == 0 && rawStateObserver && !tpStateDbg.dead)
+	{
+		stateObserver = false;
+		stateWantsThirdPerson = tpStateDbg.dead || tpStateDbg.ledge || tpStateDbg.tongue || tpStateDbg.pinned || tpStateDbg.selfMedkit;
+	}
+	const bool stateIsDeadOrObserver = tpStateDbg.dead || stateObserver;
+	// Death transition anti-flicker: the engine can oscillate between 1P/3P while dying -> observer.
+	// To avoid nauseating camera swaps in VR, lock to first-person for a short window right after death is detected.
+	static std::chrono::steady_clock::time_point s_deathFpLockUntil{};
+	static bool s_prevDead = false;
+	const bool nowDead = tpStateDbg.dead;
+	const bool nowObserver = stateObserver;
+	const auto nowTp = std::chrono::steady_clock::now();
+	// Revive recovery: getting up from incapacitated can leave the engine in a transient camera mode
+	// (observer/view-entity/shoulder cam). If we latch third-person during that window, it may never decay.
+	// Detect the incap -> standing edge and (optionally) force a short first-person recovery window.
+	// NOTE: if the player was already in third-person before getting incapacitated, don't force first-person
+	// after the revive; restore third-person immediately to match player expectation.
+	static bool s_prevIncap = false;
+	static bool s_incapEnteredThirdPerson = false;
+	static bool s_reviveForceFirstPerson = true;
+	static std::chrono::steady_clock::time_point s_reviveRecoverUntil{};
+	const bool nowIncap = tpStateDbg.incap;
+	if (!s_prevIncap && nowIncap)
+	{
+		// Capture the *previous* third-person intent/state so we can restore it after revive.
+		// m_IsThirdPersonCamera / HoldFrames reflect the last frame's decision.
+		const bool prevHadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
+		s_incapEnteredThirdPerson = prevHadThirdPerson || customWalkThirdPersonNow || engineThirdPersonNow;
+	}
+	if (s_prevIncap && !nowIncap)
+	{
+		s_reviveForceFirstPerson = !s_incapEnteredThirdPerson;
+		// Keep this window short; it's only meant to let transient camera state settle.
+		// If we entered incap in third-person, don't force first-person after revive.
+		if (s_reviveForceFirstPerson)
+			s_reviveRecoverUntil = nowTp + std::chrono::milliseconds(400);
+		else
+			s_reviveRecoverUntil = std::chrono::steady_clock::time_point{};
+		m_VR->m_ThirdPersonHoldFrames = 0;
+		m_VR->m_IsThirdPersonCamera = false;
+		s_engineTpCam.Reset();
+		m_VR->ResetPosition();
+	}
+	s_prevIncap = nowIncap;
+	const bool inReviveRecover = (s_reviveRecoverUntil.time_since_epoch().count() != 0) && (nowTp < s_reviveRecoverUntil);
+
+	if (nowDead && !s_prevDead)
+		s_deathFpLockUntil = nowTp + std::chrono::seconds(10);
+	s_prevDead = nowDead;
+	const bool forceFirstPersonAfterDeath =
+		(!nowObserver && (s_deathFpLockUntil.time_since_epoch().count() != 0) && (nowTp < s_deathFpLockUntil));
+	constexpr int kEngineThirdPersonHoldFrames = 2;
+	constexpr int kStateThirdPersonHoldFrames = 2;
+	constexpr int kSelfMedkitHoldFrames = 6; // stronger lock while self-healing
+	constexpr int kDeadOrObserverHoldFrames = 30; // avoid flicker during death/observer transitions
+	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
+	// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
+	bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDeadOrObserver || tpStateDbg.selfMedkit || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
+	if (forceFirstPersonAfterDeath)
+		allowStateThirdPerson = false;
+	// 先按“状态”锁定（优先级最高）
+	if (allowStateThirdPerson)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
+	if (tpStateDbg.selfMedkit)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kSelfMedkitHoldFrames);
+	if (stateIsDeadOrObserver)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kDeadOrObserverHoldFrames);
+	// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
+	constexpr int kWalkThirdPersonHoldFrames = 3;
+	if (customWalkThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kWalkThirdPersonHoldFrames);
+
+	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
+	if (engineThirdPersonNow)
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
+	else if (localPlayer && !allowStateThirdPerson && !tpStateDbg.selfMedkit && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
-	const bool engineThirdPerson = engineThirdPersonNow || (m_VR->m_ThirdPersonHoldFrames > 0);
+	bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || tpStateDbg.selfMedkit || (m_VR->m_ThirdPersonHoldFrames > 0);
+	if (usingMountedGun)
+	{
+		// Hard override: mounted guns should never be third-person in VR.
+		renderThirdPerson = false;
+		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
+	// Post-revive recovery override: force first-person for a short window after getting up.
+	if (inReviveRecover && s_reviveForceFirstPerson && !usingMountedGun && !customWalkThirdPersonNow && !stateIsDeadOrObserver && !tpStateDbg.selfMedkit)
+	{
+		renderThirdPerson = false;
+		m_VR->m_ThirdPersonHoldFrames = 0;
+		s_engineTpCam.Reset();
+	}
+	// Death anti-flicker override (must run after all other third-person decisions).
+	if (forceFirstPersonAfterDeath)
+	{
+		renderThirdPerson = false;
+		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
+	// Debug: log third-person state + relevant netvars (throttled)
+	{
+		static std::chrono::steady_clock::time_point s_lastTpDbg{};
+		static bool s_prevEngineTp = false;
+		static bool s_prevStateTp = false;
+		static bool s_prevRenderTp = false;
+		static int s_prevHold = -999;
+
+		const auto now = std::chrono::steady_clock::now();
+		const bool changed = (engineThirdPersonNow != s_prevEngineTp) || (stateWantsThirdPerson != s_prevStateTp) ||
+			(renderThirdPerson != s_prevRenderTp) || (m_VR->m_ThirdPersonHoldFrames != s_prevHold);
+		const bool timeUp = (s_lastTpDbg.time_since_epoch().count() == 0) ||
+			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000);
+
+		s_prevEngineTp = engineThirdPersonNow;
+		s_prevStateTp = stateWantsThirdPerson;
+		s_prevRenderTp = renderThirdPerson;
+		s_prevHold = m_VR->m_ThirdPersonHoldFrames;
+	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
-	m_VR->m_IsThirdPersonCamera = engineThirdPerson;
+	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
+	// ------------------------------
+	// Third-person shake damping:
+	// Tank stomps / explosions can apply strong screen-shake to the engine camera.
+	// In VR third-person, that feels *way* worse than on a flat screen, so we apply an
+	// extra low-pass filter to the engine camera origin/angles while actively rendering 3P.
+	//
+	// Notes:
+	//  - Disabled for death/observer and view-entity cameras (cutscenes), to preserve intended choreography.
+	//  - Controlled by config: ThirdPersonCameraSmoothing (0..0.99). Higher = smoother (less shake).
+	// ------------------------------
+	static bool s_tpShakeInit = false;
+	static Vector s_tpShakeOrigin{ 0,0,0 };
+	static QAngle s_tpShakeAngles{ 0,0,0 };
+
+	auto ResetTpShake = [&]()
+		{
+			s_tpShakeInit = false;
+			s_tpShakeOrigin = { 0,0,0 };
+			s_tpShakeAngles = { 0,0,0 };
+		};
+
+	const float tpShakeSmooth = std::clamp(m_VR->m_ThirdPersonCameraSmoothing, 0.0f, 0.99f);
+
+	if (!renderThirdPerson || stateIsDeadOrObserver || hasViewEntityOverride || tpShakeSmooth <= 0.0f)
+	{
+		ResetTpShake();
+	}
+	else
+	{
+		const float lerpFactor = 1.0f - tpShakeSmooth;
+
+		if (!s_tpShakeInit)
+		{
+			s_tpShakeOrigin = engineCamOrigin;
+			s_tpShakeAngles = engineCamAngles;
+			s_tpShakeInit = true;
+		}
+		else
+		{
+			// Smooth origin (component-wise)
+			s_tpShakeOrigin.x += (engineCamOrigin.x - s_tpShakeOrigin.x) * lerpFactor;
+			s_tpShakeOrigin.y += (engineCamOrigin.y - s_tpShakeOrigin.y) * lerpFactor;
+			s_tpShakeOrigin.z += (engineCamOrigin.z - s_tpShakeOrigin.z) * lerpFactor;
+
+			// Smooth angles with wrap-around
+			auto smoothAngle = [&](float target, float& cur)
+				{
+					float diff = target - cur;
+					diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+					cur += diff * lerpFactor;
+				};
+
+			smoothAngle(engineCamAngles.x, s_tpShakeAngles.x);
+			smoothAngle(engineCamAngles.y, s_tpShakeAngles.y);
+			smoothAngle(engineCamAngles.z, s_tpShakeAngles.z);
+		}
+
+		engineCamOrigin = s_tpShakeOrigin;
+		engineCamAngles = s_tpShakeAngles;
+	}
+
+	// Always capture the view the engine is rendering this frame.
+	// In true third-person, setup.origin is the shoulder camera; in first-person it matches the eye.
+	m_VR->m_ThirdPersonViewOrigin = engineCamOrigin;
+	m_VR->m_ThirdPersonViewAngles.Init(engineCamAngles.x, engineCamAngles.y, engineCamAngles.z);
 	CViewSetup leftEyeView = setup;
 	CViewSetup rightEyeView = setup;
 
@@ -269,22 +849,53 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.m_flAspectRatio = m_VR->m_Aspect;
 	leftEyeView.zNear = 6;
 	leftEyeView.zNearViewmodel = 6;
-	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera
+	// Keep VR tracking base tied to the real player eye, NOT the shoulder camera.
+	// IMPORTANT (VR compatibility):
+	// Some VScript mods (e.g. slide mods) temporarily enable point_viewcontrol_survivor via
+	// CBasePlayer::m_hViewEntity. In that case, setup.origin can jump to an attachment-driven
+	// camera that does NOT match the HMD eye origin and can appear "too high" in VR.
+	// So: only borrow setup.origin.z when the player has no active view-entity override.
 	m_VR->m_SetupOrigin = eyeOrigin;
-	if (!engineThirdPerson)
+	if (!renderThirdPerson && !hasViewEntityOverride && !usingMountedGun)
 		m_VR->m_SetupOrigin.z = setup.origin.z;
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
+
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
 
-	if (engineThirdPerson)
+	// Recenter the VR anchors once per threshold when yaw turns left/right a lot.
+	// Requirement: if yaw turns beyond 60° (left or right), do a one-shot ResetPosition.
+	// Note: this now applies in both first-person and third-person rendering.
+	{
+		static bool s_yawResetInit = false;
+		static float s_yawResetBase = 0.0f;
+
+		if (!s_yawResetInit)
+		{
+			s_yawResetBase = viewAngles.y;
+			s_yawResetInit = true;
+		}
+		else
+		{
+			float diff = viewAngles.y - s_yawResetBase;
+			// Normalize to [-180, 180] to handle wrap-around.
+			diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+			if (std::fabs(diff) >= 30.0f)
+			{
+				m_VR->ResetPosition();
+				s_yawResetBase = viewAngles.y;
+			}
+		}
+	}
+
+	if (renderThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
 		// but aim the camera with the HMD so head look still works in third-person.
 		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
 		if (m_VR->m_HmdForward.IsZero())
-			camAng = QAngle(setup.angles.x, setup.angles.y, setup.angles.z);
+			camAng = engineCamAngles;
 
 		Vector fwd, right, up;
 		QAngle::AngleVectors(camAng, &fwd, &right, &up);
@@ -292,8 +903,28 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
 		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
 
-		// Treat setup.origin as camera "head center", apply SteamVR eye-to-head offsets
-		Vector camCenter = setup.origin + (fwd * (-eyeZ));
+		// Treat camera origin as "head center", apply SteamVR eye-to-head offsets.
+		// If we're forcing third-person (state) while the engine is in first-person, use HMD position to synthesize a stable 3p camera.
+		// IMPORTANT:
+		// engineThirdPersonNow can flicker during pinned/incap/use actions.
+		// If stateWantsThirdPerson is true, always synthesize from HMD to avoid camera "jumping"
+		// between setup.origin and HmdPosAbs.
+		Vector baseCenter;
+		if (stateWantsThirdPerson)
+		{
+			// Dead/observer camera must follow engine view, not HMD position.
+			baseCenter = stateIsDeadOrObserver ? engineCamOrigin : m_VR->m_HmdPosAbs;
+		}
+		else
+		{
+			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->m_HmdPosAbs;
+		}
+		Vector camCenter = baseCenter + (fwd * (-eyeZ));
+		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
+			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
+		// Expose the actual VR render camera center used for third-person this frame.
+		// This includes HMD-aim yaw and any VR camera offsets, and is used to keep aim line and overlays aligned.
+		m_VR->m_ThirdPersonRenderCenter = camCenter;
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
 	}
@@ -302,6 +933,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Normal VR first-person
 		leftOrigin = m_VR->GetViewOriginLeft();
 		rightOrigin = m_VR->GetViewOriginRight();
+		// Keep this sane even in 1P (unused there, but prevents stale deltas if 3P toggles).
+		m_VR->m_ThirdPersonRenderCenter = m_VR->m_SetupOrigin;
 	}
 
 	leftEyeView.origin = leftOrigin;
@@ -345,10 +978,63 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
 
+	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
+		CViewSetup& view, CViewSetup& hud)
+		{
+			IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
+			if (!rc)
+			{
+				m_VR->HandleMissingRenderContext("Hooks::dRenderView(offscreen)");
+				return;
+			}
+
+			// If viewport hooks aren't available, fall back (less ideal).
+			if (!hkGetViewport.fOriginal || !hkViewport.fOriginal)
+			{
+				hkPushRenderTargetAndViewport.fOriginal(rc, target, nullptr, 0, 0, texW, texH);
+
+				QAngle oldEngineAngles;
+				m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+				m_Game->m_EngineClient->SetViewAngles(passAngles);
+
+				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+				hkPopRenderTargetAndViewport.fOriginal(rc);
+				return;
+			}
+
+			const bool prevSuppress = m_VR->m_SuppressHudCapture;
+			m_VR->m_SuppressHudCapture = true;
+
+			int oldX = 0, oldY = 0, oldW = 0, oldH = 0;
+			hkGetViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+			ITexture* oldRT = rc->GetRenderTarget();
+
+			rc->SetRenderTarget(target);
+			hkViewport.fOriginal(rc, 0, 0, texW, texH);
+
+			rc->ClearColor4ub(0, 0, 0, 255);
+			rc->ClearBuffers(true, true, true);
+
+			QAngle oldEngineAngles;
+			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+			m_Game->m_EngineClient->SetViewAngles(passAngles);
+
+			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+
+			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+
+			rc->SetRenderTarget(oldRT);
+			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
+
+			m_VR->m_SuppressHudCapture = prevSuppress;
+		};
+
 	// ----------------------------
 	// Scope RTT pass: render from scope camera into vrScope RTT
 	// ----------------------------
-	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture)
+	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture && m_VR->ShouldUpdateScopeRTT())
 	{
 		CViewSetup scopeView = setup;
 		scopeView.x = 0;
@@ -375,27 +1061,71 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		hudScope.origin = scopeView.origin;
 		hudScope.angles = scopeView.angles;
 
-		// prevent HUD capture hooks during this pass
-		m_VR->m_SuppressHudCapture = true;
+		renderToTexture_SetRT(m_VR->m_ScopeTexture,
+			m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,
+			scopeAngles, scopeView, hudScope);
+	}
 
-		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
-		if (renderContext)
+	// ----------------------------
+	// Rear mirror RTT pass: render from HMD with 180 yaw into vrRearMirror RTT
+	// ----------------------------
+	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderRearMirror() && m_VR->m_RearMirrorTexture && m_VR->ShouldUpdateRearMirrorRTT())
+	{
+		CViewSetup mirrorView = setup;
+		mirrorView.x = 0;
+		mirrorView.y = 0;
+		mirrorView.m_nUnscaledX = 0;
+		mirrorView.m_nUnscaledY = 0;
+		mirrorView.width = m_VR->m_RearMirrorRTTSize;
+		mirrorView.m_nUnscaledWidth = m_VR->m_RearMirrorRTTSize;
+		mirrorView.height = m_VR->m_RearMirrorRTTSize;
+		mirrorView.m_nUnscaledHeight = m_VR->m_RearMirrorRTTSize;
+		mirrorView.fov = m_VR->m_RearMirrorFov;
+		mirrorView.m_flAspectRatio = 1.0f;
+		mirrorView.fovViewmodel = mirrorView.fov;
+		mirrorView.zNear = m_VR->m_RearMirrorZNear;
+		mirrorView.zNearViewmodel = 99999.0f;
+
+		QAngle mirrorAngles = m_VR->GetRearMirrorCameraAbsAngle();
+		mirrorView.origin = m_VR->GetRearMirrorCameraAbsPos();
+		mirrorView.angles.x = mirrorAngles.x;
+		mirrorView.angles.y = mirrorAngles.y;
+		mirrorView.angles.z = mirrorAngles.z;
+
+		CViewSetup hudMirror = hudViewSetup;
+		hudMirror.origin = mirrorView.origin;
+		hudMirror.angles = mirrorView.angles;
+
+		// Mark mirror RTT pass so DrawModelExecute can tag special-infected arrows seen in this pass.
+		m_VR->m_RearMirrorRenderingPass = true;
+		m_VR->m_RearMirrorSawSpecialThisPass = false;
+
+		renderToTexture_SetRT(m_VR->m_RearMirrorTexture,
+			m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize,
+			mirrorAngles, mirrorView, hudMirror);
+
+		m_VR->m_RearMirrorRenderingPass = false;
+		const auto rmNow = std::chrono::steady_clock::now();
+		if (m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
 		{
-			hkPushRenderTargetAndViewport.fOriginal(renderContext, m_VR->m_ScopeTexture, nullptr, 0, 0, m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize);
-			renderContext->ClearColor4ub(0, 0, 0, 255);
-			renderContext->ClearBuffers(true, true, true);
+			if (m_VR->m_RearMirrorSawSpecialThisPass)
+			{
+				m_VR->m_LastRearMirrorSpecialSeenTime = rmNow;
+				m_VR->m_RearMirrorSpecialEnlargeActive = true;
+			}
 
-			QAngle oldEngineAngles;
-			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
-			m_Game->m_EngineClient->SetViewAngles(scopeAngles);
-
-			hkRenderView.fOriginal(ecx, scopeView, hudScope, nClearFlags, whatToDraw);
-
-			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
-			hkPopRenderTargetAndViewport.fOriginal(renderContext);
+			if (m_VR->m_RearMirrorSpecialEnlargeActive)
+			{
+				const float elapsed = std::chrono::duration<float>(rmNow - m_VR->m_LastRearMirrorSpecialSeenTime).count();
+				if (elapsed > m_VR->m_RearMirrorSpecialEnlargeHoldSeconds)
+					m_VR->m_RearMirrorSpecialEnlargeActive = false;
+			}
 		}
-
-		m_VR->m_SuppressHudCapture = false;
+		else
+		{
+			// Disabled
+			m_VR->m_RearMirrorSpecialEnlargeActive = false;
+		}
 	}
 
 	// Restore engine angles immediately after our stereo render.
@@ -405,15 +1135,30 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd)
 {
+	// When returning from spectator/observer back to a live player entity ("rescued"),
+	// VR origin can be desynced. Force a recenter/reset once on that transition.
+	// Netvars (client):
+	// - m_lifeState     @ 0x147
+	// - m_iObserverMode @ 0x1450
+	static bool s_prevSpectatorLike = false;
+	static bool s_prevSpectatorLikeInitialized = false;
+
 	// Non-VR server melee feel state (ForceNonVRServerMovement=true only)
 	static int s_nonvrMeleeHoldTicks = 0;
 	static bool s_nonvrMeleeArmed = true;
 	static QAngle s_nonvrMeleeLockedAngles = { 0,0,0 };
 	static std::chrono::steady_clock::time_point s_nonvrMeleeLockUntil{};
 	static std::chrono::steady_clock::time_point s_nonvrMeleeCooldownUntil{};
+	static bool s_nonvrMeleePending = false;
+	static std::chrono::steady_clock::time_point s_nonvrMeleeFireAt{};
+	static QAngle s_nonvrMeleePendingAngles = { 0,0,0 };
+	static int s_nonvrMeleePendingHoldTicks = 0;
 	static bool s_nonvrMeleeHasPrev = false;
 	static Vector s_nonvrMeleePrevCtrlPos = { 0,0,0 };
 	static Vector s_nonvrMeleePrevHmdPos = { 0,0,0 };
+
+	if (!cmd)
+		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	if (!cmd->command_number)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
@@ -421,7 +1166,163 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	if (m_VR->m_IsVREnabled) {
+		// Detect observer -> live transition and recenter once.
+	   // In L4D2, the local player entity persists while dead and enters observer modes.
+	   // When rescued, m_iObserverMode usually returns to 0 and m_lifeState becomes 0.
+		{
+			const int lpIdx = (m_Game->m_EngineClient) ? m_Game->m_EngineClient->GetLocalPlayer() : -1;
+			C_BasePlayer* lp = (lpIdx > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx) : nullptr;
+			if (lp)
+			{
+				const int lifeState = (int)ReadNetvar<uint8_t>(lp, 0x147); // m_lifeState
+				const int observerMode = (int)ReadNetvar<int>(lp, 0x1450); // m_iObserverMode
+				const bool spectatorLikeNow = (lifeState != 0) || (observerMode != 0);
+
+				if (s_prevSpectatorLikeInitialized)
+				{
+					// Transition: was spectator-like -> now fully alive (not observer).
+					if (s_prevSpectatorLike && !spectatorLikeNow)
+					{
+						// Note: ResetPosition is expected to exist on VR (used by the input action).
+						m_VR->ResetPosition();
+					}
+				}
+
+				s_prevSpectatorLike = spectatorLikeNow;
+				s_prevSpectatorLikeInitialized = true;
+			}
+			else
+			{
+				// No local player entity yet; don't latch state.
+				s_prevSpectatorLikeInitialized = false;
+			}
+		}
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
+
+		// Mouse mode: consume raw mouse deltas to drive body yaw and independent aim pitch.
+		// Mouse X -> yaw (m_RotationOffset), Mouse Y -> m_MouseAimPitchOffset.
+		// We zero cmd->mousedx/y so Source doesn't also apply them to viewangles.
+		if (m_VR->m_MouseModeEnabled)
+		{
+			// Mouse mode hotkeys (keyboard). Polled here because CreateMove runs at input tick rate.
+			auto pollKeyPressed = [&](const std::optional<WORD>& vk, bool& prevDown) -> bool
+				{
+					if (!vk.has_value())
+					{
+						prevDown = false;
+						return false;
+					}
+					const SHORT state = GetAsyncKeyState((int)*vk);
+					const bool down = (state & 0x8000) != 0;
+					const bool pressed = down && !prevDown;
+					prevDown = down;
+					return pressed;
+				};
+
+			if (pollKeyPressed(m_VR->m_MouseModeScopeToggleKey, m_VR->m_MouseModeScopeToggleKeyDownPrev))
+				m_VR->ToggleMouseModeScope();
+			if (pollKeyPressed(m_VR->m_MouseModeScopeMagnificationKey, m_VR->m_MouseModeScopeMagnificationKeyDownPrev) && m_VR->IsMouseModeScopeActive())
+				m_VR->CycleScopeMagnification();
+
+			const float mouseScopeGain = m_VR->GetMouseModeScopeSensitivityScale();
+
+			const int dx = cmd->mousedx;
+			const int dy = cmd->mousedy;
+
+			// Mouse-mode yaw (scheme A): delta-drain smoothing.
+			// - If MouseModeTurnSmoothing <= 0: legacy behavior (apply yaw directly on CreateMove ticks).
+			// - If MouseModeTurnSmoothing  > 0: convert mouse X to a yaw delta and accumulate it.
+			//   VR::UpdateTracking will drain/apply it smoothly per-frame.
+			if (m_VR->m_MouseModeTurnSmoothing <= 0.0f)
+			{
+				if (dx != 0)
+				{
+					m_VR->m_RotationOffset += (-float(dx) * m_VR->m_MouseModeYawSensitivity) * mouseScopeGain;
+					// Wrap to [0, 360)
+					m_VR->m_RotationOffset -= 360.0f * std::floor(m_VR->m_RotationOffset / 360.0f);
+				}
+				m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
+				m_VR->m_MouseModeYawDeltaInitialized = false;
+			}
+			else
+			{
+				if (!m_VR->m_MouseModeYawDeltaInitialized)
+				{
+					m_VR->m_MouseModeYawDeltaRemainingDeg = 0.0f;
+					m_VR->m_MouseModeYawDeltaInitialized = true;
+				}
+				if (dx != 0)
+				{
+					const float yawDeltaDeg = (-float(dx) * m_VR->m_MouseModeYawSensitivity) * mouseScopeGain;
+					m_VR->m_MouseModeYawDeltaRemainingDeg += yawDeltaDeg;
+				}
+			}
+
+			if (!m_VR->m_MouseAimInitialized)
+			{
+				// Initialize current values (used immediately) and targets (smoothed per-frame in VR::UpdateTracking).
+				m_VR->m_MouseAimPitchOffset = m_VR->m_HmdAngAbs.x;
+				m_VR->m_MouseModeViewPitchOffset = 0.0f;
+				m_VR->m_MouseAimInitialized = true;
+
+				m_VR->m_MouseModePitchTarget = m_VR->m_MouseAimPitchOffset;
+				m_VR->m_MouseModePitchTargetInitialized = true;
+				m_VR->m_MouseModeViewPitchTargetOffset = m_VR->m_MouseModeViewPitchOffset;
+				m_VR->m_MouseModeViewPitchTargetOffsetInitialized = true;
+			}
+
+			// Ensure targets are initialized even if MouseAimInitialized was set elsewhere.
+			if (!m_VR->m_MouseModePitchTargetInitialized)
+			{
+				m_VR->m_MouseModePitchTarget = m_VR->m_MouseAimPitchOffset;
+				m_VR->m_MouseModePitchTargetInitialized = true;
+			}
+			if (!m_VR->m_MouseModeViewPitchTargetOffsetInitialized)
+			{
+				m_VR->m_MouseModeViewPitchTargetOffset = m_VR->m_MouseModeViewPitchOffset;
+				m_VR->m_MouseModeViewPitchTargetOffsetInitialized = true;
+			}
+
+			if (dy != 0)
+			{
+				const float deltaPitch = float(dy) * m_VR->m_MouseModePitchSensitivity * mouseScopeGain;
+
+				if (m_VR->m_MouseModePitchAffectsView)
+				{
+					// Update targets only. VR::UpdateTracking will smooth the current values per-frame.
+					const float curViewPitch = m_VR->m_MouseModePitchTarget;
+					float newViewPitch = curViewPitch + deltaPitch;
+					if (newViewPitch > 89.f)  newViewPitch = 89.f;
+					if (newViewPitch < -89.f) newViewPitch = -89.f;
+
+					const float appliedDelta = newViewPitch - curViewPitch;
+					m_VR->m_MouseModeViewPitchTargetOffset += appliedDelta;
+					m_VR->m_MouseModePitchTarget = newViewPitch;
+
+					// If pitch smoothing is disabled, keep legacy immediate behavior.
+					if (m_VR->m_MouseModePitchSmoothing <= 0.0f)
+					{
+						m_VR->m_MouseModeViewPitchOffset = m_VR->m_MouseModeViewPitchTargetOffset;
+						m_VR->m_MouseAimPitchOffset = m_VR->m_MouseModePitchTarget;
+					}
+				}
+				else
+				{
+					// Aim pitch only (camera remains driven purely by HMD).
+					m_VR->m_MouseModePitchTarget += deltaPitch;
+					if (m_VR->m_MouseModePitchTarget > 89.f)  m_VR->m_MouseModePitchTarget = 89.f;
+					if (m_VR->m_MouseModePitchTarget < -89.f) m_VR->m_MouseModePitchTarget = -89.f;
+
+					if (m_VR->m_MouseModePitchSmoothing <= 0.0f)
+					{
+						m_VR->m_MouseAimPitchOffset = m_VR->m_MouseModePitchTarget;
+					}
+				}
+			}
+
+			cmd->mousedx = 0;
+			cmd->mousedy = 0;
+		}
 		const QAngle originalViewAngles = cmd->viewangles;
 		bool hadWalkAxis = false;
 		float walkNx = 0.f, walkNy = 0.f;
@@ -450,8 +1351,28 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			// Non-VR servers: we will re-base movement later after overriding cmd->viewangles.
 			if (!treatServerAsNonVR)
 			{
-				cmd->forwardmove += ny * maxSpeed;
-				cmd->sidemove += nx * maxSpeed;
+				// Final cmd basis will be HMD yaw (see below). Convert walk input from the chosen
+				// movement basis (HMD or controller) into that cmd basis.
+				Vector hmdAng = m_VR->GetViewAngle();
+				float viewYaw = hmdAng.y;
+				if (m_VR->m_MouseModeEnabled)
+				{
+					viewYaw = m_VR->m_RotationOffset;
+					// Wrap to [-180, 180]
+					viewYaw -= 360.0f * std::floor((viewYaw + 180.0f) / 360.0f);
+				}
+				const float moveYaw = m_VR->GetMovementYawDeg();
+
+				QAngle viewYawOnly(0.f, viewYaw, 0.f);
+				QAngle moveYawOnly(0.f, moveYaw, 0.f);
+				Vector viewForward, viewRight, viewUp;
+				Vector moveForward, moveRight, moveUp;
+				QAngle::AngleVectors(viewYawOnly, &viewForward, &viewRight, &viewUp);
+				QAngle::AngleVectors(moveYawOnly, &moveForward, &moveRight, &moveUp);
+
+				Vector worldMove = moveForward * (ny * maxSpeed) + moveRight * (nx * maxSpeed);
+				cmd->forwardmove += DotProduct(worldMove, viewForward);
+				cmd->sidemove += DotProduct(worldMove, viewRight);
 			}
 
 			// 可选：也把方向按钮位设置一下，增加兼容性
@@ -466,6 +1387,23 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
 		if (treatServerAsNonVR) {
 			QAngle aim = m_VR->GetRightControllerAbsAngle();
+			if (m_VR->m_MouseModeEnabled)
+			{
+				if (m_VR->m_HasNonVRAimSolution)
+					aim = m_VR->m_NonVRAimAngles;
+				else
+				{
+					if (m_VR->m_MouseModeAimFromHmd)
+					{
+						Vector v = m_VR->GetViewAngle();
+						aim = QAngle(v.x, v.y, 0.0f);
+					}
+					else
+					{
+						aim = QAngle(m_VR->m_MouseAimPitchOffset, m_VR->m_RotationOffset, 0.0f);
+					}
+				}
+			}
 			// ForceNonVRServerMovement: prefer the eye-based solve (what the server will actually trace).
 			if (m_VR->m_HasNonVRAimSolution)
 				aim = m_VR->m_NonVRAimAngles;
@@ -498,6 +1436,22 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				// Aim lock: during lock window, keep viewangles stable so the melee direction doesn't jitter.
 				if (now < s_nonvrMeleeLockUntil)
 				{
+					cmd->viewangles = s_nonvrMeleeLockedAngles;
+				}
+
+				// Pending fire: after a short delay, start IN_ATTACK and begin aim lock.
+				// This makes melee feel more like a "wind-up -> hit" instead of an instant click.
+				if (s_nonvrMeleePending && now >= s_nonvrMeleeFireAt)
+				{
+					s_nonvrMeleePending = false;
+
+					s_nonvrMeleeLockedAngles = s_nonvrMeleePendingAngles;
+
+					const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
+					s_nonvrMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
+
+					s_nonvrMeleeHoldTicks = std::max(s_nonvrMeleeHoldTicks, s_nonvrMeleePendingHoldTicks);
+
 					cmd->viewangles = s_nonvrMeleeLockedAngles;
 				}
 
@@ -552,19 +1506,17 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				if (below)
 					s_nonvrMeleeArmed = true;
 
-				if (above && s_nonvrMeleeArmed && now >= s_nonvrMeleeCooldownUntil)
+				if (above && s_nonvrMeleeArmed && !s_nonvrMeleePending && now >= s_nonvrMeleeCooldownUntil)
 				{
 					s_nonvrMeleeArmed = false;
-
 
 					// Hold IN_ATTACK for a few ticks so we don't miss the server-side melee window.
 					const float holdTime = std::max(0.0f, m_VR->m_NonVRMeleeHoldTime);
 					int holdTicks = (int)ceilf(holdTime / dt);
 					holdTicks = std::clamp(holdTicks, 1, 8);
-					s_nonvrMeleeHoldTicks = std::max(s_nonvrMeleeHoldTicks, holdTicks);
 
-					// Lock current aim direction, optionally blend toward swing velocity direction.
-					s_nonvrMeleeLockedAngles = cmd->viewangles;
+					// Capture current aim direction, optionally blend toward swing velocity direction.
+					QAngle lockedAngles = cmd->viewangles;
 
 					const float blend = std::clamp(m_VR->m_NonVRMeleeSwingDirBlend, 0.0f, 1.0f);
 					if (blend > 0.0f)
@@ -577,32 +1529,59 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 							QAngle::VectorAngles(velDir, velAng);
 							NormalizeAndClampViewAngles(velAng);
 
-							s_nonvrMeleeLockedAngles.x = lerpAngle(s_nonvrMeleeLockedAngles.x, velAng.x, blend);
-							s_nonvrMeleeLockedAngles.y = lerpAngle(s_nonvrMeleeLockedAngles.y, velAng.y, blend);
-							s_nonvrMeleeLockedAngles.z = 0.f;
-							NormalizeAndClampViewAngles(s_nonvrMeleeLockedAngles);
+							lockedAngles.x = lerpAngle(lockedAngles.x, velAng.x, blend);
+							lockedAngles.y = lerpAngle(lockedAngles.y, velAng.y, blend);
+							lockedAngles.z = 0.f;
+							NormalizeAndClampViewAngles(lockedAngles);
 						}
 					}
 
-					// Apply lock window
-					const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
-					s_nonvrMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
-
-					// Apply cooldown window
+					// Apply cooldown window immediately so one gesture maps to one swing.
 					const float cd = std::max(0.05f, m_VR->m_NonVRMeleeSwingCooldown);
 					s_nonvrMeleeCooldownUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(cd));
 
-					// Fire now (this frame)
-					cmd->viewangles = s_nonvrMeleeLockedAngles;
-					cmd->buttons |= (1 << 0); // IN_ATTACK
+					// Delay before attacking, then lock angles during the hit window.
+					const float delayT = std::max(0.0f, m_VR->m_NonVRMeleeAttackDelay);
+					if (delayT > 0.0f)
+					{
+						s_nonvrMeleePending = true;
+						s_nonvrMeleeFireAt = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(delayT));
+						s_nonvrMeleePendingAngles = lockedAngles;
+						s_nonvrMeleePendingHoldTicks = holdTicks;
+					}
+					else
+					{
+						// Fire immediately (legacy behavior)
+						s_nonvrMeleeLockedAngles = lockedAngles;
+
+						const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
+						s_nonvrMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
+
+						s_nonvrMeleeHoldTicks = std::max(s_nonvrMeleeHoldTicks, holdTicks);
+
+						cmd->viewangles = s_nonvrMeleeLockedAngles;
+						cmd->buttons |= (1 << 0); // IN_ATTACK
+					}
 				}
+			}
+			else
+			{
+				// Leaving melee state: clear any queued swings/locks so we don't "ghost swing" later.
+				s_nonvrMeleePending = false;
+				s_nonvrMeleePendingHoldTicks = 0;
+				s_nonvrMeleeHoldTicks = 0;
+				s_nonvrMeleeLockUntil = {};
+				s_nonvrMeleeCooldownUntil = {};
+				s_nonvrMeleeArmed = true;
+				s_nonvrMeleeHasPrev = false;
 			}
 
 			// Re-base movement for non-VR servers:
 			// - The server interprets forwardmove/sidemove in the basis of cmd->viewangles (aim).
-			// - We want movement to follow the HMD yaw (body direction), not the hand aim yaw.
+			// - We want movement to follow a separate "movement yaw" (HMD yaw by default; optional controller yaw),
+			//   not necessarily the hand aim yaw.
 			// So we convert existing movement (built under originalViewAngles) into world space,
-			// add VR stick movement in HMD space, then project back into the final cmd basis.
+			// add VR stick movement in movement-yaw space, then project back into the final cmd basis.
 			{
 				// Existing movement (keyboard etc.) in world space
 				QAngle origYawOnly(0.f, originalViewAngles.y, 0.f);
@@ -610,11 +1589,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				QAngle::AngleVectors(origYawOnly, &origForward, &origRight, &origUp);
 				Vector worldMove = origForward * cmd->forwardmove + origRight * cmd->sidemove;
 
-				// VR stick movement (body = HMD yaw)
+				// VR stick movement (movement basis = HMD yaw or controller yaw)
 				if (hadWalkAxis)
 				{
-					Vector hmdAng = m_VR->GetViewAngle();
-					QAngle bodyYawOnly(0.f, hmdAng.y, 0.f);
+					const float moveYaw = m_VR->GetMovementYawDeg();
+					QAngle bodyYawOnly(0.f, moveYaw, 0.f);
 					Vector bodyForward, bodyRight, bodyUp;
 					QAngle::AngleVectors(bodyYawOnly, &bodyForward, &bodyRight, &bodyUp);
 					worldMove += bodyForward * (walkNy * walkMaxSpeed) + bodyRight * (walkNx * walkMaxSpeed);
@@ -634,6 +1613,14 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			// Otherwise forward/sidemove get interpreted in the wrong basis (push forward -> strafe).
 			Vector hmdAng = m_VR->GetViewAngle();
 			QAngle view(hmdAng.x, hmdAng.y, hmdAng.z);
+			if (m_VR->m_MouseModeEnabled)
+			{
+				float yaw = m_VR->m_RotationOffset;
+				while (yaw > 180.f)  yaw -= 360.f;
+				while (yaw < -180.f) yaw += 360.f;
+				float pitch = m_VR->m_MouseAimInitialized ? m_VR->m_MouseAimPitchOffset : hmdAng.x;
+				view = QAngle(pitch, yaw, 0.f);
+			}
 			if (view.x > 89.f)  view.x = 89.f;
 			if (view.x < -89.f) view.x = -89.f;
 			while (view.y > 180.f)  view.y -= 360.f;
@@ -641,6 +1628,151 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			view.z = 0.f;
 			cmd->viewangles = view;
 		}
+	}
+
+	// Auto-repeat for semi-auto / single-shot guns:
+	// Many L4D2 weapons require a fresh IN_ATTACK edge per shot (press/release).
+	// When enabled, we convert a held IN_ATTACK into short pulses for non-full-auto guns.
+	if (m_VR->m_AutoRepeatSemiAutoFire && m_Game && m_Game->m_EngineClient)
+	{
+		const int lpIdx2 = m_Game->m_EngineClient->GetLocalPlayer();
+		C_BasePlayer* lp2 = (lpIdx2 > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx2) : nullptr;
+		C_BaseCombatWeapon* wpn = lp2 ? (C_BaseCombatWeapon*)lp2->GetActiveWeapon() : nullptr;
+		const char* wpnName = (wpn != nullptr) ? wpn->GetName() : nullptr;
+		const char* wpnNet = (wpn != nullptr) ? m_Game->GetNetworkClassName((uintptr_t*)wpn) : nullptr;
+		// Mounted guns (minigun / .50 cal etc.) require a continuous IN_ATTACK hold.
+		// While mounted, GetActiveWeapon() can still report the carried weapon, so our
+		// semi-auto pulse heuristic would incorrectly pulse IN_ATTACK and "stutter" fire.
+		const bool usingMountedWeapon = lp2 ? (
+			ReadNetvar<bool>(lp2, VR::kUsingMountedGunOffset) ||
+			ReadNetvar<bool>(lp2, VR::kUsingMountedWeaponOffset)
+			) : false;
+		auto startsWith = [](const char* s, const char* prefix) -> bool {
+			if (!s || !prefix) return false;
+			while (*prefix)
+			{
+				if (*s++ != *prefix++) return false;
+			}
+			return true;
+			};
+		auto contains = [](const char* s, const char* sub) -> bool {
+			if (!s || !sub || !*sub) return false;
+			return std::strstr(s, sub) != nullptr;
+			};
+		// If we can't identify the active weapon, be conservative: do NOT pulse.
+		// (Some non-gun items can fail the network-name heuristic; pulsing breaks their hold/release behavior.)
+		const bool unknownWeapon = (!wpnName && !wpnNet);
+		// Heuristic: treat common full-auto weapons as full-auto and do NOT pulse them.
+		// Everything else that uses IN_ATTACK will either be unaffected, or benefit from pulsing.
+		const bool isFullAuto =
+			startsWith(wpnNet, "CWeaponSMG") ||
+			startsWith(wpnNet, "CWeaponRifle") ||
+			startsWith(wpnNet, "CWeaponAutoshotgun") ||
+			startsWith(wpnNet, "CWeaponShotgun_SPAS") ||
+			startsWith(wpnNet, "CWeaponM60") ||
+			startsWith(wpnNet, "CWeaponRifle_M60") ||
+			contains(wpnNet, "Minigun");
+
+		const bool holdingAttack = (cmd->buttons & (1 << 0)) != 0; // IN_ATTACK
+
+		// If the player is currently performing a "use action" (healing, giving ammo/upgrade pack,
+		// reviving, etc.), Source expects IN_ATTACK to be held continuously.
+		// Pulsing IN_ATTACK will interrupt the action.
+		const bool doingUseAction = lp2 ? (ReadNetvar<int>(lp2, 0x1ba8) != 0) : false; // m_iCurrentUseAction
+
+		// Items that require a continuous hold on IN_ATTACK (healing / ammo packs / upgrade packs).
+		// If we pulse IN_ATTACK here, these actions get interrupted and become unusable.
+		const bool isHoldToUseItem =
+			// First-aid kit
+			contains(wpnNet, "FirstAid") ||
+			contains(wpnNet, "FirstAidKit") ||
+			contains(wpnNet, "WeaponFirstAidKit") ||
+			contains(wpnNet, "AidKit") ||
+			// Defib
+			contains(wpnNet, "Defibrillator") ||
+			contains(wpnNet, "WeaponDefibrillator") ||
+			// Ammo/upgrade packs
+			contains(wpnNet, "AmmoPack") ||
+			contains(wpnNet, "DT_AmmoPack") ||
+			contains(wpnNet, "UpgradePack") ||
+			contains(wpnNet, "ItemBaseUpgradePack") ||
+			contains(wpnNet, "UpgradePackExplosive") ||
+			contains(wpnNet, "UpgradePackIncendiary");
+		// Items that are *held* for a moment and released/thrown (or have their own continuous logic).
+		// Pulsing IN_ATTACK here feels bad and can cancel/bug the action (chainsaw, throwables).
+		const bool isChainsaw =
+			(wpnName && (contains(wpnName, "chainsaw") || contains(wpnName, "weapon_chainsaw"))) ||
+			contains(wpnNet, "Chainsaw") ||
+			contains(wpnNet, "WeaponChainsaw") ||
+			startsWith(wpnNet, "CChainsaw");
+
+		const bool isThrowable =
+			(wpnName && (
+				// Be loose here: engine strings vary across builds/mods ("weapon_molotov" vs "molotov").
+				contains(wpnName, "molotov") ||
+				(contains(wpnName, "pipe") && contains(wpnName, "bomb")) ||
+				contains(wpnName, "vomit") ||
+				(contains(wpnName, "grenade") && !contains(wpnName, "grenade_launcher"))
+				)) ||
+			contains(wpnNet, "Molotov") ||
+			contains(wpnNet, "PipeBomb") ||
+			contains(wpnNet, "VomitJar") ||
+			contains(wpnNet, "BaseCSGrenade") ||
+			(contains(wpnNet, "Grenade") && !contains(wpnNet, "GrenadeLauncher"));
+
+		// Only pulse when holding attack and weapon is NOT full-auto, and NOT a hold-to-use item.
+		// NOT a hold-to-use item, and NOT during a continuous use action.
+		if (holdingAttack && !unknownWeapon && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction && !usingMountedWeapon)
+		{
+			using namespace std::chrono;
+			const float hz = (m_VR->m_AutoRepeatSemiAutoFireHz > 0.0f) ? m_VR->m_AutoRepeatSemiAutoFireHz : 0.0f;
+			const auto now = steady_clock::now();
+
+			if (!m_VR->m_AutoRepeatHoldPrev)
+			{
+				// First tick of hold: fire immediately.
+				m_VR->m_AutoRepeatNextPulse = now;
+			}
+
+			bool pulseThisTick = (hz > 0.0f) && (now >= m_VR->m_AutoRepeatNextPulse);
+			if (pulseThisTick)
+			{
+				cmd->buttons |= (1 << 0); // IN_ATTACK
+				// Single-tick pulse; next tick will be cleared (unless next period elapsed).
+				const float clampedHz = std::max(1.0f, std::min(30.0f, hz));
+				m_VR->m_AutoRepeatNextPulse = now + duration_cast<steady_clock::duration>(duration<float>(1.0f / clampedHz));
+			}
+			else
+			{
+				cmd->buttons &= ~(1 << 0); // IN_ATTACK
+			}
+
+			m_VR->m_AutoRepeatHoldPrev = true;
+		}
+		else
+		{
+			m_VR->m_AutoRepeatHoldPrev = false;
+		}
+	}
+
+
+	// Aim-line friendly-fire guard:
+	// Compute teammate hit at input-tick rate (CreateMove) and latch suppression until attack is released.
+	C_BasePlayer* ffLocalPlayer = nullptr;
+	if (m_VR->m_BlockFireOnFriendlyAimEnabled)
+	{
+		const int ffIdx = m_Game->m_EngineClient->GetLocalPlayer();
+		if (ffIdx > 0)
+			ffLocalPlayer = (C_BasePlayer*)m_Game->GetClientEntity(ffIdx);
+	}
+
+	// Do NOT suppress IN_ATTACK while the player is performing a continuous "use action"
+	// (healing, giving ammo/upgrade pack, reviving, etc.). These actions intentionally target
+	// teammates and require holding IN_ATTACK.
+	const bool ffDoingUseAction = ffLocalPlayer ? (ReadNetvar<int>(ffLocalPlayer, 0x1ba8) != 0) : false; // m_iCurrentUseAction
+	if (!ffDoingUseAction && m_VR->ShouldSuppressPrimaryFire(cmd, ffLocalPlayer))
+	{
+		cmd->buttons &= ~(1 << 0); // IN_ATTACK
 	}
 
 	return result;
@@ -673,7 +1805,7 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// Server host
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->GetRightControllerAbsPos();
+		vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
 
 		// ForceNonVRServerMovement: aim the *visual* bullet line to the solved hit point (H)
 		// so what you see matches what the remote non-VR server will hit.
@@ -690,12 +1822,10 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			}
 			else
 			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				vecNewAngles = m_VR->m_NonVRAimAngles;
 			}
 		}
-
-		// Third-person convergence: aim bullets to the converge point so "bullet line" intersects
-		// the rendered aim line at the actual hit point.
+		// Third-person convergence
 		else if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 		{
 			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
@@ -709,8 +1839,20 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			}
 			else
 			{
-				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+				vecNewAngles = m_VR->m_MouseModeEnabled ? GetMouseModeFallbackAimAngles(m_VR) : m_VR->GetRightControllerAbsAngle();
 			}
+		}
+		else if (m_VR->m_MouseModeEnabled)
+		{
+			const Vector target = (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+				? m_VR->m_AimConvergePoint
+				: GetMouseModeDefaultTargetAbs(m_VR);
+
+			QAngle ang;
+			if (GetMouseModeAimAnglesToTarget(m_VR, vecNewOrigin, target, ang))
+				vecNewAngles = ang;
+			else
+				vecNewAngles = GetMouseModeFallbackAimAngles(m_VR);
 		}
 		else
 		{
@@ -745,7 +1887,7 @@ int Hooks::dClientFireTerrorBullets(
 
 		if (!m_VR->m_ForceNonVRServerMovement)
 		{
-			// VR-aware server：起点/方向都跟控制器（你现在第三人称汇聚点逻辑保留）
+			// VR-aware server：默认起点/方向都跟控制器；鼠标模式改用鼠标枪口锚点 + 目标方向
 			if (scopeActive)
 			{
 				vecNewOrigin = m_VR->GetScopeCameraAbsPos();
@@ -753,27 +1895,44 @@ int Hooks::dClientFireTerrorBullets(
 			}
 			else
 			{
-				vecNewOrigin = m_VR->GetRightControllerAbsPos();
-
-				if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+				if (m_VR->m_MouseModeEnabled)
 				{
-					Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
-					if (!to.IsZero())
-					{
-						VectorNormalize(to);
-						QAngle ang;
-						QAngle::VectorAngles(to, ang);
-						NormalizeAndClampViewAngles(ang);
+					vecNewOrigin = GetMouseModeGunOriginAbs(m_VR);
+
+					const Vector target = (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+						? m_VR->m_AimConvergePoint
+						: GetMouseModeDefaultTargetAbs(m_VR);
+
+					QAngle ang;
+					if (GetMouseModeAimAnglesToTarget(m_VR, vecNewOrigin, target, ang))
 						vecNewAngles = ang;
+					else
+						vecNewAngles = GetMouseModeFallbackAimAngles(m_VR);
+				}
+				else
+				{
+					vecNewOrigin = m_VR->GetRightControllerAbsPos();
+
+					if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+					{
+						Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
+						if (!to.IsZero())
+						{
+							VectorNormalize(to);
+							QAngle ang;
+							QAngle::VectorAngles(to, ang);
+							NormalizeAndClampViewAngles(ang);
+							vecNewAngles = ang;
+						}
+						else
+						{
+							vecNewAngles = m_VR->GetRightControllerAbsAngle();
+						}
 					}
 					else
 					{
 						vecNewAngles = m_VR->GetRightControllerAbsAngle();
 					}
-				}
-				else
-				{
-					vecNewAngles = m_VR->GetRightControllerAbsAngle();
 				}
 			}
 		}
@@ -1007,6 +2166,11 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	CVerifiedUserCmd* pVerifiedCommands = *(CVerifiedUserCmd**)((uintptr_t)m_Input + 0xF0);
 	CVerifiedUserCmd* pVerified = &pVerifiedCommands[(to->command_number) % 150];
 
+	if (to && m_VR->ShouldSuppressPrimaryFire(to, nullptr))
+	{
+		to->buttons &= ~(1 << 0); // IN_ATTACK
+	}
+
 	// Signal to the server that this CUserCmd has VR info
 	to->tick_count *= -1;
 
@@ -1177,6 +2341,28 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 				// RefreshSpecialInfectedPreWarning 内部会用到 Trace 缓存（TraceMaxHz），所以这里高频调用不会把 CPU 打爆。
 				m_VR->RefreshSpecialInfectedPreWarning(info.origin, infectedType, info.entity_index, isPlayerClass);
 
+				// Rear mirror pop-up: if enabled, show the mirror briefly when a special infected is behind you
+				// within the configured warning distance. This detection runs on the main render pass so the
+				// mirror can wake up without relying on the mirror RTT pass.
+				if (m_VR->m_RearMirrorEnabled && m_VR->m_RearMirrorShowOnlyOnSpecialWarning
+					&& m_VR->m_RearMirrorSpecialShowHoldSeconds > 0.0f && m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
+				{
+					Vector to = info.origin - m_VR->m_HmdPosAbs;
+					to.z = 0.0f;
+					const float maxD = m_VR->m_RearMirrorSpecialWarningDistance;
+					if (!to.IsZero() && to.LengthSqr() <= (maxD * maxD))
+					{
+						Vector fwd = m_VR->m_HmdForward;
+						fwd.z = 0.0f;
+						if (VectorNormalize(fwd) == 0.0f)
+							fwd = { 1.0f, 0.0f, 0.0f };
+						VectorNormalize(to);
+						// Behind = more likely you want the rear mirror.
+						if (DotProduct(to, fwd) < 0.0f)
+							m_VR->NotifyRearMirrorSpecialWarning();
+					}
+				}
+
 				// 2) 低优先级：视觉 Overlay（箭头/盲区提示）继续按实体节流，避免 dDrawModelExecute 多次调用导致尖峰
 				bool doOverlay = true;
 				if (info.entity_index > 0 && m_VR->m_SpecialInfectedOverlayMaxHz > 0.0f)
@@ -1196,6 +2382,16 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 
 				if (doOverlay)
 				{
+					// Rear-mirror hint: if this special-infected arrow is being rendered during the rear-mirror RTT pass
+					// and within the configured distance, enlarge the mirror overlay.
+					if (m_VR->m_RearMirrorRenderingPass && m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
+					{
+						Vector to = info.origin - m_VR->m_HmdPosAbs;
+						to.z = 0.0f;
+						const float maxD = m_VR->m_RearMirrorSpecialWarningDistance;
+						if (!to.IsZero() && to.LengthSqr() <= (maxD * maxD))
+							m_VR->m_RearMirrorSawSpecialThisPass = true;
+					}
 					if (infectedType != VR::SpecialInfectedType::Tank
 						&& infectedType != VR::SpecialInfectedType::Witch
 						&& infectedType != VR::SpecialInfectedType::Charger)
@@ -1306,7 +2502,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
 	// When scope RTT is rendering, don't redirect HUD/VGUI
 	if (m_VR->m_SuppressHudCapture)
-		return hkVgui_Paint.fOriginal(ecx, mode);
+		return;
 
 	if (m_PushedHud)
 		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
