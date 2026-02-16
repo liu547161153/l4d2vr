@@ -2614,22 +2614,11 @@ void VR::ProcessInput()
                 vr::VROverlay()->HideOverlay(overlay);
         };
 
-    bool isControllerVertical = m_RightControllerAngAbs.x > 60 || m_RightControllerAngAbs.x < -45;
     bool menuActive = m_Game->m_EngineClient->IsPaused();
-    bool cursorVisible = m_Game->m_VguiSurface && m_Game->m_VguiSurface->IsCursorVisible();
-    if (cursorVisible)
-    {
-        m_HudChatVisibleUntil = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    }
-    const bool chatRecent = std::chrono::steady_clock::now() < m_HudChatVisibleUntil;
-    if (PressedDigitalAction(m_ToggleHUD, true))
-    {
-        m_HudToggleState = !m_HudToggleState;
-    }
 
-    bool wantsTopHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
     bool wantsControllerHud = m_RenderedHud;
-    if ((wantsTopHud && m_RenderedHud) || menuActive)
+    bool wantsTopHud = wantsControllerHud;
+    if (wantsTopHud || menuActive)
     {
         RepositionOverlays();
 
