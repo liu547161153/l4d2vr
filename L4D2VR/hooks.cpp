@@ -535,7 +535,6 @@ int Hooks::initSourceHooks()
 	}
 
 	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
-
 	// Hook CPrediction::RunCommand via prediction interface vtable.
 	void* prediction = m_Game->GetInterface("client.dll", "VClientPrediction001");
 	if (!prediction)
@@ -885,29 +884,29 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
 
-	// Recenter the VR anchors once per threshold when yaw turns left/right a lot.
-	// Requirement: if yaw turns beyond 60° (left or right), do a one-shot ResetPosition.
-	// Note: this now applies in both first-person and third-person rendering.
+    // Recenter the VR anchors once per threshold when yaw turns left/right a lot.
+    // Requirement: if yaw turns beyond 60° (left or right), do a one-shot ResetPosition.
+    // Note: this now applies in both first-person and third-person rendering.
 	{
-		static bool s_yawResetInit = false;
-		static float s_yawResetBase = 0.0f;
+        static bool s_yawResetInit = false;
+        static float s_yawResetBase = 0.0f;
 
-		if (!s_yawResetInit)
-		{
-			s_yawResetBase = viewAngles.y;
-			s_yawResetInit = true;
-		}
-		else
-		{
-			float diff = viewAngles.y - s_yawResetBase;
-			// Normalize to [-180, 180] to handle wrap-around.
-			diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-			if (std::fabs(diff) >= 30.0f)
-			{
-				m_VR->ResetPosition();
-				s_yawResetBase = viewAngles.y;
-			}
-		}
+        if (!s_yawResetInit)
+        {
+            s_yawResetBase = viewAngles.y;
+            s_yawResetInit = true;
+        }
+        else
+        {
+            float diff = viewAngles.y - s_yawResetBase;
+            // Normalize to [-180, 180] to handle wrap-around.
+            diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
+            if (std::fabs(diff) >= 45.0f)
+             {
+                m_VR->ResetPosition();
+                s_yawResetBase = viewAngles.y;
+            }
+        }
 	}
 
 	if (renderThirdPerson)
@@ -1667,7 +1666,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		const bool usingMountedWeapon = lp2 ? (
 			ReadNetvar<bool>(lp2, VR::kUsingMountedGunOffset) ||
 			ReadNetvar<bool>(lp2, VR::kUsingMountedWeaponOffset)
-			) : false;
+		) : false;
 		auto startsWith = [](const char* s, const char* prefix) -> bool {
 			if (!s || !prefix) return false;
 			while (*prefix)
@@ -2283,7 +2282,6 @@ int Hooks::dPrimaryAttackServer(void* ecx, void* edx)
 	}
 	return hkPrimaryAttackServer.fOriginal(ecx);
 }
-
 
 void Hooks::dItemPostFrameServer(void* ecx, void* edx)
 {
