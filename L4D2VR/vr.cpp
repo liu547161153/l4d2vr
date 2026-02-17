@@ -4529,7 +4529,6 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     const float maxDistance = 8192.0f;
     Vector target = origin + direction * maxDistance;
 
-
     if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
     {
         m_AimConvergePoint = m_NonVRAimHitPoint;
@@ -4538,23 +4537,35 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     else
     {
-        // Third-person convergence point P: where the *rendered* aim ray hits.
-        // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
-        if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+        // Clip the aim line to the first thing the ray hits (world, teammates, infected, etc).
+        // This makes the DebugOverlay line behave like a real "laser" instead of a sky-beam.
+        if (localPlayer && m_Game->m_EngineTrace)
         {
-            CGameTrace trace;
+            trace_t trace;
             Ray_t ray;
+
+            // Skip local player and (optionally) the mounted gun platform entity.
             C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
             CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
             CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
             CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
 
-            ray.Init(origin, target);
-            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
+            // Include playerclip so we don't "laser through" clip brushes.
+            const unsigned int aimMask = MASK_SHOT | CONTENTS_PLAYERCLIP;
 
-            m_AimConvergePoint = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : target;
+            ray.Init(origin, target);
+            m_Game->m_EngineTrace->TraceRay(ray, aimMask, pTraceFilter, &trace);
+
+            if (trace.fraction < 1.0f && trace.fraction > 0.0f)
+                target = trace.endpos;
+        }
+
+        // Third-person convergence point P: where the *rendered* aim ray hits (after clipping).
+        // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
+        if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+        {
+            m_AimConvergePoint = target;
             m_HasAimConvergePoint = true;
-            target = m_AimConvergePoint; // draw to P
         }
         else
         {
@@ -4682,8 +4693,13 @@ void VR::RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer)
     // Primary aim line endpoint.
     Vector target = origin + (direction * 8192.0f);
 
-    // Third-person: do the same converge trace as UpdateAimingLaser, but with the render-time camera decisions.
-    if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+    // Keep parity with UpdateAimingLaser(): if we're forcing the non-VR bullet solution, draw to that hit point.
+    if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+        target = m_NonVRAimHitPoint;
+
+    // Clip the aim line to the first thing the ray hits (world, teammates, infected, etc),
+    // using the render-time camera decisions.
+    if (localPlayer && m_Game->m_EngineTrace)
     {
         trace_t trace;
         Ray_t ray;
@@ -4694,8 +4710,11 @@ void VR::RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer)
         CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
         CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
 
+        // Include playerclip so we don't "laser through" clip brushes.
+        const unsigned int aimMask = MASK_SHOT | CONTENTS_PLAYERCLIP;
+
         ray.Init(origin, target);
-        m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
+        m_Game->m_EngineTrace->TraceRay(ray, aimMask, pTraceFilter, &trace);
 
         if (trace.fraction < 1.0f && trace.fraction > 0.0f)
             target = trace.endpos;
