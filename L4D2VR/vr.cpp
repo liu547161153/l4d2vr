@@ -4610,9 +4610,16 @@ void VR::RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer)
 
     if (useMouse)
     {
-        // Match UpdateAimingLaser: infer a "gun origin" from the HMD for mouse-mode aiming.
-        const Vector gunOrigin = m_HmdPosAbs + (eyeDir * (m_MouseModeEyeToGunOffset * m_VRScale));
-        direction = m_MouseModeAimPoint - gunOrigin;
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
+        Vector gunOrigin = m_HmdPosAbs
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
+
+        const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
+        Vector target = m_HmdPosAbs + eyeDir * convergeDist;
+
+        direction = target - gunOrigin;
     }
 
     if (direction.IsZero())
@@ -4637,7 +4644,13 @@ void VR::RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer)
     // Base origin comes from the controller. In mouse mode, we use the inferred gun origin.
     Vector originBase = m_RightControllerPosAbs;
     if (useMouse)
-        originBase = m_HmdPosAbs + (eyeDir * (m_MouseModeEyeToGunOffset * m_VRScale));
+    {
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
+        originBase = m_HmdPosAbs
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
+    }
 
     // Apply third-person camera delta so the line stays glued to the rendered camera center.
     // This is the key to "timing alignment" mode: Hooks::dRenderView updates these right before rendering.
