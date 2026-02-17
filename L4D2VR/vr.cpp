@@ -4520,8 +4520,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         else if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
             pitchSource = m_HmdForward;
 
-        if (!m_AimLineTimingAligned)
-            DrawThrowArc(origin, direction, pitchSource);
+        // Always update throw-arc cache on the game thread.
+        // In AimLineTimingAligned mode, the render thread draws from cache to keep timing/camera aligned.
+        DrawThrowArc(origin, direction, pitchSource);
         return;
     }
 
@@ -4625,16 +4626,18 @@ void VR::RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer)
     if (direction.IsZero())
     {
         // If tracking is temporarily unavailable, keep the last cached helpers alive (one-frame lifetime).
-        const float duration = std::max(0.0f, MinIntervalSeconds(m_AimLineMaxHz) - 0.00025f);
+        const float aimDuration = std::max(0.0f, MinIntervalSeconds(m_AimLineMaxHz) - 0.00025f);
+        const float arcDuration = std::max(0.0f, MinIntervalSeconds(m_ThrowArcMaxHz) - 0.00025f);
 
-        if (allowAimLineDraw && m_LastAimWasThrowable && m_HasThrowArc)
+        // Throwable arcs are not governed by AimLineOnlyWhenLaserSight; only by AimLineEnabled/ShouldShowAimLine.
+        if (m_LastAimWasThrowable && m_HasThrowArc)
         {
-            DrawThrowArcFromCache(duration);
+            DrawThrowArcFromCache(arcDuration);
             return;
         }
 
         if (allowAimLineDraw && m_HasAimLine)
-            DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
+            DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, aimDuration);
 
         return;
     }
@@ -4668,7 +4671,7 @@ void VR::RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer)
     // Throwables: draw the cached arc points (computed on game thread) to avoid cross-thread mutation.
     if (isThrowable)
     {
-        if (allowAimLineDraw && m_HasThrowArc)
+        if (m_HasThrowArc)
         {
             const float duration = std::max(0.0f, MinIntervalSeconds(m_ThrowArcMaxHz) - 0.00025f);
             DrawThrowArcFromCache(duration);
@@ -4966,7 +4969,6 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector&
             return a + (b - a) * t;
         };
 
-    const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
     for (int i = 0; i <= THROW_ARC_SEGMENTS; ++i)
     {
         const float t = static_cast<float>(i) / static_cast<float>(THROW_ARC_SEGMENTS);
@@ -4978,7 +4980,12 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector&
     m_HasThrowArc = true;
     m_HasAimLine = false;
 
-    DrawThrowArcFromCache(duration);
+    // In timing-aligned mode, the render thread draws the cached arc so it stays aligned with render-time camera decisions.
+    if (!m_AimLineTimingAligned)
+    {
+        const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+        DrawThrowArcFromCache(duration);
+    }
 }
 
 void VR::DrawThrowArcFromCache(float duration)
