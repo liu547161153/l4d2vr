@@ -663,6 +663,18 @@ Option g_Options[] =
         "false"
     },
     {
+        "AimLineTimingAligned",
+        OptionType::Bool,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Timing-Aligned Aim Line", u8"时序对齐优先" },
+        { u8"Draws the aim line on the render thread after camera origins are finalized, using a shorter lifetime.",
+          u8"在渲染线程、相机原点最终确定后绘制瞄准线，并使用更短的持续时间。" },
+        { u8"Reduces positional trailing/ghosting while moving, but may flicker if FPS is unstable.",
+          u8"可减少移动时的残影/拖影，但帧率不稳定时可能会轻微闪烁。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
         "MeleeAimLineEnabled",
         OptionType::Bool,
         { u8"Aim Assist", u8"辅助瞄准" },

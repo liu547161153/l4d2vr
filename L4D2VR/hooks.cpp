@@ -1047,6 +1047,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
+	// Aim line timing-aligned draw: render-thread path to minimize trails when moving.
+	m_VR->RenderThreadDrawAimingLaser(localPlayer);
+
 	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
 	// Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,
 	// then restore, so the engine's view history/interp isn't corrupted.
