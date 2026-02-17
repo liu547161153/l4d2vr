@@ -440,7 +440,10 @@ void VR::RegisterChatEventListener()
     if (m_ChatEventListenerRegistered)
         return;
     if (!m_Game || !m_Game->m_GameEventManager)
+    {
+        Game::logMsg("[VR][ChatEvent] GameEventManager unavailable; chat listener not registered.");
         return;
+    }
 
     // Allocate once and keep for the life of the process.
     m_ChatEventListener = new VRChatAutoHudListener(this);
@@ -452,16 +455,21 @@ void VR::RegisterChatEventListener()
 
     if (!ok)
     {
+        Game::logMsg("[VR][ChatEvent] Failed to register player_say listeners.");
         delete m_ChatEventListener;
         m_ChatEventListener = nullptr;
         return;
     }
 
     m_ChatEventListenerRegistered = true;
+    Game::logMsg("[VR][ChatEvent] Registered player_say listeners.");
 }
 
-void VR::OnChatMessageReceived(const char* /*text*/)
+void VR::OnChatMessageReceived(const char* text)
 {
+    const char* safeText = text ? text : "";
+    Game::logMsg("[VR][ChatEvent] captured text: %s", safeText);
+
     // Only meaningful in-game, and only when the feature is enabled.
     if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame())
         return;
