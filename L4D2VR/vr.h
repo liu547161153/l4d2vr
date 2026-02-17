@@ -577,6 +577,7 @@ public:
 	static constexpr int kLifeStateOffset = 0x147;
 	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 	static constexpr int kObserverModeOffset = 0x1450; // C_BasePlayer::m_iObserverMode
+	static constexpr int kObserverTargetOffset = 0x1454; // C_BasePlayer::m_hObserverTarget
 
 
 	// Aim-line friendly-fire guard (client-side fire suppression)
@@ -615,6 +616,10 @@ public:
 	// the user can still manually change spectator mode afterwards.
 	std::chrono::steady_clock::time_point m_ObserverLastFreeCamAttempt{};
 	int m_ObserverFreeCamAttemptCount = 0;
+	// Observer in-eye (obsMode 4) target switch: auto ResetPosition to re-align anchors.
+	int m_ObserverInEyeTargetPrev = 0;
+	bool m_ObserverInEyeWasActivePrev = false;
+	bool m_ResetPositionAfterObserverTargetSwitchPending = false;
 	// CTerrorPlayer netvars (from offsets.txt). These are used for a special-case in the
 	// friendly-fire aim guard: if the aim ray hits a teammate who is currently pinned/
 	// controlled, we allow a "see-through" trace to hit the attacker behind them.
