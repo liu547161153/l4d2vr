@@ -111,6 +111,15 @@ Game::Game()
     if (!m_DebugOverlay)
         m_DebugOverlay = static_cast<IVDebugOverlay*>(TryInterfaceNoError("engine.dll", "VDebugOverlay003"));
 
+    // Game events (used for lightweight chat detection / HUD auto-show, etc.)
+    m_GameEventManager = static_cast<IGameEventManager2*>(TryInterfaceNoError("engine.dll", "GAMEEVENTSMANAGER002"));
+    if (!m_GameEventManager)
+        m_GameEventManager = static_cast<IGameEventManager2*>(TryInterfaceNoError("engine.dll", "GAMEEVENTSMANAGER003"));
+    if (!m_GameEventManager)
+        m_GameEventManager = static_cast<IGameEventManager2*>(TryInterfaceNoError("engine.dll", "GAMEEVENTSMANAGER001"));
+    if (m_GameEventManager)
+        Game::logMsg("[VR] GameEventManager available.");
+
     m_Offsets = new Offsets();
     m_VR = new VR(this);
 

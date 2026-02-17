@@ -53,6 +53,34 @@ namespace
         return 1.0f / std::max(1.0f, maxHz);
     }
 
+    // Listen for chat events (player_say) and poke VR so the HUD can auto-show briefly.
+    class VRChatAutoHudListener final : public IGameEventListener2
+    {
+    public:
+        explicit VRChatAutoHudListener(VR* vr) : m_VR(vr) {}
+
+        void FireGameEvent(IGameEvent* event) override
+        {
+            if (!m_VR || !event)
+                return;
+
+            const char* name = event->GetName();
+            if (!name)
+                return;
+
+            // We only register for player_say / player_say_team, but keep this check defensive.
+            if (_stricmp(name, "player_say") == 0 || _stricmp(name, "player_say_team") == 0)
+            {
+                const char* text = event->GetString("text", "");
+                m_VR->OnChatMessageReceived(text);
+            }
+        }
+
+        int GetEventDebugID(void) override { return 4242; }
+
+    private:
+        VR* m_VR = nullptr;
+    };
 
     // Normalize Source-style view angles:
     // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 then clamped to 89).
@@ -325,6 +353,9 @@ VR::VR(Game* game)
 
     m_IsInitialized = true;
     m_IsVREnabled = true;
+
+    // Listen for chat messages so we can temporarily show HUD while it's hidden.
+    RegisterChatEventListener();
 }
 
 void VR::ConfigureExplicitTiming()
@@ -403,6 +434,49 @@ void VR::InstallApplicationManifest(const char* fileName)
     vr::VRApplications()->AddApplicationManifest(path);
 }
 
+
+void VR::RegisterChatEventListener()
+{
+    if (m_ChatEventListenerRegistered)
+        return;
+    if (!m_Game || !m_Game->m_GameEventManager)
+        return;
+
+    // Allocate once and keep for the life of the process.
+    m_ChatEventListener = new VRChatAutoHudListener(this);
+
+    bool ok = false;
+    ok |= m_Game->m_GameEventManager->AddListener(m_ChatEventListener, "player_say", false);
+    // Some branches/mods may expose team chat separately; safe to try.
+    ok |= m_Game->m_GameEventManager->AddListener(m_ChatEventListener, "player_say_team", false);
+
+    if (!ok)
+    {
+        delete m_ChatEventListener;
+        m_ChatEventListener = nullptr;
+        return;
+    }
+
+    m_ChatEventListenerRegistered = true;
+}
+
+void VR::OnChatMessageReceived(const char* /*text*/)
+{
+    // Only meaningful in-game, and only when the feature is enabled.
+    if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame())
+        return;
+    if (m_HudAutoShowOnChatSeconds <= 0.0f)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto extendBy = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<float>(m_HudAutoShowOnChatSeconds));
+    const auto until = now + extendBy;
+
+    // Extend, don't shorten (multiple messages in a row should keep HUD up).
+    if (until > m_HudChatVisibleUntil)
+        m_HudChatVisibleUntil = until;
+}
 
 void VR::Update()
 {
@@ -5777,6 +5851,32 @@ void VR::ParseConfigFile()
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HudToggleState = m_HudAlwaysVisible;
+
+    // When HUD is hidden, show it briefly on chat messages.
+    // Config supports either a float seconds value, or false/off/0 to disable.
+    {
+        auto it = userConfig.find("HudAutoShowOnChatSeconds");
+        if (it != userConfig.end())
+        {
+            std::string v = it->second;
+            trim(v);
+            std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return std::tolower(c); });
+            if (v == "false" || v == "off" || v == "no")
+            {
+                m_HudAutoShowOnChatSeconds = 0.0f;
+            }
+            else if (v == "true" || v == "on" || v == "yes")
+            {
+                m_HudAutoShowOnChatSeconds = 3.0f;
+            }
+            else
+            {
+                try { m_HudAutoShowOnChatSeconds = std::max(0.0f, std::stof(v)); }
+                catch (...) { /* keep previous */ }
+            }
+        }
+    }
+
     m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);

@@ -21,6 +21,7 @@ class CUserCmd;
 class IDirect3DTexture9;
 class IDirect3DSurface9;
 class ITexture;
+class IGameEventListener2;
 
 struct ViewmodelAdjustment
 {
@@ -468,6 +469,12 @@ public:
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
+	// If > 0, receiving a chat message while HUD is hidden will temporarily show the HUD.
+	// Config: HudAutoShowOnChatSeconds (0 or false disables)
+	float m_HudAutoShowOnChatSeconds = 0.0f;
+	// GameEvent listener instance (player_say) for HUD auto-show-on-chat.
+	IGameEventListener2* m_ChatEventListener = nullptr;
+	bool m_ChatEventListenerRegistered = false;
 
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
@@ -903,6 +910,9 @@ public:
 	bool GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut);
 	void ResetPosition();
 	void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
+	// Chat->HUD auto-show support
+	void RegisterChatEventListener();
+	void OnChatMessageReceived(const char* text);
 	void ParseConfigFile();
 	void LoadViewmodelAdjustments();
 	void SaveViewmodelAdjustments();

@@ -19,6 +19,7 @@ class IModelRender;
 class IMaterial;
 class IInput;
 class ISurface;
+class IGameEventManager2;
 class C_BaseEntity;
 class C_BasePlayer;
 struct model_t;
@@ -59,9 +60,10 @@ public:
     IBaseClientDLL* m_BaseClientDll = nullptr;
     IModelInfo* m_ModelInfo = nullptr;
     IModelRender* m_ModelRender = nullptr;
-    IInput* m_VguiInput = nullptr;
-    ISurface* m_VguiSurface = nullptr;
-    IVDebugOverlay* m_DebugOverlay = nullptr;
+	IInput* m_VguiInput = nullptr;
+	ISurface* m_VguiSurface = nullptr;
+	IVDebugOverlay* m_DebugOverlay = nullptr;
+	IGameEventManager2* m_GameEventManager = nullptr;
 
     // === Module Base Addresses ===
     uintptr_t m_BaseEngine = 0;

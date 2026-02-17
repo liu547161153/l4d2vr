@@ -538,6 +538,18 @@ Option g_Options[] =
         0.0f, 0.0f,
         "true"
     },
+    {
+        "HudAutoShowOnChatSeconds",
+        OptionType::Float,
+        { u8"HUD (Main)", u8"HUD（主界面）" },
+        { u8"Auto-show HUD on Chat (seconds)", u8"聊天自动显示HUD（秒）" },
+        { u8"When the HUD is hidden, receiving a chat message will temporarily show the HUD.",
+          u8"当HUD处于隐藏状态时，收到聊天消息会临时显示HUD。" },
+        { u8"Set 0 to disable (config.txt also accepts false/off).",
+          u8"设为 0 关闭（config.txt 也支持 false/off）。" },
+        0.0f, 30.0f,
+        "0"
+    },
 
     // Hands / Debug
     {
