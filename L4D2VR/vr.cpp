@@ -2572,7 +2572,9 @@ void VR::ProcessInput()
                 vr::VROverlay()->HideOverlay(overlay);
         };
 
-    bool isControllerVertical = m_RightControllerAngAbs.x > 60 || m_RightControllerAngAbs.x < -45;
+    const bool isControllerVertical =
+        m_RightControllerAngAbs.x > 60.0f || m_RightControllerAngAbs.x < -45.0f ||
+        m_LeftControllerAngAbs.x > 60.0f || m_LeftControllerAngAbs.x < -45.0f;
     bool menuActive = m_Game->m_EngineClient->IsPaused();
     bool cursorVisible = m_Game->m_VguiSurface && m_Game->m_VguiSurface->IsCursorVisible();
     if (cursorVisible)
