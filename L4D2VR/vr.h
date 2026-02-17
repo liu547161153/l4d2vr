@@ -912,7 +912,7 @@ public:
 	void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
 	// Chat->HUD auto-show support
 	void RegisterChatEventListener();
-	void OnChatMessageReceived(const char* text);
+	void OnChatMessageReceived(const char* eventName, const char* text);
 	void ParseConfigFile();
 	void LoadViewmodelAdjustments();
 	void SaveViewmodelAdjustments();

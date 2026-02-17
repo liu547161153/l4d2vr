@@ -68,11 +68,19 @@ namespace
             if (!name)
                 return;
 
-            // We only register for player_say / player_say_team, but keep this check defensive.
-            if (_stricmp(name, "player_say") == 0 || _stricmp(name, "player_say_team") == 0)
+            // Different Source branches may emit different chat event names/keys.
+            if (_stricmp(name, "player_say") == 0 ||
+                _stricmp(name, "player_say_team") == 0 ||
+                _stricmp(name, "player_chat") == 0 ||
+                _stricmp(name, "say_text") == 0 ||
+                _stricmp(name, "say_text2") == 0)
             {
                 const char* text = event->GetString("text", "");
-                m_VR->OnChatMessageReceived(text);
+                if (!text || !text[0]) text = event->GetString("message", "");
+                if (!text || !text[0]) text = event->GetString("msg", "");
+                if (!text || !text[0]) text = event->GetString("param1", "");
+                if (!text || !text[0]) text = event->GetString("param2", "");
+                m_VR->OnChatMessageReceived(name, text);
             }
         }
 
@@ -450,25 +458,27 @@ void VR::RegisterChatEventListener()
 
     bool ok = false;
     ok |= m_Game->m_GameEventManager->AddListener(m_ChatEventListener, "player_say", false);
-    // Some branches/mods may expose team chat separately; safe to try.
     ok |= m_Game->m_GameEventManager->AddListener(m_ChatEventListener, "player_say_team", false);
+    ok |= m_Game->m_GameEventManager->AddListener(m_ChatEventListener, "player_chat", false);
+    ok |= m_Game->m_GameEventManager->AddListener(m_ChatEventListener, "say_text", false);
+    ok |= m_Game->m_GameEventManager->AddListener(m_ChatEventListener, "say_text2", false);
 
     if (!ok)
     {
-        Game::logMsg("[VR][ChatEvent] Failed to register player_say listeners.");
+        Game::logMsg("[VR][ChatEvent] Failed to register any chat listeners.");
         delete m_ChatEventListener;
         m_ChatEventListener = nullptr;
         return;
     }
 
     m_ChatEventListenerRegistered = true;
-    Game::logMsg("[VR][ChatEvent] Registered player_say listeners.");
+    Game::logMsg("[VR][ChatEvent] Registered chat listeners (player_say/player_chat/say_text).");
 }
 
-void VR::OnChatMessageReceived(const char* text)
+void VR::OnChatMessageReceived(const char* eventName, const char* text)
 {
     const char* safeText = text ? text : "";
-    Game::logMsg("[VR][ChatEvent] captured text: %s", safeText);
+    Game::logMsg("[VR][ChatEvent] event=%s captured text: %s", (eventName && eventName[0]) ? eventName : "<null>", safeText);
 
     // Only meaningful in-game, and only when the feature is enabled.
     if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame())
