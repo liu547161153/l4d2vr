@@ -675,7 +675,63 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		stateObserver = false;
 		stateWantsThirdPerson = tpStateDbg.dead || tpStateDbg.ledge || tpStateDbg.tongue || tpStateDbg.pinned || tpStateDbg.selfMedkit;
 	}
-	const bool stateIsDeadOrObserver = tpStateDbg.dead || stateObserver;
+	// Observer render lock based on m_iObserverMode (prevents 1P/3P oscillation -> flash while spectating).
+	enum class ObserverRenderPref : int { None = 0, InEye = 1, Third = 2 };
+	static ObserverRenderPref s_obsPref = ObserverRenderPref::None;
+	static ObserverRenderPref s_obsCandidate = ObserverRenderPref::None;
+	static int s_obsCandidateFrames = 0;
+	constexpr int kObserverPrefLatchFrames = 6;
+
+	auto PrefFromObserverMode = [](int obsMode) -> ObserverRenderPref
+	{
+		if (obsMode == 4) return ObserverRenderPref::InEye;
+		if (obsMode == 5 || obsMode == 6) return ObserverRenderPref::Third;
+		return ObserverRenderPref::None;
+	};
+
+	if (!stateObserver)
+	{
+		s_obsPref = ObserverRenderPref::None;
+		s_obsCandidate = ObserverRenderPref::None;
+		s_obsCandidateFrames = 0;
+	}
+	else
+	{
+		const ObserverRenderPref desired = PrefFromObserverMode(tpStateDbg.observerMode);
+
+		// Conservative default on entry: render 3P until we see a stable 4/5/6.
+		if (s_obsPref == ObserverRenderPref::None && desired == ObserverRenderPref::None)
+			s_obsPref = ObserverRenderPref::Third;
+
+		if (desired != ObserverRenderPref::None && desired != s_obsPref)
+		{
+			if (desired != s_obsCandidate)
+			{
+				s_obsCandidate = desired;
+				s_obsCandidateFrames = 1;
+			}
+			else if (++s_obsCandidateFrames >= kObserverPrefLatchFrames)
+			{
+				s_obsPref = s_obsCandidate;
+				s_obsCandidate = ObserverRenderPref::None;
+				s_obsCandidateFrames = 0;
+			}
+		}
+		else
+		{
+			s_obsCandidate = ObserverRenderPref::None;
+			s_obsCandidateFrames = 0;
+		}
+	}
+
+	const bool observerForceInEye = stateObserver && (s_obsPref == ObserverRenderPref::InEye);
+	const bool observerForceThird = stateObserver && (s_obsPref == ObserverRenderPref::Third);
+
+	// If observer mode requests in-eye, don't treat "observer" as a reason to force third-person.
+	if (observerForceInEye)
+		stateWantsThirdPerson = tpStateDbg.dead || tpStateDbg.ledge || tpStateDbg.tongue || tpStateDbg.pinned || tpStateDbg.selfMedkit;
+
+	const bool stateIsDeadOrObserver = tpStateDbg.dead || (stateObserver && !observerForceInEye);
 	// Death transition anti-flicker: the engine can oscillate between 1P/3P while dying -> observer.
 	// To avoid nauseating camera swaps in VR, lock to first-person for a short window right after death is detected.
 	static std::chrono::steady_clock::time_point s_deathFpLockUntil{};
@@ -768,6 +824,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	{
 		renderThirdPerson = false;
 		m_VR->m_ThirdPersonHoldFrames = 0;
+	}
+	// Observer render lock final override:
+	//  - obsMode 4   => force in-eye (1P) rendering.
+	//  - obsMode 5/6 => force third-person rendering.
+	// Runs late so nothing else can fight it and cause flicker.
+	if (observerForceInEye)
+	{
+		renderThirdPerson = false;
+		m_VR->m_ThirdPersonHoldFrames = 0;
+		s_engineTpCam.Reset();
+	}
+	else if (observerForceThird)
+	{
+		renderThirdPerson = true;
+		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kDeadOrObserverHoldFrames);
 	}
 	// Debug: log third-person state + relevant netvars (throttled)
 	{
@@ -947,6 +1018,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->m_ThirdPersonRenderCenter = camCenter;
 		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
 		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+	}
+	else if (observerForceInEye)
+	{
+		// Observer in-eye: use engine camera origin (target eye) but apply stereo IPD; aim with HMD.
+		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
+		if (m_VR->m_HmdForward.IsZero())
+			camAng = engineCamAngles;
+
+		Vector fwd, right, up;
+		QAngle::AngleVectors(camAng, &fwd, &right, &up);
+
+		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
+
+		// engineCamOrigin is already an eye origin; don't apply EyeZ again.
+		m_VR->m_ThirdPersonRenderCenter = engineCamOrigin;
+		leftOrigin = engineCamOrigin + (right * (-(ipd * 0.5f)));
+		rightOrigin = engineCamOrigin + (right * (+(ipd * 0.5f)));
 	}
 	else
 	{
