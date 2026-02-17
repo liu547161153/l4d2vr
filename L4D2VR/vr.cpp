@@ -2935,15 +2935,46 @@ void VR::UpdateTracking()
         m_ThirdPersonHoldFrames = 0;
     }
 
+    // Observer state (used for in-eye spectator anchor/viewmodel stability).
+    const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+    const int teamNum = *reinterpret_cast<const int*>(base + kTeamNumOffset);
+    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+    const bool isObserver = (teamNum == 1) || (lifeState != 0);
+    const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
+    const int obsTarget = *reinterpret_cast<const int*>(base + kObserverTargetOffset);
+    auto handleValid = [](int h) { return (h != 0 && h != -1); };
+
+    C_BasePlayer* viewPlayer = localPlayer;
+    bool inEyeObserver = false;
+    if (isObserver && obsMode == 4 && handleValid(obsTarget) && m_Game && m_Game->m_ClientEntityList)
+    {
+        if (C_BaseEntity* ent = (C_BaseEntity*)m_Game->m_ClientEntityList->GetClientEntityFromHandle(obsTarget))
+        {
+            viewPlayer = (C_BasePlayer*)ent;
+            inEyeObserver = true;
+        }
+    }
+
+    if (!inEyeObserver)
+    {
+        m_ObserverInEyeWasActivePrev = false;
+        m_ObserverInEyeTargetPrev = 0;
+        m_ResetPositionAfterObserverTargetSwitchPending = false;
+    }
+    else
+    {
+        if (!m_ObserverInEyeWasActivePrev || obsTarget != m_ObserverInEyeTargetPrev)
+        {
+            m_ResetPositionAfterObserverTargetSwitchPending = true;
+            m_ObserverInEyeTargetPrev = obsTarget;
+        }
+        m_ObserverInEyeWasActivePrev = true;
+    }
+
     // Spectator/observer: default to free-roaming camera (instead of chase cam locked to a teammate).
     // We only do this once per observer session, so the user can still manually switch modes afterwards.
     if (m_ObserverDefaultFreeCam)
     {
-        const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
-        const int teamNum = *reinterpret_cast<const int*>(base + kTeamNumOffset);
-        const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
-
-        const bool isObserver = (teamNum == 1) || (lifeState != 0);
         if (!isObserver)
         {
             m_ObserverWasActivePrev = false;
@@ -2961,7 +2992,6 @@ void VR::UpdateTracking()
                 m_ObserverLastFreeCamAttempt = {};
             }
 
-            const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
             // Source observer modes (typical):
             //   1=deathcam, 2=freeze-cam, 3=fixed, 4=in-eye, 5=chase, 6=roaming/free.
             // We avoid fighting 1/2, and we keep retrying spec_mode 6 a few times because
@@ -2996,20 +3026,20 @@ void VR::UpdateTracking()
             m_ResetPositionAfterMountedGunExitPending = true;
         m_UsingMountedGunPrev = usingMountedGunNow;
     }
-    m_Game->m_IsMeleeWeaponActive = localPlayer->IsMeleeWeaponActive();
+    m_Game->m_IsMeleeWeaponActive = viewPlayer->IsMeleeWeaponActive();
 
     // Scope: only render/show when holding a firearm
     m_ScopeWeaponIsFirearm = false;
-    if (C_BaseCombatWeapon* active = localPlayer->GetActiveWeapon())
+    if (C_BaseCombatWeapon* active = viewPlayer->GetActiveWeapon())
     {
         if (C_WeaponCSBase* weapon = (C_WeaponCSBase*)active)
             m_ScopeWeaponIsFirearm = IsFirearmWeaponId(weapon->GetWeaponID());
     }
-    RefreshActiveViewmodelAdjustment(localPlayer);
+    RefreshActiveViewmodelAdjustment(viewPlayer);
 
     if (!m_IsThirdPersonCamera)
     {
-        Vector eyeOrigin = localPlayer->EyePosition();
+        Vector eyeOrigin = viewPlayer->EyePosition();
         if (!eyeOrigin.IsZero())
         {
             m_SetupOrigin = eyeOrigin;
@@ -3024,7 +3054,7 @@ void VR::UpdateTracking()
     // m_SetupOrigin even briefly, m_CameraAnchor "learns" the offset and controllers/aimline look glued to the
     // animated player model. So we must rebase BOTH m_SetupOrigin and m_CameraAnchor.
     {
-        Vector absOrigin = localPlayer->GetAbsOrigin();
+        Vector absOrigin = viewPlayer->GetAbsOrigin();
 
         // Desired anchor: follow player XY. Keep current Z from the view setup (eye height/crouch),
         // because Z is used by height logic later.
@@ -3241,8 +3271,14 @@ void VR::UpdateTracking()
     float cameraFollowing = DotProduct(cameraMovingDirection, cameraToPlayer);
     float cameraDistance = VectorLength(cameraToPlayer);
 
-    if (localPlayer->m_hGroundEntity != -1 && localPlayer->m_vecVelocity.IsZero())
+    if (inEyeObserver)
+    {
+        m_RoomscaleActive = false;
+    }
+    else if (localPlayer->m_hGroundEntity != -1 && localPlayer->m_vecVelocity.IsZero())
+    {
         m_RoomscaleActive = true;
+    }
 
     // TODO: Get roomscale to work while using thumbstick
     if ((cameraFollowing < 0 && cameraDistance > 1) || (m_PushingThumbstick))
@@ -3277,6 +3313,12 @@ void VR::UpdateTracking()
     m_SetupOriginToHMD = m_HmdPosAbs - m_SetupOrigin;
     if (VectorLength(m_SetupOriginToHMD) > 150)
         ResetPosition();
+    // Observer in-eye: when switching spectated target, re-align anchors once.
+    if (m_ResetPositionAfterObserverTargetSwitchPending)
+    {
+        ResetPosition();
+        m_ResetPositionAfterObserverTargetSwitchPending = false;
+    }
     // If we just exited a mounted gun (.50cal/minigun), re-align anchors.
    // Do this here (after m_HmdPosAbs has been updated for this frame) so the
    // reset uses the latest tracking pose.
