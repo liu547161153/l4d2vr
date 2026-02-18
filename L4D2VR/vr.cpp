@@ -274,24 +274,14 @@ VR::VR(Game* game)
     g_D3DVR9->GetBackBufferData(&m_VKBackBuffer);
     m_Overlay = vr::VROverlay();
     m_Overlay->CreateOverlay("MenuOverlayKey", "MenuOverlay", &m_MainMenuHandle);
-    m_Overlay->CreateOverlay("HUDOverlayTopKey", "HUDOverlayTop", &m_HUDTopHandle);
-
-    const char* bottomOverlayKeys[4] = { "HUDOverlayBottom1", "HUDOverlayBottom2", "HUDOverlayBottom3", "HUDOverlayBottom4" };
-    for (int i = 0; i < 4; ++i)
-    {
-        m_Overlay->CreateOverlay(bottomOverlayKeys[i], bottomOverlayKeys[i], &m_HUDBottomHandles[i]);
-    }
+    m_Overlay->CreateOverlay("HUDOverlayKey", "HUDOverlay", &m_HUDHandle);
 
     // Gun-mounted scope lens overlay (render-to-texture)
     m_Overlay->CreateOverlay("ScopeOverlayKey", "ScopeOverlay", &m_ScopeHandle);
     m_Overlay->CreateOverlay("RearMirrorOverlayKey", "RearMirrorOverlay", &m_RearMirrorHandle);
 
     m_Overlay->SetOverlayInputMethod(m_MainMenuHandle, vr::VROverlayInputMethod_Mouse);
-    m_Overlay->SetOverlayInputMethod(m_HUDTopHandle, vr::VROverlayInputMethod_Mouse);
-    for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-    {
-        m_Overlay->SetOverlayInputMethod(overlay, vr::VROverlayInputMethod_Mouse);
-    }
+    m_Overlay->SetOverlayInputMethod(m_HUDHandle, vr::VROverlayInputMethod_Mouse);
 
     // Scope overlay is purely visual
     m_Overlay->SetOverlayInputMethod(m_ScopeHandle, vr::VROverlayInputMethod_None);
@@ -301,21 +291,13 @@ VR::VR(Game* game)
 
 
     m_Overlay->SetOverlayFlag(m_MainMenuHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
-    m_Overlay->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
-    for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-    {
-        m_Overlay->SetOverlayFlag(overlay, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
-    }
+    m_Overlay->SetOverlayFlag(m_HUDHandle, vr::VROverlayFlags_SendVRDiscreteScrollEvents, true);
 
     int windowWidth, windowHeight;
     m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
 
     const vr::HmdVector2_t mouseScaleHUD = { windowWidth, windowHeight };
-    m_Overlay->SetOverlayMouseScale(m_HUDTopHandle, &mouseScaleHUD);
-    for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-    {
-        m_Overlay->SetOverlayMouseScale(overlay, &mouseScaleHUD);
-    }
+    m_Overlay->SetOverlayMouseScale(m_HUDHandle, &mouseScaleHUD);
 
     const vr::HmdVector2_t mouseScaleMenu = { m_RenderWidth, m_RenderHeight };
     m_Overlay->SetOverlayMouseScale(m_MainMenuHandle, &mouseScaleMenu);
@@ -581,11 +563,9 @@ void VR::SubmitVRTextures()
             return true;
         };
 
-    auto hideHudOverlays = [&]()
+    auto hideHudOverlay = [&]()
         {
-            vr::VROverlay()->HideOverlay(m_HUDTopHandle);
-            for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-                vr::VROverlay()->HideOverlay(overlay);
+            vr::VROverlay()->HideOverlay(m_HUDHandle);
         };
 
     const vr::VRTextureBounds_t topBounds{ 0.0f, 0.0f, 1.0f, 1.0f };
@@ -621,7 +601,7 @@ void VR::SubmitVRTextures()
 
         vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
         vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
-        hideHudOverlays();
+        hideHudOverlay();
         vr::VROverlay()->HideOverlay(m_ScopeHandle);
         vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
 
@@ -642,14 +622,10 @@ void VR::SubmitVRTextures()
 
 
     vr::VROverlay()->HideOverlay(m_MainMenuHandle);
-    applyHudTexture(m_HUDTopHandle, topBounds);
-    for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-        vr::VROverlay()->HideOverlay(overlay);
+    applyHudTexture(m_HUDHandle, topBounds);
     if (m_Game->m_VguiSurface->IsCursorVisible())
     {
-        vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
-        for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-            vr::VROverlay()->HideOverlay(overlay);
+        vr::VROverlay()->ShowOverlay(m_HUDHandle);
     }
 
     // Scope overlay independent of HUD cursor mode
@@ -1235,13 +1211,8 @@ void VR::RepositionOverlays()
 
     vr::HmdMatrix34_t hudTopTransform = buildFacingTransform(hudNewPos);
 
-    vr::VROverlay()->SetOverlayTransformAbsolute(m_HUDTopHandle, trackingOrigin, &hudTopTransform);
-    vr::VROverlay()->SetOverlayWidthInMeters(m_HUDTopHandle, m_HudSize);
-
-    for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
-    {
-        vr::VROverlay()->HideOverlay(m_HUDBottomHandles[i]);
-    }
+    vr::VROverlay()->SetOverlayTransformAbsolute(m_HUDHandle, trackingOrigin, &hudTopTransform);
+    vr::VROverlay()->SetOverlayWidthInMeters(m_HUDHandle, m_HudSize);
 
     // Reposition scope overlay relative to the gun-hand controller.
     // Note: gun hand follows the same left-handed swap logic used in GetPoses().
@@ -1392,7 +1363,7 @@ bool VR::GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalog
 void VR::ProcessMenuInput()
 {
     const bool inGame = m_Game->m_EngineClient->IsInGame();
-    vr::VROverlayHandle_t currentOverlay = inGame ? m_HUDTopHandle : m_MainMenuHandle;
+    vr::VROverlayHandle_t currentOverlay = inGame ? m_HUDHandle : m_MainMenuHandle;
 
     const auto controllerHoveringOverlay = [&](vr::VROverlayHandle_t overlay)
         {
@@ -1404,20 +1375,9 @@ void VR::ProcessMenuInput()
 
     if (inGame)
     {
-        if (controllerHoveringOverlay(m_HUDTopHandle))
+        if (controllerHoveringOverlay(m_HUDHandle))
         {
-            hoveredOverlay = m_HUDTopHandle;
-        }
-        else
-        {
-            for (vr::VROverlayHandle_t overlay : m_HUDBottomHandles)
-            {
-                if (controllerHoveringOverlay(overlay))
-                {
-                    hoveredOverlay = overlay;
-                    break;
-                }
-            }
+            hoveredOverlay = m_HUDHandle;
         }
     }
     else if (controllerHoveringOverlay(m_MainMenuHandle))
@@ -1430,8 +1390,7 @@ void VR::ProcessMenuInput()
     if (isHoveringOverlay)
         currentOverlay = hoveredOverlay;
 
-    const bool isHudOverlay = inGame && (currentOverlay == m_HUDTopHandle ||
-        std::find(m_HUDBottomHandles.begin(), m_HUDBottomHandles.end(), currentOverlay) != m_HUDBottomHandles.end());
+    const bool isHudOverlay = inGame && (currentOverlay == m_HUDHandle);
 
     // Overlays can't process action inputs if the laser is active, so
     // only activate laser if a controller is pointing at the overlay
@@ -1536,9 +1495,7 @@ void VR::ProcessInput()
     // Recomputed every frame from CustomAction bindings.
     m_CustomWalkHeld = false;
 
-    vr::VROverlay()->SetOverlayFlag(m_HUDTopHandle, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, false);
-    for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-        vr::VROverlay()->SetOverlayFlag(overlay, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, false);
+    vr::VROverlay()->SetOverlayFlag(m_HUDHandle, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, false);
 
     typedef std::chrono::duration<float, std::milli> duration;
     auto currentTime = std::chrono::steady_clock::now();
@@ -2556,20 +2513,14 @@ void VR::ProcessInput()
     handleCustomAction(m_CustomAction4, m_CustomAction4Binding);
     handleCustomAction(m_CustomAction5, m_CustomAction5Binding);
 
-    auto showTopHud = [&]()
+    auto showHud = [&]()
         {
-            vr::VROverlay()->ShowOverlay(m_HUDTopHandle);
+            vr::VROverlay()->ShowOverlay(m_HUDHandle);
         };
 
-    auto hideTopHud = [&]()
+    auto hideHud = [&]()
         {
-            vr::VROverlay()->HideOverlay(m_HUDTopHandle);
-        };
-
-    auto hideBottomHud = [&]()
-        {
-            for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
-                vr::VROverlay()->HideOverlay(overlay);
+            vr::VROverlay()->HideOverlay(m_HUDHandle);
         };
 
     const bool isControllerVertical =
@@ -2594,22 +2545,20 @@ void VR::ProcessInput()
         else
             m_Game->ClientCmd_Unrestricted("-showscores");
 
-        showTopHud();
+        showHud();
     }
     else
     {
-        hideTopHud();
+        hideHud();
     }
 
-    hideBottomHud();
     m_RenderedHud = false;
 
     if (PressedDigitalAction(m_Pause, true))
     {
         m_Game->ClientCmd_Unrestricted("gameui_activate");
         RepositionOverlays();
-        showTopHud();
-        hideBottomHud();
+        showHud();
     }
 }
 

@@ -65,8 +65,7 @@ public:
 	vr::IVRCompositor* m_Compositor = nullptr;
 
 	vr::VROverlayHandle_t m_MainMenuHandle;
-	vr::VROverlayHandle_t m_HUDTopHandle;
-	std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
+	vr::VROverlayHandle_t m_HUDHandle;
 	// Gun-mounted scope overlay (render-to-texture lens)
 	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
 	// Rear mirror overlay (off-hand)
