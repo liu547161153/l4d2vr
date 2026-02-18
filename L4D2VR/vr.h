@@ -94,6 +94,12 @@ public:
 	Vector m_HmdUp;
 
 	Vector m_HmdPosLocalInWorld = { 0,0,0 };
+	// HMD height baseline (Source units). We apply tracked Z as a *delta* from this baseline
+	// so Source eye-height changes (e.g. crouch) don't stack with real-life crouching.
+	float m_HmdHeightBaselineUnits = 64.0f;
+	bool m_HmdHeightBaselineInitialized = false;
+	bool m_DuckStatePrev = false;
+	bool m_DuckStatePrevInitialized = false;
 
 	Vector m_LeftControllerForward;
 	Vector m_LeftControllerRight;
@@ -582,6 +588,8 @@ public:
 	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 	static constexpr int kObserverModeOffset = 0x1450; // C_BasePlayer::m_iObserverMode
 	static constexpr int kObserverTargetOffset = 0x1454; // C_BasePlayer::m_hObserverTarget
+	static constexpr int kFlagsOffset = 0xF0; // DT_BasePlayer::m_fFlags
+	static constexpr int kFlagDuckingBit = (1 << 1); // FL_DUCKING
 
 
 	// Aim-line friendly-fire guard (client-side fire suppression)
