@@ -204,6 +204,10 @@ public:
 	bool m_AimLineEnabled = true;
 	bool m_AimLineConfigEnabled = true;
 	bool m_AimLineOnlyWhenLaserSight = false;
+	// If true, prefer render-time temporal alignment over persistence.
+	// Aim line / throw arc are drawn on the render thread after camera origins are finalized,
+	// and we use a shorter overlay lifetime to minimize positional trails when moving.
+	bool m_AimLineTimingAligned = false;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
 	// Mounted gun (minigun/.50cal) state.
@@ -933,6 +937,9 @@ public:
 	C_BaseEntity* GetMountedGunUseEntity(C_BasePlayer* localPlayer) const;
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
+	// Render-thread draw path for aim helpers when AimLineTimingAligned is enabled.
+	// This draws during Hooks::dRenderView after third-person camera decisions to reduce ghosting/trailing.
+	void RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
 	bool ShouldDrawAimLine(C_WeaponCSBase* weapon) const;
