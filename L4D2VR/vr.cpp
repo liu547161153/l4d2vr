@@ -2906,6 +2906,9 @@ void VR::UpdateTracking()
         m_HadLocalPlayerPrev = false;
         m_ThirdPersonMapLoadCooldownPending = true;
         m_ThirdPersonMapLoadCooldownEnd = {};
+        // Tracking/roomscale baselines are tied to the local player. Re-init when we regain it.
+        m_HmdHeightBaselineInitialized = false;
+        m_DuckStatePrevInitialized = false;
         return;
     }
     // Rising edge: local player pointer recovered (after connect/disconnect/map load).
@@ -3261,6 +3264,50 @@ void VR::UpdateTracking()
 
     QAngle::AngleVectors(hmdAngSmoothed, &m_HmdForward, &m_HmdRight, &m_HmdUp);
 
+    // --- HMD height baseline (fix "double duck")
+    // Source changes EyePosition when crouching/uncrouching. If we also apply the absolute tracked
+    // HMD height on top, real-life crouching + in-game duck will stack and the camera steps.
+    // We instead treat tracked Z as a delta from a baseline, and on duck state changes we
+    // shift the baseline by the engine eye-height delta to keep the view continuous.
+    if (!m_HmdHeightBaselineInitialized)
+    {
+        m_HmdHeightBaselineUnits = hmdPosSmoothed.z * m_VRScale;
+        m_HmdHeightBaselineInitialized = true;
+    }
+
+    bool duckingNow = false;
+    {
+        const C_BasePlayer* dp = viewPlayer ? viewPlayer : localPlayer;
+        const unsigned char* dpBase = reinterpret_cast<const unsigned char*>(dp);
+        int flags = 0;
+#if defined(_MSC_VER)
+        __try
+        {
+            flags = *reinterpret_cast<const int*>(dpBase + kFlagsOffset);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            flags = 0;
+        }
+#else
+        flags = *reinterpret_cast<const int*>(dpBase + kFlagsOffset);
+#endif
+        duckingNow = (flags & kFlagDuckingBit) != 0;
+    }
+
+    if (!m_DuckStatePrevInitialized)
+    {
+        m_DuckStatePrev = duckingNow;
+        m_DuckStatePrevInitialized = true;
+    }
+    else if (duckingNow != m_DuckStatePrev)
+    {
+        const float dz = (m_SetupOrigin.z - m_SetupOriginPrev.z);
+        if (std::isfinite(dz) && fabsf(dz) < 128.0f)
+            m_HmdHeightBaselineUnits += dz;
+        m_DuckStatePrev = duckingNow;
+    }
+
     m_HmdPosLocalInWorld = hmdPosSmoothed * m_VRScale;
 
     // Roomscale setup
@@ -3296,7 +3343,7 @@ void VR::UpdateTracking()
 
     m_CameraAnchor.z = m_SetupOrigin.z + m_HeightOffset;
 
-    m_HmdPosAbs = m_CameraAnchor - Vector(0, 0, 64) + m_HmdPosLocalInWorld;
+    m_HmdPosAbs = m_CameraAnchor - Vector(0, 0, m_HmdHeightBaselineUnits) + m_HmdPosLocalInWorld;
 
     // Check if camera is clipping inside wall
     CGameTrace trace;
@@ -3313,7 +3360,7 @@ void VR::UpdateTracking()
     {
         Vector distanceInsideWall = trace.endpos - extendedHmdPos;
         m_CameraAnchor += distanceInsideWall;
-        m_HmdPosAbs = m_CameraAnchor - Vector(0, 0, 64) + m_HmdPosLocalInWorld;
+        m_HmdPosAbs = m_CameraAnchor - Vector(0, 0, m_HmdHeightBaselineUnits) + m_HmdPosLocalInWorld;
     }
 
     // Reset camera if it somehow gets too far
@@ -5301,6 +5348,11 @@ void VR::ResetPosition()
 {
     m_CameraAnchor += m_SetupOrigin - m_HmdPosAbs;
     m_HeightOffset += m_SetupOrigin.z - m_HmdPosAbs.z;
+    // Rebaseline tracked height to the current pose so we don't keep an old crouch/stand reference.
+    m_HmdHeightBaselineUnits = m_HmdPosSmoothed.z * m_VRScale;
+    m_HmdHeightBaselineInitialized = true;
+    // Duck state is player-relative; re-sample next frame.
+    m_DuckStatePrevInitialized = false;
 }
 
 std::string VR::GetMeleeWeaponName(C_WeaponCSBase* weapon) const
