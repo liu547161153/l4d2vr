@@ -1963,58 +1963,68 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// Server host
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
-
-		// ForceNonVRServerMovement: aim the *visual* bullet line to the solved hit point (H)
-		// so what you see matches what the remote non-VR server will hit.
-		if (m_VR->m_ForceNonVRServerMovement && m_VR->m_HasNonVRAimSolution)
+		// ForceNonVRServerMovement=false: legacy behavior (match old plugin).
+		// Bullets originate from the right controller and use its angles directly.
+		if (!m_VR->m_ForceNonVRServerMovement)
 		{
-			Vector to = m_VR->m_NonVRAimHitPoint - vecNewOrigin;
-			if (!to.IsZero())
-			{
-				VectorNormalize(to);
-				QAngle ang;
-				QAngle::VectorAngles(to, ang);
-				NormalizeAndClampViewAngles(ang);
-				vecNewAngles = ang;
-			}
-			else
-			{
-				vecNewAngles = m_VR->m_NonVRAimAngles;
-			}
-		}
-		// Third-person convergence
-		else if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
-		{
-			Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
-			if (!to.IsZero())
-			{
-				VectorNormalize(to);
-				QAngle ang;
-				QAngle::VectorAngles(to, ang);
-				NormalizeAndClampViewAngles(ang);
-				vecNewAngles = ang;
-			}
-			else
-			{
-				vecNewAngles = m_VR->m_MouseModeEnabled ? GetMouseModeFallbackAimAngles(m_VR) : m_VR->GetRightControllerAbsAngle();
-			}
-		}
-		else if (m_VR->m_MouseModeEnabled)
-		{
-			const Vector target = (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
-				? m_VR->m_AimConvergePoint
-				: GetMouseModeDefaultTargetAbs(m_VR);
-
-			QAngle ang;
-			if (GetMouseModeAimAnglesToTarget(m_VR, vecNewOrigin, target, ang))
-				vecNewAngles = ang;
-			else
-				vecNewAngles = GetMouseModeFallbackAimAngles(m_VR);
+			vecNewOrigin = m_VR->GetRightControllerAbsPos();
+			vecNewAngles = m_VR->GetRightControllerAbsAngle();
 		}
 		else
 		{
-			vecNewAngles = m_VR->GetRightControllerAbsAngle();
+			vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
+
+			// ForceNonVRServerMovement: aim the *visual* bullet line to the solved hit point (H)
+			// so what you see matches what the remote non-VR server will hit.
+			if (m_VR->m_HasNonVRAimSolution)
+			{
+				Vector to = m_VR->m_NonVRAimHitPoint - vecNewOrigin;
+				if (!to.IsZero())
+				{
+					VectorNormalize(to);
+					QAngle ang;
+					QAngle::VectorAngles(to, ang);
+					NormalizeAndClampViewAngles(ang);
+					vecNewAngles = ang;
+				}
+				else
+				{
+					vecNewAngles = m_VR->m_NonVRAimAngles;
+				}
+			}
+			// Third-person convergence
+			else if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+			{
+				Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
+				if (!to.IsZero())
+				{
+					VectorNormalize(to);
+					QAngle ang;
+					QAngle::VectorAngles(to, ang);
+					NormalizeAndClampViewAngles(ang);
+					vecNewAngles = ang;
+				}
+				else
+				{
+					vecNewAngles = m_VR->m_MouseModeEnabled ? GetMouseModeFallbackAimAngles(m_VR) : m_VR->GetRightControllerAbsAngle();
+				}
+			}
+			else if (m_VR->m_MouseModeEnabled)
+			{
+				const Vector target = (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+					? m_VR->m_AimConvergePoint
+					: GetMouseModeDefaultTargetAbs(m_VR);
+
+				QAngle ang;
+				if (GetMouseModeAimAnglesToTarget(m_VR, vecNewOrigin, target, ang))
+					vecNewAngles = ang;
+				else
+					vecNewAngles = GetMouseModeFallbackAimAngles(m_VR);
+			}
+			else
+			{
+				vecNewAngles = m_VR->GetRightControllerAbsAngle();
+			}
 		}
 	}
 	// Clients
@@ -2045,54 +2055,10 @@ int Hooks::dClientFireTerrorBullets(
 
 		if (!m_VR->m_ForceNonVRServerMovement)
 		{
-			// VR-aware server：默认起点/方向都跟控制器；鼠标模式改用鼠标枪口锚点 + 目标方向
-			if (scopeActive)
-			{
-				vecNewOrigin = m_VR->GetScopeCameraAbsPos();
-				vecNewAngles = m_VR->GetScopeCameraAbsAngle();
-			}
-			else
-			{
-				if (m_VR->m_MouseModeEnabled)
-				{
-					vecNewOrigin = GetMouseModeGunOriginAbs(m_VR);
-
-					const Vector target = (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
-						? m_VR->m_AimConvergePoint
-						: GetMouseModeDefaultTargetAbs(m_VR);
-
-					QAngle ang;
-					if (GetMouseModeAimAnglesToTarget(m_VR, vecNewOrigin, target, ang))
-						vecNewAngles = ang;
-					else
-						vecNewAngles = GetMouseModeFallbackAimAngles(m_VR);
-				}
-				else
-				{
-					vecNewOrigin = m_VR->GetRightControllerAbsPos();
-
-					if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
-					{
-						Vector to = m_VR->m_AimConvergePoint - vecNewOrigin;
-						if (!to.IsZero())
-						{
-							VectorNormalize(to);
-							QAngle ang;
-							QAngle::VectorAngles(to, ang);
-							NormalizeAndClampViewAngles(ang);
-							vecNewAngles = ang;
-						}
-						else
-						{
-							vecNewAngles = m_VR->GetRightControllerAbsAngle();
-						}
-					}
-					else
-					{
-						vecNewAngles = m_VR->GetRightControllerAbsAngle();
-					}
-				}
-			}
+			// ForceNonVRServerMovement=false: legacy behavior (match old plugin).
+			// Keep local prediction/tracers aligned with the VR-aware server: controller origin + controller angles.
+			vecNewOrigin = m_VR->GetRightControllerAbsPos();
+			vecNewAngles = m_VR->GetRightControllerAbsAngle();
 		}
 		else
 		{
