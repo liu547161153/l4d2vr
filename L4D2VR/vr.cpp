@@ -3271,7 +3271,14 @@ void VR::UpdateTracking()
     float cameraFollowing = DotProduct(cameraMovingDirection, cameraToPlayer);
     float cameraDistance = VectorLength(cameraToPlayer);
 
-    if (inEyeObserver)
+    // When the server understands VR movement (ForceNonVRServerMovement=false), we expect
+    // tracked translation to be applied to the player origin server-side, so keep client-only
+    // roomscale drift disabled and just follow setup origin normally.
+    if (!m_ForceNonVRServerMovement)
+    {
+        m_RoomscaleActive = false;
+    }
+    else if (inEyeObserver)
     {
         m_RoomscaleActive = false;
     }
@@ -4460,7 +4467,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
             if (m_LastAimWasThrowable && m_HasThrowArc)
             {
-                DrawThrowArcFromCache(duration);
+                if (!m_AimLineTimingAligned)
+                    DrawThrowArcFromCache(duration);
                 m_AimLineHitsFriendly = false;
                 return;
             }
@@ -4472,7 +4480,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             }
 
 
-            if (allowAimLineDraw)
+            if (allowAimLineDraw && !m_AimLineTimingAligned)
                 DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
             return;
         }
@@ -4519,6 +4527,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         else if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
             pitchSource = m_HmdForward;
 
+        // Always update throw-arc cache on the game thread.
+        // In AimLineTimingAligned mode, the render thread draws from cache to keep timing/camera aligned.
         DrawThrowArc(origin, direction, pitchSource);
         return;
     }
@@ -4535,23 +4545,31 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     else
     {
-        // Third-person convergence point P: where the *rendered* aim ray hits.
-        // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
-        if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+        // Clip the aim line to the first thing the ray hits (world, teammates, infected, etc).
+        // This makes the DebugOverlay line behave like a real "laser" instead of a sky-beam.
+        if (localPlayer && m_Game->m_EngineTrace)
         {
-            CGameTrace trace;
+            trace_t trace;
             Ray_t ray;
+            // Skip local player and (optionally) the mounted gun platform entity.
             C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
             CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
             CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
             CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
-
+            // Include playerclip so we don't "laser through" clip brushes.
+            const unsigned int aimMask = MASK_SHOT | CONTENTS_PLAYERCLIP;
             ray.Init(origin, target);
-            m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
+            m_Game->m_EngineTrace->TraceRay(ray, aimMask, pTraceFilter, &trace);
 
-            m_AimConvergePoint = (trace.fraction < 1.0f && trace.fraction > 0.0f) ? trace.endpos : target;
+            if (trace.fraction < 1.0f && trace.fraction > 0.0f)
+                target = trace.endpos;
+        }
+        // Third-person convergence point P: where the *rendered* aim ray hits (after clipping).
+        // IMPORTANT: We do NOT "correct" P based on what the bullet line can reach.
+        if (m_IsThirdPersonCamera && localPlayer && m_Game->m_EngineTrace)
+        {
+            m_AimConvergePoint = target;
             m_HasAimConvergePoint = true;
-            target = m_AimConvergePoint; // draw to P
         }
         else
         {
@@ -4569,6 +4587,142 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     m_HasThrowArc = false;
 
     if (canDraw && allowAimLineDraw)
+    {
+        if (!m_AimLineTimingAligned)
+            DrawAimLine(origin, target);
+    }
+}
+
+void VR::RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer)
+{
+    if (!m_AimLineTimingAligned)
+        return;
+
+    if (!m_Game || !m_Game->m_DebugOverlay)
+        return;
+
+    C_WeaponCSBase* activeWeapon = nullptr;
+    if (localPlayer)
+        activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
+
+    const bool allowAimLineDraw = ShouldDrawAimLine(activeWeapon);
+    if (!ShouldShowAimLine(activeWeapon))
+        return;
+
+    // Render-thread draw path:
+    // - Do NOT mutate aim caches here (game thread owns m_LastAimDirection, arc points, etc).
+    // - Recompute endpoints using the *current* camera decisions from Hooks::dRenderView
+    //   (m_IsThirdPersonCamera, m_ThirdPersonRenderCenter, m_SetupOrigin), then draw for ~1 frame.
+    bool isThrowable = IsThrowableWeapon(activeWeapon);
+    const bool useMouse = m_MouseModeEnabled;
+
+    Vector eyeDir{ 0.0f, 0.0f, 0.0f };
+    if (useMouse)
+        GetMouseModeEyeRay(eyeDir, nullptr);
+
+    Vector direction = m_RightControllerForward;
+    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+        direction = m_RightControllerForwardUnforced;
+
+    if (useMouse)
+    {
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
+        Vector gunOrigin = m_HmdPosAbs
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
+
+        const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
+        Vector target = m_HmdPosAbs + eyeDir * convergeDist;
+
+        direction = target - gunOrigin;
+    }
+
+    if (direction.IsZero())
+    {
+        // If tracking is temporarily unavailable, keep the last cached helpers alive (one-frame lifetime).
+        const float aimDuration = std::max(0.0f, MinIntervalSeconds(m_AimLineMaxHz) - 0.00025f);
+        const float arcDuration = std::max(0.0f, MinIntervalSeconds(m_ThrowArcMaxHz) - 0.00025f);
+
+        // Throwable arcs are not governed by AimLineOnlyWhenLaserSight; only by AimLineEnabled/ShouldShowAimLine.
+        if (m_LastAimWasThrowable && m_HasThrowArc)
+        {
+            DrawThrowArcFromCache(arcDuration);
+            return;
+        }
+
+        if (allowAimLineDraw && m_HasAimLine)
+            DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, aimDuration);
+
+        return;
+    }
+
+    VectorNormalize(direction);
+
+    // Base origin comes from the controller. In mouse mode, we use the inferred gun origin.
+    Vector originBase = m_RightControllerPosAbs;
+    if (useMouse)
+    {
+        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
+        originBase = m_HmdPosAbs
+            + (m_HmdForward * (anchor.x * m_VRScale))
+            + (m_HmdRight * (anchor.y * m_VRScale))
+            + (m_HmdUp * (anchor.z * m_VRScale));
+    }
+
+    // Apply third-person camera delta so the line stays glued to the rendered camera center.
+    // This is the key to "timing alignment" mode: Hooks::dRenderView updates these right before rendering.
+    Vector camDelta = { 0.0f, 0.0f, 0.0f };
+    if (m_IsThirdPersonCamera)
+        camDelta = m_ThirdPersonRenderCenter - m_SetupOrigin;
+    else
+        camDelta = m_ThirdPersonViewOrigin - m_SetupOrigin;
+
+    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+        originBase += camDelta;
+
+    const Vector origin = originBase + (direction * 2.0f);
+
+    // Throwables: draw the cached arc points (computed on game thread) to avoid cross-thread mutation.
+    if (isThrowable)
+    {
+        if (m_HasThrowArc)
+        {
+            const float duration = std::max(0.0f, MinIntervalSeconds(m_ThrowArcMaxHz) - 0.00025f);
+            DrawThrowArcFromCache(duration);
+        }
+        return;
+    }
+
+    // Primary aim line endpoint.
+    Vector target = origin + (direction * 8192.0f);
+
+    // Keep parity with UpdateAimingLaser(): if we're forcing the non-VR bullet solution, draw to that hit point.
+    if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+        target = m_NonVRAimHitPoint;
+
+    // Clip the aim line to the first thing the ray hits (world, teammates, infected, etc),
+    // using the render-time camera decisions.
+    if (localPlayer && m_Game->m_EngineTrace)
+    {
+        trace_t trace;
+        Ray_t ray;
+
+        // Skip local player and (optionally) the mounted gun platform entity.
+        CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
+        C_BaseEntity* mountedUseEnt = IsUsingMountedGun(localPlayer) ? GetMountedGunUseEntity(localPlayer) : nullptr;
+        CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
+        CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
+        // Include playerclip so we don't "laser through" clip brushes.
+        const unsigned int aimMask = MASK_SHOT | CONTENTS_PLAYERCLIP;
+        ray.Init(origin, target);
+        m_Game->m_EngineTrace->TraceRay(ray, aimMask, pTraceFilter, &trace);
+
+        if (trace.fraction < 1.0f && trace.fraction > 0.0f)
+            target = trace.endpos;
+    }
+
+    if (allowAimLineDraw)
         DrawAimLine(origin, target);
 }
 
@@ -4789,7 +4943,9 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
         return;
 
     // Keep the overlay alive for at least two frames so it doesn't disappear when the framerate drops.
-    const float duration = std::max(std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier), MinIntervalSeconds(m_AimLineMaxHz));
+    const float duration = m_AimLineTimingAligned
+        ? std::max(0.0f, MinIntervalSeconds(m_AimLineMaxHz) - 0.00025f)
+        : std::max(std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier), MinIntervalSeconds(m_AimLineMaxHz));
     if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
         return;
 
@@ -4834,7 +4990,6 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector&
             return a + (b - a) * t;
         };
 
-    const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
     for (int i = 0; i <= THROW_ARC_SEGMENTS; ++i)
     {
         const float t = static_cast<float>(i) / static_cast<float>(THROW_ARC_SEGMENTS);
@@ -4846,7 +5001,12 @@ void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector&
     m_HasThrowArc = true;
     m_HasAimLine = false;
 
-    DrawThrowArcFromCache(duration);
+    // In timing-aligned mode, the render thread draws the cached arc so it stays aligned with render-time camera decisions.
+    if (!m_AimLineTimingAligned)
+    {
+        const float duration = std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier);
+        DrawThrowArcFromCache(duration);
+    }
 }
 
 void VR::DrawThrowArcFromCache(float duration)
@@ -4871,12 +5031,13 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     int colorB = 0;
     int colorA = 0;
     GetAimLineColor(colorR, colorG, colorB, colorA);
-
-    m_Game->m_DebugOverlay->AddLineOverlay(start, end, colorR, colorG, colorB, false, duration);
-
     const float thickness = std::max(m_AimLineThickness, 0.0f);
     if (thickness <= 0.0f)
+    {
+        // Legacy thin line path (1px-ish). If thickness is requested, we draw a quad ribbon instead.
+        m_Game->m_DebugOverlay->AddLineOverlay(start, end, colorR, colorG, colorB, false, duration);
         return;
+    }
 
     Vector forward = end - start;
     if (forward.IsZero())
@@ -4897,36 +5058,64 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
         return;
 
     VectorNormalize(basis1);
-    Vector basis2 = CrossProduct(forward, basis1);
-    if (basis2.IsZero())
-        return;
-    VectorNormalize(basis2);
 
-    const int segments = 16;
+    // IMPORTANT:
+    // The Source debug-overlay path can hit:
+    //   "Too many vertex format changes in frame, whole world not rendered"
+    // if we spam too many triangles (old implementation drew a 16-segment tube = 32 tris per line segment).
+    // Here we draw a cheap camera-facing ribbon (2 tris). We also add a second, orthogonal ribbon (another 2 tris)
+    // so it still looks "thick" when viewed from the side, but stays *way* under the triangle budget.
+
     const float radius = thickness * 0.5f;
-    const float twoPi = 6.28318530718f;
 
-    for (int i = 0; i < segments; ++i)
-    {
-        const float angle0 = twoPi * static_cast<float>(i) / static_cast<float>(segments);
-        const float angle1 = twoPi * static_cast<float>(i + 1) / static_cast<float>(segments);
+    // Build a view-facing right vector using HMD position as camera anchor.
+    Vector toCam = m_HmdPosAbs - start;
+    if (toCam.IsZero())
+        toCam = -m_HmdForward;
+    if (toCam.IsZero())
+        toCam = Vector(0.0f, 0.0f, 1.0f);
+    VectorNormalize(toCam);
 
-        const float cos0 = std::cos(angle0);
-        const float sin0 = std::sin(angle0);
-        const float cos1 = std::cos(angle1);
-        const float sin1 = std::sin(angle1);
+    Vector right = CrossProduct(forward, toCam);
+    if (right.IsZero())
+        right = basis1; // stable fallback
+    if (right.IsZero())
+        return;
+    VectorNormalize(right);
 
-        Vector offset0 = (basis1 * cos0 + basis2 * sin0) * radius;
-        Vector offset1 = (basis1 * cos1 + basis2 * sin1) * radius;
+    Vector up2 = CrossProduct(forward, right);
+    if (up2.IsZero())
+        return;
+    VectorNormalize(up2);
 
-        Vector start0 = start + offset0;
-        Vector start1 = start + offset1;
-        Vector end0 = end + offset0;
-        Vector end1 = end + offset1;
+    // Keep triangles short-lived to avoid accumulating thousands when persistence is high.
+    // (We redraw frequently anyway.)
+    constexpr float kMaxTriangleDuration = 0.20f;
+    const float triDuration = std::min(duration, kMaxTriangleDuration);
 
-        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, start1, end1, colorR, colorG, colorB, colorA, false, duration);
-        m_Game->m_DebugOverlay->AddTriangleOverlay(start0, end1, end0, colorR, colorG, colorB, colorA, false, duration);
-    }
+    auto drawRibbon = [&](const Vector& axis)
+        {
+            const Vector off = axis * radius;
+            const Vector s0 = start - off;
+            const Vector s1 = start + off;
+            const Vector e0 = end - off;
+            const Vector e1 = end + off;
+
+            // Triangles in the debug overlay are single-sided (backface culled).
+            // A ribbon that faces the left eye can be backfacing for the right eye due to IPD parallax.
+            // Draw both windings so it is visible in both eyes.
+            const auto addTri2Sided = [&](const Vector& a, const Vector& b, const Vector& c)
+                {
+                    m_Game->m_DebugOverlay->AddTriangleOverlay(a, b, c, colorR, colorG, colorB, colorA, false, triDuration);
+                    m_Game->m_DebugOverlay->AddTriangleOverlay(c, b, a, colorR, colorG, colorB, colorA, false, triDuration);
+                };
+
+            addTri2Sided(s0, s1, e1);
+            addTri2Sided(s0, e1, e0);
+        };
+
+    drawRibbon(right);
+    drawRibbon(up2);
 }
 
 bool VR::IsEntityAlive(const C_BaseEntity* entity) const
@@ -5847,6 +6036,7 @@ void VR::ParseConfigFile()
     m_AimLineThickness = std::max(0.0f, getFloat("AimLineThickness", m_AimLineThickness));
     m_AimLineEnabled = getBool("AimLineEnabled", m_AimLineEnabled);
     m_AimLineOnlyWhenLaserSight = getBool("AimLineOnlyWhenLaserSight", m_AimLineOnlyWhenLaserSight);
+    m_AimLineTimingAligned = getBool("AimLineTimingAligned", m_AimLineTimingAligned);
     m_AimLineConfigEnabled = m_AimLineEnabled;
     m_BlockFireOnFriendlyAimEnabled = getBool("BlockFireOnFriendlyAimEnabled", m_BlockFireOnFriendlyAimEnabled);
     m_AutoRepeatSemiAutoFire = getBool("AutoRepeatSemiAutoFire", m_AutoRepeatSemiAutoFire);
