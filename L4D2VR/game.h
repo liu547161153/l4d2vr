@@ -43,6 +43,11 @@ struct Player
     QAngle controllerAngle = { 0.f, 0.f, 0.f };
     QAngle prevControllerAngle = { 0.f, 0.f, 0.f };
 
+    // Planar offset from player origin to HMD (Source units). Used for server-driven room-scale movement.
+    Vector roomscaleOffset = { 0.f, 0.f, 0.f };
+    // How much of roomscaleOffset has already been applied to the server entity origin.
+    Vector roomscaleApplied = { 0.f, 0.f, 0.f };
+
     bool isMeleeing = false;
     bool isNewSwing = false;
 };
