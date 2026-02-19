@@ -1,4 +1,4 @@
-﻿#include "Options.h"
+#include "Options.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -636,7 +636,7 @@ Option g_Options[] =
         1.0f, 30.0f,
         "12.0"
     },
- 
+
     // Aim Assist
     {
         "AimLineEnabled",
@@ -851,6 +851,46 @@ Option g_Options[] =
           u8"熟悉各锚点位置后可关闭以减少视觉干扰。" },
         0.0f, 0.0f,
         "false"
+    },
+
+    // Inventory Quick Switch (HL:Alyx style)
+    {
+        "InventoryQuickSwitchEnabled",
+        OptionType::Bool,
+        { u8"Inventory / Quick Switch", u8"物品栏 / 快速切换" },
+        { u8"Enable Inventory Quick Switch",
+          u8"启用快速道具切换（类似半条命Alyx）" },
+        { u8"Disables the legacy body-anchored inventory switching, and enables a quick-switch that spawns 4 zones around the RIGHT hand when a SteamVR bind is pressed.",
+          u8"开启后会禁用原有的身体锚点道具切换，并启用右手快速切换：按下SteamVR绑定后，以右手柄为原点生成4个区域，手柄碰到区域即可切换道具。" },
+        { u8"Bind the SteamVR action 'InventoryQuickSwitch' to a button (recommended: hold-to-show).",
+          u8"请在SteamVR里将动作 'InventoryQuickSwitch' 绑定到任意按键（建议按住触发）。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "InventoryQuickSwitchOffset",
+        OptionType::Vec3,
+        { u8"Inventory / Quick Switch", u8"物品栏 / 快速切换" },
+        { u8"Quick Switch Zone Offset (x,y,z)",
+          u8"快速切换区域偏移 (x,y,z)" },
+        { u8"Offset vector in meters (forward,right,up). x = common forward bias for all zones, y = left/right distance, z = up/down distance.",
+          u8"米制偏移向量（前、右、上）。x为所有区域共同的前向偏移；y为左右距离；z为上下距离。" },
+        { u8"Zones are computed from the origin set at right-hand position when the quick-switch button is pressed.",
+          u8"按下快速切换按键时会把右手柄位置作为原点，四个区域基于此原点计算。" },
+        -0.6f, 0.6f,
+        "0.06,0.12,0.12"
+    },
+    {
+        "InventoryQuickSwitchZoneRadius",
+        OptionType::Float,
+        { u8"Inventory / Quick Switch", u8"物品栏 / 快速切换" },
+        { u8"Quick Switch Zone Radius", u8"快速切换区域半径" },
+        { u8"Selection radius for each quick-switch zone (meters).",
+          u8"每个快速切换区域的判定半径（米）。" },
+        { u8"Increase if selection feels too strict; decrease to reduce accidental picks.",
+          u8"感觉不好选就调大；误触太多就调小。" },
+        0.03f, 0.30f,
+        "0.10"
     },
     // Optics (Scope / Rear Mirror)
  {
