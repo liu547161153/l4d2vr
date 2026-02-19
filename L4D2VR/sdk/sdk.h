@@ -1603,14 +1603,30 @@ public:
 		{
 			typedef CMeleeWeaponInfoStore* (__thiscall* tGetMeleeWepInfo)(void* thisptr);
 			static tGetMeleeWepInfo oGetMeleeWepInfo = (tGetMeleeWepInfo)(g_Game->m_Offsets->GetMeleeWeaponInfoClient.address);
-			CMeleeWeaponInfoStore* meleeWepInfo = oGetMeleeWepInfo(this);
-
-			std::string wepName(meleeWepInfo->meleeWeaponName);
-
-			if (meleeViewmodelOffsets.find(wepName) != meleeViewmodelOffsets.end())
+			if (oGetMeleeWepInfo)
 			{
-				prevViewmodelOffset = meleeViewmodelOffsets[wepName];
-				return prevViewmodelOffset;
+				CMeleeWeaponInfoStore* meleeWepInfo = oGetMeleeWepInfo(this);
+				// GetMeleeWeaponInfoClient can legitimately return null. If it does, we must
+				// not pass the null-derived C-string pointer (0x0CA4) into std::string.
+				if (meleeWepInfo && meleeWepInfo->meleeWeaponName[0] != '\0')
+				{
+					// Bound the length to the fixed buffer size (avoid strlen walking off if the
+					// string is missing a terminator due to transient corruption/races).
+					size_t len = 0;
+					for (; len < sizeof(meleeWepInfo->meleeWeaponName); ++len)
+					{
+						if (meleeWepInfo->meleeWeaponName[len] == '\0')
+							break;
+					}
+
+					std::string wepName(meleeWepInfo->meleeWeaponName, len);
+					auto it = meleeViewmodelOffsets.find(wepName);
+					if (it != meleeViewmodelOffsets.end())
+					{
+						prevViewmodelOffset = it->second;
+						return prevViewmodelOffset;
+					}
+				}
 			}
 		}
 
