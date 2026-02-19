@@ -5,7 +5,6 @@
 #include "sdk.h"
 #include "sdk_server.h"
 #include "vr.h"
-#include "trace.h"
 #include "offsets.h"
 #include <iostream>
 #include <cstdint>
@@ -167,35 +166,6 @@ static inline T ReadNetvar(const void* base, int ofs)
 static inline bool HandleValid(int h)
 {
 	return (h != 0 && h != -1);
-}
-
-// --- VR usercmd extra packing: room-scale offset (planar) ---
-// We pack HMD planar offset (in Source units) into weaponsubtype when VR usercmd encoding is enabled.
-// weaponsubtype is ignored unless weaponselect is non-zero, so this avoids affecting normal gameplay.
-// Quantization: 0.25 units per step (packScale=4).
-static constexpr float kRoomscalePackScale = 4.0f;
-
-static inline int16_t PackRoomscaleComp(float v)
-{
-	const float scaled = std::roundf(v * kRoomscalePackScale);
-	const float clamped = std::clamp(scaled, -32768.0f, 32767.0f);
-	return static_cast<int16_t>(static_cast<int>(clamped));
-}
-
-static inline int PackRoomscaleXYToWeaponSubtype(const Vector& v)
-{
-	const uint16_t x = static_cast<uint16_t>(PackRoomscaleComp(v.x));
-	const uint16_t y = static_cast<uint16_t>(PackRoomscaleComp(v.y));
-	const uint32_t packed = (uint32_t)x | ((uint32_t)y << 16);
-	return static_cast<int>(packed);
-}
-
-static inline Vector UnpackRoomscaleXYFromWeaponSubtype(int weaponSubtype)
-{
-	const uint32_t packed = static_cast<uint32_t>(weaponSubtype);
-	const int16_t x = static_cast<int16_t>(packed & 0xFFFF);
-	const int16_t y = static_cast<int16_t>((packed >> 16) & 0xFFFF);
-	return Vector((float)x / kRoomscalePackScale, (float)y / kRoomscalePackScale, 0.0f);
 }
 
 // Mouse-mode aiming helpers (mouse+keyboard play; no controllers required)
@@ -1077,9 +1047,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
 
-	// Aim line timing-aligned draw: render-thread path to minimize trails when moving.
-	m_VR->RenderThreadDrawAimingLaser(localPlayer);
-
 	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
 	// Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,
 	// then restore, so the engine's view history/interp isn't corrupted.
@@ -1739,24 +1706,6 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 					worldMove += bodyForward * (walkNy * walkMaxSpeed) + bodyRight * (walkNx * walkMaxSpeed);
 				}
 
-				// Server-verifiable room-scale: convert physical HMD translation beyond a small lean radius
-				// into ordinary forward/sidemove input so the server does collision/limits normally.
-				{
-					Vector room = m_VR->m_SetupOriginToHMD;
-					room.z = 0.0f;
-					const float dist = room.Length();
-					const float leanRadius = 8.0f; // ~20cm
-					if (dist > (leanRadius + 0.25f))
-					{
-						Vector dir = room;
-						VectorNormalize(dir);
-						const float excess = dist - leanRadius;
-						const float followTime = 0.25f; // seconds to catch up
-						const float wishSpeed = std::min(excess / std::max(0.01f, followTime), walkMaxSpeed);
-						worldMove += dir * wishSpeed;
-					}
-				}
-
 				// Project into the final cmd basis (after aim/melee lock)
 				QAngle cmdYawOnly(0.f, cmd->viewangles.y, 0.f);
 				Vector cmdForward, cmdRight, cmdUp;
@@ -2224,56 +2173,6 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 
 	if (hasValidPlayer)
 	{
-
-		// Server-driven 1:1 room-scale: apply tracked planar offset directly to the server entity origin.
-		// (ForceNonVRServerMovement=false)
-		if (!m_VR->m_ForceNonVRServerMovement && !paused && !ignore && m_Game->m_PlayersVRInfo[index].isUsingVR)
-		{
-			Vector desired = m_Game->m_PlayersVRInfo[index].roomscaleOffset;
-			desired.z = 0.0f;
-			// Hard clamp to a reasonable room-scale radius to prevent bogus packets.
-			const float maxRoomOffset = 96.0f; // ~2.4m
-			const float desiredLen = desired.Length();
-			if (desiredLen > maxRoomOffset)
-			{
-				desired *= (maxRoomOffset / desiredLen);
-			}
-			Vector applied = m_Game->m_PlayersVRInfo[index].roomscaleApplied;
-			applied.z = 0.0f;
-			Vector delta = desired - applied;
-			const float deltaLen = delta.Length();
-			if (deltaLen > 0.01f)
-			{
-				// Safety clamp per ProcessUsercmds call (handles multi-cmd bursts).
-				const float maxStep = 64.0f;
-				if (deltaLen > maxStep)
-					delta *= (maxStep / deltaLen);
-
-				IServerUnknown* unk = player ? player->m_pUnk : nullptr;
-				void* baseEnt = unk ? unk->GetBaseEntity() : nullptr;
-				if (baseEnt)
-				{
-					constexpr int kNetvar_m_vecOrigin = 0x124; // DT_BaseEntity::m_vecOrigin (offsets.txt)
-					Vector start = *reinterpret_cast<Vector*>((uintptr_t)baseEnt + kNetvar_m_vecOrigin);
-					Vector end = start + delta;
-
-					if (m_Game->m_EngineTrace)
-					{
-						Ray_t ray;
-						Vector mins(-16.f, -16.f, 0.f);
-						Vector maxs(16.f, 16.f, 72.f);
-						ray.Init(start, end, mins, maxs);
-						CTraceFilterSkipSelf filter(unk, 0);
-						trace_t tr;
-						m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &filter, &tr);
-						end = tr.endpos;
-					}
-
-					*reinterpret_cast<Vector*>((uintptr_t)baseEnt + kNetvar_m_vecOrigin) = end;
-					m_Game->m_PlayersVRInfo[index].roomscaleApplied += (end - start);
-				}
-			}
-		}
 		m_Game->m_PlayersVRInfo[index].prevControllerAngle = m_Game->m_PlayersVRInfo[index].controllerAngle;
 	}
 
@@ -2308,23 +2207,11 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 
 		if (hasValidPlayer)
 		{
-			const bool wasUsingVR = m_Game->m_PlayersVRInfo[i].isUsingVR;
 			m_Game->m_PlayersVRInfo[i].isUsingVR = true;
-			if (!wasUsingVR)
-			{
-				m_Game->m_PlayersVRInfo[i].roomscaleApplied = { 0.f, 0.f, 0.f };
-			}
 			m_Game->m_PlayersVRInfo[i].controllerAngle.x = (float)move->mousedx / 10;
 			m_Game->m_PlayersVRInfo[i].controllerAngle.y = (float)move->mousedy / 10;
 			m_Game->m_PlayersVRInfo[i].controllerPos.x = move->viewangles.z;
 			m_Game->m_PlayersVRInfo[i].controllerPos.y = move->upmove;
-			// Room-scale planar offset packed into weaponsubtype (server-driven 1:1 mode).
-			m_Game->m_PlayersVRInfo[i].roomscaleOffset = UnpackRoomscaleXYFromWeaponSubtype(move->weaponsubtype);
-		}
-		// weaponsubtype is only meaningful when weaponselect != 0; clear it to reduce risk.
-		if (move->weaponselect == 0)
-		{
-			move->weaponsubtype = 0;
 		}
 
 		// Decode controllerAngle.z
@@ -2355,8 +2242,6 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 		if (hasValidPlayer)
 		{
 			m_Game->m_PlayersVRInfo[i].isUsingVR = false;
-			m_Game->m_PlayersVRInfo[i].roomscaleOffset = { 0.f, 0.f, 0.f };
-			m_Game->m_PlayersVRInfo[i].roomscaleApplied = { 0.f, 0.f, 0.f };
 		}
 	}
 	return 1;
@@ -2397,13 +2282,6 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	to->tick_count *= -1;
 
 	int originalCommandNum = to->command_number;
-	const int originalWeaponSubtype = to->weaponsubtype;
-	if (to->weaponselect == 0)
-	{
-		Vector room = m_VR->m_SetupOriginToHMD;
-		room.z = 0.0f;
-		to->weaponsubtype = PackRoomscaleXYToWeaponSubtype(room);
-	}
 
 	QAngle controllerAngles = m_VR->GetRightControllerAbsAngle();
 	to->mousedx = (int)(controllerAngles.x * 10.0f); // Strip off 2nd decimal to save bits.
@@ -2438,7 +2316,6 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	to->viewangles.z = 0.0f;
 	to->upmove = 0.0f;
 	to->command_number = originalCommandNum;
-	to->weaponsubtype = originalWeaponSubtype;
 
 	// 重算校验，否则多人下枪声会异常
 	pVerified->m_cmd = *to;
@@ -2785,7 +2662,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
 	hkVgui_Paint.fOriginal(ecx, mode);
 }
-
+//
 int Hooks::dIsSplitScreen()
 {
 	if (m_PushHUDStep == 0)
