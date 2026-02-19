@@ -53,6 +53,60 @@ namespace
         return 1.0f / std::max(1.0f, maxHz);
     }
 
+    struct VASStats
+    {
+        size_t freeTotal = 0;
+        size_t freeLargest = 0;
+        size_t reserved = 0;
+        size_t committed = 0;
+    };
+
+    inline double BytesToMiB(size_t bytes)
+    {
+        return static_cast<double>(bytes) / (1024.0 * 1024.0);
+    }
+
+    // Best-effort Virtual Address Space snapshot for 32-bit processes.
+    // This is what typical "av" tools visualize: free vs reserved/committed address ranges.
+    inline VASStats QueryVASStats()
+    {
+        VASStats out{};
+
+        SYSTEM_INFO si{};
+        GetSystemInfo(&si);
+        uintptr_t addr = reinterpret_cast<uintptr_t>(si.lpMinimumApplicationAddress);
+        const uintptr_t maxAddr = reinterpret_cast<uintptr_t>(si.lpMaximumApplicationAddress);
+
+        MEMORY_BASIC_INFORMATION mbi{};
+        while (addr < maxAddr)
+        {
+            SIZE_T queried = VirtualQuery(reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi));
+            if (queried == 0)
+                break;
+
+            const size_t regionSize = static_cast<size_t>(mbi.RegionSize);
+            switch (mbi.State)
+            {
+            case MEM_FREE:
+                out.freeTotal += regionSize;
+                out.freeLargest = std::max(out.freeLargest, regionSize);
+                break;
+            case MEM_RESERVE:
+                out.reserved += regionSize;
+                break;
+            case MEM_COMMIT:
+                out.committed += regionSize;
+                break;
+            default:
+                break;
+            }
+
+            // Advance to the next region.
+            addr += regionSize ? regionSize : 4096;
+        }
+
+        return out;
+    }
 
     // Normalize Source-style view angles:
     // - Bring pitch/yaw into [-180, 180] first (avoid -30 becoming 330 then clamped to 89).
@@ -497,8 +551,25 @@ bool VR::GetWalkAxis(float& x, float& y) {
     return hasAxis;
 }
 
+void VR::LogVAS(const char* tag)
+{
+    if (!m_DebugVASLog || !tag || !*tag)
+        return;
+
+    const VASStats st = QueryVASStats();
+    Game::logMsg(
+        "[VR][VAS] %s | free %.1f MiB (largest %.1f MiB) | reserved %.1f MiB | committed %.1f MiB",
+        tag,
+        BytesToMiB(st.freeTotal),
+        BytesToMiB(st.freeLargest),
+        BytesToMiB(st.reserved),
+        BytesToMiB(st.committed));
+}
+
 void VR::CreateVRTextures()
 {
+    LogVAS("before CreateVRTextures");
+
     int windowWidth, windowHeight;
     m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
 
@@ -513,27 +584,38 @@ void VR::CreateVRTextures()
     m_CreatingTextureID = Texture_HUD;
     m_HUDTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("vrHUD", windowWidth, windowHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
 
-    // Square RTT for gun-mounted scope lens
-    m_CreatingTextureID = Texture_Scope;
-    m_ScopeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
-        "vrScope",
-        static_cast<int>(m_ScopeRTTSize),
-        static_cast<int>(m_ScopeRTTSize),
-        RT_SIZE_NO_CHANGE,
-        m_Game->m_MaterialSystem->GetBackBufferFormat(),
-        MATERIAL_RT_DEPTH_SEPARATE,
-        TEXTUREFLAGS_NOMIP);
+    // Optional RTTs: scope + rear-mirror can be extremely expensive in 32-bit VAS
+    // when their sizes are set high. Only pre-create them if requested.
+    const bool wantScope = (!m_LazyScopeRearMirrorRTT) || m_ScopeEnabled;
+    const bool wantRearMirror = (!m_LazyScopeRearMirrorRTT) || m_RearMirrorEnabled;
 
-    // Square RTT for off-hand rear mirror
-    m_CreatingTextureID = Texture_RearMirror;
-    m_RearMirrorTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
-        "vrRearMirror",
-        static_cast<int>(m_RearMirrorRTTSize),
-        static_cast<int>(m_RearMirrorRTTSize),
-        RT_SIZE_NO_CHANGE,
-        m_Game->m_MaterialSystem->GetBackBufferFormat(),
-        MATERIAL_RT_DEPTH_SEPARATE,
-        TEXTUREFLAGS_NOMIP);
+    if (wantScope)
+    {
+        // Square RTT for gun-mounted scope lens
+        m_CreatingTextureID = Texture_Scope;
+        m_ScopeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+            "vrScope",
+            static_cast<int>(m_ScopeRTTSize),
+            static_cast<int>(m_ScopeRTTSize),
+            RT_SIZE_NO_CHANGE,
+            m_Game->m_MaterialSystem->GetBackBufferFormat(),
+            MATERIAL_RT_DEPTH_SEPARATE,
+            TEXTUREFLAGS_NOMIP);
+    }
+
+    if (wantRearMirror)
+    {
+        // Square RTT for off-hand rear mirror
+        m_CreatingTextureID = Texture_RearMirror;
+        m_RearMirrorTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+            "vrRearMirror",
+            static_cast<int>(m_RearMirrorRTTSize),
+            static_cast<int>(m_RearMirrorRTTSize),
+            RT_SIZE_NO_CHANGE,
+            m_Game->m_MaterialSystem->GetBackBufferFormat(),
+            MATERIAL_RT_DEPTH_SEPARATE,
+            TEXTUREFLAGS_NOMIP);
+    }
 
     m_CreatingTextureID = Texture_Blank;
     m_BlankTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("blankTexture", 512, 512, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SHARED, TEXTUREFLAGS_NOMIP);
@@ -543,6 +625,58 @@ void VR::CreateVRTextures()
     m_Game->m_MaterialSystem->EndRenderTargetAllocation();
 
     m_CreatedVRTextures = true;
+
+    LogVAS("after CreateVRTextures");
+}
+
+void VR::EnsureOpticsRTTTextures()
+{
+    if (!m_CreatedVRTextures)
+        return;
+
+    const bool needScope = (m_ScopeEnabled && !m_ScopeTexture);
+    const bool needRearMirror = (m_RearMirrorEnabled && !m_RearMirrorTexture);
+    if (!needScope && !needRearMirror)
+        return;
+
+    LogVAS("before EnsureOpticsRTTTextures");
+
+    m_Game->m_MaterialSystem->isGameRunning = false;
+    m_Game->m_MaterialSystem->BeginRenderTargetAllocation();
+    m_Game->m_MaterialSystem->isGameRunning = true;
+
+    if (needScope)
+    {
+        m_CreatingTextureID = Texture_Scope;
+        m_ScopeTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+            "vrScope",
+            static_cast<int>(m_ScopeRTTSize),
+            static_cast<int>(m_ScopeRTTSize),
+            RT_SIZE_NO_CHANGE,
+            m_Game->m_MaterialSystem->GetBackBufferFormat(),
+            MATERIAL_RT_DEPTH_SEPARATE,
+            TEXTUREFLAGS_NOMIP);
+        Game::logMsg("[VR] Created scope RTT on-demand (%dx%d)", (int)m_ScopeRTTSize, (int)m_ScopeRTTSize);
+    }
+
+    if (needRearMirror)
+    {
+        m_CreatingTextureID = Texture_RearMirror;
+        m_RearMirrorTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx(
+            "vrRearMirror",
+            static_cast<int>(m_RearMirrorRTTSize),
+            static_cast<int>(m_RearMirrorRTTSize),
+            RT_SIZE_NO_CHANGE,
+            m_Game->m_MaterialSystem->GetBackBufferFormat(),
+            MATERIAL_RT_DEPTH_SEPARATE,
+            TEXTUREFLAGS_NOMIP);
+        Game::logMsg("[VR] Created rear-mirror RTT on-demand (%dx%d)", (int)m_RearMirrorRTTSize, (int)m_RearMirrorRTTSize);
+    }
+
+    m_CreatingTextureID = Texture_None;
+    m_Game->m_MaterialSystem->EndRenderTargetAllocation();
+
+    LogVAS("after EnsureOpticsRTTTextures");
 }
 
 void VR::SubmitVRTextures()
@@ -1158,7 +1292,7 @@ bool VR::ShouldUpdateScopeRTT()
 bool VR::ShouldUpdateRearMirrorRTT()
 {
     // The rear mirror is a full extra scene render. Throttling this can significantly reduce CPU spikes.
-    return !ShouldThrottle(m_LastScopeRTTRenderTime, m_ScopeRTTMaxHz);
+    return !ShouldThrottle(m_LastRearMirrorRTTRenderTime, m_RearMirrorRTTMaxHz);
 }
 void VR::RepositionOverlays()
 {
@@ -1939,6 +2073,11 @@ void VR::ProcessInput()
     // Quick-switch (HL:Alyx style): press/hold a bind, origin snaps to right hand, then move right hand into 4 zones.
     if (m_InventoryQuickSwitchEnabled)
     {
+        // NOTE: For selection, work in tracking-local space (relative to the camera anchor).
+        // This lets the quick-switch "follow the hand" visually while still allowing you to move
+        // the player with a stick without accidentally arming/selecting zones from world translation.
+        const Vector trackingOrigin = m_CameraAnchor - Vector(0, 0, 64);
+        const Vector rightControllerLocal = m_RightControllerPosAbs - trackingOrigin;
         // Avoid stale swallow flags if the user toggles modes.
         m_BlockReloadUntilRelease = false;
         m_BlockCrouchUntilRelease = false;
@@ -1978,7 +2117,7 @@ void VR::ProcessInput()
             }
             right *= (1.f / rightLen);
 
-            m_InventoryQuickSwitchOrigin = m_RightControllerPosAbs;
+            m_InventoryQuickSwitchOrigin = rightControllerLocal;
             m_InventoryQuickSwitchForward = fwd;
             m_InventoryQuickSwitchRight = right;
             m_InventoryQuickSwitchActive = true;
@@ -1999,7 +2138,7 @@ void VR::ProcessInput()
 
             // Allow a small travel before arming to avoid instant selection if offsets are small.
             const float armDistance = 0.03f * m_VRScale;
-            if (!m_InventoryQuickSwitchArmed && VectorLength(m_RightControllerPosAbs - m_InventoryQuickSwitchOrigin) > armDistance)
+            if (!m_InventoryQuickSwitchArmed && VectorLength(rightControllerLocal - m_InventoryQuickSwitchOrigin) > armDistance)
                 m_InventoryQuickSwitchArmed = true;
 
             const Vector base = m_InventoryQuickSwitchOrigin
@@ -2017,7 +2156,7 @@ void VR::ProcessInput()
 
             auto inZone = [&](const Vector& zoneCenter) -> bool
                 {
-                    return VectorLength(m_RightControllerPosAbs - zoneCenter) <= zoneRadius;
+                    return VectorLength(rightControllerLocal - zoneCenter) <= zoneRadius;
                 };
 
             if (m_InventoryQuickSwitchArmed)
@@ -2070,10 +2209,10 @@ void VR::ProcessInput()
                         m_Game->m_DebugOverlay->AddBoxOverlay(center, mins, maxs, ang, r, g, b, a, m_LastFrameDuration * 2.0f);
                     };
 
-                drawZone(chestZone, inZone(chestZone));
-                drawZone(backZone, inZone(backZone));
-                drawZone(leftZone, inZone(leftZone));
-                drawZone(rightZone, inZone(rightZone));
+                drawZone(chestZone + trackingOrigin, inZone(chestZone));
+                drawZone(backZone + trackingOrigin, inZone(backZone));
+                drawZone(leftZone + trackingOrigin, inZone(leftZone));
+                drawZone(rightZone + trackingOrigin, inZone(rightZone));
             }
         }
     }
@@ -6019,6 +6158,13 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
+
+    // Debug / memory
+    const bool prevVASLog = m_DebugVASLog;
+    m_DebugVASLog = getBool("DebugVASLog", m_DebugVASLog);
+    m_LazyScopeRearMirrorRTT = getBool("LazyScopeRearMirrorRTT", m_LazyScopeRearMirrorRTT);
+    if (!prevVASLog && m_DebugVASLog)
+        LogVAS("DebugVASLog enabled");
 
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
