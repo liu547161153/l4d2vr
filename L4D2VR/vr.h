@@ -65,7 +65,8 @@ public:
 	vr::IVRCompositor* m_Compositor = nullptr;
 
 	vr::VROverlayHandle_t m_MainMenuHandle;
-	vr::VROverlayHandle_t m_HUDHandle;
+	vr::VROverlayHandle_t m_HUDTopHandle;
+	std::array<vr::VROverlayHandle_t, 4> m_HUDBottomHandles{};
 	// Gun-mounted scope overlay (render-to-texture lens)
 	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
 	// Rear mirror overlay (off-hand)
@@ -93,12 +94,6 @@ public:
 	Vector m_HmdUp;
 
 	Vector m_HmdPosLocalInWorld = { 0,0,0 };
-	// HMD height baseline (Source units). We apply tracked Z as a *delta* from this baseline
-	// so Source eye-height changes (e.g. crouch) don't stack with real-life crouching.
-	float m_HmdHeightBaselineUnits = 64.0f;
-	bool m_HmdHeightBaselineInitialized = false;
-	bool m_DuckStatePrev = false;
-	bool m_DuckStatePrevInitialized = false;
 
 	Vector m_LeftControllerForward;
 	Vector m_LeftControllerRight;
@@ -209,10 +204,6 @@ public:
 	bool m_AimLineEnabled = true;
 	bool m_AimLineConfigEnabled = true;
 	bool m_AimLineOnlyWhenLaserSight = false;
-	// If true, prefer render-time temporal alignment over persistence.
-	// Aim line / throw arc are drawn on the render thread after camera origins are finalized,
-	// and we use a shorter overlay lifetime to minimize positional trails when moving.
-	bool m_AimLineTimingAligned = false;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
 	// Mounted gun (minigun/.50cal) state.
@@ -358,6 +349,7 @@ public:
 	vr::VRActionHandle_t m_ActionFlashlight;
 	vr::VRActionHandle_t m_ActionInventoryGripLeft;
 	vr::VRActionHandle_t m_ActionInventoryGripRight;
+	vr::VRActionHandle_t m_ActionInventoryQuickSwitch;
 	vr::VRActionHandle_t m_ActionSpecialInfectedAutoAimToggle;
 	vr::VRActionHandle_t m_ActionActivateVR;
 	vr::VRActionHandle_t m_MenuSelect;
@@ -514,6 +506,23 @@ public:
 	Vector m_InventoryLeftWaistOffset = { 0.05f, -0.25f, -0.45f };
 	Vector m_InventoryRightWaistOffset = { 0.05f, 0.25f, -0.45f };
 
+	// Inventory quick-switch (Half-Life: Alyx style): press/hold a bind to spawn 4 zones around the RIGHT hand.
+	// When enabled, the legacy body-anchored inventory switching is disabled.
+	bool m_InventoryQuickSwitchEnabled = false;
+	Vector m_InventoryQuickSwitchOffset = { 0.06f, 0.12f, 0.12f }; // meters (forward,right,up) in quick-switch basis
+	float m_InventoryQuickSwitchZoneRadius = 0.10f;               // meters, selection radius per zone
+
+	// Runtime state for quick-switch
+	bool m_InventoryQuickSwitchActive = false;
+	bool m_InventoryQuickSwitchArmed = false;
+	Vector m_InventoryQuickSwitchOrigin = { 0,0,0 };
+	Vector m_InventoryQuickSwitchForward = { 1,0,0 };
+	Vector m_InventoryQuickSwitchRight = { 0,1,0 };
+
+	// Legacy inventory: swallow Reload/Crouch until release when consumed by inventory switching.
+	bool m_BlockReloadUntilRelease = false;
+	bool m_BlockCrouchUntilRelease = false;
+
 	// Inventory anchor basis: apply offsets in a BODY space (yaw-only), not head pitch/roll.
 	// This makes anchors stable when you look up/down.
 	Vector m_InventoryBodyOriginOffset = { 0.0f, 0.0f, 0.0f }; // meters (forward,right,up) in body space
@@ -587,8 +596,6 @@ public:
 	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 	static constexpr int kObserverModeOffset = 0x1450; // C_BasePlayer::m_iObserverMode
 	static constexpr int kObserverTargetOffset = 0x1454; // C_BasePlayer::m_hObserverTarget
-	static constexpr int kFlagsOffset = 0xF0; // DT_BasePlayer::m_fFlags
-	static constexpr int kFlagDuckingBit = (1 << 1); // FL_DUCKING
 
 
 	// Aim-line friendly-fire guard (client-side fire suppression)
@@ -944,9 +951,6 @@ public:
 	C_BaseEntity* GetMountedGunUseEntity(C_BasePlayer* localPlayer) const;
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
-	// Render-thread draw path for aim helpers when AimLineTimingAligned is enabled.
-	// This draws during Hooks::dRenderView after third-person camera decisions to reduce ghosting/trailing.
-	void RenderThreadDrawAimingLaser(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
 	bool ShouldDrawAimLine(C_WeaponCSBase* weapon) const;
