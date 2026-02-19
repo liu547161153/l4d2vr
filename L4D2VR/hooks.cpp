@@ -570,6 +570,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (!m_VR->m_CreatedVRTextures)
 		m_VR->CreateVRTextures();
 
+	// Scope / rear-mirror RTTs may be created lazily (see LazyScopeRearMirrorRTT).
+	// Ensure they're available before any offscreen passes try to render into them.
+	m_VR->EnsureOpticsRTTTextures();
+
 	IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
 	if (!rndrContext)
 	{

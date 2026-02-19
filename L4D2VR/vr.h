@@ -286,6 +286,12 @@ public:
 	SharedTextureHolder m_VKRearMirror;
 	SharedTextureHolder m_VKBlankTexture;
 
+	// If enabled, scope / rear-mirror render-target textures are created only when the feature is enabled.
+	// This can save large chunks of 32-bit VAS when ScopeRTTSize/RearMirrorRTTSize are high.
+	bool m_LazyScopeRearMirrorRTT = true;
+	// Debug: log Virtual Address Space (VAS) stats at key allocation points.
+	bool m_DebugVASLog = false;
+
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
@@ -878,6 +884,8 @@ public:
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
 	void CreateVRTextures();
+	void EnsureOpticsRTTTextures();
+	void LogVAS(const char* tag);
 	void HandleMissingRenderContext(const char* location);
 	void SubmitVRTextures();
 	void LogCompositorError(const char* action, vr::EVRCompositorError error);
