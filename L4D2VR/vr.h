@@ -286,6 +286,12 @@ public:
 	SharedTextureHolder m_VKRearMirror;
 	SharedTextureHolder m_VKBlankTexture;
 
+	// If enabled, scope / rear-mirror render-target textures are created only when the feature is enabled.
+	// This can save large chunks of 32-bit VAS when ScopeRTTSize/RearMirrorRTTSize are high.
+	bool m_LazyScopeRearMirrorRTT = true;
+	// Debug: log Virtual Address Space (VAS) stats at key allocation points.
+	bool m_DebugVASLog = false;
+
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
@@ -515,6 +521,9 @@ public:
 	// Runtime state for quick-switch
 	bool m_InventoryQuickSwitchActive = false;
 	bool m_InventoryQuickSwitchArmed = false;
+	// Stored in *tracking-local* Source units (i.e. rightControllerAbs - (CameraAnchor - (0,0,64))).
+	// This keeps selection stable while the player translates in-game (stick movement), while
+	// still allowing debug rendering by adding the same anchor back to get world space.
 	Vector m_InventoryQuickSwitchOrigin = { 0,0,0 };
 	Vector m_InventoryQuickSwitchForward = { 1,0,0 };
 	Vector m_InventoryQuickSwitchRight = { 0,1,0 };
@@ -878,6 +887,8 @@ public:
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
 	void CreateVRTextures();
+	void EnsureOpticsRTTTextures();
+	void LogVAS(const char* tag);
 	void HandleMissingRenderContext(const char* location);
 	void SubmitVRTextures();
 	void LogCompositorError(const char* action, vr::EVRCompositorError error);
