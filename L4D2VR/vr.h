@@ -548,6 +548,11 @@ public:
 	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
+	bool m_Roomscale1To1Movement = true;
+	float m_Roomscale1To1MaxStepMeters = 0.35f;
+
+	Vector m_Roomscale1To1PrevCorrectedAbs = {};
+	bool m_Roomscale1To1PrevValid = false;
 	bool m_NonVRServerMovementAngleOverride = true;
 
 	// Non-VR server movement: client-side melee gesture -> IN_ATTACK tuning (ForceNonVRServerMovement=true only)
@@ -981,6 +986,8 @@ public:
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
+	void EncodeRoomscale1To1Move(CUserCmd* cmd);
+	static bool DecodeRoomscale1To1Delta(int weaponsubtype, Vector& outDeltaMeters);
 	void OnPredictionRunCommand(CUserCmd* cmd);
 	bool ShouldRunSecondaryPrediction(const CUserCmd* cmd) const;
 	void PrepareSecondaryPredictionCmd(CUserCmd& cmd) const;

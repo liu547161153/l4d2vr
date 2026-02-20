@@ -501,6 +501,30 @@ Option g_Options[] =
         0.0f, 0.0f,
         "false"
     },
+    {
+        "Roomscale1To1Movement",
+        OptionType::Bool,
+        { u8"Multiplayer / Server", u8"多人 / 服务器" },
+        { u8"Roomscale 1:1 Movement", u8"Roomscale 1:1 移动" },
+        { u8"Enables 1:1 sync of HMD planar movement to player entity origin (VR-aware server/listen server).",
+          u8"启用将 HMD 平面位移 1:1 同步到玩家实体 origin（仅 VR 感知服务器 / 主机）。" },
+        { u8"Requires VR-aware server path. Disable if your server does not support VR usercmd decoding.",
+          u8"需要服务器支持 VR usercmd 解码；不支持时请关闭。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "Roomscale1To1MaxStepMeters",
+        OptionType::Float,
+        { u8"Multiplayer / Server", u8"多人 / 服务器" },
+        { u8"Roomscale 1:1 Max Step (m)", u8"Roomscale 1:1 单 Tick 最大步进 (米)" },
+        { u8"Maximum allowed roomscale displacement per tick (meters) to prevent tracking jitter teleports.",
+          u8"每 tick 允许的最大 roomscale 位移（米），用于防止追踪抖动导致瞬移。" },
+        { u8"Typical range 0.1~0.5. Lower is safer but can clip fast real movement.",
+          u8"常用范围 0.1~0.5；越小越稳，但会限制快速真实位移。" },
+        0.01f, 2.0f,
+        "0.35"
+    },
     // HUD (Main)
     {
         "HudDistance",
