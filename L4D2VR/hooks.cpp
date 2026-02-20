@@ -5,6 +5,7 @@
 #include "sdk.h"
 #include "sdk_server.h"
 #include "vr.h"
+#include "trace.h"
 #include "offsets.h"
 #include <iostream>
 #include <cstdint>
