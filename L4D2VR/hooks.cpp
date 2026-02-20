@@ -5,6 +5,7 @@
 #include "sdk.h"
 #include "sdk_server.h"
 #include "vr.h"
+#include "trace.h"
 #include "offsets.h"
 #include <iostream>
 #include <cstdint>
@@ -1886,6 +1887,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		cmd->buttons &= ~(1 << 0); // IN_ATTACK
 	}
 
+	if (m_VR)
+		m_VR->EncodeRoomscale1To1Move(cmd);
+
 	return result;
 }
 
@@ -2107,6 +2111,7 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 
 	IServerUnknown* pUnknown = player->m_pUnk;
 	Server_BaseEntity* pPlayer = (Server_BaseEntity*)pUnknown->GetBaseEntity();
+	m_Game->m_CurrentUsercmdPlayer = pPlayer;
 
 	int index = oEntindex(pPlayer);
 	m_Game->m_CurrentUsercmdID = index;
@@ -2246,6 +2251,45 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 		if (hasValidPlayer)
 		{
 			m_Game->m_PlayersVRInfo[i].isUsingVR = false;
+		}
+	}
+
+	// ---- roomscale 1:1 server apply ----
+	if (m_Game && m_VR && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
+	{
+		Vector deltaM;
+		if (VR::DecodeRoomscale1To1Delta(move->weaponsubtype, deltaM) && move->weaponselect == 0)
+		{
+			move->weaponsubtype = 0;
+
+			Server_BaseEntity* ent = m_Game->m_CurrentUsercmdPlayer;
+			if (ent && m_Game->m_EngineTrace && m_Game->m_Offsets)
+			{
+				using SetAbsOriginFn = void(__thiscall*)(void*, const Vector&);
+				auto setAbsOrigin = (SetAbsOriginFn)(m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Server.address);
+
+				if (setAbsOrigin)
+				{
+					Vector origin = *(Vector*)((uintptr_t)ent + 0x124);
+					Vector deltaU(deltaM.x * m_VR->m_VRScale, deltaM.y * m_VR->m_VRScale, 0.0f);
+					Vector target = origin + deltaU;
+
+					Vector mins(-16, -16, 0);
+					Vector maxs(16, 16, 72);
+
+					Ray_t ray;
+					ray.Init(origin, target, mins, maxs);
+
+					trace_t tr;
+					CTraceFilterSkipSelf filter((IHandleEntity*)ent, 0);
+
+					const unsigned int mask = CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_PLAYERCLIP | CONTENTS_MONSTERCLIP | CONTENTS_GRATE;
+					m_Game->m_EngineTrace->TraceRay(ray, mask, &filter, &tr);
+
+					if (!tr.startsolid)
+						setAbsOrigin(ent, tr.endpos);
+				}
+			}
 		}
 	}
 	return 1;

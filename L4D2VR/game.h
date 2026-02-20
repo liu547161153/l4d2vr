@@ -21,6 +21,7 @@ class IInput;
 class ISurface;
 class C_BaseEntity;
 class C_BasePlayer;
+class Server_BaseEntity;
 struct model_t;
 class IVDebugOverlay;
 
@@ -79,6 +80,7 @@ public:
     bool m_Initialized = false;
     bool m_PerformingMelee = false;
     int m_CurrentUsercmdID = -1;
+    Server_BaseEntity* m_CurrentUsercmdPlayer = nullptr;
 
     // === Player VR State (Multiplayer) ===
     // Matches Source's MAX_PLAYERS (65) to cover the full player index range.

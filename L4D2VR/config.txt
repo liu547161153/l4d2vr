@@ -6,6 +6,8 @@ SnapTurnAngle=45.0
 LeftHanded=false
 AntiAliasing=2
 ForceNonVRServerMovement=false
+Roomscale1To1Movement=true
+Roomscale1To1MaxStepMeters=0.35
 
 HudDistance=1.3
 HudSize=1.8

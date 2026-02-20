@@ -53,6 +53,26 @@ namespace
         return 1.0f / std::max(1.0f, maxHz);
     }
 
+    static constexpr uint32_t kRSMarker = 0x80000000u;
+    static constexpr int kAxisBits = 15;
+    static constexpr int kAxisMask = (1 << kAxisBits) - 1;
+    static constexpr int kAxisBias = 1 << (kAxisBits - 1);
+
+    static inline int QuantizeCm(float meters)
+    {
+        int cm = (int)roundf(meters * 100.0f);
+        if (cm < -kAxisBias) cm = -kAxisBias;
+        if (cm > (kAxisBias - 1)) cm = (kAxisBias - 1);
+        return cm;
+    }
+
+    static inline uint32_t PackDeltaCm(int dx, int dy)
+    {
+        uint32_t ux = (uint32_t)((dx + kAxisBias) & kAxisMask);
+        uint32_t uy = (uint32_t)((dy + kAxisBias) & kAxisMask);
+        return kRSMarker | ux | (uy << kAxisBits);
+    }
+
     struct VASStats
     {
         size_t freeTotal = 0;
@@ -1818,6 +1838,107 @@ void VR::ProcessInput()
 #else
     // Movement via console commands disabled; handled in Hooks::dCreateMove via CUserCmd.
 #endif
+
+bool VR::DecodeRoomscale1To1Delta(int weaponsubtype, Vector& outDeltaMeters)
+{
+    uint32_t v = (uint32_t)weaponsubtype;
+    if ((v & kRSMarker) == 0)
+        return false;
+
+    int rx = (int)(v & kAxisMask);
+    int ry = (int)((v >> kAxisBits) & kAxisMask);
+    int dx = rx - kAxisBias;
+    int dy = ry - kAxisBias;
+
+    outDeltaMeters = Vector(dx * 0.01f, dy * 0.01f, 0.0f);
+    return true;
+}
+
+void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
+{
+    if (!cmd || !m_Roomscale1To1Movement || m_ForceNonVRServerMovement)
+        return;
+
+    if (cmd->weaponselect != 0)
+    {
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        return;
+    }
+
+    Vector cur = m_HmdPosCorrectedPrev;
+    if (!m_Roomscale1To1PrevValid)
+    {
+        m_Roomscale1To1PrevCorrectedAbs = cur;
+        m_Roomscale1To1PrevValid = true;
+        return;
+    }
+
+    Vector d = cur - m_Roomscale1To1PrevCorrectedAbs;
+    d.z = 0.0f;
+
+    float len = std::sqrt((d.x * d.x) + (d.y * d.y));
+    if (len > m_Roomscale1To1MaxStepMeters && len > 0.0001f)
+    {
+        float s = m_Roomscale1To1MaxStepMeters / len;
+        d.x *= s;
+        d.y *= s;
+    }
+
+    m_Roomscale1To1PrevCorrectedAbs = cur;
+
+    int dx = QuantizeCm(d.x);
+    int dy = QuantizeCm(d.y);
+
+    if (dx == 0 && dy == 0)
+        return;
+
+    cmd->weaponsubtype = (int)PackDeltaCm(dx, dy);
+}
+
+void VR::OnPredictionRunCommand(CUserCmd* cmd)
+{
+    if (!cmd || !m_Roomscale1To1Movement || m_ForceNonVRServerMovement)
+        return;
+
+    Vector deltaM;
+    if (!DecodeRoomscale1To1Delta(cmd->weaponsubtype, deltaM) || cmd->weaponselect != 0)
+        return;
+
+    cmd->weaponsubtype = 0;
+
+    if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_ClientEntityList || !m_Game->m_EngineTrace || !m_Game->m_Offsets)
+        return;
+
+    int idx = m_Game->m_EngineClient->GetLocalPlayer();
+    C_BaseEntity* ent = (idx > 0) ? m_Game->GetClientEntity(idx) : nullptr;
+    if (!ent)
+        return;
+
+    using SetAbsOriginFn = void(__thiscall*)(void*, const Vector&);
+    auto setAbsOrigin = (SetAbsOriginFn)m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Client.address;
+    if (!setAbsOrigin)
+        return;
+
+    Vector origin = ent->GetAbsOrigin();
+    Vector deltaU(deltaM.x * m_VRScale, deltaM.y * m_VRScale, 0.0f);
+    Vector target = origin + deltaU;
+
+    Vector mins(-16, -16, 0);
+    Vector maxs(16, 16, 72);
+
+    Ray_t ray;
+    ray.Init(origin, target, mins, maxs);
+
+    trace_t tr;
+    CTraceFilterSkipSelf filter((IHandleEntity*)ent, 0);
+    const unsigned int mask = CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_PLAYERCLIP | CONTENTS_MONSTERCLIP | CONTENTS_GRATE;
+    m_Game->m_EngineTrace->TraceRay(ray, mask, &filter, &tr);
+
+    if (!tr.startsolid)
+        setAbsOrigin(ent, tr.endpos);
+}
+
 
     // Detect spectator / observer / idle state early so we can re-route some inputs.
     C_BasePlayer* localPlayer = nullptr;
@@ -5295,7 +5416,6 @@ void VR::UpdateSpecialInfectedWarningState()
     m_SpecialInfectedAutoAimDirection = {};
     m_SpecialInfectedAutoAimCooldownEnd = {};
 }
-void VR::OnPredictionRunCommand(CUserCmd* /*cmd*/) {}
 bool VR::ShouldRunSecondaryPrediction(const CUserCmd* /*cmd*/) const { return false; }
 void VR::PrepareSecondaryPredictionCmd(CUserCmd& /*cmd*/) const {}
 void VR::OnPrimaryAttackServerDecision(CUserCmd* /*cmd*/, bool /*fromSecondaryPrediction*/) {}
@@ -5399,6 +5519,8 @@ void VR::ResetPosition()
 {
     m_CameraAnchor += m_SetupOrigin - m_HmdPosAbs;
     m_HeightOffset += m_SetupOrigin.z - m_HmdPosAbs.z;
+    m_Roomscale1To1PrevValid = false;
+    m_Roomscale1To1PrevCorrectedAbs = {};
 }
 
 std::string VR::GetMeleeWeaponName(C_WeaponCSBase* weapon) const
@@ -6311,6 +6433,8 @@ void VR::ParseConfigFile()
         0.0f, 60.0f);
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+    m_Roomscale1To1Movement = getBool("Roomscale1To1Movement", m_Roomscale1To1Movement);
+    m_Roomscale1To1MaxStepMeters = getFloat("Roomscale1To1MaxStepMeters", m_Roomscale1To1MaxStepMeters);
 
     // Mouse mode (desktop-style aiming while staying in VR rendering)
     m_MouseModeEnabled = getBool("MouseModeEnabled", m_MouseModeEnabled);
