@@ -798,6 +798,19 @@ void VR::ParseConfigFile()
     m_LeftWristHudBgAlpha = std::clamp(getFloat("LeftWristHudBgAlpha", m_LeftWristHudBgAlpha), 0.0f, 1.0f);
     m_RightAmmoHudBgAlpha = std::clamp(getFloat("RightAmmoHudBgAlpha", m_RightAmmoHudBgAlpha), 0.0f, 1.0f);
 
+    // Right ammo HUD: crop ratio (U max). Removes unused blank area on the right.
+    m_RightAmmoHudUVMaxU = std::clamp(getFloat("RightAmmoHudUVMaxU", m_RightAmmoHudUVMaxU), 0.05f, 1.0f);
+
+    // Hand HUD overall overlay alpha (0..1)
+    m_LeftWristHudAlpha = std::clamp(getFloat("LeftWristHudAlpha", m_LeftWristHudAlpha), 0.0f, 1.0f);
+    m_RightAmmoHudAlpha = std::clamp(getFloat("RightAmmoHudAlpha", m_RightAmmoHudAlpha), 0.0f, 1.0f);
+
+    // Left wrist HUD: battery label font scale (1..4)
+    m_LeftWristHudBatteryTextScale = std::clamp(getInt("LeftWristHudBatteryTextScale", m_LeftWristHudBatteryTextScale), 1, 4);
+
+    // Hand HUD temp health decay (HP per second)
+    m_HandHudTempHealthDecayRate = std::max(0.0f, getFloat("HandHudTempHealthDecayRate", m_HandHudTempHealthDecayRate));
+
     // Hand HUD overlays (SteamVR overlay, raw)
     m_LeftWristHudEnabled = getBool("LeftWristHudEnabled", m_LeftWristHudEnabled);
     m_LeftWristHudWidthMeters = std::clamp(getFloat("LeftWristHudWidthMeters", m_LeftWristHudWidthMeters), 0.01f, 1.0f);
