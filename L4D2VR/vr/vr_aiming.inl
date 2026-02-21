@@ -625,17 +625,26 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
     using namespace std::chrono;
     const auto now = steady_clock::now();
 
-    // Constants (as requested): 2s hold to show, 5s linger after leaving.
-    constexpr float kHoldSeconds = 2.0f;
-    constexpr float kLingerSeconds = 5.0f;
-    // Small stickiness to prevent hitbox-edge flicker from constantly resetting the timer.
+    // Behavior update: show immediately on teammate hit, hide 1s after leaving teammate.
+    constexpr float kLingerSeconds = 1.0f;
+    // Small stickiness to prevent hitbox-edge flicker from causing false leave/reacquire.
     constexpr float kStickinessSeconds = 0.15f;
 
-    if (!aimLineActive || !localPlayer || !m_Game || !m_Game->m_EngineTrace || !m_Game->m_ClientEntityList)
+    if (!localPlayer || !m_Game || !m_Game->m_EngineTrace || !m_Game->m_ClientEntityList)
     {
         m_AimTeammateCandidateIndex = -1;
-        m_AimTeammateDisplayIndex = -1;
         m_AimTeammateLastRawIndex = -1;
+        if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
+            m_AimTeammateDisplayIndex = -1;
+        return;
+    }
+
+    if (!aimLineActive)
+    {
+        m_AimTeammateCandidateIndex = -1;
+        m_AimTeammateLastRawIndex = -1;
+        if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
+            m_AimTeammateDisplayIndex = -1;
         return;
     }
 
@@ -690,42 +699,20 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
             m_AimTeammateLastRawIndex = -1;
     }
 
-    // Leaving all teammates: keep last shown target for a short linger, then clear.
+    // Leaving all teammates: keep last shown target for 1 second, then clear.
     if (hitIdx <= 0)
     {
         m_AimTeammateCandidateIndex = -1;
-        if (m_AimTeammateDisplayIndex > 0)
-        {
-            if (now > m_AimTeammateDisplayUntil)
-                m_AimTeammateDisplayIndex = -1;
-        }
-        return;
-    }
-
-    // Aiming at some teammate.
-    if (hitIdx != m_AimTeammateCandidateIndex)
-    {
-        m_AimTeammateCandidateIndex = hitIdx;
-        m_AimTeammateCandidateSince = now;
-
-        // Avoid showing stale info for a different teammate while we begin the hold timer.
-        if (m_AimTeammateDisplayIndex != hitIdx)
+        if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
             m_AimTeammateDisplayIndex = -1;
-    }
-
-    // If we're already displaying this teammate, just keep the linger window refreshed.
-    if (m_AimTeammateDisplayIndex == hitIdx)
-    {
-        m_AimTeammateDisplayUntil = now + duration_cast<steady_clock::duration>(duration<float>(kLingerSeconds));
         return;
     }
 
-    const float held = duration_cast<duration<float>>(now - m_AimTeammateCandidateSince).count();
-    if (held >= kHoldSeconds)
-    {
-        m_AimTeammateDisplayIndex = hitIdx;
-        m_AimTeammateDisplayUntil = now + duration_cast<steady_clock::duration>(duration<float>(kLingerSeconds));
-    }
+    // Aiming at teammate: show immediately and refresh linger window.
+    m_AimTeammateCandidateIndex = hitIdx;
+    m_AimTeammateCandidateSince = now;
+    m_AimTeammateDisplayIndex = hitIdx;
+    m_AimTeammateDisplayUntil = now + duration_cast<steady_clock::duration>(duration<float>(kLingerSeconds));
 }
 
 bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outName, size_t outNameSize)

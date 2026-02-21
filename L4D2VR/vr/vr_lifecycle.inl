@@ -2034,9 +2034,11 @@ void VR::UpdateHandHudOverlays()
 
             if (tempHP > 0)
             {
+                // Keep temp HP beside the main HP number (there is horizontal room),
+                // instead of pushing it below where it can clash with extra hint text.
                 char hpBuf[16];
                 std::snprintf(hpBuf, sizeof(hpBuf), "+%d", tempHP);
-                DrawText5x7(s, 18, 52, hpBuf, { 200, 200, 200, 230 }, 2);
+                DrawText5x7(s, 108, 26, hpBuf, { 200, 200, 200, 230 }, 2);
             }
 
             if (m_LeftWristHudShowBattery && battL >= 0 && battR >= 0)
