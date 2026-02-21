@@ -12,6 +12,9 @@ public:
 	static int VerifyOffset(std::string moduleName, int currentOffset, std::string signature, int sigOffset = 0)
 	{
 		HMODULE hModule = GetModuleHandle(moduleName.c_str());
+		if (!hModule)
+			return -1;
+
 		MODULEINFO moduleInfo;
 		GetModuleInformation(GetCurrentProcess(), hModule, &moduleInfo, sizeof(moduleInfo));
 
@@ -31,22 +34,25 @@ public:
 
 		int patternLen = pattern.size();
 
-		// Check if current offset is good
-		bool offsetMatchesSig = true;
-		for (int i = 0; i < patternLen; ++i)
+		// Check if current offset is good when a known offset exists.
+		if (currentOffset > 0)
 		{
-			if ( (bytes[currentOffset - sigOffset + i] != pattern[i]) && (pattern[i] != -1) )
+			bool offsetMatchesSig = true;
+			for (int i = 0; i < patternLen; ++i)
 			{
-				offsetMatchesSig = false;
-				break;
+				if ((bytes[currentOffset - sigOffset + i] != pattern[i]) && (pattern[i] != -1))
+				{
+					offsetMatchesSig = false;
+					break;
+				}
 			}
+
+			if (offsetMatchesSig)
+				return 0;
 		}
 
-		if (offsetMatchesSig)
-			return 0;
-
 		// Scan the dll for new offset
-		for (int i = 0; i < moduleInfo.SizeOfImage; ++i)
+		for (int i = 0; i <= (int)moduleInfo.SizeOfImage - patternLen; ++i)
 		{
 			bool found = true;
 			for (int j = 0; j < patternLen; ++j)
