@@ -452,6 +452,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         // Even when the aim line is hidden/disabled, still run the friendly-fire guard trace
         // if the user toggled it on.
         UpdateFriendlyFireAimHit(localPlayer);
+        // Aim-line teammate HUD hint is only meaningful while the aim line is active.
+        UpdateAimTeammateHudTarget(localPlayer, Vector{}, Vector{}, false);
 
         return;
     }
@@ -460,6 +462,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     if (!canDraw)
     {
         UpdateFriendlyFireAimHit(localPlayer);
+        UpdateAimTeammateHudTarget(localPlayer, Vector{}, Vector{}, false);
 
         return;
     }
@@ -553,6 +556,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     {
         m_AimLineHitsFriendly = false;
         m_HasAimConvergePoint = false;
+        UpdateAimTeammateHudTarget(localPlayer, Vector{}, Vector{}, false);
 
         Vector pitchSource = direction;
         if (useMouse && !eyeDir.IsZero())
@@ -603,6 +607,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     // This runs regardless of whether the line is actually drawn.
     UpdateFriendlyFireAimHit(localPlayer);
 
+    // Teammate info hint: track which teammate the aim line is resting on.
+    UpdateAimTeammateHudTarget(localPlayer, origin, target, true);
+
 
     m_AimLineStart = origin;
     m_AimLineEnd = target;
@@ -611,6 +618,181 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     if (canDraw && allowAimLineDraw)
         DrawAimLine(origin, target);
+}
+
+void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& start, const Vector& end, bool aimLineActive)
+{
+    using namespace std::chrono;
+    const auto now = steady_clock::now();
+
+    // Behavior update: show immediately on teammate hit, hide 1s after leaving teammate.
+    constexpr float kLingerSeconds = 1.0f;
+    // Small stickiness to prevent hitbox-edge flicker from causing false leave/reacquire.
+    constexpr float kStickinessSeconds = 0.15f;
+
+    if (!localPlayer || !m_Game || !m_Game->m_EngineTrace || !m_Game->m_ClientEntityList)
+    {
+        m_AimTeammateCandidateIndex = -1;
+        m_AimTeammateLastRawIndex = -1;
+        if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
+            m_AimTeammateDisplayIndex = -1;
+        return;
+    }
+
+    if (!aimLineActive)
+    {
+        m_AimTeammateCandidateIndex = -1;
+        m_AimTeammateLastRawIndex = -1;
+        if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
+            m_AimTeammateDisplayIndex = -1;
+        return;
+    }
+
+    int hitIdx = -1;
+    {
+        CGameTrace tr;
+        Ray_t ray;
+
+        // Skip self and the mounted-gun use entity (if any) so the ray doesn't collide with the turret base.
+        C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
+        CTraceFilterSkipSelf filterSelf((IHandleEntity*)localPlayer, 0);
+        CTraceFilterSkipTwoEntities filterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
+        CTraceFilter* pFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&filterTwo) : static_cast<CTraceFilter*>(&filterSelf);
+
+        ray.Init(start, end);
+        m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pFilter, &tr);
+
+        C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(tr.m_pEnt);
+        if (hitEnt && hitEnt != localPlayer)
+        {
+            const unsigned char* eb = reinterpret_cast<const unsigned char*>(hitEnt);
+            const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(eb + kLifeStateOffset);
+            const int team = *reinterpret_cast<const int*>(eb + kTeamNumOffset);
+
+            if (lifeState == 0 && team == 2)
+            {
+                // Resolve to a player index by scanning the entity list (cheap: cap to 64).
+                const int hi = std::min(64, m_Game->m_ClientEntityList->GetHighestEntityIndex());
+                for (int i = 1; i <= hi; ++i)
+                {
+                    if (m_Game->GetClientEntity(i) == hitEnt)
+                    {
+                        hitIdx = i;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (hitIdx > 0)
+    {
+        m_AimTeammateLastRawIndex = hitIdx;
+        m_AimTeammateLastRawTime = now;
+    }
+    else if (m_AimTeammateLastRawIndex > 0)
+    {
+        const float dt = duration_cast<duration<float>>(now - m_AimTeammateLastRawTime).count();
+        if (dt <= kStickinessSeconds)
+            hitIdx = m_AimTeammateLastRawIndex;
+        else
+            m_AimTeammateLastRawIndex = -1;
+    }
+
+    // Leaving all teammates: keep last shown target for 1 second, then clear.
+    if (hitIdx <= 0)
+    {
+        m_AimTeammateCandidateIndex = -1;
+        if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
+            m_AimTeammateDisplayIndex = -1;
+        return;
+    }
+
+    // Aiming at teammate: show immediately and refresh linger window.
+    m_AimTeammateCandidateIndex = hitIdx;
+    m_AimTeammateCandidateSince = now;
+    m_AimTeammateDisplayIndex = hitIdx;
+    m_AimTeammateDisplayUntil = now + duration_cast<steady_clock::duration>(duration<float>(kLingerSeconds));
+}
+
+bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outName, size_t outNameSize)
+{
+    if (!outName || outNameSize == 0)
+        return false;
+
+    outName[0] = 0;
+    outPlayerIndex = -1;
+    outPercent = 0;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (m_AimTeammateDisplayIndex <= 0)
+        return false;
+    if (now > m_AimTeammateDisplayUntil)
+    {
+        m_AimTeammateDisplayIndex = -1;
+        return false;
+    }
+
+    if (!m_Game)
+        return false;
+
+    C_BasePlayer* p = (C_BasePlayer*)m_Game->GetClientEntity(m_AimTeammateDisplayIndex);
+    if (!p)
+        return false;
+
+    const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
+    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(pb + kLifeStateOffset);
+    const int team = *reinterpret_cast<const int*>(pb + kTeamNumOffset);
+    if (lifeState != 0 || team != 2)
+        return false;
+
+    const int hp = *reinterpret_cast<const int*>(pb + kHealthOffset);
+    const float tempHPf = *reinterpret_cast<const float*>(pb + kHealthBufferOffset);
+    const int tempHP = (int)std::max(0.0f, std::round(tempHPf));
+    const int eff = std::max(0, std::min(100, hp + tempHP));
+
+    // Name: keep ASCII glyphs (5x7 font-safe) and when truncating, keep the tail (drop front).
+    if (m_Game->m_EngineClient)
+    {
+        player_info_t info{};
+        if (m_Game->m_EngineClient->GetPlayerInfo(m_AimTeammateDisplayIndex, &info))
+        {
+            char asciiName[sizeof(info.name)] = { 0 };
+            size_t asciiLen = 0;
+            bool hadNonAscii = false;
+            for (size_t i = 0; info.name[i] && asciiLen + 1 < sizeof(asciiName); ++i)
+            {
+                const unsigned char ch = static_cast<unsigned char>(info.name[i]);
+                if (ch >= 32 && ch <= 126)
+                    asciiName[asciiLen++] = static_cast<char>(ch);
+                else
+                    hadNonAscii = true;
+            }
+            asciiName[asciiLen] = 0;
+
+            if (asciiLen > 0)
+            {
+                const size_t maxCopy = outNameSize - 1;
+                const size_t start = (asciiLen > maxCopy) ? (asciiLen - maxCopy) : 0;
+                size_t n = 0;
+                for (size_t i = start; i < asciiLen && n + 1 < outNameSize; ++i)
+                    outName[n++] = asciiName[i];
+                outName[n] = 0;
+            }
+            else if (hadNonAscii)
+            {
+                // Font can't draw non-ASCII reliably; avoid a screen full of '?' boxes.
+                std::snprintf(outName, outNameSize, "P%d", m_AimTeammateDisplayIndex);
+            }
+        }
+    }
+
+    if (!outName[0])
+        std::snprintf(outName, outNameSize, "P%d", m_AimTeammateDisplayIndex);
+
+    outPlayerIndex = m_AimTeammateDisplayIndex;
+    outPercent = eff;
+    return true;
 }
 
 bool VR::IsWeaponLaserSightActive(C_WeaponCSBase* weapon) const
@@ -1074,4 +1256,3 @@ void VR::ResetSpecialInfectedWarningAction()
 }
 
 #endif
-
