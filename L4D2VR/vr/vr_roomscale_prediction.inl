@@ -100,6 +100,17 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
         m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
         m_Roomscale1To1PrevValid = true;
 
+        // Chase mode should not fight normal locomotion (keyboard/thumbstick).
+        // While locomotion is active, the engine is already moving the player and third-person camera
+        // can introduce intentional camera/player offsets. So disable chase and reset state.
+        const bool anyLocomotionNow = m_LocomotionActive || (fabsf(cmd->forwardmove) > 0.5f) || (fabsf(cmd->sidemove) > 0.5f) || (fabsf(cmd->upmove) > 0.5f);
+        if (anyLocomotionNow)
+        {
+            m_Roomscale1To1ChaseActive = false;
+            m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+            return;
+        }
+
         Vector toCamU = m_SetupOriginToHMD;
         toCamU.z = 0.0f;
 
