@@ -785,6 +785,18 @@ Option g_Options[] =
         "0.04"
     },
     {
+        "RightAmmoHudUVMaxU",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD Crop Width (U Max)", u8"弹药HUD裁剪宽度（U最大值）" },
+        { u8"Crops the right side of the ammo HUD overlay texture.",
+          u8"裁掉弹药HUD覆盖层纹理右侧的空白区域。" },
+        { u8"1.0 = full width, 0.33 = compact left-third view.",
+          u8"1.0为完整宽度，0.33为仅显示左侧三分之一（更紧凑）。" },
+        0.05f, 1.0f,
+        "0.34"
+    },
+    {
         "RightAmmoHudXOffset",
         OptionType::Float,
         { u8"HUD (Hand)", u8"HUD（手柄）" },

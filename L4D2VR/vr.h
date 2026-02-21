@@ -488,6 +488,10 @@ public:
 	float m_LeftWristHudBgAlpha = 0.85f;
 	float m_RightAmmoHudBgAlpha = 0.70f;
 
+	// Right ammo HUD: crop the displayed overlay to the left part of the texture.
+	// 1.0 = full texture width, ~0.33 = compact left-third view.
+	float m_RightAmmoHudUVMaxU = 0.34f;
+
 	// Hand HUD overall overlay alpha (0..1). Applied via IVROverlay::SetOverlayAlpha.
 	float m_LeftWristHudAlpha = 1.0f;
 	float m_RightAmmoHudAlpha = 1.0f;

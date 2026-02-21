@@ -1887,6 +1887,13 @@ void VR::UpdateHandHudOverlays()
         }
     };
 
+    auto healthColorFor = [&](int hp, unsigned char a = 255) -> Rgba
+    {
+        if (hp < 15) return Rgba{ 255, 60, 60, a };
+        if (hp < 40) return Rgba{ 255, 220, 60, a };
+        return Rgba{ 60, 220, 255, a };
+    };
+
     auto buildRel = [&](float xOff, float yOff, float zOff, const QAngle& ang) -> vr::HmdMatrix34_t
     {
         const float deg2rad = 3.14159265358979323846f / 180.0f;
@@ -2006,12 +2013,16 @@ void VR::UpdateHandHudOverlays()
             DrawCornerBrackets(s, 2, 2, w - 4, h - 4, { 60, 220, 255, 220 });
             DrawRect(s, 8, 8, w - 16, h - 16, { 20, 60, 70, bgA }, 1);
 
-            char hpBuf[32];
+            const Rgba hpCol = healthColorFor(hp, 255);
+            const SevenSegStyle hpSt{ 12, 3, 2, 4 };
+            Draw7SegInt(s, 18, 18, std::max(0, hp), hpSt, hpCol);
+
             if (tempHP > 0)
-                std::snprintf(hpBuf, sizeof(hpBuf), "%d+%d", hp, tempHP);
-            else
-                std::snprintf(hpBuf, sizeof(hpBuf), "%d", hp);
-            DrawText5x7(s, 18, 18, hpBuf, { 240, 240, 240, 255 }, 4);
+            {
+                char hpBuf[16];
+                std::snprintf(hpBuf, sizeof(hpBuf), "+%d", tempHP);
+                DrawText5x7(s, 18, 52, hpBuf, { 200, 200, 200, 230 }, 2);
+            }
 
             if (m_LeftWristHudShowBattery && battL >= 0 && battR >= 0)
             {
@@ -2147,6 +2158,12 @@ void VR::UpdateHandHudOverlays()
         vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
         vr::VROverlay()->SetOverlayWidthInMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters));
         vr::VROverlay()->SetOverlayAlpha(m_RightAmmoHudHandle, std::max(0.0f, std::min(1.0f, m_RightAmmoHudAlpha)));
+        vr::VRTextureBounds_t bounds{};
+        bounds.uMin = 0.0f;
+        bounds.vMin = 0.0f;
+        bounds.uMax = std::max(0.05f, std::min(1.0f, m_RightAmmoHudUVMaxU));
+        bounds.vMax = 1.0f;
+        vr::VROverlay()->SetOverlayTextureBounds(m_RightAmmoHudHandle, &bounds);
         // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
         vr::VROverlay()->SetOverlayTexelAspect(m_RightAmmoHudHandle, 1.0f);
 
@@ -2240,18 +2257,37 @@ void VR::UpdateHandHudOverlays()
             const Rgba resColor = resLow ? Rgba{ 255, 80, 80, 230 } : Rgba{ 200, 200, 200, 230 };
 
             const SevenSegStyle clipSt{ 12, 3, 2, 4 };
-            Draw7SegInt(s, 18, 24, std::max(0, clip), clipSt, clipColor);
+            const SevenSegStyle resSt{ 8, 2, 2, 3 };
 
-            DrawText5x7(s, 18, 88, "/", { 200, 200, 200, 220 }, 3);
+            auto digitCount = [](int v) -> int
+            {
+                if (v <= 0) return 1;
+                int n = 0;
+                while (v > 0) { v /= 10; ++n; }
+                return n;
+            };
+            auto sevenSegWidth = [&](int digits, const SevenSegStyle& st) -> int
+            {
+                const int digitW = SevenSegDigitW(st);
+                if (digits <= 1) return digitW;
+                return digits * digitW + (digits - 1) * st.digitGap;
+            };
+
+            const int clipW = sevenSegWidth(digitCount(std::max(0, clip)), clipSt);
+            const int resW = pistolInfinite ? 24 : sevenSegWidth(digitCount(std::max(0, reserve)), resSt);
+            const int slashW = 16;
+            const int totalW = clipW + slashW + resW;
+            const int yBase = 46;
+            int x = std::max(6, (w - totalW) / 2);
+
+            Draw7SegInt(s, x, yBase, std::max(0, clip), clipSt, clipColor);
+            x += clipW + 2;
+            DrawText5x7(s, x, yBase + 4, "/", { 200, 200, 200, 220 }, 2);
+            x += slashW;
             if (pistolInfinite)
-            {
-                DrawInfinity(s, 34, 90, 24, 10, { 240, 240, 240, 230 });
-            }
+                DrawInfinity(s, x, yBase + 4, 24, 10, { 240, 240, 240, 230 });
             else
-            {
-                const SevenSegStyle resSt{ 8, 2, 2, 3 };
-                Draw7SegInt(s, 32, 86, std::max(0, reserve), resSt, resColor);
-            }
+                Draw7SegInt(s, x, yBase + 2, std::max(0, reserve), resSt, resColor);
 
             const bool hasInc = (upgBits & 1) != 0;
             const bool hasExp = (upgBits & 2) != 0;
