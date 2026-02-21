@@ -134,12 +134,11 @@ void VR::UpdateTracking()
     // Mounted gun (.50cal/minigun):
     // - Render hook forces first-person while mounted.
     // - When we exit the mounted gun, do a one-shot ResetPosition to re-align anchors.
-    {
-        const bool usingMountedGunNow = IsUsingMountedGun(localPlayer);
-        if (m_UsingMountedGunPrev && !usingMountedGunNow)
-            m_ResetPositionAfterMountedGunExitPending = true;
-        m_UsingMountedGunPrev = usingMountedGunNow;
-    }
+    const bool usingMountedGunNow = IsUsingMountedGun(localPlayer);
+    if (m_UsingMountedGunPrev && !usingMountedGunNow)
+        m_ResetPositionAfterMountedGunExitPending = true;
+    m_UsingMountedGunPrev = usingMountedGunNow;
+
     m_Game->m_IsMeleeWeaponActive = viewPlayer->IsMeleeWeaponActive();
 
     // Scope: only render/show when holding a firearm
@@ -390,10 +389,16 @@ void VR::UpdateTracking()
     // - 1:1 server roomscale (ForceNonVRServerMovement=false): optionally keep the camera fully decoupled from the tick-rate player origin
     //   so HMD motion stays smooth at headset refresh rate.
     const bool want1to1DecoupledCamera =
-        m_Roomscale1To1Movement && !m_ForceNonVRServerMovement && m_Roomscale1To1DecoupleCamera && !m_LocomotionActive;
+        m_Roomscale1To1Movement && !m_ForceNonVRServerMovement && m_Roomscale1To1DecoupleCamera && !m_LocomotionActive && !usingMountedGunNow;
 
     if (inEyeObserver)
     {
+        m_RoomscaleActive = false;
+    }
+    else if (usingMountedGunNow)
+    {
+        // Mounted guns force first-person render path; keep roomscale anchor coupled to avoid
+        // first/third-person render-path thrashing when decoupled camera mode is enabled.
         m_RoomscaleActive = false;
     }
     else if (want1to1DecoupledCamera)
