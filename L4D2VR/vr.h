@@ -488,6 +488,17 @@ public:
 	float m_LeftWristHudBgAlpha = 0.85f;
 	float m_RightAmmoHudBgAlpha = 0.70f;
 
+	// Hand HUD overall overlay alpha (0..1). Applied via IVROverlay::SetOverlayAlpha.
+	float m_LeftWristHudAlpha = 1.0f;
+	float m_RightAmmoHudAlpha = 1.0f;
+
+	// Left wrist HUD: battery label font scale (1..4) for DrawText5x7.
+	int   m_LeftWristHudBatteryTextScale = 1;
+
+	// Hand HUD: client-side temp health (m_healthBuffer) decay rate (HP per second).
+	// L4D2 default is ~0.27, but servers can override; expose as config for now.
+	float m_HandHudTempHealthDecayRate = 0.27f;
+
 	// ----------------------------
 	// Hand HUD overlays (SteamVR overlays, raw textures)
 	// ----------------------------
@@ -519,6 +530,20 @@ public:
 	int m_LeftWristHudTexH = 128;
 	int m_RightAmmoHudTexW = 256;
 	int m_RightAmmoHudTexH = 128;
+	// Hand HUD temp-health decay state (per player index).
+	// We only get m_healthBuffer (amount) + m_healthBufferTime (start time).
+	// The engine computes the decayed remaining value at draw time; we replicate that using wall-clock.
+	struct TempHealthDecayState
+	{
+		float rawBuffer = 0.0f;
+		float rawBufferTime = 0.0f;
+		std::chrono::steady_clock::time_point wallStart{};
+		float lastRemaining = 0.0f;
+		bool initialized = false;
+	};
+	static constexpr size_t kHandHudPlayerSlots = 65; // Source MAX_PLAYERS (incl. 1..64)
+	std::array<TempHealthDecayState, kHandHudPlayerSlots> m_HandHudTempHealthStates{};
+
 	// Cached values (avoid redrawing every frame)
 	int  m_LastHudHealth = -9999;
 	int  m_LastHudTempHealth = -9999;
@@ -700,6 +725,8 @@ public:
 	static constexpr int kHealthOffset = 0xEC;               // DT_BasePlayer::m_iHealth
 	static constexpr int kAmmoArrayOffset = 0xF24;            // DT_BasePlayer::m_iAmmo (int array)
 	static constexpr int kHealthBufferOffset = 0x1FAC;        // DT_TerrorPlayer::m_healthBuffer (temporary HP)
+	static constexpr int kHealthBufferTimeOffset = 0x1FB0;    // DT_TerrorPlayer::m_healthBufferTime
+	static constexpr int kSurvivorCharacterOffset = 0x1C8C;  // DT_TerrorPlayer::m_survivorCharacter
 	static constexpr int kIsOnThirdStrikeOffset = 0x1EC0;     // DT_TerrorPlayer::m_bIsOnThirdStrike
 	static constexpr int kIsHangingFromLedgeOffset = 0x25EC;  // DT_TerrorPlayer::m_isHangingFromLedge
 	// Weapon netvars (from offsets.txt)
