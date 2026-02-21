@@ -44,6 +44,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	if (queueMode != 0 && m_VR && m_VR->m_System && vr::VRCompositor())
 	{
+		// Remember which thread is producing render snapshots (used by other render-time hooks).
+		m_VR->m_RenderThreadId.store(static_cast<uint32_t>(GetCurrentThreadId()), std::memory_order_relaxed);
+
 		// Track per-render-call setup.origin deltas (tick-rate movement) to reduce model/camera stepping.
 		static thread_local Vector s_prevSetupOrigin{};
 		static thread_local bool s_prevSetupOriginValid = false;

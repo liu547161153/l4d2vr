@@ -10,6 +10,30 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 
 	if (m_VR->m_IsVREnabled)
 	{
+		// In mat_queue_mode!=0, CalcViewModelView can run on the render thread outside our dRenderView scope.
+		// Gate render-frame snapshot usage to the render thread to avoid feeding render-only data into gameplay threads.
+		const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+		const bool isRenderThread = (queueMode != 0) && (static_cast<uint32_t>(GetCurrentThreadId()) == m_VR->m_RenderThreadId.load(std::memory_order_relaxed));
+		struct RenderSnapshotTLSGuard
+		{
+			bool enabled = false;
+			bool prev = false;
+			RenderSnapshotTLSGuard(bool en)
+			{
+				enabled = en;
+				if (enabled)
+				{
+					prev = VR::t_UseRenderFrameSnapshot;
+					VR::t_UseRenderFrameSnapshot = true;
+				}
+			}
+			~RenderSnapshotTLSGuard()
+			{
+				if (enabled)
+					VR::t_UseRenderFrameSnapshot = prev;
+			}
+		} tlsGuard(isRenderThread);
+
 		vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 		vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
 	}

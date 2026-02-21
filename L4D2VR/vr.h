@@ -224,6 +224,9 @@ public:
 	std::atomic<float> m_RenderRecommendedViewmodelAngY{ 0.0f };
 	std::atomic<float> m_RenderRecommendedViewmodelAngZ{ 0.0f };
 
+	// Render thread id (captured in dRenderView) used to gate render-only snapshot reads.
+	std::atomic<uint32_t> m_RenderThreadId{ 0 };
+
 	// True on the render thread while inside dRenderView when mat_queue_mode!=0.
 	static inline thread_local bool t_UseRenderFrameSnapshot = false;
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
