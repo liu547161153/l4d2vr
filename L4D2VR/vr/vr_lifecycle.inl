@@ -1622,7 +1622,12 @@ bool VR::UpdatePosesAndActions()
     if (!m_Compositor)
         return false;
 
-    vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
+    const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+    // In mat_queue_mode!=0, the render thread is decoupled; avoid blocking the main thread here.
+    // The render hook will do a render-thread WaitGetPoses() for latency-critical view transforms.
+    vr::EVRCompositorError result = queued
+        ? m_Compositor->GetLastPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0)
+        : m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
     bool posesValid = (result == vr::VRCompositorError_None);
 
     if (!posesValid && m_CompositorExplicitTiming)

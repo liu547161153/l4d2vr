@@ -174,6 +174,58 @@ public:
 
 	Vector m_ViewmodelPosOffset;
 	QAngle m_ViewmodelAngOffset;
+
+	// --- Multicore rendering snapshot bridging (mat_queue_mode!=0) ---
+	// Main thread publishes a stable copy of key tracking/view parameters; render thread consumes it
+	// and computes per-frame view/controller data from a render-thread WaitGetPoses() sample.
+	std::atomic<uint32_t> m_RenderViewParamsSeq{ 0 };
+	std::atomic<float> m_RenderCameraAnchorX{ 0.0f };
+	std::atomic<float> m_RenderCameraAnchorY{ 0.0f };
+	std::atomic<float> m_RenderCameraAnchorZ{ 0.0f };
+	std::atomic<float> m_RenderRotationOffset{ 0.0f };
+	std::atomic<float> m_RenderVRScale{ 1.0f };
+	std::atomic<float> m_RenderIpdScale{ 1.0f };
+	std::atomic<float> m_RenderEyeZ{ 0.0f };
+	std::atomic<float> m_RenderIpd{ 0.065f };
+	std::atomic<float> m_RenderHmdPosLocalPrevX{ 0.0f };
+	std::atomic<float> m_RenderHmdPosLocalPrevY{ 0.0f };
+	std::atomic<float> m_RenderHmdPosLocalPrevZ{ 0.0f };
+	std::atomic<float> m_RenderHmdPosCorrectedPrevX{ 0.0f };
+	std::atomic<float> m_RenderHmdPosCorrectedPrevY{ 0.0f };
+	std::atomic<float> m_RenderHmdPosCorrectedPrevZ{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosOffsetX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosOffsetY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosOffsetZ{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngOffsetX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngOffsetY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngOffsetZ{ 0.0f };
+
+	// Render-thread computed snapshot (updated once per dRenderView call).
+	std::atomic<uint32_t> m_RenderFrameSeq{ 0 };
+	std::atomic<float> m_RenderViewAngX{ 0.0f };
+	std::atomic<float> m_RenderViewAngY{ 0.0f };
+	std::atomic<float> m_RenderViewAngZ{ 0.0f };
+	std::atomic<float> m_RenderViewOriginLeftX{ 0.0f };
+	std::atomic<float> m_RenderViewOriginLeftY{ 0.0f };
+	std::atomic<float> m_RenderViewOriginLeftZ{ 0.0f };
+	std::atomic<float> m_RenderViewOriginRightX{ 0.0f };
+	std::atomic<float> m_RenderViewOriginRightY{ 0.0f };
+	std::atomic<float> m_RenderViewOriginRightZ{ 0.0f };
+	std::atomic<float> m_RenderRightControllerPosAbsX{ 0.0f };
+	std::atomic<float> m_RenderRightControllerPosAbsY{ 0.0f };
+	std::atomic<float> m_RenderRightControllerPosAbsZ{ 0.0f };
+	std::atomic<float> m_RenderRightControllerAngAbsX{ 0.0f };
+	std::atomic<float> m_RenderRightControllerAngAbsY{ 0.0f };
+	std::atomic<float> m_RenderRightControllerAngAbsZ{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelPosX{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelPosY{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelPosZ{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelAngX{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelAngY{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelAngZ{ 0.0f };
+
+	// True on the render thread while inside dRenderView when mat_queue_mode!=0.
+	static inline thread_local bool t_UseRenderFrameSnapshot = false;
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
 	ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };
