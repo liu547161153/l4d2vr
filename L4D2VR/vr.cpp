@@ -53,6 +53,45 @@ namespace
         return 1.0f / std::max(1.0f, maxHz);
     }
 
+    // Roomscale 1:1 delta packing.
+    //
+    // We originally used a 32-bit payload stored in CUserCmd::weaponsubtype. In practice,
+    // some builds/routes appear to truncate this field during usercmd serialization.
+    // To be robust, prefer a compact 15-bit format (1 marker + 7-bit signed X + 7-bit signed Y)
+    // that survives 16-bit truncation, while still accepting the legacy 32-bit format.
+    static constexpr uint32_t kRSMarker32 = 0x80000000u;
+
+    static constexpr uint32_t kRSMarker15 = 0x00004000u; // bit 14
+    static constexpr int kAxisBits15 = 7;
+    static constexpr int kAxisMask15 = (1 << kAxisBits15) - 1; // 0x7F
+    static constexpr int kAxisBias15 = 1 << (kAxisBits15 - 1); // 64
+
+    static constexpr int kAxisBits32 = 15;
+    static constexpr int kAxisMask32 = (1 << kAxisBits32) - 1;
+    static constexpr int kAxisBias32 = 1 << (kAxisBits32 - 1);
+
+    static inline int QuantizeCm(float meters)
+    {
+        int cm = (int)roundf(meters * 100.0f);
+        if (cm < -kAxisBias32) cm = -kAxisBias32;
+        if (cm > (kAxisBias32 - 1)) cm = (kAxisBias32 - 1);
+        return cm;
+    }
+
+    static inline uint32_t PackDeltaCm(int dx, int dy)
+    {
+        // Compact 15-bit format: marker + 7-bit signed dx + 7-bit signed dy (centimeters).
+        // Clamp to +/-63cm per command to guarantee it fits.
+        if (dx < -(kAxisBias15 - 1)) dx = -(kAxisBias15 - 1);
+        if (dx > (kAxisBias15 - 1))  dx = (kAxisBias15 - 1);
+        if (dy < -(kAxisBias15 - 1)) dy = -(kAxisBias15 - 1);
+        if (dy > (kAxisBias15 - 1))  dy = (kAxisBias15 - 1);
+
+        uint32_t ux = (uint32_t)((dx + kAxisBias15) & kAxisMask15);
+        uint32_t uy = (uint32_t)((dy + kAxisBias15) & kAxisMask15);
+        return kRSMarker15 | ux | (uy << kAxisBits15);
+    }
+
     struct VASStats
     {
         size_t freeTotal = 0;
@@ -1819,6 +1858,7 @@ void VR::ProcessInput()
     // Movement via console commands disabled; handled in Hooks::dCreateMove via CUserCmd.
 #endif
 
+
     // Detect spectator / observer / idle state early so we can re-route some inputs.
     C_BasePlayer* localPlayer = nullptr;
     {
@@ -2251,8 +2291,10 @@ void VR::ProcessInput()
         }
         invRight *= (1.f / invRightLen);
 
-        // Anchor origin: estimate a more stable "body / pelvis" point (relative to the HMD position, but in body space).
-        const Vector bodyOrigin = m_HmdPosAbs
+        // Anchor origin: estimate a more stable "body / pelvis" point (in body space).
+        // IMPORTANT: Do NOT base this on m_HmdPosAbs, otherwise room-scale/head translation will make the anchors
+        // drift around as you move your head. m_CameraAnchor is the stable player/tracking anchor.     
+        const Vector bodyOrigin = m_CameraAnchor
             + (invForward * (m_InventoryBodyOriginOffset.x * m_VRScale))
             + (invRight * (m_InventoryBodyOriginOffset.y * m_VRScale))
             + (worldUp * (m_InventoryBodyOriginOffset.z * m_VRScale));
@@ -2897,6 +2939,206 @@ void VR::ProcessInput()
         RepositionOverlays();
         showTopHud();
         hideBottomHud();
+    }
+}
+
+bool VR::DecodeRoomscale1To1Delta(int weaponsubtype, Vector& outDeltaMeters)
+{
+    uint32_t v = (uint32_t)weaponsubtype;
+    // Reliable on-wire format: packed into CUserCmd::buttons *unused high bits*.
+    // Source's usercmd delta encoding for weaponsubtype is not guaranteed to survive when weaponselect==0.
+    // L4D2 button flags are below bit 26 (IN_ATTACK3 is 1<<25), so bits 26..31 are safe for our payload.
+    // Layout: dx_cm: bits 26..28 (signed 3-bit, [-4..3]), dy_cm: bits 29..31 (signed 3-bit, [-4..3]).
+    static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
+    if (v & kRSButtonsMask)
+    {
+        auto decodeSigned3 = [](int s3) -> int
+            {
+                s3 &= 0x7;
+                if (s3 & 0x4)
+                    s3 -= 8;
+                return s3;
+            };
+        const int dx_cm = decodeSigned3((int)((v >> 26) & 0x7));
+        const int dy_cm = decodeSigned3((int)((v >> 29) & 0x7));
+        if (dx_cm == 0 && dy_cm == 0)
+            return false;
+        outDeltaMeters = Vector(dx_cm * 0.01f, dy_cm * 0.01f, 0.0f);
+        return true;
+    }
+    // Legacy 32-bit format.
+    if ((v & kRSMarker32) != 0)
+    {
+        int rx = (int)(v & kAxisMask32);
+        int ry = (int)((v >> kAxisBits32) & kAxisMask32);
+        int dx = rx - kAxisBias32;
+        int dy = ry - kAxisBias32;
+        outDeltaMeters = Vector(dx * 0.01f, dy * 0.01f, 0.0f);
+        return true;
+    }
+
+    // Compact 15-bit format (survives 16-bit truncation).
+    if ((v & kRSMarker15) != 0)
+    {
+        int rx = (int)(v & kAxisMask15);
+        int ry = (int)((v >> kAxisBits15) & kAxisMask15);
+        int dx = rx - kAxisBias15;
+        int dy = ry - kAxisBias15;
+        outDeltaMeters = Vector(dx * 0.01f, dy * 0.01f, 0.0f);
+        return true;
+    }
+
+    return false;
+}
+
+void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
+{
+    if (!cmd || !m_Roomscale1To1Movement)
+        return;
+    // Not in 1:1 server-teleport mode: keep continuity for when it re-enables.
+    if (m_ForceNonVRServerMovement)
+    {
+        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
+            Game::logMsg("[VR][1to1][encode] skip (ForceNonVRServerMovement=true) cmd=%d", cmd->command_number);
+
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        return;
+    }
+    if (cmd->weaponselect != 0)
+    {
+        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
+            Game::logMsg("[VR][1to1][encode] skip (weaponselect=%d) cmd=%d", cmd->weaponselect, cmd->command_number);
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        return;
+    }
+    // IMPORTANT: Do NOT rely on weaponsubtype for the 1:1 delta on the wire.
+    // It often does not survive usercmd delta encoding when weaponselect==0.
+    // Instead, pack into the unused high bits of cmd->buttons.
+    static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
+    const uint32_t buttonsBefore = (uint32_t)cmd->buttons;
+    // Ensure we never accidentally re-send a previous packed delta.
+    cmd->buttons &= ~(int)kRSButtonsMask;
+    cmd->weaponsubtype = 0;
+
+    Vector cur = m_HmdPosCorrectedPrev;
+    if (!m_Roomscale1To1PrevValid)
+    {
+        m_Roomscale1To1PrevCorrectedAbs = cur;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
+            Game::logMsg("[VR][1to1][encode] init prev cmd=%d tick=%d cmdptr=%p cur=(%.3f %.3f %.3f)", cmd->command_number, cmd->tick_count, (void*)cmd, cur.x, cur.y, cur.z);
+
+        return;
+    }
+
+    Vector d = cur - m_Roomscale1To1PrevCorrectedAbs;
+    d.z = 0.0f;
+
+    float len = std::sqrt((d.x * d.x) + (d.y * d.y));
+    if (len > m_Roomscale1To1MaxStepMeters && len > 0.0001f)
+    {
+        float s = m_Roomscale1To1MaxStepMeters / len;
+        d.x *= s;
+        d.y *= s;
+    }
+
+    m_Roomscale1To1PrevCorrectedAbs = cur;
+
+    // Accumulate sub-centimeter movement so slow walking/leaning still moves the player.
+    m_Roomscale1To1AccumMeters = m_Roomscale1To1AccumMeters + d;
+    m_Roomscale1To1AccumMeters.z = 0.0f;
+
+    int dx_cm = (int)roundf(m_Roomscale1To1AccumMeters.x * 100.0f);
+    int dy_cm = (int)roundf(m_Roomscale1To1AccumMeters.y * 100.0f);
+
+    if (dx_cm == 0 && dy_cm == 0)
+        return;
+
+    // We have 3 signed bits per axis => [-4..3] cm per cmd.
+    // Keep remainder in m_Roomscale1To1AccumMeters for later cmds.
+    int send_dx_cm = dx_cm;
+    int send_dy_cm = dy_cm;
+    if (send_dx_cm < -4) send_dx_cm = -4;
+    if (send_dx_cm > 3)  send_dx_cm = 3;
+    if (send_dy_cm < -4) send_dy_cm = -4;
+    if (send_dy_cm > 3)  send_dy_cm = 3;
+    const bool willSend = (send_dx_cm != 0 || send_dy_cm != 0);
+    if (willSend)
+    {
+        const uint32_t dx3 = (uint32_t)(send_dx_cm & 0x7);
+        const uint32_t dy3 = (uint32_t)(send_dy_cm & 0x7);
+        const uint32_t packed = (dx3 << 26) | (dy3 << 29);
+        cmd->buttons = (int)((cmd->buttons & ~(int)kRSButtonsMask) | (int)packed);
+        // Keep the fractional remainder for future commands.
+        m_Roomscale1To1AccumMeters.x -= send_dx_cm * 0.01f;
+        m_Roomscale1To1AccumMeters.y -= send_dy_cm * 0.01f;
+    }
+    const uint32_t buttonsAfter = (uint32_t)cmd->buttons;
+    if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
+    {
+        Game::logMsg("[VR][1to1][encode] cmd=%d tick=%d cmdptr=%p buttons 0x%08X->0x%08X cur=(%.3f %.3f) d=(%.3f %.3f) cm=(%d,%d) send=(%d,%d)",
+            +cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)buttonsBefore, (unsigned)buttonsAfter,
+            +cur.x, cur.y, d.x, d.y, dx_cm, dy_cm, send_dx_cm, send_dy_cm);
+    }
+}
+
+void VR::OnPredictionRunCommand(CUserCmd* cmd)
+{
+    if (!cmd || !m_Roomscale1To1Movement || m_ForceNonVRServerMovement)
+        return;
+
+    Vector deltaM;
+    if (!DecodeRoomscale1To1Delta(cmd->buttons, deltaM) || cmd->weaponselect != 0)
+        return;
+    if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastPredict, m_Roomscale1To1DebugLogHz))
+    {
+        Game::logMsg("[VR][1to1][predict] cmd=%d tick=%d cmdptr=%p wsel=%d buttons=0x%08X dM=(%.3f %.3f)",
+            cmd->command_number, cmd->tick_count, (void*)cmd, cmd->weaponselect, (unsigned)(uint32_t)cmd->buttons, deltaM.x, deltaM.y);
+    }
+    // IMPORTANT: Do NOT clear the packed bits here.
+    // The same CUserCmd instance is typically later serialized and sent to the server.
+    // Clearing it during prediction would prevent the server from ever seeing/applying
+    // the 1:1 roomscale delta, causing rubber-banding/pullback.
+
+    if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_ClientEntityList || !m_Game->m_EngineTrace || !m_Game->m_Offsets)
+        return;
+
+    int idx = m_Game->m_EngineClient->GetLocalPlayer();
+    C_BaseEntity* ent = (idx > 0) ? m_Game->GetClientEntity(idx) : nullptr;
+    if (!ent)
+        return;
+
+    using SetAbsOriginFn = void(__thiscall*)(void*, const Vector&);
+    auto setAbsOrigin = (SetAbsOriginFn)m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Client.address;
+    if (!setAbsOrigin)
+        return;
+
+    Vector origin = ent->GetAbsOrigin();
+    Vector deltaU(deltaM.x * m_VRScale, deltaM.y * m_VRScale, 0.0f);
+    Vector target = origin + deltaU;
+
+    Vector mins(-16, -16, 0);
+    Vector maxs(16, 16, 72);
+
+    Ray_t ray;
+    ray.Init(origin, target, mins, maxs);
+
+    trace_t tr;
+    CTraceFilterSkipSelf filter((IHandleEntity*)ent, 0);
+    const unsigned int mask = CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_PLAYERCLIP | CONTENTS_MONSTERCLIP | CONTENTS_GRATE;
+    m_Game->m_EngineTrace->TraceRay(ray, mask, &filter, &tr);
+
+    if (!tr.startsolid)
+        setAbsOrigin(ent, tr.endpos);
+    if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastPredict, m_Roomscale1To1DebugLogHz))
+    {
+        Game::logMsg("[VR][1to1][predict] origin=(%.2f %.2f %.2f) target=(%.2f %.2f %.2f) end=(%.2f %.2f %.2f) frac=%.3f startsolid=%d",
+            origin.x, origin.y, origin.z, target.x, target.y, target.z, tr.endpos.x, tr.endpos.y, tr.endpos.z, tr.fraction, (int)tr.startsolid);
     }
 }
 
@@ -5295,7 +5537,6 @@ void VR::UpdateSpecialInfectedWarningState()
     m_SpecialInfectedAutoAimDirection = {};
     m_SpecialInfectedAutoAimCooldownEnd = {};
 }
-void VR::OnPredictionRunCommand(CUserCmd* /*cmd*/) {}
 bool VR::ShouldRunSecondaryPrediction(const CUserCmd* /*cmd*/) const { return false; }
 void VR::PrepareSecondaryPredictionCmd(CUserCmd& /*cmd*/) const {}
 void VR::OnPrimaryAttackServerDecision(CUserCmd* /*cmd*/, bool /*fromSecondaryPrediction*/) {}
@@ -5399,6 +5640,8 @@ void VR::ResetPosition()
 {
     m_CameraAnchor += m_SetupOrigin - m_HmdPosAbs;
     m_HeightOffset += m_SetupOrigin.z - m_HmdPosAbs.z;
+    m_Roomscale1To1PrevValid = false;
+    m_Roomscale1To1PrevCorrectedAbs = {};
 }
 
 std::string VR::GetMeleeWeaponName(C_WeaponCSBase* weapon) const
@@ -6311,6 +6554,10 @@ void VR::ParseConfigFile()
         0.0f, 60.0f);
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+    m_Roomscale1To1Movement = getBool("Roomscale1To1Movement", m_Roomscale1To1Movement);
+    m_Roomscale1To1MaxStepMeters = getFloat("Roomscale1To1MaxStepMeters", m_Roomscale1To1MaxStepMeters);
+    m_Roomscale1To1DebugLog = getBool("Roomscale1To1DebugLog", m_Roomscale1To1DebugLog);
+    m_Roomscale1To1DebugLogHz = getFloat("Roomscale1To1DebugLogHz", m_Roomscale1To1DebugLogHz);
 
     // Mouse mode (desktop-style aiming while staying in VR rendering)
     m_MouseModeEnabled = getBool("MouseModeEnabled", m_MouseModeEnabled);
