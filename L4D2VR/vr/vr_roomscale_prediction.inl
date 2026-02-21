@@ -79,6 +79,17 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
         m_Roomscale1To1PrevValid = true;
         m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
         m_Roomscale1To1ChaseActive = false;
+        m_Roomscale1To1LocomotionCooldownCmds = 8;
+        return;
+    }
+
+    if (m_Roomscale1To1LocomotionCooldownCmds > 0)
+    {
+        --m_Roomscale1To1LocomotionCooldownCmds;
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        m_Roomscale1To1ChaseActive = false;
         return;
     }
 
@@ -94,6 +105,8 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
         m_Roomscale1To1PrevValid = true;
         m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
         m_Roomscale1To1ChaseActive = false;
+        if (locomotionBlock)
+            m_Roomscale1To1LocomotionCooldownCmds = 8;
         return;
     }
 
@@ -290,7 +303,8 @@ void VR::OnPredictionRunCommand(CUserCmd* cmd)
         (fabsf(cmd->sidemove) > 0.5f) ||
         (fabsf(cmd->upmove) > 0.5f) ||
         m_LocomotionActive ||
-        m_PushingThumbstick;
+        m_PushingThumbstick ||
+        (m_Roomscale1To1LocomotionCooldownCmds > 0);
     if (controlLocomotionNow)
         return;
 

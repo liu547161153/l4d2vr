@@ -565,6 +565,8 @@ public:
 	float m_Roomscale1To1ChaseHysteresisMeters = 0.05f;
 	float m_Roomscale1To1MinApplyMeters = 0.02f;
 	bool m_Roomscale1To1ChaseActive = false;
+	// After control locomotion stops, keep 1:1 chase/apply paused for a few cmds to avoid stop-time pullback.
+	int m_Roomscale1To1LocomotionCooldownCmds = 0;
 
 	Vector m_Roomscale1To1PrevCorrectedAbs = {};
 	// Accumulate sub-centimeter HMD deltas so slow walking/leaning still produces movement.
