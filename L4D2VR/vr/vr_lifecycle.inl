@@ -2011,7 +2011,7 @@ void VR::UpdateHandHudOverlays()
                 std::snprintf(hpBuf, sizeof(hpBuf), "%d+%d", hp, tempHP);
             else
                 std::snprintf(hpBuf, sizeof(hpBuf), "%d", hp);
-            DrawText5x7(s, 18, 18, hpBuf, { 240, 240, 240, 255 }, 4);
+            DrawText5x7(s, 18, 20, hpBuf, { 240, 240, 240, 255 }, 3);
 
             if (m_LeftWristHudShowBattery && battL >= 0 && battR >= 0)
             {
@@ -2240,17 +2240,17 @@ void VR::UpdateHandHudOverlays()
             const Rgba resColor = resLow ? Rgba{ 255, 80, 80, 230 } : Rgba{ 200, 200, 200, 230 };
 
             const SevenSegStyle clipSt{ 12, 3, 2, 4 };
-            Draw7SegInt(s, 18, 24, std::max(0, clip), clipSt, clipColor);
+            Draw7SegInt(s, 16, 24, std::max(0, clip), clipSt, clipColor);
 
-            DrawText5x7(s, 18, 88, "/", { 200, 200, 200, 220 }, 3);
+            DrawText5x7(s, 92, 48, "/", { 200, 200, 200, 220 }, 3);
             if (pistolInfinite)
             {
-                DrawInfinity(s, 34, 90, 24, 10, { 240, 240, 240, 230 });
+                DrawInfinity(s, 112, 52, 24, 10, { 240, 240, 240, 230 });
             }
             else
             {
                 const SevenSegStyle resSt{ 8, 2, 2, 3 };
-                Draw7SegInt(s, 32, 86, std::max(0, reserve), resSt, resColor);
+                Draw7SegInt(s, 110, 44, std::max(0, reserve), resSt, resColor);
             }
 
             const bool hasInc = (upgBits & 1) != 0;

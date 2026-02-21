@@ -493,7 +493,7 @@ public:
 	float m_RightAmmoHudAlpha = 1.0f;
 
 	// Left wrist HUD: battery label font scale (1..4) for DrawText5x7.
-	int   m_LeftWristHudBatteryTextScale = 1;
+	int   m_LeftWristHudBatteryTextScale = 2;
 
 	// Hand HUD: client-side temp health (m_healthBuffer) decay rate (HP per second).
 	// L4D2 default is ~0.27, but servers can override; expose as config for now.
@@ -528,7 +528,7 @@ public:
 	std::vector<uint8_t> m_RightAmmoHudPixels{};
 	int m_LeftWristHudTexW = 256;
 	int m_LeftWristHudTexH = 128;
-	int m_RightAmmoHudTexW = 256;
+	int m_RightAmmoHudTexW = 192;
 	int m_RightAmmoHudTexH = 128;
 	// Hand HUD temp-health decay state (per player index).
 	// We only get m_healthBuffer (amount) + m_healthBufferTime (start time).
