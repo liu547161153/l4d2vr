@@ -532,7 +532,7 @@ void VR::HandleMissingRenderContext(const char* location)
     const char* ctx = location ? location : "unknown";
     LOG("[VR] Missing IMatRenderContext in %s. Disabling VR rendering for this frame.", ctx);
     m_CreatedVRTextures.store(false, std::memory_order_release);
-    m_RenderedNewFrame = false;
+    m_RenderedNewFrame.store(false, std::memory_order_release);
     m_RenderedHud.store(false, std::memory_order_release);
 }
 

@@ -858,8 +858,43 @@ void VR::SubmitVRTextures()
         };
 
     //     ֡û       ݣ    ߲˵ /Overlay ·  
-    if (!m_RenderedNewFrame)
+    if (!m_RenderedNewFrame.load(std::memory_order_acquire))
     {
+        // In mat_queue_mode!=0 (queued/multicore), the render thread can lag behind the submit thread.
+        // When that happens, m_RenderedNewFrame may still be false even though we're already in-game.
+        // Showing the backbuffer/menu overlay in this state creates an extra compositor layer and can cause
+        // severe stutter (and a visible backbuffer rectangle). Instead, just re-submit the last eye textures.
+        const bool inGame = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+        if (inGame)
+        {
+            // Ensure the menu overlay is not left visible while in-game.
+            if (vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
+                vr::VROverlay()->HideOverlay(m_MainMenuHandle);
+
+            // Submit the most recent stereo textures again (safe even if they didn't change this tick).
+            const bool texturesReady = m_CreatedVRTextures.load(std::memory_order_acquire);
+            if (texturesReady)
+            {
+                submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+                submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+            }
+            else
+            {
+                if (!m_BlankTexture)
+                    CreateVRTextures();
+                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+            }
+
+            if (successfulSubmit && m_CompositorExplicitTiming)
+            {
+                m_CompositorNeedsHandoff = true;
+                FinishFrame();
+            }
+
+            return;
+        }
+
         if (!m_BlankTexture)
             CreateVRTextures();
 
@@ -874,7 +909,7 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
 
-        if (!m_Game->m_EngineClient->IsInGame())
+        if (!inGame)
         {
             submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
             submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
@@ -1120,7 +1155,7 @@ void VR::SubmitVRTextures()
     }
 
 
-    m_RenderedNewFrame = false;
+    m_RenderedNewFrame.store(false, std::memory_order_release);
 }
 
 void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)

@@ -304,7 +304,7 @@ public:
 
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
-	bool m_RenderedNewFrame = false;
+	std::atomic<bool> m_RenderedNewFrame{ false };
 	std::atomic<bool> m_RenderedHud{ false };
 	// True once VGui_Paint has been redirected into m_HUDTexture for the current VR frame.
 	std::atomic<bool> m_HudPaintedThisFrame{ false };

@@ -686,6 +686,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Restore engine angles immediately after our stereo render.
 	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
-	m_VR->m_RenderedNewFrame = true;
+	m_VR->m_RenderedNewFrame.store(true, std::memory_order_release);
 }
 
