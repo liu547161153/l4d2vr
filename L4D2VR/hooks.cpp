@@ -5,6 +5,7 @@
 #include "sdk.h"
 #include "sdk_server.h"
 #include "vr.h"
+#include "trace.h"
 #include "offsets.h"
 #include <iostream>
 #include <cstdint>
@@ -58,6 +59,22 @@ static inline float AngleLerpDeg(float a, float b, float t)
 	return a + AngleDeltaDeg(b, a) * t;
 }
 
+// Returns true if the call should be skipped because we ran it too recently.
+static inline bool ShouldThrottleLog(std::chrono::steady_clock::time_point& last, float maxHz)
+{
+	if (maxHz <= 0.0f)
+		return false;
+	const float minInterval = 1.0f / std::max(1.0f, maxHz);
+	const auto now = std::chrono::steady_clock::now();
+	if (last.time_since_epoch().count() != 0)
+	{
+		const float elapsed = std::chrono::duration<float>(now - last).count();
+		if (elapsed < minInterval)
+			return true;
+	}
+	last = now;
+	return false;
+}
 static inline float SmoothStep01(float t)
 {
 	t = std::clamp(t, 0.0f, 1.0f);
@@ -964,21 +981,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	{
 		static bool s_yawResetInit = false;
 		static float s_yawResetBase = 0.0f;
+		const float bodyYaw = m_VR->m_RotationOffset; // wrapped to [0, 360)
 
 		if (!s_yawResetInit)
 		{
-			s_yawResetBase = viewAngles.y;
+			s_yawResetBase = bodyYaw;
 			s_yawResetInit = true;
 		}
 		else
 		{
-			float diff = viewAngles.y - s_yawResetBase;
+			float diff = bodyYaw - s_yawResetBase;
 			// Normalize to [-180, 180] to handle wrap-around.
 			diff -= 360.0f * std::floor((diff + 180.0f) / 360.0f);
-			if (std::fabs(diff) >= 45.0f)
+			if (std::fabs(diff) >= 60.0f)
 			{
 				m_VR->ResetPosition();
-				s_yawResetBase = viewAngles.y;
+				s_yawResetBase = bodyYaw;
 			}
 		}
 	}
@@ -1886,6 +1904,40 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		cmd->buttons &= ~(1 << 0); // IN_ATTACK
 	}
 
+	if (m_VR)
+	{
+		// Debug: show whether the server-side hook is actually running in this process.
+		// For listen-server play, Hooks::dProcessUsercmds should get hit and flip s_ServerUnderstandsVR to true.
+		// If this stays false while in-game, then the ProcessUsercmds/ReadUsercmd offsets or hook installation are wrong.
+		static std::chrono::steady_clock::time_point s_svHookDbgLast{};
+		if (m_VR->m_Roomscale1To1DebugLog && !ShouldThrottleLog(s_svHookDbgLast, 1.0f))
+		{
+			const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
+			Game::logMsg(
+				"[VR][1to1][svhook] cmd=%d tick=%d cmdptr=%p inGame=%d serverUnderstandsVR=%d ProcessUsercmds=0x%p ReadUsercmd=0x%p",
+				cmd->command_number,
+				cmd->tick_count,
+				(void*)cmd,
+				(int)inGame,
+				(int)Hooks::s_ServerUnderstandsVR,
+				(void*)(uintptr_t)m_Game->m_Offsets->ProcessUsercmds.address,
+				(void*)(uintptr_t)m_Game->m_Offsets->ReadUserCmd.address);
+		}
+		m_VR->EncodeRoomscale1To1Move(cmd);
+	}
+
+	// Debug: verify the packed 1:1 delta survives CreateMove and is still present for networking.
+	if (m_VR && cmd && m_VR->m_Roomscale1To1DebugLog && !m_VR->m_ForceNonVRServerMovement && m_VR->m_Roomscale1To1Movement && cmd->weaponselect == 0)
+	{
+		Vector dm;
+		if (VR::DecodeRoomscale1To1Delta(cmd->buttons, dm))
+		{
+			// Log at a low rate to avoid spam: once every 32 cmds.
+			if ((cmd->command_number & 31) == 0)
+				Game::logMsg("[VR][1to1][netprep] cmd=%d tick=%d cmdptr=%p buttons=0x%08X dM=(%.3f %.3f)",
+					cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)cmd->buttons, dm.x, dm.y);
+		}
+	}
 	return result;
 }
 
@@ -2107,6 +2159,7 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 
 	IServerUnknown* pUnknown = player->m_pUnk;
 	Server_BaseEntity* pPlayer = (Server_BaseEntity*)pUnknown->GetBaseEntity();
+	m_Game->m_CurrentUsercmdPlayer = pPlayer;
 
 	int index = oEntindex(pPlayer);
 	m_Game->m_CurrentUsercmdID = index;
@@ -2185,7 +2238,9 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 
 int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 {
-	hkReadUsercmd.fOriginal(buf, move, from);
+	int result = hkReadUsercmd.fOriginal(buf, move, from);
+	if (!result || !move)
+		return result;
 
 	int i = m_Game->m_CurrentUsercmdID;
 	const bool hasValidPlayer = m_Game->IsValidPlayerIndex(i);
@@ -2248,7 +2303,94 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 			m_Game->m_PlayersVRInfo[i].isUsingVR = false;
 		}
 	}
-	return 1;
+
+	// ---- roomscale 1:1 server apply ----
+	if (m_Game && m_VR && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
+	{
+		static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
+		const uint32_t rawButtons = (uint32_t)move->buttons;
+		const uint32_t rawPacked = (rawButtons & kRSButtonsMask);
+		// NOTE: Do NOT reuse m_Roomscale1To1DebugLastServer for both "pre" and "apply".
+		// Otherwise "pre" consumes the throttle budget and "apply" never prints.
+		static std::chrono::steady_clock::time_point s_roomscaleServerPreLast{};
+		if (m_VR->m_Roomscale1To1DebugLog && rawPacked != 0 && !ShouldThrottleLog(s_roomscaleServerPreLast, m_VR->m_Roomscale1To1DebugLogHz))
+		{
+			Game::logMsg("[VR][1to1][server] pre cmd=%d tick=%d player=%d wsel=%d buttons=0x%08X",
+				move->command_number, move->tick_count, i, move->weaponselect, (unsigned)rawButtons);
+		}
+		Vector deltaM;
+		if (VR::DecodeRoomscale1To1Delta((int)rawPacked, deltaM) && move->weaponselect == 0)
+		{
+			// Hide our custom packed bits from the stock server movement/weapon code.
+			move->buttons &= ~(int)kRSButtonsMask;
+			Server_BaseEntity* ent = m_Game->m_CurrentUsercmdPlayer;
+			if (ent && m_Game->m_EngineTrace && m_Game->m_Offsets)
+			{
+				using SetAbsOriginFn = void(__thiscall*)(void*, const Vector&);
+				auto setAbsOrigin = (SetAbsOriginFn)(m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Server.address);
+
+				if (setAbsOrigin)
+				{
+					Vector origin = *(Vector*)((uintptr_t)ent + 0x2CC);
+					Vector deltaU(deltaM.x * m_VR->m_VRScale, deltaM.y * m_VR->m_VRScale, 0.0f);
+					Vector target = origin + deltaU;
+
+					Vector mins(-16, -16, 0);
+					Vector maxs(16, 16, 72);
+					// NOTE: Our server entity type is a thin vtable stub; pointer-casting it to IHandleEntity
+					// is not reliable for self-filtering. For 1:1 roomscale we only need world collision here.
+					struct TraceFilterWorldOnly final : public CTraceFilter
+					{
+						TraceFilterWorldOnly() : CTraceFilter(nullptr, 0) {}
+						bool ShouldHitEntity(IHandleEntity*, int) override { return false; }
+						TraceType GetTraceType() const override { return TraceType::TRACE_WORLD_ONLY; }
+					} filter;
+
+					// Lift slightly to avoid rare floor-penetration marking the start as solid.
+					Vector o2 = origin;
+					Vector t2 = target;
+					o2.z += 0.25f;
+					t2.z += 0.25f;
+					Ray_t ray;
+					ray.Init(o2, t2, mins, maxs);
+
+					trace_t tr;
+
+					const unsigned int mask = CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_GRATE;
+					m_Game->m_EngineTrace->TraceRay(ray, mask, &filter, &tr);
+
+					bool didMove = false;
+					if (!tr.startsolid)
+					{
+						Vector end = tr.endpos;
+						end.z = origin.z; // keep vertical position unchanged (we only apply planar room-scale)
+						setAbsOrigin(ent, end);
+						didMove = true;
+					}
+
+					// Hard debug sample: once every 32 cmds, no throttle. This tells us whether the server actually moved the entity.
+					if (m_VR->m_Roomscale1To1DebugLog && ((move->command_number & 31) == 0))
+					{
+						Game::logMsg("[VR][1to1][server] APPLY-SAMPLE cmd=%d tick=%d player=%d ent=%p setAbsOrigin=%p packed=0x%08X dM=(%.3f %.3f) origin=(%.2f %.2f %.2f) target=(%.2f %.2f %.2f) end=(%.2f %.2f %.2f) frac=%.3f startsolid=%d didMove=%d",
+							move->command_number, move->tick_count, i, (void*)ent, (void*)setAbsOrigin, (unsigned)rawPacked,
+							deltaM.x, deltaM.y,
+							origin.x, origin.y, origin.z,
+							target.x, target.y, target.z,
+							tr.endpos.x, tr.endpos.y, tr.endpos.z,
+							tr.fraction, (int)tr.startsolid, (int)didMove);
+					}
+
+					// Normal throttled "apply" log (separate from pre).
+					if (m_VR->m_Roomscale1To1DebugLog && !ShouldThrottleLog(m_VR->m_Roomscale1To1DebugLastServer, m_VR->m_Roomscale1To1DebugLogHz))
+					{
+						Game::logMsg("[VR][1to1][server] apply player=%d dM=(%.3f %.3f) origin=(%.2f %.2f %.2f) target=(%.2f %.2f %.2f) end=(%.2f %.2f %.2f) frac=%.3f startsolid=%d",
+							i, deltaM.x, deltaM.y, origin.x, origin.y, origin.z, target.x, target.y, target.z, tr.endpos.x, tr.endpos.y, tr.endpos.z, tr.fraction, (int)tr.startsolid);
+					}
+				}
+			}
+		}
+	}
+	return result;
 }
 
 void __fastcall Hooks::dWriteUsercmdDeltaToBuffer(void* ecx, void* edx, int a1, void* buf, int from, int to, bool isnewcommand)
@@ -2398,6 +2540,13 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 
 	if (m_VR)
 		m_VR->OnPredictionRunCommand(cmd);
+	// Debug: track whether packed 1:1 delta survives prediction/original RunCommand.
+	static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
+	uint32_t b_before = (uint32_t)cmd->buttons;
+	Vector b_dm_before;
+	const bool b_has_before = (m_VR && !m_VR->m_ForceNonVRServerMovement && m_VR->m_Roomscale1To1Movement && cmd->weaponselect == 0 && VR::DecodeRoomscale1To1Delta((int)(b_before & kRSButtonsMask), b_dm_before));
+	if (b_has_before && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
+		Game::logMsg("[VR][1to1][runcmd] pre  cmd=%d tick=%d cmdptr=%p buttons=0x%08X dM=(%.3f %.3f)", cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, b_dm_before.x, b_dm_before.y);
 
 	const bool canRunSecondaryPredict =
 		m_VR
@@ -2419,7 +2568,30 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 		m_RunCommandInDetour = false;
 	}
 
+	// If we packed a 1:1 room-scale delta into buttons high bits, keep it for networking,
+	// but hide it from the stock prediction/movement code (weapon logic may peek at buttons).
+	const int rsPackedButtons = cmd ? (cmd->buttons & (int)kRSButtonsMask) : 0;
+	bool rsHideButtons = false;
+	if (m_VR && cmd && cmd->weaponselect == 0 && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
+	{
+		Vector _rsTmp;
+		rsHideButtons = m_VR->DecodeRoomscale1To1Delta(rsPackedButtons, _rsTmp);
+		if (rsHideButtons)
+			cmd->buttons &= ~(int)kRSButtonsMask;
+	}
+
 	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+	if (rsHideButtons)
+		cmd->buttons = (cmd->buttons & ~(int)kRSButtonsMask) | rsPackedButtons;
+	if (b_has_before && m_VR && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
+	{
+		uint32_t b_after = (uint32_t)cmd->buttons;
+		Vector b_dm_after;
+		const bool b_has_after = VR::DecodeRoomscale1To1Delta((int)(b_after & kRSButtonsMask), b_dm_after);
+		Game::logMsg("[VR][1to1][runcmd] post cmd=%d tick=%d cmdptr=%p buttons=0x%08X->0x%08X decoded=%d dM=(%.3f %.3f)",
+			cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, (unsigned)b_after, (int)b_has_after, b_dm_after.x, b_dm_after.y);
+	}
+
 	m_RunCommandCurrentCmd = nullptr;
 }
 
