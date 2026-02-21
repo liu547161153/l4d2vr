@@ -488,9 +488,10 @@ public:
 	float m_LeftWristHudBgAlpha = 0.85f;
 	float m_RightAmmoHudBgAlpha = 0.70f;
 
-	// Right ammo HUD: crop the displayed overlay to the left part of the texture.
-	// 1.0 = full texture width, ~0.33 = compact left-third view.
-	float m_RightAmmoHudUVMaxU = 0.34f;
+	// Right ammo HUD: maximum visible width fraction (U max).
+	// The HUD auto-computes a tight width for current ammo text and then clamps to this value.
+	// 1.0 = no clamp (recommended).
+	float m_RightAmmoHudUVMaxU = 1.0f;
 
 	// Hand HUD overall overlay alpha (0..1). Applied via IVROverlay::SetOverlayAlpha.
 	float m_LeftWristHudAlpha = 1.0f;
@@ -528,8 +529,11 @@ public:
 
 	float m_HandHudMaxHz = 30.0f;
 	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
-	std::vector<uint8_t> m_LeftWristHudPixels{};
-	std::vector<uint8_t> m_RightAmmoHudPixels{};
+	// Double-buffered pixel storage to avoid flicker/tearing while compositor reads prior frame.
+	std::array<std::vector<uint8_t>, 2> m_LeftWristHudPixels{};
+	std::array<std::vector<uint8_t>, 2> m_RightAmmoHudPixels{};
+	uint8_t m_LeftWristHudPixelsFront = 0;
+	uint8_t m_RightAmmoHudPixelsFront = 0;
 	int m_LeftWristHudTexW = 256;
 	int m_LeftWristHudTexH = 128;
 	int m_RightAmmoHudTexW = 256;

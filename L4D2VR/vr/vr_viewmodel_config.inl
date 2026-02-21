@@ -798,7 +798,7 @@ void VR::ParseConfigFile()
     m_LeftWristHudBgAlpha = std::clamp(getFloat("LeftWristHudBgAlpha", m_LeftWristHudBgAlpha), 0.0f, 1.0f);
     m_RightAmmoHudBgAlpha = std::clamp(getFloat("RightAmmoHudBgAlpha", m_RightAmmoHudBgAlpha), 0.0f, 1.0f);
 
-    // Right ammo HUD: crop ratio (U max). Removes unused blank area on the right.
+    // Right ammo HUD U max clamp (auto-fit width is capped by this).
     m_RightAmmoHudUVMaxU = std::clamp(getFloat("RightAmmoHudUVMaxU", m_RightAmmoHudUVMaxU), 0.05f, 1.0f);
 
     // Hand HUD overall overlay alpha (0..1)
