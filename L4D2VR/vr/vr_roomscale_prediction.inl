@@ -539,6 +539,22 @@ Vector VR::GetRightControllerAbsPos()
 
 Vector VR::GetRecommendedViewmodelAbsPos()
 {
+    // Prefer render-thread viewmodel snapshot when available (important under mat_queue_mode!=0).
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        const uint32_t s1 = m_RenderViewmodelSeq.load(std::memory_order_acquire);
+        if (s1 == 0 || (s1 & 1u))
+            continue;
+
+        const float x = m_RenderViewmodelPosX.load(std::memory_order_relaxed);
+        const float y = m_RenderViewmodelPosY.load(std::memory_order_relaxed);
+        const float z = m_RenderViewmodelPosZ.load(std::memory_order_relaxed);
+
+        const uint32_t s2 = m_RenderViewmodelSeq.load(std::memory_order_acquire);
+        if (s1 == s2 && !(s2 & 1u))
+            return Vector(x, y, z);
+    }
+
     if (t_UseRenderFrameSnapshot)
     {
         for (int attempt = 0; attempt < 3; ++attempt)
@@ -575,6 +591,23 @@ Vector VR::GetRecommendedViewmodelAbsPos()
 
 QAngle VR::GetRecommendedViewmodelAbsAngle()
 {
+    // Prefer render-thread viewmodel snapshot when available (important under mat_queue_mode!=0).
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        const uint32_t s1 = m_RenderViewmodelSeq.load(std::memory_order_acquire);
+        if (s1 == 0 || (s1 & 1u))
+            continue;
+
+        QAngle ang;
+        ang.x = m_RenderViewmodelAngX.load(std::memory_order_relaxed);
+        ang.y = m_RenderViewmodelAngY.load(std::memory_order_relaxed);
+        ang.z = m_RenderViewmodelAngZ.load(std::memory_order_relaxed);
+
+        const uint32_t s2 = m_RenderViewmodelSeq.load(std::memory_order_acquire);
+        if (s1 == s2 && !(s2 & 1u))
+            return ang;
+    }
+
     if (t_UseRenderFrameSnapshot)
     {
         for (int attempt = 0; attempt < 3; ++attempt)

@@ -224,6 +224,17 @@ public:
 	std::atomic<float> m_RenderRecommendedViewmodelAngY{ 0.0f };
 	std::atomic<float> m_RenderRecommendedViewmodelAngZ{ 0.0f };
 
+	// Render-thread viewmodel snapshot (separate from the per-frame view snapshot).
+	// CalcViewModelView may run outside our dRenderView TLS scope under mat_queue_mode!=0,
+	// so it needs a stable viewmodel pose produced on the render thread.
+	std::atomic<uint32_t> m_RenderViewmodelSeq{ 0 };
+	std::atomic<float> m_RenderViewmodelPosX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosZ{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngZ{ 0.0f };
+
 	// Render thread id (captured in dRenderView) used to gate render-only snapshot reads.
 	std::atomic<uint32_t> m_RenderThreadId{ 0 };
 

@@ -218,6 +218,17 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_VR->m_RenderRecommendedViewmodelAngY.store(vmAngAbs.y, std::memory_order_relaxed);
 				m_VR->m_RenderRecommendedViewmodelAngZ.store(vmAngAbs.z, std::memory_order_relaxed);
 
+				// Publish a dedicated viewmodel snapshot as well (used by CalcViewModelView even outside render TLS).
+				uint32_t vmSeq = m_VR->m_RenderViewmodelSeq.load(std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelSeq.store(vmSeq + 1, std::memory_order_release);
+				m_VR->m_RenderViewmodelPosX.store(vmPosAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelPosY.store(vmPosAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelPosZ.store(vmPosAbs.z, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelAngX.store(vmAngAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelAngY.store(vmAngAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelAngZ.store(vmAngAbs.z, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelSeq.store(vmSeq + 2, std::memory_order_release);
+
 				m_VR->m_RenderFrameSeq.store(seq + 2, std::memory_order_release);
 			}
 		}

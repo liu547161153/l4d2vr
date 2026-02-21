@@ -926,6 +926,19 @@ void VR::SubmitVRTextures()
 
 
     vr::VROverlay()->HideOverlay(m_MainMenuHandle);
+
+    // Submit eye textures FIRST to minimize motion-to-photon latency.
+    // Old multicore branch behavior: do compositor submit before any overlay IPC work,
+    // because overlay calls can take ~0.3-0.5ms and make near-field objects (viewmodel) show reprojection trails.
+    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+
+    if (successfulSubmit && m_CompositorExplicitTiming)
+    {
+        m_CompositorNeedsHandoff = true;
+        FinishFrame();
+    }
+
     applyHudTexture(m_HUDTopHandle, topBounds);
     for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
         vr::VROverlay()->HideOverlay(overlay);
@@ -1144,16 +1157,6 @@ void VR::SubmitVRTextures()
     }
 
     UpdateHandHudOverlays();
-
-    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
-
-    if (successfulSubmit && m_CompositorExplicitTiming)
-    {
-        m_CompositorNeedsHandoff = true;
-        FinishFrame();
-    }
-
 
     m_RenderedNewFrame.store(false, std::memory_order_release);
 }
