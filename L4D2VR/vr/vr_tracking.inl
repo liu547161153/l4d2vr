@@ -390,7 +390,7 @@ void VR::UpdateTracking()
     // - 1:1 server roomscale (ForceNonVRServerMovement=false): optionally keep the camera fully decoupled from the tick-rate player origin
     //   so HMD motion stays smooth at headset refresh rate.
     const bool want1to1DecoupledCamera =
-        m_Roomscale1To1Movement && !m_ForceNonVRServerMovement && m_Roomscale1To1DecoupleCamera;
+        m_Roomscale1To1Movement && !m_ForceNonVRServerMovement && m_Roomscale1To1DecoupleCamera && !m_LocomotionActive;
 
     if (inEyeObserver)
     {
@@ -413,33 +413,17 @@ void VR::UpdateTracking()
     // Keep the legacy "camera following" escape hatch, but never override the explicit 1:1 decoupled camera mode.
     if (!want1to1DecoupledCamera)
     {
-        if ((cameraFollowing < 0 && cameraDistance > 1) || (m_PushingThumbstick))
+        if ((cameraFollowing < 0 && cameraDistance > 1) || (m_LocomotionActive))
             m_RoomscaleActive = false;
-    }
-
-    if (want1to1DecoupledCamera && !inEyeObserver)
-    {
-        // Smooth locomotion at render rate:
-        // Local player origin advances at tick rate (e.g. 30Hz), which looks like "move-pause-move" on 90Hz+ HMDs.
-        // In 1:1 server roomscale mode we keep the camera anchored to the HMD (roomscaleActive=true) and advance the
-        // camera anchor using predicted velocity, then softly correct toward the tick origin to avoid long-term drift.
-        const float dt = std::max(0.0f, m_LastFrameDuration);
-        Vector vel = localPlayer ? localPlayer->m_vecVelocity : Vector(0, 0, 0);
-        vel.z = 0.0f;
-
-        if (dt > 0.0f)
-            m_CameraAnchor += vel * dt;
-
-        const float tau = 0.050f; // seconds
-        const float alpha = (dt > 0.0f) ? (1.0f - expf(-dt / std::max(0.0001f, tau))) : 1.0f;
-        m_CameraAnchor.x += (m_SetupOrigin.x - m_CameraAnchor.x) * alpha;
-        m_CameraAnchor.y += (m_SetupOrigin.y - m_CameraAnchor.y) * alpha;
     }
     else
     {
-        if (!m_RoomscaleActive)
-            m_CameraAnchor += m_SetupOrigin - m_SetupOriginPrev;
+        if (m_LocomotionActive)
+            m_RoomscaleActive = false;
     }
+
+    if (!m_RoomscaleActive)
+        m_CameraAnchor += m_SetupOrigin - m_SetupOriginPrev;
 
     m_CameraAnchor.z = m_SetupOrigin.z + m_HeightOffset;
 

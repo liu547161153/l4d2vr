@@ -100,14 +100,10 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
         m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
         m_Roomscale1To1PrevValid = true;
 
-        // Chase mode must not fight normal locomotion (keyboard/thumbstick).
-        // When the engine is already moving the player, any camera/player drift here is expected.
-        // If we chase at the same time, it manifests as a tiny "pull back" every time you move.
-        const bool anyLocomotionNow =
-            (fabsf(cmd->forwardmove) > 0.5f) ||
-            (fabsf(cmd->sidemove) > 0.5f) ||
-            (fabsf(cmd->upmove) > 0.5f) ||
-            m_PushingThumbstick;
+        // Chase mode should not fight normal locomotion (keyboard/thumbstick).
+        // While locomotion is active, the engine is already moving the player and third-person camera
+        // can introduce intentional camera/player offsets. So disable chase and reset state.
+        const bool anyLocomotionNow = m_LocomotionActive || (fabsf(cmd->forwardmove) > 0.5f) || (fabsf(cmd->sidemove) > 0.5f) || (fabsf(cmd->upmove) > 0.5f);
         if (anyLocomotionNow)
         {
             m_Roomscale1To1ChaseActive = false;
