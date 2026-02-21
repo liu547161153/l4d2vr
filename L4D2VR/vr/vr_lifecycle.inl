@@ -1960,6 +1960,11 @@ void VR::UpdateHandHudOverlays()
         const bool ledge = (*reinterpret_cast<const unsigned char*>(pBase + kIsHangingFromLedgeOffset)) != 0;
         const bool third = (*reinterpret_cast<const unsigned char*>(pBase + kIsOnThirdStrikeOffset)) != 0;
 
+        int aimTargetIdx = -1;
+        int aimTargetPct = 0;
+        char aimTargetName[32] = { 0 };
+        const bool hasAimTarget = GetAimTeammateHudInfo(aimTargetIdx, aimTargetPct, aimTargetName, sizeof(aimTargetName));
+
         int battL = -1, battR = -1;
         bool battLCharging = false, battRCharging = false;
         if (m_LeftWristHudShowBattery)
@@ -1993,7 +1998,11 @@ void VR::UpdateHandHudOverlays()
             || (throwable != m_LastHudThrowable) || (medItem != m_LastHudMedItem) || (pillItem != m_LastHudPillItem)
             || (incap != m_LastHudIncap) || (ledge != m_LastHudLedge) || (third != m_LastHudThirdStrike);
 
-        if (!throttle && changed)
+        const bool aimChanged = (hasAimTarget != m_LastHudAimTargetVisible)
+            || (aimTargetIdx != m_LastHudAimTargetIndex)
+            || (aimTargetPct != m_LastHudAimTargetPct);
+
+        if (!throttle && (changed || aimChanged))
         {
             m_LastHudHealth = hp;
             m_LastHudTempHealth = tempHP;
@@ -2003,6 +2012,10 @@ void VR::UpdateHandHudOverlays()
             m_LastHudIncap = incap;
             m_LastHudLedge = ledge;
             m_LastHudThirdStrike = third;
+
+            m_LastHudAimTargetVisible = hasAimTarget;
+            m_LastHudAimTargetIndex = aimTargetIdx;
+            m_LastHudAimTargetPct = aimTargetPct;
 
             const int w = m_LeftWristHudTexW;
             const int h = m_LeftWristHudTexH;
@@ -2032,6 +2045,13 @@ void VR::UpdateHandHudOverlays()
                 std::snprintf(batBuf, sizeof(batBuf), "LC:%d%% RC:%d%%", battL, battR);
                 const int battScale = std::max(1, std::min(4, m_LeftWristHudBatteryTextScale));
                 DrawText5x7(s, 18, 54, batBuf, { 200, 200, 200, 230 }, battScale);
+            }
+
+            if (hasAimTarget)
+            {
+                char tgtBuf[64];
+                std::snprintf(tgtBuf, sizeof(tgtBuf), "%s:%d%%", aimTargetName, aimTargetPct);
+                DrawText5x7(s, 18, 72, tgtBuf, { 200, 200, 200, 230 }, 2);
             }
 
             int dotX = w - 62;

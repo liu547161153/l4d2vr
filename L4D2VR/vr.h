@@ -561,6 +561,9 @@ public:
 	bool m_LastHudIncap = false;
 	bool m_LastHudLedge = false;
 	bool m_LastHudThirdStrike = false;
+	bool m_LastHudAimTargetVisible = false;
+	int  m_LastHudAimTargetIndex = -1;
+	int  m_LastHudAimTargetPct = -1;
 	int  m_LastHudClip = -9999;
 	int  m_LastHudReserve = -9999;
 	int  m_LastHudUpg = -9999;
@@ -748,6 +751,17 @@ public:
 	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
 	bool m_BlockFireOnFriendlyAimEnabled = false; // toggled by SteamVR binding
 	bool m_AimLineHitsFriendly = false;           // updated from a ray trace (aim ray)
+
+	// Aim-line teammate HUD hint (left wrist HUD):
+	// - When the aim line stays on a teammate for >= 2 seconds, show "Name:XX%".
+	// - After aim leaves teammates, keep the last shown target for 5 seconds.
+	int m_AimTeammateCandidateIndex = -1;
+	std::chrono::steady_clock::time_point m_AimTeammateCandidateSince{};
+	int m_AimTeammateDisplayIndex = -1;
+	std::chrono::steady_clock::time_point m_AimTeammateDisplayUntil{};
+	int m_AimTeammateLastRawIndex = -1;
+	std::chrono::steady_clock::time_point m_AimTeammateLastRawTime{};
+
 	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
 	// Latch suppression while attack is held (prevents flicker causing intermittent firing).
 	bool m_FriendlyFireGuardLatched = false;
@@ -1094,6 +1108,8 @@ public:
 	// ticks and latch suppression until the user releases attack.
 	bool ShouldSuppressPrimaryFire(const CUserCmd* cmd, C_BasePlayer* localPlayer);
 	bool UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer);
+	void UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& start, const Vector& end, bool aimLineActive);
+	bool GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outName, size_t outNameSize);
 	// Mounted gun helper: returns the entity the player is currently "using" (turret/mounted gun) if any.
 	// Used to skip that entity in aim-related traces so the aim line doesn't collide with the gun platform.
 	bool IsUsingMountedGun(const C_BasePlayer* localPlayer) const;
