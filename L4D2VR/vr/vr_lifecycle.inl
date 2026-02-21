@@ -1934,8 +1934,10 @@ void VR::UpdateHandHudOverlays()
 
             const int w = m_LeftWristHudTexW;
             const int h = m_LeftWristHudTexH;
-            m_LeftWristHudPixels.resize((size_t)w * (size_t)h * 4);
-            HudSurface s{ m_LeftWristHudPixels.data(), w, h, w * 4 };
+            const uint8_t backIdx = (uint8_t)(m_LeftWristHudPixelsFront ^ 1);
+            auto& pixels = m_LeftWristHudPixels[backIdx];
+            pixels.resize((size_t)w * (size_t)h * 4);
+            HudSurface s{ pixels.data(), w, h, w * 4 };
 
             Clear(s, { 8, 10, 14, bgA });
             DrawCornerBrackets(s, 2, 2, w - 4, h - 4, { 60, 220, 255, 220 });
@@ -2051,7 +2053,8 @@ void VR::UpdateHandHudOverlays()
             drawItem(medItem);
             drawItem(pillItem);
 
-            vr::VROverlay()->SetOverlayRaw(m_LeftWristHudHandle, m_LeftWristHudPixels.data(), (uint32_t)w, (uint32_t)h, 4);
+            vr::VROverlay()->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+            m_LeftWristHudPixelsFront = backIdx;
         }
 
         vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
@@ -2068,8 +2071,8 @@ void VR::UpdateHandHudOverlays()
 
         vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
         vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
-        vr::VROverlay()->SetOverlayWidthInMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters));
-        vr::VROverlay()->SetOverlayTexelAspect(m_RightAmmoHudHandle, (float)m_RightAmmoHudTexW / (float)m_RightAmmoHudTexH);
+        // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
+        vr::VROverlay()->SetOverlayTexelAspect(m_RightAmmoHudHandle, 1.0f);
 
         int clip = 0;
         int reserve = 0;
@@ -2134,6 +2137,54 @@ void VR::UpdateHandHudOverlays()
             m_HudMaxReserveObserved = std::max(m_HudMaxReserveObserved, std::max(0, reserve));
         }
 
+        // Auto-fit the visible overlay width so the panel tightly frames the ammo string.
+        // IMPORTANT: OpenVR texture bounds (uMax) *stretch* the sampled region to fill the overlay quad.
+        // If we reduce uMax without also shrinking the quad width in meters, the HUD appears "zoomed" and will clip.
+        // Fix: scale overlay width in meters by the same uMax.
+        const int texW = m_RightAmmoHudTexW;
+        const int texH = m_RightAmmoHudTexH;
+        const SevenSegStyle clipStAuto{ 12, 3, 2, 4 };
+        const SevenSegStyle resStAuto{ 8, 2, 2, 3 };
+
+        auto digitCountAuto = [](int v) -> int
+        {
+            if (v <= 0) return 1;
+            int n = 0;
+            while (v > 0) { v /= 10; ++n; }
+            return n;
+        };
+        auto sevenSegWidthAuto = [&](int digits, const SevenSegStyle& st) -> int
+        {
+            const int digitW = SevenSegDigitW(st);
+            if (digits <= 1) return digitW;
+            return digits * digitW + (digits - 1) * st.digitGap;
+        };
+
+        const int slashW = 16;
+        const int clipWMax = sevenSegWidthAuto(digitCountAuto(std::max(0, m_HudMaxClipObserved)), clipStAuto);
+        const int resWMax = pistolInfinite ? 24 : sevenSegWidthAuto(digitCountAuto(std::max(0, m_HudMaxReserveObserved)), resStAuto);
+        const int totalWMax = clipWMax + slashW + resWMax;
+        const bool willDrawUpg = (upg > 0) && (((upgBits & 1) != 0) || ((upgBits & 2) != 0));
+
+        // Padding chosen to match existing bracket/inner-box margins.
+        int cropW = std::max(96, totalWMax + 28);
+        if (willDrawUpg)
+            cropW = std::max(cropW, totalWMax + 28 + 90);
+        cropW = std::min(texW, cropW);
+
+        const float uMaxAuto = (texW > 0) ? ((float)cropW / (float)texW) : 1.0f;
+        const float uMaxCfg = std::max(0.05f, std::min(1.0f, m_RightAmmoHudUVMaxU));
+        const float uMax = std::max(0.05f, std::min(uMaxAuto, uMaxCfg));
+        const int visW = std::max(64, std::min(texW, (int)std::round((float)texW * uMax)));
+
+        vr::VRTextureBounds_t bounds{};
+        bounds.uMin = 0.0f;
+        bounds.vMin = 0.0f;
+        bounds.uMax = uMax;
+        bounds.vMax = 1.0f;
+        vr::VROverlay()->SetOverlayTextureBounds(m_RightAmmoHudHandle, &bounds);
+        vr::VROverlay()->SetOverlayWidthInMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters) * uMax);
+
         const bool changed = (clip != m_LastHudClip) || (reserve != m_LastHudReserve) || (upg != m_LastHudUpg) || (upgBits != m_LastHudUpgBits);
         if (!throttle && changed)
         {
@@ -2142,15 +2193,17 @@ void VR::UpdateHandHudOverlays()
             m_LastHudUpg = upg;
             m_LastHudUpgBits = upgBits;
 
-            const int w = m_RightAmmoHudTexW;
-            const int h = m_RightAmmoHudTexH;
-            m_RightAmmoHudPixels.resize((size_t)w * (size_t)h * 4);
-            HudSurface s{ m_RightAmmoHudPixels.data(), w, h, w * 4 };
+            const int w = texW;
+            const int h = texH;
+            const uint8_t backIdx = (uint8_t)(m_RightAmmoHudPixelsFront ^ 1);
+            auto& pixels = m_RightAmmoHudPixels[backIdx];
+            pixels.resize((size_t)w * (size_t)h * 4);
+            HudSurface s{ pixels.data(), w, h, w * 4 };
 
             Clear(s, { 0, 0, 0, 0 });
-            FillRect(s, 0, 0, w, h, { 6, 10, 14, bgA });
-            DrawCornerBrackets(s, 2, 2, w - 4, h - 4, { 120, 255, 220, 220 });
-            DrawRect(s, 8, 18, w - 16, h - 36, { 20, 80, 60, 220 }, 1);
+            FillRect(s, 0, 0, visW, h, { 6, 10, 14, bgA });
+            DrawCornerBrackets(s, 2, 2, visW - 4, h - 4, { 120, 255, 220, 220 });
+            DrawRect(s, 8, 18, visW - 16, h - 36, { 20, 80, 60, 220 }, 1);
 
             const int clipLowTh = std::max(1, (m_HudMaxClipObserved + 2) / 3);
             const int resLowTh = std::max(1, (m_HudMaxReserveObserved + 4) / 5);
@@ -2160,33 +2213,42 @@ void VR::UpdateHandHudOverlays()
             const Rgba clipColor = clipLow ? Rgba{ 255, 80, 80, 255 } : Rgba{ 240, 240, 240, 255 };
             const Rgba resColor = resLow ? Rgba{ 255, 80, 80, 230 } : Rgba{ 200, 200, 200, 230 };
 
-            const SevenSegStyle clipSt{ 14, 4, 2, 6 };
-            Draw7SegInt(s, 18, 24, std::max(0, clip), clipSt, clipColor);
+            const SevenSegStyle clipSt{ 12, 3, 2, 4 };
+            const SevenSegStyle resSt{ 8, 2, 2, 3 };
+            const int clipW = sevenSegWidthAuto(digitCountAuto(std::max(0, clip)), clipSt);
+            const int resW = pistolInfinite ? 24 : sevenSegWidthAuto(digitCountAuto(std::max(0, reserve)), resSt);
+            const int slashW = 16;
+            const int totalW = clipW + slashW + resW;
+            const int yBase = 46;
+            int x = std::max(6, (visW - totalW) / 2);
 
-            DrawText5x7(s, 18, 88, "/", { 200, 200, 200, 220 }, 3);
+            Draw7SegInt(s, x, yBase, std::max(0, clip), clipSt, clipColor);
+            x += clipW + 2;
+            DrawText5x7(s, x, yBase + 1, "/", { 200, 200, 200, 220 }, 2);
+            x += slashW;
             if (pistolInfinite)
             {
-                DrawInfinity(s, 34, 90, 24, 10, { 240, 240, 240, 230 });
+                DrawInfinity(s, x, yBase + 4, 24, 10, { 240, 240, 240, 230 });
             }
             else
             {
-                const SevenSegStyle resSt{ 9, 2, 2, 4 };
-                Draw7SegInt(s, 32, 86, std::max(0, reserve), resSt, resColor);
+                Draw7SegInt(s, x, yBase, std::max(0, reserve), resSt, resColor);
             }
 
             const bool hasInc = (upgBits & 1) != 0;
             const bool hasExp = (upgBits & 2) != 0;
             if (upg > 0 && (hasInc || hasExp))
             {
-                DrawRect(s, w - 84, 16, 76, 32, { 120, 255, 220, 200 }, 1);
-                if (hasInc) DrawIconFlame(s, w - 78, 20, 20);
-                else DrawIconBomb(s, w - 78, 20, 20);
+                DrawRect(s, visW - 84, 16, 76, 32, { 120, 255, 220, 200 }, 1);
+                if (hasInc) DrawIconFlame(s, visW - 78, 20, 20);
+                else DrawIconBomb(s, visW - 78, 20, 20);
                 char upgBuf[16];
                 std::snprintf(upgBuf, sizeof(upgBuf), "%d", upg);
-                DrawText5x7(s, w - 52, 22, upgBuf, { 240, 240, 240, 255 }, 2);
+                DrawText5x7(s, visW - 52, 22, upgBuf, { 240, 240, 240, 255 }, 2);
             }
 
-            vr::VROverlay()->SetOverlayRaw(m_RightAmmoHudHandle, m_RightAmmoHudPixels.data(), (uint32_t)w, (uint32_t)h, 4);
+            vr::VROverlay()->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+            m_RightAmmoHudPixelsFront = backIdx;
         }
 
         vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
