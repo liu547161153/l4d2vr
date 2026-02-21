@@ -596,6 +596,17 @@
     <None Include="..\dxvk\lib32\libd3dcompiler_43.def" />
     <None Include="..\dxvk\lib\libd3dcompiler_43.def" />
     <None Include="..\dxvk\src\d3d9\d3d9.def" />
+    <None Include="hooks\hooks_combat_network.inl" />
+    <None Include="hooks\hooks_createmove.inl" />
+    <None Include="hooks\hooks_init.inl" />
+    <None Include="hooks\hooks_misc.inl" />
+    <None Include="hooks\hooks_render.inl" />
+    <None Include="vr\vr_aiming.inl" />
+    <None Include="vr\vr_lifecycle.inl" />
+    <None Include="vr\vr_process_input.inl" />
+    <None Include="vr\vr_roomscale_prediction.inl" />
+    <None Include="vr\vr_tracking.inl" />
+    <None Include="vr\vr_viewmodel_config.inl" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\dxvk\src\d3d9\version.rc" />

@@ -16,6 +16,12 @@
     <Filter Include="dxvk">
       <UniqueIdentifier>{70b8cf43-f679-4ee4-97a8-0b6214b91c8f}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\vr">
+      <UniqueIdentifier>{ac3c1893-2cdb-4dae-ab6f-746a5cfb3cee}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\hook">
+      <UniqueIdentifier>{01923248-f7c8-42a6-bc85-a1e8cb5f8a54}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game.h">
@@ -1236,6 +1242,39 @@
     </None>
     <None Include="..\dxvk\src\d3d9\d3d9.def">
       <Filter>dxvk</Filter>
+    </None>
+    <None Include="hooks\hooks_combat_network.inl">
+      <Filter>Source Files\hook</Filter>
+    </None>
+    <None Include="hooks\hooks_createmove.inl">
+      <Filter>Source Files\hook</Filter>
+    </None>
+    <None Include="hooks\hooks_init.inl">
+      <Filter>Source Files\hook</Filter>
+    </None>
+    <None Include="hooks\hooks_misc.inl">
+      <Filter>Source Files\hook</Filter>
+    </None>
+    <None Include="hooks\hooks_render.inl">
+      <Filter>Source Files\hook</Filter>
+    </None>
+    <None Include="vr\vr_aiming.inl">
+      <Filter>Source Files\vr</Filter>
+    </None>
+    <None Include="vr\vr_lifecycle.inl">
+      <Filter>Source Files\vr</Filter>
+    </None>
+    <None Include="vr\vr_process_input.inl">
+      <Filter>Source Files\vr</Filter>
+    </None>
+    <None Include="vr\vr_roomscale_prediction.inl">
+      <Filter>Source Files\vr</Filter>
+    </None>
+    <None Include="vr\vr_tracking.inl">
+      <Filter>Source Files\vr</Filter>
+    </None>
+    <None Include="vr\vr_viewmodel_config.inl">
+      <Filter>Source Files\vr</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
