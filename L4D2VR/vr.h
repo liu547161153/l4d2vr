@@ -551,6 +551,18 @@ public:
 	bool m_Roomscale1To1Movement = true;
 	float m_Roomscale1To1MaxStepMeters = 0.35f;
 
+	// Roomscale 1:1 movement (ForceNonVRServerMovement=false):
+	// - Camera stays 1:1 with the HMD at render rate (no tick-rate stepping).
+	// - The player entity is only pulled/teleported when the camera drifts too far away.
+	// - Roomscale is optionally disabled while thumbstick locomotion is active to avoid conflicts.
+	bool m_Roomscale1To1DecoupleCamera = true;
+	bool m_Roomscale1To1UseCameraDistanceChase = true;
+	bool m_Roomscale1To1DisableWhileThumbstick = true;
+	float m_Roomscale1To1AllowedCameraDriftMeters = 0.25f;
+	float m_Roomscale1To1ChaseHysteresisMeters = 0.05f;
+	float m_Roomscale1To1MinApplyMeters = 0.02f;
+	bool m_Roomscale1To1ChaseActive = false;
+
 	Vector m_Roomscale1To1PrevCorrectedAbs = {};
 	// Accumulate sub-centimeter HMD deltas so slow walking/leaning still produces movement.
 	// This is in *meters* in the same corrected space as m_HmdPosCorrectedPrev.
