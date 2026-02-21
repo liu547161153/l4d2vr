@@ -2,6 +2,7 @@
 #include <Windows.h>
 #include "openvr.h"
 #include "vector.h"
+#include <cstdint>
 #include <array>
 #include <chrono>
 #include <algorithm>
@@ -71,6 +72,10 @@ public:
 	vr::VROverlayHandle_t m_ScopeHandle = vr::k_ulOverlayHandleInvalid;
 	// Rear mirror overlay (off-hand)
 	vr::VROverlayHandle_t m_RearMirrorHandle = vr::k_ulOverlayHandleInvalid;
+	// Hand HUD overlays (raw, controller-anchored)
+	vr::VROverlayHandle_t m_LeftWristHudHandle = vr::k_ulOverlayHandleInvalid;
+	vr::VROverlayHandle_t m_RightAmmoHudHandle = vr::k_ulOverlayHandleInvalid;
+
 
 	float m_HorizontalOffsetLeft;
 	float m_VerticalOffsetLeft;
@@ -479,6 +484,60 @@ public:
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
 
+	// Hand HUD background opacity (0..1). Applies to the panel fill only (text/icons stay opaque).
+	float m_LeftWristHudBgAlpha = 0.85f;
+	float m_RightAmmoHudBgAlpha = 0.70f;
+
+	// ----------------------------
+	// Hand HUD overlays (SteamVR overlays, raw textures)
+	// ----------------------------
+	bool  m_LeftWristHudEnabled = false;
+	float m_LeftWristHudWidthMeters = 0.11f;
+	float m_LeftWristHudXOffset = -0.02f;
+	float m_LeftWristHudYOffset = 0.02f;
+	float m_LeftWristHudZOffset = 0.07f;
+	QAngle m_LeftWristHudAngleOffset = { -45.0f, 0.0f, 90.0f };
+
+	bool  m_RightAmmoHudEnabled = false;
+	float m_RightAmmoHudWidthMeters = 0.04f; // width reduced by ~2/3 by default
+	float m_RightAmmoHudXOffset = 0.02f;
+	float m_RightAmmoHudYOffset = 0.00f;
+	float m_RightAmmoHudZOffset = 0.09f;
+	QAngle m_RightAmmoHudAngleOffset = { 0.0f, 0.0f, 0.0f };
+
+	float m_LeftWristHudCurvature = 0.20f;
+	bool  m_LeftWristHudShowBattery = true;
+	bool  m_LeftWristHudShowTeammates = true;
+
+
+
+	float m_HandHudMaxHz = 30.0f;
+	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
+	std::vector<uint8_t> m_LeftWristHudPixels{};
+	std::vector<uint8_t> m_RightAmmoHudPixels{};
+	int m_LeftWristHudTexW = 256;
+	int m_LeftWristHudTexH = 128;
+	int m_RightAmmoHudTexW = 256;
+	int m_RightAmmoHudTexH = 128;
+	// Cached values (avoid redrawing every frame)
+	int  m_LastHudHealth = -9999;
+	int  m_LastHudTempHealth = -9999;
+	int  m_LastHudThrowable = -1;
+	int  m_LastHudMedItem = -1;
+	int  m_LastHudPillItem = -1;
+	bool m_LastHudIncap = false;
+	bool m_LastHudLedge = false;
+	bool m_LastHudThirdStrike = false;
+	int  m_LastHudClip = -9999;
+	int  m_LastHudReserve = -9999;
+	int  m_LastHudUpg = -9999;
+	int  m_LastHudUpgBits = 0;
+	int  m_LastHudWeaponId = -1;
+
+	// Dynamic maxima for percentage thresholds (works even if weapon scripts change clip/reserve sizes)
+	int  m_HudMaxClipObserved = 0;
+	int  m_HudMaxReserveObserved = 0;
+
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
 	float m_HeadSmoothing = 0.0f;
@@ -636,6 +695,18 @@ public:
 	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 	static constexpr int kObserverModeOffset = 0x1450; // C_BasePlayer::m_iObserverMode
 	static constexpr int kObserverTargetOffset = 0x1454; // C_BasePlayer::m_hObserverTarget
+
+	// Common netvars (from offsets.txt) used by hand HUD overlays
+	static constexpr int kHealthOffset = 0xEC;               // DT_BasePlayer::m_iHealth
+	static constexpr int kAmmoArrayOffset = 0xF24;            // DT_BasePlayer::m_iAmmo (int array)
+	static constexpr int kHealthBufferOffset = 0x1FAC;        // DT_TerrorPlayer::m_healthBuffer (temporary HP)
+	static constexpr int kIsOnThirdStrikeOffset = 0x1EC0;     // DT_TerrorPlayer::m_bIsOnThirdStrike
+	static constexpr int kIsHangingFromLedgeOffset = 0x25EC;  // DT_TerrorPlayer::m_isHangingFromLedge
+	// Weapon netvars (from offsets.txt)
+	static constexpr int kClip1Offset = 0x984;                // DT_BaseCombatWeapon::m_iClip1
+	static constexpr int kPrimaryAmmoTypeOffset = 0x97C;       // DT_BaseCombatWeapon::m_iPrimaryAmmoType
+	static constexpr int kUpgradedPrimaryAmmoLoadedOffset = 0xCB8; // m_nUpgradedPrimaryAmmoLoaded
+	static constexpr int kUpgradeBitVecOffset = 0xCF0;         // m_upgradeBitVec (incendiary/explosive/laser bits)
 
 
 	// Aim-line friendly-fire guard (client-side fire suppression)
@@ -926,6 +997,7 @@ public:
 	void RepositionOverlays();
 	void UpdateRearMirrorOverlayTransform();
 	void UpdateScopeOverlayTransform();
+	void UpdateHandHudOverlays();
 	void GetPoses();
 	bool UpdatePosesAndActions();
 	void GetViewParameters();

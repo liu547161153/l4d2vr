@@ -793,6 +793,39 @@ void VR::ParseConfigFile()
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
     m_HudToggleState = m_HudAlwaysVisible;
+
+    // Hand HUD background opacity (0..1)
+    m_LeftWristHudBgAlpha = std::clamp(getFloat("LeftWristHudBgAlpha", m_LeftWristHudBgAlpha), 0.0f, 1.0f);
+    m_RightAmmoHudBgAlpha = std::clamp(getFloat("RightAmmoHudBgAlpha", m_RightAmmoHudBgAlpha), 0.0f, 1.0f);
+
+    // Hand HUD overlays (SteamVR overlay, raw)
+    m_LeftWristHudEnabled = getBool("LeftWristHudEnabled", m_LeftWristHudEnabled);
+    m_LeftWristHudWidthMeters = std::clamp(getFloat("LeftWristHudWidthMeters", m_LeftWristHudWidthMeters), 0.01f, 1.0f);
+    m_LeftWristHudXOffset = getFloat("LeftWristHudXOffset", m_LeftWristHudXOffset);
+    m_LeftWristHudYOffset = getFloat("LeftWristHudYOffset", m_LeftWristHudYOffset);
+    m_LeftWristHudZOffset = getFloat("LeftWristHudZOffset", m_LeftWristHudZOffset);
+    {
+        const Vector def = { m_LeftWristHudAngleOffset.x, m_LeftWristHudAngleOffset.y, m_LeftWristHudAngleOffset.z };
+        const Vector ang = getVector3("LeftWristHudAngleOffset", def);
+        m_LeftWristHudAngleOffset = { ang.x, ang.y, ang.z };
+    }
+
+    m_LeftWristHudCurvature = std::clamp(getFloat("LeftWristHudCurvature", m_LeftWristHudCurvature), 0.0f, 1.0f);
+    m_LeftWristHudShowBattery = getBool("LeftWristHudShowBattery", m_LeftWristHudShowBattery);
+    m_LeftWristHudShowTeammates = getBool("LeftWristHudShowTeammates", m_LeftWristHudShowTeammates);
+
+    m_RightAmmoHudEnabled = getBool("RightAmmoHudEnabled", m_RightAmmoHudEnabled);
+    m_RightAmmoHudWidthMeters = std::clamp(getFloat("RightAmmoHudWidthMeters", m_RightAmmoHudWidthMeters), 0.01f, 1.0f);
+    m_RightAmmoHudXOffset = getFloat("RightAmmoHudXOffset", m_RightAmmoHudXOffset);
+    m_RightAmmoHudYOffset = getFloat("RightAmmoHudYOffset", m_RightAmmoHudYOffset);
+    m_RightAmmoHudZOffset = getFloat("RightAmmoHudZOffset", m_RightAmmoHudZOffset);
+    {
+        const Vector def = { m_RightAmmoHudAngleOffset.x, m_RightAmmoHudAngleOffset.y, m_RightAmmoHudAngleOffset.z };
+        const Vector ang = getVector3("RightAmmoHudAngleOffset", def);
+        m_RightAmmoHudAngleOffset = { ang.x, ang.y, ang.z };
+    }
+
+    m_HandHudMaxHz = std::clamp(getFloat("HandHudMaxHz", m_HandHudMaxHz), 0.0f, 240.0f);
     m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);
