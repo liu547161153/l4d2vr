@@ -806,6 +806,10 @@ void VR::ParseConfigFile()
         m_LeftWristHudAngleOffset = { ang.x, ang.y, ang.z };
     }
 
+    m_LeftWristHudCurvature = std::clamp(getFloat("LeftWristHudCurvature", m_LeftWristHudCurvature), 0.0f, 1.0f);
+    m_LeftWristHudShowBattery = getBool("LeftWristHudShowBattery", m_LeftWristHudShowBattery);
+    m_LeftWristHudShowTeammates = getBool("LeftWristHudShowTeammates", m_LeftWristHudShowTeammates);
+
     m_RightAmmoHudEnabled = getBool("RightAmmoHudEnabled", m_RightAmmoHudEnabled);
     m_RightAmmoHudWidthMeters = std::clamp(getFloat("RightAmmoHudWidthMeters", m_RightAmmoHudWidthMeters), 0.01f, 1.0f);
     m_RightAmmoHudXOffset = getFloat("RightAmmoHudXOffset", m_RightAmmoHudXOffset);
@@ -817,7 +821,10 @@ void VR::ParseConfigFile()
         m_RightAmmoHudAngleOffset = { ang.x, ang.y, ang.z };
     }
 
+    m_RightAmmoHudShowWeaponName = getBool("RightAmmoHudShowWeaponName", m_RightAmmoHudShowWeaponName);
+
     m_HandHudMaxHz = std::clamp(getFloat("HandHudMaxHz", m_HandHudMaxHz), 0.0f, 240.0f);
+    m_HandHudBlinkHz = std::clamp(getFloat("HandHudBlinkHz", m_HandHudBlinkHz), 0.0f, 30.0f);
     m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);

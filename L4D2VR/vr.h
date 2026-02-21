@@ -501,6 +501,14 @@ public:
 	float m_RightAmmoHudZOffset = 0.09f;
 	QAngle m_RightAmmoHudAngleOffset = { 0.0f, 0.0f, 0.0f };
 
+	float m_LeftWristHudCurvature = 0.20f;
+	bool  m_LeftWristHudShowBattery = true;
+	bool  m_LeftWristHudShowTeammates = true;
+
+	bool  m_RightAmmoHudShowWeaponName = true;
+
+	float m_HandHudBlinkHz = 4.0f;
+
 	float m_HandHudMaxHz = 30.0f;
 	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
 	std::vector<uint8_t> m_LeftWristHudPixels{};
@@ -522,6 +530,13 @@ public:
 	int  m_LastHudReserve = -9999;
 	int  m_LastHudUpg = -9999;
 	int  m_LastHudUpgBits = 0;
+
+	int  m_LastHudBatteryOffHand = -1;
+	int  m_LastHudBatteryGunHand = -1;
+	unsigned int m_LastHudTeamHash = 0;
+	bool m_LastHudInReload = false;
+	int  m_LastHudBlinkPhase = -1;
+	int  m_LastHudWeaponId = -1;
 
 	float m_ControllerSmoothing = 0.0f;
 	bool m_ControllerSmoothingInitialized = false;
@@ -689,6 +704,8 @@ public:
 	static constexpr int kIsHangingFromLedgeOffset = 0x25EC;  // DT_TerrorPlayer::m_isHangingFromLedge
 	// Weapon netvars (from offsets.txt)
 	static constexpr int kClip1Offset = 0x984;                // DT_BaseCombatWeapon::m_iClip1
+	static constexpr int kInReloadOffset = 0x9BD;              // DT_BaseCombatWeapon::m_bInReload
+
 	static constexpr int kPrimaryAmmoTypeOffset = 0x97C;       // DT_BaseCombatWeapon::m_iPrimaryAmmoType
 	static constexpr int kUpgradedPrimaryAmmoLoadedOffset = 0xCB8; // m_nUpgradedPrimaryAmmoLoaded
 	static constexpr int kUpgradeBitVecOffset = 0xCF0;         // m_upgradeBitVec (incendiary/explosive/laser bits)

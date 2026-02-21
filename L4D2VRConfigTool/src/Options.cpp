@@ -652,6 +652,42 @@ Option g_Options[] =
         "0.11"
     },
     {
+        "LeftWristHudCurvature",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD Curvature", u8"腕表HUD弧度" },
+        { u8"Curves the wrist HUD overlay so it wraps like a watch face (SteamVR overlay curvature).",
+          u8"让腕表HUD覆盖层呈弧面，像手表表盘一样贴合（SteamVR覆盖层曲率）。" },
+        { u8"0 = flat. Typical values: 0.1~0.3.",
+          u8"0为平面。常用范围：0.1~0.3。" },
+        0.0f, 1.0f,
+        "0.20"
+    },
+    {
+        "LeftWristHudShowBattery",
+        OptionType::Bool,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Show Controller Battery", u8"显示手柄电量" },
+        { u8"Shows off-hand and gun-hand controller battery percentage on the wrist HUD.",
+          u8"在腕表HUD上显示副手与持枪手手柄电量。" },
+        { u8"Useful for long sessions.",
+          u8"长时间游戏很实用。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "LeftWristHudShowTeammates",
+        OptionType::Bool,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Show Teammate Mini HP Bars", u8"显示队友小血条" },
+        { u8"Shows up to 3 teammate HP bars on the wrist HUD.",
+          u8"在腕表HUD上显示最多3名队友的小血条。" },
+        { u8"Includes temp HP and a third-strike frame.",
+          u8"包含临时血，并在黑白时加边框提示。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
         "LeftWristHudXOffset",
         OptionType::Float,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
@@ -725,6 +761,18 @@ Option g_Options[] =
         "0.12"
     },
     {
+        "RightAmmoHudShowWeaponName",
+        OptionType::Bool,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Show Weapon Short Tag", u8"显示武器短标签" },
+        { u8"Shows a short weapon tag (AK/SCAR/GL...) on the ammo HUD.",
+          u8"在弹药HUD上显示武器短标签（AK/SCAR/GL等）。" },
+        { u8"Helps at-a-glance identification.",
+          u8"快速确认当前武器类型。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
         "RightAmmoHudXOffset",
         OptionType::Float,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
@@ -784,6 +832,18 @@ Option g_Options[] =
           u8"30就足够了；更低可以减少CPU开销。" },
         0.0f, 240.0f,
         "30"
+    },
+    {
+        "HandHudBlinkHz",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Hand HUD Blink Rate (Hz)", u8"手柄HUD闪烁频率(Hz)" },
+        { u8"Blink frequency used for reload and low-ammo warnings.",
+          u8"用于装填中与缺弹警告的闪烁频率。" },
+        { u8"Set to 0 to disable blinking.",
+          u8"设为0可关闭闪烁。" },
+        0.0f, 30.0f,
+        "4"
     },
 
     // Hands / Debug

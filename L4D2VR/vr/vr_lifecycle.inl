@@ -168,6 +168,152 @@ namespace
         FillRect(s, x + w - L, y + h - t, L, t, c);
         FillRect(s, x + w - t, y + h - L, t, L, c);
     }
+
+    struct SevenSegStyle
+    {
+        int len = 12;      // segment length in pixels
+        int thick = 3;    // segment thickness
+        int gap = 2;      // inner gap around segments
+        int digitGap = 5; // spacing between digits
+    };
+
+    inline unsigned char SevenSegMaskForDigit(int d)
+    {
+        // Bits: 0=A(top),1=B(upper-right),2=C(lower-right),3=D(bottom),4=E(lower-left),5=F(upper-left),6=G(mid)
+        static const unsigned char kMap[10] = {
+            0b0111111, // 0
+            0b0000110, // 1
+            0b1011011, // 2
+            0b1001111, // 3
+            0b1100110, // 4
+            0b1101101, // 5
+            0b1111101, // 6
+            0b0000111, // 7
+            0b1111111, // 8
+            0b1101111, // 9
+        };
+        if (d < 0 || d > 9)
+            return 0;
+        return kMap[d];
+    }
+
+    inline void Draw7SegDigit(const HudSurface& s, int x, int y, int digit, const SevenSegStyle& st, const Rgba& c)
+    {
+        const unsigned char m = SevenSegMaskForDigit(digit);
+        const int L = st.len;
+        const int T = st.thick;
+
+        // Horizontal segments are L x T, vertical segments are T x L
+        const int x0 = x;
+        const int y0 = y;
+        const int x1 = x0 + T + L;
+        const int y1 = y0 + T + L;
+        const int y2 = y0 + 2 * T + 2 * L;
+
+        // A
+        if (m & (1u << 0)) FillRect(s, x0 + T, y0, L, T, c);
+        // B
+        if (m & (1u << 1)) FillRect(s, x1, y0 + T, T, L, c);
+        // C
+        if (m & (1u << 2)) FillRect(s, x1, y1 + T, T, L, c);
+        // D
+        if (m & (1u << 3)) FillRect(s, x0 + T, y2, L, T, c);
+        // E
+        if (m & (1u << 4)) FillRect(s, x0, y1 + T, T, L, c);
+        // F
+        if (m & (1u << 5)) FillRect(s, x0, y0 + T, T, L, c);
+        // G
+        if (m & (1u << 6)) FillRect(s, x0 + T, y1, L, T, c);
+    }
+
+    inline int SevenSegDigitW(const SevenSegStyle& st) { return st.len + 2 * st.thick; }
+    inline int SevenSegDigitH(const SevenSegStyle& st) { return 2 * st.len + 3 * st.thick; }
+
+    inline int Draw7SegInt(const HudSurface& s, int x, int y, int value, const SevenSegStyle& st, const Rgba& c)
+    {
+        // Returns drawn width.
+        if (value < 0)
+            value = 0;
+
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%d", value);
+
+        int penX = x;
+        for (const char* p = buf; *p; ++p)
+        {
+            const char ch = *p;
+            if (ch >= '0' && ch <= '9')
+            {
+                Draw7SegDigit(s, penX, y, ch - '0', st, c);
+                penX += SevenSegDigitW(st) + st.digitGap;
+            }
+        }
+        return penX - x;
+    }
+
+    inline void Draw7SegPlus(const HudSurface& s, int x, int y, int size, const Rgba& c)
+    {
+        const int t = std::max(2, size / 5);
+        FillRect(s, x + size / 2 - t, y + t, t * 2, size - t * 2, c);
+        FillRect(s, x + t, y + size / 2 - t, size - t * 2, t * 2, c);
+    }
+
+    inline void DrawBatteryBar(const HudSurface& s, int x, int y, int w, int h, int percent, bool charging)
+    {
+        if (percent < 0)
+            return;
+        percent = std::max(0, std::min(100, percent));
+        const Rgba frame{ 80, 120, 140, 220 };
+        const Rgba fill{ 60, 220, 255, 220 };
+        const Rgba warn{ 255, 120, 60, 220 };
+        const int capW = std::max(2, w / 10);
+        DrawRect(s, x, y, w, h, frame, 1);
+        FillRect(s, x + w, y + h / 3, capW, h / 3, frame);
+
+        const int innerW = w - 2;
+        const int innerH = h - 2;
+        const int fillW = (innerW * percent) / 100;
+        FillRect(s, x + 1, y + 1, fillW, innerH, percent <= 20 ? warn : fill);
+
+        if (charging)
+        {
+            // Tiny lightning bolt
+            const Rgba bolt{ 255, 255, 255, 220 };
+            FillRect(s, x + w / 2 - 1, y + 2, 3, h - 4, bolt);
+            FillRect(s, x + w / 2 - 4, y + h / 2 - 1, 6, 3, bolt);
+        }
+    }
+
+    inline const char* WeaponShortTag(int weaponId)
+    {
+        using W = C_WeaponCSBase::WeaponID;
+        switch ((W)weaponId)
+        {
+        case W::PISTOL: return "PST";
+        case W::MAGNUM: return "MAG";
+        case W::UZI: return "SMG";
+        case W::MAC10: return "SMG";
+        case W::MP5: return "MP5";
+        case W::SG552: return "SG5";
+        case W::M16A1: return "M16";
+        case W::AK47: return "AK";
+        case W::SCAR: return "SCAR";
+        case W::HUNTING_RIFLE: return "HUNT";
+        case W::SNIPER_MILITARY: return "MIL";
+        case W::AWP: return "AWP";
+        case W::SCOUT: return "SCOUT";
+        case W::M60: return "M60";
+        case W::PUMPSHOTGUN: return "PUMP";
+        case W::SHOTGUN_CHROME: return "CHR";
+        case W::AUTOSHOTGUN: return "AUTO";
+        case W::SPAS: return "SPAS";
+        case W::GRENADE_LAUNCHER: return "GL";
+        case W::MELEE: return "MELEE";
+        case W::CHAINSAW: return "SAW";
+        default: return "";
+        }
+    }
+
 }
 
 VR::VR(Game* game)
@@ -1625,7 +1771,10 @@ void VR::UpdateHandHudOverlays()
 
     const vr::TrackedDeviceIndex_t offHandIndex = leftControllerIndex;
     const vr::TrackedDeviceIndex_t gunHandIndex = rightControllerIndex;
+    const auto hudNow = std::chrono::steady_clock::now();
     const bool throttle = ShouldThrottle(m_LastHandHudUpdateTime, m_HandHudMaxHz);
+    const double hudT = std::chrono::duration<double>(hudNow.time_since_epoch()).count();
+    const int blinkPhase = (m_HandHudBlinkHz > 0.0f) ? (((int)(hudT * m_HandHudBlinkHz)) & 1) : 0;
 
     auto buildRel = [&](float xOff, float yOff, float zOff, const QAngle& ang) -> vr::HmdMatrix34_t
     {
@@ -1681,6 +1830,7 @@ void VR::UpdateHandHudOverlays()
         vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
         vr::VROverlay()->SetOverlayWidthInMeters(m_LeftWristHudHandle, std::max(0.01f, m_LeftWristHudWidthMeters));
         vr::VROverlay()->SetOverlayTexelAspect(m_LeftWristHudHandle, (float)m_LeftWristHudTexW / (float)m_LeftWristHudTexH);
+        vr::VROverlay()->SetOverlayCurvature(m_LeftWristHudHandle, std::max(0.0f, m_LeftWristHudCurvature));
 
         const int hp = *reinterpret_cast<const int*>(pBase + kHealthOffset);
         const float tempHPf = *reinterpret_cast<const float*>(pBase + kHealthBufferOffset);
@@ -1688,6 +1838,61 @@ void VR::UpdateHandHudOverlays()
         const bool incap = (*reinterpret_cast<const unsigned char*>(pBase + kIsIncapacitatedOffset)) != 0;
         const bool ledge = (*reinterpret_cast<const unsigned char*>(pBase + kIsHangingFromLedgeOffset)) != 0;
         const bool third = (*reinterpret_cast<const unsigned char*>(pBase + kIsOnThirdStrikeOffset)) != 0;
+
+        int battOff = -1, battGun = -1;
+        bool battOffCharging = false, battGunCharging = false;
+        if (m_LeftWristHudShowBattery)
+        {
+            vr::ETrackedPropertyError e1 = vr::TrackedProp_Success;
+            const float b1 = m_System->GetFloatTrackedDeviceProperty(offHandIndex, vr::Prop_DeviceBatteryPercentage_Float, &e1);
+            if (e1 == vr::TrackedProp_Success)
+                battOff = (int)std::round(std::max(0.0f, std::min(1.0f, b1)) * 100.0f);
+            vr::ETrackedPropertyError e2 = vr::TrackedProp_Success;
+            battOffCharging = m_System->GetBoolTrackedDeviceProperty(offHandIndex, vr::Prop_DeviceIsCharging_Bool, &e2) && (e2 == vr::TrackedProp_Success);
+
+            vr::ETrackedPropertyError e3 = vr::TrackedProp_Success;
+            const float b2 = m_System->GetFloatTrackedDeviceProperty(gunHandIndex, vr::Prop_DeviceBatteryPercentage_Float, &e3);
+            if (e3 == vr::TrackedProp_Success)
+                battGun = (int)std::round(std::max(0.0f, std::min(1.0f, b2)) * 100.0f);
+            vr::ETrackedPropertyError e4 = vr::TrackedProp_Success;
+            battGunCharging = m_System->GetBoolTrackedDeviceProperty(gunHandIndex, vr::Prop_DeviceIsCharging_Bool, &e4) && (e4 == vr::TrackedProp_Success);
+        }
+
+        unsigned int teamHash = 0;
+        if (m_LeftWristHudShowTeammates && m_Game->m_ClientEntityList)
+        {
+            const int hi = std::min(64, m_Game->m_ClientEntityList->GetHighestEntityIndex());
+            int count = 0;
+            for (int i = 1; i <= hi && count < 3; ++i)
+            {
+                if (i == playerIndex)
+                    continue;
+                C_BasePlayer* p = (C_BasePlayer*)m_Game->GetClientEntity(i);
+                if (!p)
+                    continue;
+
+                const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
+                const unsigned char ls = *reinterpret_cast<const unsigned char*>(pb + kLifeStateOffset);
+                if (ls != 0)
+                    continue;
+
+                const int team = *reinterpret_cast<const int*>(pb + kTeamNumOffset);
+                if (team != 2)
+                    continue;
+
+                const int thp = *reinterpret_cast<const int*>(pb + kHealthOffset);
+                const float tbuf = *reinterpret_cast<const float*>(pb + kHealthBufferOffset);
+                const int ttmp = (int)std::max(0.0f, std::round(tbuf));
+                const bool tincap = (*reinterpret_cast<const unsigned char*>(pb + kIsIncapacitatedOffset)) != 0;
+                const bool tthird = (*reinterpret_cast<const unsigned char*>(pb + kIsOnThirdStrikeOffset)) != 0;
+
+                teamHash = teamHash * 131u + (unsigned int)(thp & 0x3FF);
+                teamHash = teamHash * 131u + (unsigned int)(ttmp & 0x3FF);
+                teamHash = teamHash * 131u + (unsigned int)(tincap ? 7 : 3);
+                teamHash = teamHash * 131u + (unsigned int)(tthird ? 11 : 5);
+                ++count;
+            }
+        }
 
         int throwable = -1;
         int medItem = -1;
@@ -1701,7 +1906,9 @@ void VR::UpdateHandHudOverlays()
 
         const bool changed = (hp != m_LastHudHealth) || (tempHP != m_LastHudTempHealth)
             || (throwable != m_LastHudThrowable) || (medItem != m_LastHudMedItem) || (pillItem != m_LastHudPillItem)
-            || (incap != m_LastHudIncap) || (ledge != m_LastHudLedge) || (third != m_LastHudThirdStrike);
+            || (incap != m_LastHudIncap) || (ledge != m_LastHudLedge) || (third != m_LastHudThirdStrike)
+            || (battOff != m_LastHudBatteryOffHand) || (battGun != m_LastHudBatteryGunHand)
+            || (teamHash != m_LastHudTeamHash);
 
         if (!throttle && changed)
         {
@@ -1713,35 +1920,83 @@ void VR::UpdateHandHudOverlays()
             m_LastHudIncap = incap;
             m_LastHudLedge = ledge;
             m_LastHudThirdStrike = third;
+            m_LastHudBatteryOffHand = battOff;
+            m_LastHudBatteryGunHand = battGun;
+            m_LastHudTeamHash = teamHash;
 
             const int w = m_LeftWristHudTexW;
             const int h = m_LeftWristHudTexH;
             m_LeftWristHudPixels.resize((size_t)w * (size_t)h * 4);
-            HudSurface s{ m_LeftWristHudPixels.data(), w, h, w * 4 };
+            HudSurface srf{ m_LeftWristHudPixels.data(), w, h, w * 4 };
 
-            Clear(s, { 8, 10, 14, 230 });
-            DrawCornerBrackets(s, 2, 2, w - 4, h - 4, { 60, 220, 255, 220 });
-            DrawRect(s, 8, 8, w - 16, h - 16, { 20, 60, 70, 200 }, 1);
+            Clear(srf, { 8, 10, 14, 230 });
+            DrawCornerBrackets(srf, 2, 2, w - 4, h - 4, { 60, 220, 255, 220 });
+            DrawRect(srf, 8, 8, w - 16, h - 16, { 20, 60, 70, 200 }, 1);
 
-            char hpBuf[32];
+            const SevenSegStyle hpSt{ 12, 3, 2, 5 };
+            DrawText5x7(srf, 16, 12, "HP", { 200, 200, 200, 220 }, 2);
+            const int hpW = Draw7SegInt(srf, 16, 20, std::max(0, hp), hpSt, { 240, 240, 240, 255 });
             if (tempHP > 0)
-                std::snprintf(hpBuf, sizeof(hpBuf), "%d+%d", hp, tempHP);
-            else
-                std::snprintf(hpBuf, sizeof(hpBuf), "%d", hp);
-            DrawText5x7(s, 18, 18, hpBuf, { 240, 240, 240, 255 }, 4);
-
-            int dotX = w - 62;
-            int dotY = 18;
-            auto dot = [&](bool on, const Rgba& c)
             {
-                DrawRect(s, dotX, dotY, 14, 14, { 80, 80, 80, 200 }, 1);
-                if (on)
-                    FillRect(s, dotX + 3, dotY + 3, 8, 8, c);
-                dotX += 18;
-            };
-            dot(incap, { 255, 60, 60, 255 });
-            dot(ledge, { 255, 200, 60, 255 });
-            dot(third, { 220, 220, 220, 255 });
+                Draw7SegPlus(srf, 16 + hpW + 2, 26, 18, { 255, 220, 120, 230 });
+                const SevenSegStyle tmpSt{ 9, 2, 2, 4 };
+                Draw7SegInt(srf, 16 + hpW + 24, 28, std::max(0, tempHP), tmpSt, { 255, 220, 120, 230 });
+            }
+
+            if (incap)
+                DrawText5x7(srf, w - 58, 14, "DN", { 255, 80, 80, 255 }, 2);
+            if (ledge)
+                DrawText5x7(srf, w - 58, 32, "LG", { 255, 200, 80, 255 }, 2);
+            if (third)
+                DrawText5x7(srf, w - 58, 50, "BW", { 230, 230, 230, 255 }, 2);
+
+            if (m_LeftWristHudShowBattery)
+            {
+                DrawText5x7(srf, 16, 58, "L", { 200, 200, 200, 220 }, 2);
+                DrawBatteryBar(srf, 30, 60, 52, 10, battOff, battOffCharging);
+                DrawText5x7(srf, 92, 58, "R", { 200, 200, 200, 220 }, 2);
+                DrawBatteryBar(srf, 106, 60, 52, 10, battGun, battGunCharging);
+            }
+
+            if (m_LeftWristHudShowTeammates && m_Game->m_ClientEntityList)
+            {
+                const int hi = std::min(64, m_Game->m_ClientEntityList->GetHighestEntityIndex());
+                int row = 0;
+                for (int i = 1; i <= hi && row < 3; ++i)
+                {
+                    if (i == playerIndex)
+                        continue;
+                    C_BasePlayer* p = (C_BasePlayer*)m_Game->GetClientEntity(i);
+                    if (!p)
+                        continue;
+                    const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
+                    const unsigned char ls = *reinterpret_cast<const unsigned char*>(pb + kLifeStateOffset);
+                    if (ls != 0)
+                        continue;
+                    const int team = *reinterpret_cast<const int*>(pb + kTeamNumOffset);
+                    if (team != 2)
+                        continue;
+
+                    const int thp = *reinterpret_cast<const int*>(pb + kHealthOffset);
+                    const float tbuf = *reinterpret_cast<const float*>(pb + kHealthBufferOffset);
+                    const int ttmp = (int)std::max(0.0f, std::round(tbuf));
+                    const bool tincap = (*reinterpret_cast<const unsigned char*>(pb + kIsIncapacitatedOffset)) != 0;
+                    const bool tthird = (*reinterpret_cast<const unsigned char*>(pb + kIsOnThirdStrikeOffset)) != 0;
+
+                    const int x0 = 168;
+                    const int y0 = 18 + row * 16;
+                    DrawRect(srf, x0, y0, 78, 10, { 60, 60, 60, 180 }, 1);
+                    const int perm = std::max(0, std::min(100, thp));
+                    const int permW = (76 * perm) / 100;
+                    FillRect(srf, x0 + 1, y0 + 1, permW, 8, tincap ? Rgba{ 255, 80, 80, 220 } : Rgba{ 60, 220, 255, 200 });
+                    const int extra = std::max(0, std::min(50, ttmp));
+                    const int extraW = (76 * extra) / 150;
+                    FillRect(srf, x0 + 1 + permW, y0 + 1, std::max(0, std::min(76 - permW, extraW)), 8, { 255, 220, 120, 180 });
+                    if (tthird)
+                        DrawRect(srf, x0 - 2, y0 - 2, 82, 14, { 230, 230, 230, 180 }, 1);
+                    ++row;
+                }
+            }
 
             const int boxY = 88;
             const int boxW = 74;
@@ -1749,8 +2004,8 @@ void VR::UpdateHandHudOverlays()
             auto slotBox = [&](int i, bool has, auto drawIcon)
             {
                 const int x = 12 + i * (boxW + 6);
-                DrawRect(s, x, boxY, boxW, boxH, has ? Rgba{ 60, 220, 255, 220 } : Rgba{ 60, 60, 60, 180 }, 1);
-                FillRect(s, x + 1, boxY + 1, boxW - 2, boxH - 2, has ? Rgba{ 0, 0, 0, 120 } : Rgba{ 0,0,0,60 });
+                DrawRect(srf, x, boxY, boxW, boxH, has ? Rgba{ 60, 220, 255, 220 } : Rgba{ 60, 60, 60, 180 }, 1);
+                FillRect(srf, x + 1, boxY + 1, boxW - 2, boxH - 2, has ? Rgba{ 0, 0, 0, 120 } : Rgba{ 0,0,0,60 });
                 if (has)
                     drawIcon(x + 8, boxY + 4, 24);
             };
@@ -1758,27 +2013,27 @@ void VR::UpdateHandHudOverlays()
             const bool hasThrow = throwable > 0;
             slotBox(0, hasThrow, [&](int x, int y, int size)
             {
-                if (throwable == (int)C_WeaponCSBase::MOLOTOV) DrawIconFlame(s, x, y, size);
-                else if (throwable == (int)C_WeaponCSBase::PIPE_BOMB) DrawIconBomb(s, x, y, size);
-                else if (throwable == (int)C_WeaponCSBase::VOMITJAR) DrawIconJar(s, x, y, size);
-                else DrawIconBomb(s, x, y, size);
+                if (throwable == (int)C_WeaponCSBase::MOLOTOV) DrawIconFlame(srf, x, y, size);
+                else if (throwable == (int)C_WeaponCSBase::PIPE_BOMB) DrawIconBomb(srf, x, y, size);
+                else if (throwable == (int)C_WeaponCSBase::VOMITJAR) DrawIconJar(srf, x, y, size);
+                else DrawIconBomb(srf, x, y, size);
             });
 
             const bool hasMed = medItem > 0;
             slotBox(1, hasMed, [&](int x, int y, int size)
             {
-                if (medItem == (int)C_WeaponCSBase::FIRST_AID_KIT) DrawIconCross(s, x, y, size, { 255, 60, 60, 255 });
-                else if (medItem == (int)C_WeaponCSBase::DEFIBRILLATOR) DrawIconSyringe(s, x, y, size, { 255, 255, 255, 255 });
-                else if (medItem == (int)C_WeaponCSBase::AMMO_PACK) DrawIconBomb(s, x, y, size);
-                else DrawIconCross(s, x, y, size, { 255, 60, 60, 255 });
+                if (medItem == (int)C_WeaponCSBase::FIRST_AID_KIT) DrawIconCross(srf, x, y, size, { 255, 60, 60, 255 });
+                else if (medItem == (int)C_WeaponCSBase::DEFIBRILLATOR) DrawIconSyringe(srf, x, y, size, { 255, 255, 255, 255 });
+                else if (medItem == (int)C_WeaponCSBase::AMMO_PACK) DrawIconBomb(srf, x, y, size);
+                else DrawIconCross(srf, x, y, size, { 255, 60, 60, 255 });
             });
 
             const bool hasPill = pillItem > 0;
             slotBox(2, hasPill, [&](int x, int y, int size)
             {
-                if (pillItem == (int)C_WeaponCSBase::PAIN_PILLS) DrawIconPills(s, x, y, size, { 240, 240, 240, 255 });
-                else if (pillItem == (int)C_WeaponCSBase::ADRENALINE) DrawIconSyringe(s, x, y, size, { 240, 240, 240, 255 });
-                else DrawIconPills(s, x, y, size, { 240, 240, 240, 255 });
+                if (pillItem == (int)C_WeaponCSBase::PAIN_PILLS) DrawIconPills(srf, x, y, size, { 240, 240, 240, 255 });
+                else if (pillItem == (int)C_WeaponCSBase::ADRENALINE) DrawIconSyringe(srf, x, y, size, { 240, 240, 240, 255 });
+                else DrawIconPills(srf, x, y, size, { 240, 240, 240, 255 });
             });
 
             vr::VROverlay()->SetOverlayRaw(m_LeftWristHudHandle, m_LeftWristHudPixels.data(), (uint32_t)w, (uint32_t)h, 4);
@@ -1803,10 +2058,14 @@ void VR::UpdateHandHudOverlays()
         int reserve = 0;
         int upg = 0;
         int upgBits = 0;
+        int weaponId = -1;
+        bool inReload = false;
 
         if (C_WeaponCSBase* wpn = (C_WeaponCSBase*)localPlayer->GetActiveWeapon())
         {
+            weaponId = (int)wpn->GetWeaponID();
             const unsigned char* wBase = reinterpret_cast<const unsigned char*>(wpn);
+            inReload = (*reinterpret_cast<const unsigned char*>(wBase + kInReloadOffset)) != 0;
             clip = *reinterpret_cast<const int*>(wBase + kClip1Offset);
             const int ammoType = *reinterpret_cast<const int*>(wBase + kPrimaryAmmoTypeOffset);
             if (ammoType >= 0 && ammoType < 32)
@@ -1817,47 +2076,75 @@ void VR::UpdateHandHudOverlays()
             upgBits = *reinterpret_cast<const int*>(wBase + kUpgradeBitVecOffset);
         }
 
-        const bool changed = (clip != m_LastHudClip) || (reserve != m_LastHudReserve) || (upg != m_LastHudUpg) || (upgBits != m_LastHudUpgBits);
+        const bool blinkActive = inReload || (clip <= 0 && reserve > 0);
+        const int desiredPhase = blinkActive ? blinkPhase : -1;
+
+        const bool changed = (clip != m_LastHudClip) || (reserve != m_LastHudReserve) || (upg != m_LastHudUpg) || (upgBits != m_LastHudUpgBits)
+            || (weaponId != m_LastHudWeaponId) || (inReload != m_LastHudInReload)
+            || (desiredPhase != m_LastHudBlinkPhase);
         if (!throttle && changed)
         {
             m_LastHudClip = clip;
             m_LastHudReserve = reserve;
             m_LastHudUpg = upg;
             m_LastHudUpgBits = upgBits;
+            m_LastHudWeaponId = weaponId;
+            m_LastHudInReload = inReload;
+            m_LastHudBlinkPhase = desiredPhase;
 
             const int w = m_RightAmmoHudTexW;
             const int h = m_RightAmmoHudTexH;
             m_RightAmmoHudPixels.resize((size_t)w * (size_t)h * 4);
-            HudSurface s{ m_RightAmmoHudPixels.data(), w, h, w * 4 };
+            HudSurface srf{ m_RightAmmoHudPixels.data(), w, h, w * 4 };
 
-            Clear(s, { 0, 0, 0, 0 });
-            FillRect(s, 0, 0, w, h, { 6, 10, 14, 200 });
-            DrawCornerBrackets(s, 2, 2, w - 4, h - 4, { 120, 255, 220, 220 });
-            DrawRect(s, 8, 18, w - 16, h - 36, { 20, 80, 60, 220 }, 1);
+            Clear(srf, { 0, 0, 0, 0 });
+            FillRect(srf, 0, 0, w, h, { 6, 10, 14, 200 });
+            DrawCornerBrackets(srf, 2, 2, w - 4, h - 4, { 120, 255, 220, 220 });
+            DrawRect(srf, 8, 18, w - 16, h - 36, { 20, 80, 60, 220 }, 1);
 
-            char clipBuf[16];
-            std::snprintf(clipBuf, sizeof(clipBuf), "%d", std::max(0, clip));
-            DrawText5x7(s, 22, 26, clipBuf, { 240, 240, 240, 255 }, 6);
+            if (m_RightAmmoHudShowWeaponName)
+            {
+                const char* tag = WeaponShortTag(weaponId);
+                if (tag && tag[0])
+                    DrawText5x7(srf, 12, 6, tag, { 200, 200, 200, 230 }, 2);
+            }
 
-            char resBuf[24];
-            std::snprintf(resBuf, sizeof(resBuf), "/%d", std::max(0, reserve));
-            DrawText5x7(s, 22, 94, resBuf, { 200, 200, 200, 230 }, 3);
+            const SevenSegStyle clipSt{ 14, 4, 2, 6 };
+            Draw7SegInt(srf, 18, 24, std::max(0, clip), clipSt, { 240, 240, 240, 255 });
+
+            DrawText5x7(srf, 18, 88, "/", { 200, 200, 200, 220 }, 3);
+            const SevenSegStyle resSt{ 9, 2, 2, 4 };
+            Draw7SegInt(srf, 32, 86, std::max(0, reserve), resSt, { 200, 200, 200, 230 });
 
             const bool hasInc = (upgBits & 1) != 0;
             const bool hasExp = (upgBits & 2) != 0;
             if (upg > 0 && (hasInc || hasExp))
             {
-                DrawRect(s, w - 84, 16, 76, 32, { 120, 255, 220, 200 }, 1);
-                if (hasInc) DrawIconFlame(s, w - 78, 20, 20);
-                else DrawIconBomb(s, w - 78, 20, 20);
-                char upgBuf[16];
-                std::snprintf(upgBuf, sizeof(upgBuf), "%d", upg);
-                DrawText5x7(s, w - 52, 22, upgBuf, { 240, 240, 240, 255 }, 2);
+                DrawRect(srf, w - 84, 16, 76, 32, { 120, 255, 220, 200 }, 1);
+                if (hasInc) DrawIconFlame(srf, w - 78, 20, 20);
+                else DrawIconBomb(srf, w - 78, 20, 20);
+                const SevenSegStyle upgSt{ 7, 2, 2, 3 };
+                Draw7SegInt(srf, w - 52, 22, upg, upgSt, { 240, 240, 240, 255 });
+            }
+
+            const bool blinkOn = (desiredPhase == -1) ? true : (desiredPhase == 0);
+
+            if (inReload)
+            {
+                if (blinkOn)
+                    DrawRect(srf, 10, 20, w - 20, h - 40, { 120, 255, 220, 200 }, 2);
+                DrawText5x7(srf, w - 62, 90, "RLD", { 120, 255, 220, 200 }, 2);
             }
 
             if (clip <= 0 && reserve > 0)
             {
-                DrawRect(s, 10, 20, w - 20, h - 40, { 255, 80, 80, 180 }, 2);
+                if (blinkOn)
+                    DrawRect(srf, 10, 20, w - 20, h - 40, { 255, 80, 80, 180 }, 2);
+            }
+            else if (clip <= 0 && reserve <= 0)
+            {
+                DrawRect(srf, 10, 20, w - 20, h - 40, { 255, 80, 80, 220 }, 3);
+                DrawText5x7(srf, w - 62, 90, "EMPTY", { 255, 80, 80, 220 }, 2);
             }
 
             vr::VROverlay()->SetOverlayRaw(m_RightAmmoHudHandle, m_RightAmmoHudPixels.data(), (uint32_t)w, (uint32_t)h, 4);
