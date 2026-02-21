@@ -282,6 +282,18 @@ void VR::OnPredictionRunCommand(CUserCmd* cmd)
     if (!cmd || !m_Roomscale1To1Movement || m_ForceNonVRServerMovement)
         return;
 
+    // Prediction-side hard guard: never apply 1:1 SetAbsOrigin while control locomotion is active.
+    // Even if a packed delta from an adjacent frame is present, mixing both paths can feel like a
+    // periodic pull-back/stutter while moving.
+    const bool controlLocomotionNow =
+        (fabsf(cmd->forwardmove) > 0.5f) ||
+        (fabsf(cmd->sidemove) > 0.5f) ||
+        (fabsf(cmd->upmove) > 0.5f) ||
+        m_LocomotionActive ||
+        m_PushingThumbstick;
+    if (controlLocomotionNow)
+        return;
+
     Vector deltaM;
     if (!DecodeRoomscale1To1Delta(cmd->buttons, deltaM) || cmd->weaponselect != 0)
         return;
