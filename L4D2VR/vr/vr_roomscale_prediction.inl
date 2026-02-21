@@ -62,13 +62,13 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
     cmd->buttons &= ~(int)kRSButtonsMask;
     cmd->weaponsubtype = 0;
 
-    const bool stickBlock = m_Roomscale1To1DisableWhileThumbstick && m_PushingThumbstick;
+    const bool locomotionBlock = m_Roomscale1To1DisableWhileThumbstick && m_LocomotionActive;
 
     // Not in 1:1 server-teleport mode: keep continuity for when it re-enables.
-    if (m_ForceNonVRServerMovement || stickBlock)
+    if (m_ForceNonVRServerMovement || locomotionBlock)
     {
         if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
-            Game::logMsg("[VR][1to1][encode] skip (%s) cmd=%d", m_ForceNonVRServerMovement ? "ForceNonVRServerMovement=true" : "thumbstick", cmd->command_number);
+            Game::logMsg("[VR][1to1][encode] skip (%s) cmd=%d", m_ForceNonVRServerMovement ? "ForceNonVRServerMovement=true" : "locomotion", cmd->command_number);
 
         m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
         m_Roomscale1To1PrevValid = true;

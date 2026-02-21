@@ -390,7 +390,7 @@ void VR::UpdateTracking()
     // - 1:1 server roomscale (ForceNonVRServerMovement=false): optionally keep the camera fully decoupled from the tick-rate player origin
     //   so HMD motion stays smooth at headset refresh rate.
     const bool want1to1DecoupledCamera =
-        m_Roomscale1To1Movement && !m_ForceNonVRServerMovement && m_Roomscale1To1DecoupleCamera && !m_PushingThumbstick;
+        m_Roomscale1To1Movement && !m_ForceNonVRServerMovement && m_Roomscale1To1DecoupleCamera && !m_LocomotionActive;
 
     if (inEyeObserver)
     {
@@ -413,12 +413,12 @@ void VR::UpdateTracking()
     // Keep the legacy "camera following" escape hatch, but never override the explicit 1:1 decoupled camera mode.
     if (!want1to1DecoupledCamera)
     {
-        if ((cameraFollowing < 0 && cameraDistance > 1) || (m_PushingThumbstick))
+        if ((cameraFollowing < 0 && cameraDistance > 1) || (m_LocomotionActive))
             m_RoomscaleActive = false;
     }
     else
     {
-        if (m_PushingThumbstick)
+        if (m_LocomotionActive)
             m_RoomscaleActive = false;
     }
 

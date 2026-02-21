@@ -666,6 +666,13 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				(void*)(uintptr_t)m_Game->m_Offsets->ProcessUsercmds.address,
 				(void*)(uintptr_t)m_Game->m_Offsets->ReadUserCmd.address);
 		}
+		// Detect any locomotion input (keyboard WASD, thumbstick, etc.).
+		// Used to disable 1:1 roomscale movement/camera decoupling while actively moving via controls.
+		const float fm = cmd ? cmd->forwardmove : 0.0f;
+		const float sm = cmd ? cmd->sidemove : 0.0f;
+		const float um = cmd ? cmd->upmove : 0.0f;
+		m_VR->m_LocomotionActive = (fabsf(fm) > 0.5f) || (fabsf(sm) > 0.5f) || (fabsf(um) > 0.5f) || m_VR->m_PushingThumbstick;
+
 		m_VR->EncodeRoomscale1To1Move(cmd);
 	}
 

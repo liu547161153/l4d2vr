@@ -305,6 +305,9 @@ public:
 
 	bool m_PressedTurn = false;
 	bool m_PushingThumbstick = false;
+	// Any locomotion (keyboard WASD, thumbstick, etc.) detected in the current CreateMove.
+	// Used to avoid conflicts with 1:1 roomscale movement/camera decoupling.
+	bool m_LocomotionActive = false;
 	bool m_CrouchToggleActive = false;
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
