@@ -305,6 +305,9 @@ public:
 
 	bool m_PressedTurn = false;
 	bool m_PushingThumbstick = false;
+	// Any locomotion (keyboard WASD, thumbstick, etc.) detected in the current CreateMove.
+	// Used to avoid conflicts with 1:1 roomscale movement/camera decoupling.
+	bool m_LocomotionActive = false;
 	bool m_CrouchToggleActive = false;
 	bool m_VoiceRecordActive = false;
 	bool m_QuickTurnTriggered = false;
@@ -550,6 +553,20 @@ public:
 	bool m_ForceNonVRServerMovement = false;
 	bool m_Roomscale1To1Movement = true;
 	float m_Roomscale1To1MaxStepMeters = 0.35f;
+
+	// Roomscale 1:1 movement (ForceNonVRServerMovement=false):
+	// - Camera stays 1:1 with the HMD at render rate (no tick-rate stepping).
+	// - The player entity is only pulled/teleported when the camera drifts too far away.
+	// - Roomscale is optionally disabled while thumbstick locomotion is active to avoid conflicts.
+	bool m_Roomscale1To1DecoupleCamera = true;
+	bool m_Roomscale1To1UseCameraDistanceChase = true;
+	bool m_Roomscale1To1DisableWhileThumbstick = true;
+	float m_Roomscale1To1AllowedCameraDriftMeters = 0.25f;
+	float m_Roomscale1To1ChaseHysteresisMeters = 0.05f;
+	float m_Roomscale1To1MinApplyMeters = 0.02f;
+	bool m_Roomscale1To1ChaseActive = false;
+	// After control locomotion stops, keep 1:1 chase/apply paused for a few cmds to avoid stop-time pullback.
+	int m_Roomscale1To1LocomotionCooldownCmds = 0;
 
 	Vector m_Roomscale1To1PrevCorrectedAbs = {};
 	// Accumulate sub-centimeter HMD deltas so slow walking/leaning still produces movement.

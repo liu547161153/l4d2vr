@@ -51,34 +51,174 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
 {
     if (!cmd || !m_Roomscale1To1Movement)
         return;
-    // Not in 1:1 server-teleport mode: keep continuity for when it re-enables.
-    if (m_ForceNonVRServerMovement)
-    {
-        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
-            Game::logMsg("[VR][1to1][encode] skip (ForceNonVRServerMovement=true) cmd=%d", cmd->command_number);
 
-        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
-        m_Roomscale1To1PrevValid = true;
-        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
-        return;
-    }
-    if (cmd->weaponselect != 0)
-    {
-        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
-            Game::logMsg("[VR][1to1][encode] skip (weaponselect=%d) cmd=%d", cmd->weaponselect, cmd->command_number);
-        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
-        m_Roomscale1To1PrevValid = true;
-        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
-        return;
-    }
     // IMPORTANT: Do NOT rely on weaponsubtype for the 1:1 delta on the wire.
     // It often does not survive usercmd delta encoding when weaponselect==0.
     // Instead, pack into the unused high bits of cmd->buttons.
     static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
+
     const uint32_t buttonsBefore = (uint32_t)cmd->buttons;
     // Ensure we never accidentally re-send a previous packed delta.
     cmd->buttons &= ~(int)kRSButtonsMask;
     cmd->weaponsubtype = 0;
+
+    // HARD RULE: never apply 1:1 SetAbsOrigin-style movement while the player is using
+    // normal locomotion controls (keyboard WASD, thumbstick, etc.).
+    // If we mix both, the server-side SetAbsOrigin runs alongside standard movement and
+    // can manifest as a periodic "stop"/stutter in player movement.
+    //
+    // Note: we intentionally use the raw cmd move values here (not only m_LocomotionActive),
+    // because some call paths can update m_LocomotionActive late or not at all.
+    const bool controlLocomotionNow =
+        (fabsf(cmd->forwardmove) > 0.5f) ||
+        (fabsf(cmd->sidemove) > 0.5f) ||
+        (fabsf(cmd->upmove) > 0.5f);
+    if (controlLocomotionNow)
+    {
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        m_Roomscale1To1ChaseActive = false;
+        m_Roomscale1To1LocomotionCooldownCmds = 8;
+        return;
+    }
+
+    if (m_Roomscale1To1LocomotionCooldownCmds > 0)
+    {
+        --m_Roomscale1To1LocomotionCooldownCmds;
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        m_Roomscale1To1ChaseActive = false;
+        return;
+    }
+
+    const bool locomotionBlock = m_Roomscale1To1DisableWhileThumbstick && m_LocomotionActive;
+
+    // Not in 1:1 server-teleport mode: keep continuity for when it re-enables.
+    if (m_ForceNonVRServerMovement || locomotionBlock)
+    {
+        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
+            Game::logMsg("[VR][1to1][encode] skip (%s) cmd=%d", m_ForceNonVRServerMovement ? "ForceNonVRServerMovement=true" : "locomotion", cmd->command_number);
+
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        m_Roomscale1To1ChaseActive = false;
+        if (locomotionBlock)
+            m_Roomscale1To1LocomotionCooldownCmds = 8;
+        return;
+    }
+
+    if (cmd->weaponselect != 0)
+    {
+        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
+            Game::logMsg("[VR][1to1][encode] skip (weaponselect=%d) cmd=%d", cmd->weaponselect, cmd->command_number);
+
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        m_Roomscale1To1ChaseActive = false;
+        return;
+    }
+
+    // --------------------------------------------------------------------
+    // New behavior (default): camera-only 1:1 render; pull the player entity
+    // only when the camera has drifted too far away.
+    // This avoids the "30Hz tick stepping" feeling on high-refresh HMDs.
+    // --------------------------------------------------------------------
+    if (m_Roomscale1To1UseCameraDistanceChase)
+    {
+        // Keep continuity for legacy mode toggles.
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+
+        // Chase mode should not fight normal locomotion (keyboard/thumbstick).
+        // While locomotion is active, the engine is already moving the player and third-person camera
+        // can introduce intentional camera/player offsets. So disable chase and reset state.
+        const bool anyLocomotionNow = m_LocomotionActive || (fabsf(cmd->forwardmove) > 0.5f) || (fabsf(cmd->sidemove) > 0.5f) || (fabsf(cmd->upmove) > 0.5f);
+        if (anyLocomotionNow)
+        {
+            m_Roomscale1To1ChaseActive = false;
+            m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+            return;
+        }
+
+        Vector toCamU = m_SetupOriginToHMD;
+        toCamU.z = 0.0f;
+
+        const float distU = std::sqrt((toCamU.x * toCamU.x) + (toCamU.y * toCamU.y));
+        const float scale = std::max(0.001f, m_VRScale);
+        const float distM = distU / scale;
+
+        const float start = std::max(0.0f, m_Roomscale1To1AllowedCameraDriftMeters);
+        const float hyst = std::clamp(m_Roomscale1To1ChaseHysteresisMeters, 0.0f, start);
+        const float stop = std::max(0.0f, start - hyst);
+
+        if (!m_Roomscale1To1ChaseActive)
+        {
+            if (distM <= start)
+                return;
+            m_Roomscale1To1ChaseActive = true;
+        }
+        else
+        {
+            if (distM <= stop)
+            {
+                m_Roomscale1To1ChaseActive = false;
+                return;
+            }
+        }
+
+        if (distU < 0.0001f)
+            return;
+
+        const float needM = distM - stop;
+        if (needM < std::max(0.0f, m_Roomscale1To1MinApplyMeters))
+            return;
+
+        const float stepM = std::min(std::max(0.0f, m_Roomscale1To1MaxStepMeters), needM);
+        Vector deltaM((toCamU.x / distU) * stepM, (toCamU.y / distU) * stepM, 0.0f);
+
+        int dx_cm = (int)roundf(deltaM.x * 100.0f);
+        int dy_cm = (int)roundf(deltaM.y * 100.0f);
+        if (dx_cm == 0 && dy_cm == 0)
+            return;
+
+        // We have 3 signed bits per axis => [-4..3] cm per cmd.
+        int send_dx_cm = dx_cm;
+        int send_dy_cm = dy_cm;
+        if (send_dx_cm < -4) send_dx_cm = -4;
+        if (send_dx_cm > 3)  send_dx_cm = 3;
+        if (send_dy_cm < -4) send_dy_cm = -4;
+        if (send_dy_cm > 3)  send_dy_cm = 3;
+
+        if (send_dx_cm != 0 || send_dy_cm != 0)
+        {
+            const uint32_t dx3 = (uint32_t)(send_dx_cm & 0x7);
+            const uint32_t dy3 = (uint32_t)(send_dy_cm & 0x7);
+            const uint32_t packed = (dx3 << 26) | (dy3 << 29);
+            cmd->buttons = (int)((cmd->buttons & ~(int)kRSButtonsMask) | (int)packed);
+        }
+
+        const uint32_t buttonsAfter = (uint32_t)cmd->buttons;
+        if (m_Roomscale1To1DebugLog && !ShouldThrottle(m_Roomscale1To1DebugLastEncode, m_Roomscale1To1DebugLogHz))
+        {
+            Game::logMsg("[VR][1to1][encode] chase cmd=%d tick=%d cmdptr=%p buttons 0x%08X->0x%08X drift=%.3fm start=%.3fm stop=%.3fm step=%.3fm send=(%d,%d)",
+                +cmd->command_number, cmd->tick_count, (void*)cmd,
+                (unsigned)buttonsBefore, (unsigned)buttonsAfter,
+                distM, start, stop, stepM, send_dx_cm, send_dy_cm);
+        }
+
+        // Chase mode doesn't use the legacy delta accumulator.
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        return;
+    }
+
+    // --------------------------------------------------------------------
+    // Legacy behavior: push the player by per-tick HMD delta.
+    // --------------------------------------------------------------------
+    m_Roomscale1To1ChaseActive = false;
 
     Vector cur = m_HmdPosCorrectedPrev;
     if (!m_Roomscale1To1PrevValid)
@@ -96,6 +236,13 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
     d.z = 0.0f;
 
     float len = std::sqrt((d.x * d.x) + (d.y * d.y));
+    if (len < std::max(0.0f, m_Roomscale1To1MinApplyMeters))
+    {
+        // Ignore micro-movement/noise (helps avoid conflicts with thumbstick locomotion).
+        m_Roomscale1To1PrevCorrectedAbs = cur;
+        return;
+    }
+
     if (len > m_Roomscale1To1MaxStepMeters && len > 0.0001f)
     {
         float s = m_Roomscale1To1MaxStepMeters / len;
@@ -146,6 +293,19 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
 void VR::OnPredictionRunCommand(CUserCmd* cmd)
 {
     if (!cmd || !m_Roomscale1To1Movement || m_ForceNonVRServerMovement)
+        return;
+
+    // Prediction-side hard guard: never apply 1:1 SetAbsOrigin while control locomotion is active.
+    // Even if a packed delta from an adjacent frame is present, mixing both paths can feel like a
+    // periodic pull-back/stutter while moving.
+    const bool controlLocomotionNow =
+        (fabsf(cmd->forwardmove) > 0.5f) ||
+        (fabsf(cmd->sidemove) > 0.5f) ||
+        (fabsf(cmd->upmove) > 0.5f) ||
+        m_LocomotionActive ||
+        m_PushingThumbstick ||
+        (m_Roomscale1To1LocomotionCooldownCmds > 0);
+    if (controlLocomotionNow)
         return;
 
     Vector deltaM;

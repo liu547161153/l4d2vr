@@ -212,6 +212,9 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			walkNy = ny;
 			walkMaxSpeed = maxSpeed;
 
+			// Track thumbstick locomotion state (used to disable 1:1 roomscale when requested).
+			m_VR->m_PushingThumbstick = (fabsf(nx) > 0.0001f) || (fabsf(ny) > 0.0001f);
+
 			// VR-aware servers: we can apply movement directly in cmd space.
 			// Non-VR servers: we will re-base movement later after overriding cmd->viewangles.
 			if (!treatServerAsNonVR)
@@ -247,6 +250,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			if (nx > 0.5f)      cmd->buttons |= (1 << 10);
 			else if (nx < -0.5f)cmd->buttons |= (1 << 9);
 
+		}
+		else
+		{
+			m_VR->m_PushingThumbstick = false;
 		}
 
 		// ② ★ 非 VR 服务器：把“右手手柄朝向”塞给服务器用的视角
@@ -659,6 +666,13 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				(void*)(uintptr_t)m_Game->m_Offsets->ProcessUsercmds.address,
 				(void*)(uintptr_t)m_Game->m_Offsets->ReadUserCmd.address);
 		}
+		// Detect any locomotion input (keyboard WASD, thumbstick, etc.).
+		// Used to disable 1:1 roomscale movement/camera decoupling while actively moving via controls.
+		const float fm = cmd ? cmd->forwardmove : 0.0f;
+		const float sm = cmd ? cmd->sidemove : 0.0f;
+		const float um = cmd ? cmd->upmove : 0.0f;
+		m_VR->m_LocomotionActive = (fabsf(fm) > 0.5f) || (fabsf(sm) > 0.5f) || (fabsf(um) > 0.5f) || m_VR->m_PushingThumbstick;
+
 		m_VR->EncodeRoomscale1To1Move(cmd);
 	}
 

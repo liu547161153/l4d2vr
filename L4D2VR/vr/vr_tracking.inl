@@ -134,12 +134,11 @@ void VR::UpdateTracking()
     // Mounted gun (.50cal/minigun):
     // - Render hook forces first-person while mounted.
     // - When we exit the mounted gun, do a one-shot ResetPosition to re-align anchors.
-    {
-        const bool usingMountedGunNow = IsUsingMountedGun(localPlayer);
-        if (m_UsingMountedGunPrev && !usingMountedGunNow)
-            m_ResetPositionAfterMountedGunExitPending = true;
-        m_UsingMountedGunPrev = usingMountedGunNow;
-    }
+    const bool usingMountedGunNow = IsUsingMountedGun(localPlayer);
+    if (m_UsingMountedGunPrev && !usingMountedGunNow)
+        m_ResetPositionAfterMountedGunExitPending = true;
+    m_UsingMountedGunPrev = usingMountedGunNow;
+
     m_Game->m_IsMeleeWeaponActive = viewPlayer->IsMeleeWeaponActive();
 
     // Scope: only render/show when holding a firearm
@@ -385,18 +384,48 @@ void VR::UpdateTracking()
     float cameraFollowing = DotProduct(cameraMovingDirection, cameraToPlayer);
     float cameraDistance = VectorLength(cameraToPlayer);
 
+    // Roomscale camera behavior:
+    // - Legacy: only allow roomscale camera anchoring while "standing still" (velocity==0), and disable while thumbstick locomotion is active.
+    // - 1:1 server roomscale (ForceNonVRServerMovement=false): optionally keep the camera fully decoupled from the tick-rate player origin
+    //   so HMD motion stays smooth at headset refresh rate.
+    const bool want1to1DecoupledCamera =
+        m_Roomscale1To1Movement && !m_ForceNonVRServerMovement && m_Roomscale1To1DecoupleCamera && !m_LocomotionActive && !usingMountedGunNow;
+
     if (inEyeObserver)
     {
         m_RoomscaleActive = false;
+    }
+    else if (usingMountedGunNow)
+    {
+        // Mounted guns force first-person render path; keep roomscale anchor coupled to avoid
+        // first/third-person render-path thrashing when decoupled camera mode is enabled.
+        m_RoomscaleActive = false;
+    }
+    else if (want1to1DecoupledCamera)
+    {
+        // In 1:1 mode, the camera should not be dragged by the player's tick-rate origin updates.
+        m_RoomscaleActive = true;
     }
     else if (localPlayer->m_hGroundEntity != -1 && localPlayer->m_vecVelocity.IsZero())
     {
         m_RoomscaleActive = true;
     }
-
-    // TODO: Get roomscale to work while using thumbstick
-    if ((cameraFollowing < 0 && cameraDistance > 1) || (m_PushingThumbstick))
+    else
+    {
         m_RoomscaleActive = false;
+    }
+
+    // Keep the legacy "camera following" escape hatch, but never override the explicit 1:1 decoupled camera mode.
+    if (!want1to1DecoupledCamera)
+    {
+        if ((cameraFollowing < 0 && cameraDistance > 1) || (m_LocomotionActive))
+            m_RoomscaleActive = false;
+    }
+    else
+    {
+        if (m_LocomotionActive)
+            m_RoomscaleActive = false;
+    }
 
     if (!m_RoomscaleActive)
         m_CameraAnchor += m_SetupOrigin - m_SetupOriginPrev;
