@@ -1870,6 +1870,70 @@ void VR::UpdateHandHudOverlays()
         return rel;
     };
 
+    // Compute decayed temp HP from (m_healthBuffer, m_healthBufferTime) using wall-clock time.
+    // The engine does: max(0, healthBuffer - decayRate * (curtime - healthBufferTime)).
+    // We don't have gpGlobals->curtime here, so we approximate with steady_clock since the
+    // last observed (bufferTime/buffer) update.
+    auto computeDecayedTempHP = [&](int entIndex, const unsigned char* entBase) -> int
+    {
+        if (!entBase)
+            return 0;
+
+        const float raw = std::max(0.0f, *reinterpret_cast<const float*>(entBase + kHealthBufferOffset));
+        const float rawTime = *reinterpret_cast<const float*>(entBase + kHealthBufferTimeOffset);
+        if (raw <= 0.0f)
+            return 0;
+
+        const int slot = std::max(0, std::min((int)m_HandHudTempHealthStates.size() - 1, entIndex));
+        TempHealthDecayState& st = m_HandHudTempHealthStates[(size_t)slot];
+
+        const auto now = std::chrono::steady_clock::now();
+
+        const bool newDoseOrReset = (!st.initialized)
+            || (std::fabs(rawTime - st.rawBufferTime) > 0.0001f)
+            || (raw > st.rawBuffer + 0.01f)
+            || (raw < st.rawBuffer - 0.01f);
+
+        if (newDoseOrReset)
+        {
+            st.rawBuffer = raw;
+            st.rawBufferTime = rawTime;
+            st.wallStart = now;
+            st.lastRemaining = raw;
+            st.initialized = true;
+        }
+
+        // Freeze decay while paused.
+        if (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsPaused())
+        {
+            st.wallStart = now;
+            return (int)std::round(std::max(0.0f, st.lastRemaining));
+        }
+
+        const float elapsed = std::chrono::duration<float>(now - st.wallStart).count();
+        const float decayRate = std::max(0.0f, m_HandHudTempHealthDecayRate);
+        const float remaining = std::max(0.0f, st.rawBuffer - decayRate * elapsed);
+        st.lastRemaining = remaining;
+        return (int)std::round(remaining);
+    };
+
+    auto survivorNameFromCharacter = [&](int survivorChar) -> const char*
+    {
+        // L4D2 SurvivorCharacter enum (common ordering).
+        switch (survivorChar)
+        {
+        case 0: return "NICK";
+        case 1: return "ROCHELLE";
+        case 2: return "COACH";
+        case 3: return "ELLIS";
+        case 4: return "BILL";
+        case 5: return "ZOEY";
+        case 6: return "FRANCIS";
+        case 7: return "LOUIS";
+        default: return nullptr;
+        }
+    };
+
     const bool canShowLeft = m_LeftWristHudEnabled && m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid && offHandIndex != vr::k_unTrackedDeviceIndexInvalid;
     if (canShowLeft)
     {
@@ -1878,12 +1942,13 @@ void VR::UpdateHandHudOverlays()
         vr::HmdMatrix34_t rel = buildRel(m_LeftWristHudXOffset, m_LeftWristHudYOffset, m_LeftWristHudZOffset, m_LeftWristHudAngleOffset);
         vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
         vr::VROverlay()->SetOverlayWidthInMeters(m_LeftWristHudHandle, std::max(0.01f, m_LeftWristHudWidthMeters));
-        vr::VROverlay()->SetOverlayTexelAspect(m_LeftWristHudHandle, (float)m_LeftWristHudTexW / (float)m_LeftWristHudTexH);
+        // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
+        vr::VROverlay()->SetOverlayTexelAspect(m_LeftWristHudHandle, 1.0f);
         vr::VROverlay()->SetOverlayCurvature(m_LeftWristHudHandle, std::max(0.0f, m_LeftWristHudCurvature));
+        vr::VROverlay()->SetOverlayAlpha(m_LeftWristHudHandle, std::max(0.0f, std::min(1.0f, m_LeftWristHudAlpha)));
 
         const int hp = *reinterpret_cast<const int*>(pBase + kHealthOffset);
-        const float tempHPf = *reinterpret_cast<const float*>(pBase + kHealthBufferOffset);
-        const int tempHP = (int)std::max(0.0f, std::round(tempHPf));
+        const int tempHP = computeDecayedTempHP(playerIndex, pBase);
         const bool incap = (*reinterpret_cast<const unsigned char*>(pBase + kIsIncapacitatedOffset)) != 0;
         const bool ledge = (*reinterpret_cast<const unsigned char*>(pBase + kIsHangingFromLedgeOffset)) != 0;
         const bool third = (*reinterpret_cast<const unsigned char*>(pBase + kIsOnThirdStrikeOffset)) != 0;
@@ -1952,7 +2017,8 @@ void VR::UpdateHandHudOverlays()
             {
                 char batBuf[64];
                 std::snprintf(batBuf, sizeof(batBuf), "LC:%d%% RC:%d%%", battL, battR);
-                DrawText5x7(s, 18, 54, batBuf, { 200, 200, 200, 230 }, 2);
+                const int battScale = std::max(1, std::min(4, m_LeftWristHudBatteryTextScale));
+                DrawText5x7(s, 18, 54, batBuf, { 200, 200, 200, 230 }, battScale);
             }
 
             int dotX = w - 62;
@@ -1985,8 +2051,7 @@ void VR::UpdateHandHudOverlays()
                     if (team != 2) continue;
 
                     const int thp = *reinterpret_cast<const int*>(pb + kHealthOffset);
-                    const float tbuf = *reinterpret_cast<const float*>(pb + kHealthBufferOffset);
-                    const int ttmp = (int)std::max(0.0f, std::round(tbuf));
+                    const int ttmp = computeDecayedTempHP(i, pb);
 
                     char nameBuf[16] = { 0 };
                     player_info_t info{};
@@ -2000,10 +2065,22 @@ void VR::UpdateHandHudOverlays()
                             nameBuf[n] = ch;
                         }
                         nameBuf[n] = 0;
+                        if (nameBuf[0] == 0)
+                        {
+                            const int survivorChar = *reinterpret_cast<const int*>(pb + kSurvivorCharacterOffset);
+                            const char* sname = survivorNameFromCharacter(survivorChar);
+                            if (sname && sname[0])
+                                std::snprintf(nameBuf, sizeof(nameBuf), "%s", sname);
+                        }
                     }
                     else
                     {
-                        std::snprintf(nameBuf, sizeof(nameBuf), "P%d", i);
+                        const int survivorChar = *reinterpret_cast<const int*>(pb + kSurvivorCharacterOffset);
+                        const char* sname = survivorNameFromCharacter(survivorChar);
+                        if (sname && sname[0])
+                            std::snprintf(nameBuf, sizeof(nameBuf), "%s", sname);
+                        else
+                            std::snprintf(nameBuf, sizeof(nameBuf), "P%d", i);
                     }
 
                     const int y0 = 18 + row * 18;
@@ -2069,7 +2146,9 @@ void VR::UpdateHandHudOverlays()
         vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
         vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
         vr::VROverlay()->SetOverlayWidthInMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters));
-        vr::VROverlay()->SetOverlayTexelAspect(m_RightAmmoHudHandle, (float)m_RightAmmoHudTexW / (float)m_RightAmmoHudTexH);
+        vr::VROverlay()->SetOverlayAlpha(m_RightAmmoHudHandle, std::max(0.0f, std::min(1.0f, m_RightAmmoHudAlpha)));
+        // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
+        vr::VROverlay()->SetOverlayTexelAspect(m_RightAmmoHudHandle, 1.0f);
 
         int clip = 0;
         int reserve = 0;
@@ -2160,7 +2239,7 @@ void VR::UpdateHandHudOverlays()
             const Rgba clipColor = clipLow ? Rgba{ 255, 80, 80, 255 } : Rgba{ 240, 240, 240, 255 };
             const Rgba resColor = resLow ? Rgba{ 255, 80, 80, 230 } : Rgba{ 200, 200, 200, 230 };
 
-            const SevenSegStyle clipSt{ 14, 4, 2, 6 };
+            const SevenSegStyle clipSt{ 12, 3, 2, 4 };
             Draw7SegInt(s, 18, 24, std::max(0, clip), clipSt, clipColor);
 
             DrawText5x7(s, 18, 88, "/", { 200, 200, 200, 220 }, 3);
@@ -2170,7 +2249,7 @@ void VR::UpdateHandHudOverlays()
             }
             else
             {
-                const SevenSegStyle resSt{ 9, 2, 2, 4 };
+                const SevenSegStyle resSt{ 8, 2, 2, 3 };
                 Draw7SegInt(s, 32, 86, std::max(0, reserve), resSt, resColor);
             }
 
