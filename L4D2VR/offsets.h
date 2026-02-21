@@ -10,23 +10,40 @@ struct Offset
     int address;
     std::string signature;
     int sigOffset;
+    bool optional;
 
-    Offset(std::string moduleName, int currentOffset, std::string signature, int sigOffset = 0)
+    Offset(std::string moduleName, int currentOffset, std::string signature, int sigOffset = 0, bool optional = false)
     {
         this->moduleName = moduleName;
         this->offset = currentOffset;
         this->signature = signature;
         this->sigOffset = sigOffset;
+        this->optional = optional;
 
         int newOffset = SigScanner::VerifyOffset(moduleName, currentOffset, signature, sigOffset);
         if (newOffset > 0)
         {
             this->offset = newOffset;
+            Game::logMsg("[Offsets] Signature resolved: module=%s offset=0x%X sigOffset=%d sig=\"%s\"",
+                moduleName.c_str(), this->offset, sigOffset, signature.c_str());
+        }
+        else if (newOffset == 0)
+        {
+            Game::logMsg("[Offsets] Signature verified: module=%s offset=0x%X sigOffset=%d sig=\"%s\"",
+                moduleName.c_str(), this->offset, sigOffset, signature.c_str());
         }
             
         if (newOffset == -1)
         {
-            Game::errorMsg(("Signature not found: " + signature).c_str());
+            if (optional)
+            {
+                Game::logMsg("[Offsets] Optional signature not found: module=%s sig=\"%s\"",
+                    moduleName.c_str(), signature.c_str());
+            }
+            else
+            {
+                Game::errorMsg(("Signature not found: " + signature).c_str());
+            }
             return;
         }
 
@@ -63,6 +80,16 @@ public:
     Offset GetActiveWeapon =             { "server.dll", 0x464F0, "55 8B EC 8B 45 0C 56 8B 75 08 50 56 E8 ? ? ? ? 84 C0 74 47 8B", -64 };
     Offset GetMeleeWeaponInfo =          { "server.dll", 0x3E67D0, "8B 81 ? ? ? ? 50 B9 ? ? ? ? E8 ? ? ? ? C3" };
     Offset EyePosition =                 { "server.dll", 0x6D610, "55 8B EC 56 8B F1 8B 86 ? ? ? ? C1 E8 0B A8 01 74 05 E8 ? ? ? ? 8B 45 08 F3" };
+    // CBaseEntity::SetAbsOrigin (server/client) - used for roomscale 1:1 movement
+    Offset CBaseEntity_SetAbsOrigin_Server = { "server.dll", 0,
+        "?? ?? ?? ?? ?? ?? A1 ?? ?? ?? ?? 33 ?? 89 ?? ?? 56 57 8B ?? ?? 8B ?? E8 ?? ?? ?? ?? F3 ?? ?? ?? 0F 2E ?? ?? ?? ?? ?? 9F F6 ?? ?? 7A ?? F3 ?? ?? ?? ?? 0F 2E ?? ?? ?? ?? ?? 9F F6 ?? ?? 7A ?? F3 ?? ?? ?? ?? 0F 2E ?? ?? ?? ?? ?? 9F F6 ?? ?? 0F 8B ?? ?? ?? ?? 6A",
+        0
+    };
+
+    Offset CBaseEntity_SetAbsOrigin_Client = { "client.dll", 0,
+        "55 8B EC 56 57 8B F1 E8 ?? ?? ?? ?? 8B 7D 08 F3 0F 10 07",
+        0
+    };
 
     Offset GetRenderTarget =             { "materialsystem.dll", 0x2CD30, "83 79 4C 00" };
     Offset Viewport =                    { "materialsystem.dll", 0x2E010, "55 8B EC 83 EC 28 8B C1" };
