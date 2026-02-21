@@ -625,6 +625,228 @@ Option g_Options[] =
         "true"
     },
 
+
+    // HUD (Hand)
+    {
+        "LeftWristHudBgAlpha",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD Background Opacity", u8"腕表HUD背景透明度" },
+        { u8"Background opacity for the wrist HUD panel (0..1).",
+          u8"腕表HUD面板背景透明度（0..1）。" },
+        { u8"Only affects panel fill; text/icons remain readable.",
+          u8"仅影响背景填充，文字/图标保持清晰。" },
+        0.0f, 1.0f,
+        "0.85"
+    },
+    {
+        "RightAmmoHudBgAlpha",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD Background Opacity", u8"弹药HUD背景透明度" },
+        { u8"Background opacity for the ammo HUD panel (0..1).",
+          u8"弹药HUD面板背景透明度（0..1）。" },
+        { u8"Lower values make it less intrusive.",
+          u8"数值越小越不遮挡。" },
+        0.0f, 1.0f,
+        "0.70"
+    },
+    {
+        "LeftWristHudEnabled",
+        OptionType::Bool,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Enable Wrist HUD (Off-hand)", u8"启用腕表HUD（副手）" },
+        { u8"Shows a small wrist-style HUD on the off-hand controller using a SteamVR overlay.",
+          u8"在副手手柄上用SteamVR覆盖层显示一个腕表式小HUD。" },
+        { u8"Displays HP and quick item status (throwable/med/pills or adrenaline).",
+          u8"显示生命值与关键物品状态（投掷物/医疗槽/药片或肾上腺素）。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "LeftWristHudWidthMeters",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD Width (meters)", u8"腕表HUD宽度（米）" },
+        { u8"Physical width of the wrist HUD overlay quad (meters).",
+          u8"腕表HUD覆盖层平面的物理宽度（米）。" },
+        { u8"Bigger = easier to read, but can feel intrusive.",
+          u8"越大越容易看清，但也更显眼。" },
+        0.01f, 0.40f,
+        "0.11"
+    },
+    {
+        "LeftWristHudCurvature",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD Curvature", u8"腕表HUD弧度" },
+        { u8"Curves the wrist HUD overlay so it wraps like a watch face (SteamVR overlay curvature).",
+          u8"让腕表HUD覆盖层呈弧面，像手表表盘一样贴合（SteamVR覆盖层曲率）。" },
+        { u8"0 = flat. Typical values: 0.1~0.3.",
+          u8"0为平面。常用范围：0.1~0.3。" },
+        0.0f, 1.0f,
+        "0.20"
+    },
+    {
+        "LeftWristHudShowBattery",
+        OptionType::Bool,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Show Controller Battery", u8"显示手柄电量" },
+        { u8"Shows off-hand and gun-hand controller battery percentage on the wrist HUD.",
+          u8"在腕表HUD上显示副手与持枪手手柄电量。" },
+        { u8"Useful for long sessions.",
+          u8"长时间游戏很实用。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "LeftWristHudShowTeammates",
+        OptionType::Bool,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Show Teammate Mini HP Bars", u8"显示队友小血条" },
+        { u8"Shows up to 3 teammate HP bars on the wrist HUD.",
+          u8"在腕表HUD上显示最多3名队友的小血条。" },
+        { u8"Includes temp HP and a third-strike frame.",
+          u8"包含临时血，并在黑白时加边框提示。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "LeftWristHudXOffset",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD X Offset", u8"腕表HUD X偏移" },
+        { u8"Overlay translation in controller local space (meters).",
+          u8"覆盖层在手柄本地坐标系中的平移（米）。" },
+        { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
+          u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
+        -0.25f, 0.25f,
+        "-0.02"
+    },
+    {
+        "LeftWristHudYOffset",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD Y Offset", u8"腕表HUD Y偏移" },
+        { u8"Overlay translation in controller local space (meters).",
+          u8"覆盖层在手柄本地坐标系中的平移（米）。" },
+        { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
+          u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
+        -0.25f, 0.25f,
+        "0.02"
+    },
+    {
+        "LeftWristHudZOffset",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD Z Offset", u8"腕表HUD Z偏移" },
+        { u8"Overlay translation in controller local space (meters).",
+          u8"覆盖层在手柄本地坐标系中的平移（米）。" },
+        { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
+          u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
+        -0.25f, 0.25f,
+        "0.07"
+    },
+    {
+        "LeftWristHudAngleOffset",
+        OptionType::Vec3,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Wrist HUD Angle Offset (pitch,yaw,roll)", u8"腕表HUD角度偏移 (俯仰,偏航,翻滚)" },
+        { u8"Additional rotation for the wrist HUD overlay (degrees).",
+          u8"腕表HUD覆盖层的额外旋转（度）。" },
+        { u8"Adjust so it faces your eyes naturally.",
+          u8"调到看起来像贴在手腕上、自然朝向眼睛即可。" },
+        -180.f, 180.f,
+        "-45,0,90"
+    },
+
+    {
+        "RightAmmoHudEnabled",
+        OptionType::Bool,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Enable Ammo HUD (Gun-hand)", u8"启用弹药HUD（持枪手）" },
+        { u8"Shows a compact ammo HUD on the gun-hand controller using a SteamVR overlay.",
+          u8"在持枪手手柄上用SteamVR覆盖层显示一个科技感弹药框。" },
+        { u8"Displays clip/reserve and upgraded ammo when available.",
+          u8"显示弹匣/备弹，并在有特殊子弹时显示剩余量。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "RightAmmoHudWidthMeters",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD Width (meters)", u8"弹药HUD宽度（米）" },
+        { u8"Physical width of the ammo HUD overlay quad (meters).",
+          u8"弹药HUD覆盖层平面的物理宽度（米）。" },
+        { u8"Increase if numbers are too small.",
+          u8"如果数字太小就调大。" },
+        0.01f, 0.50f,
+        "0.04"
+    },
+    {
+        "RightAmmoHudXOffset",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD X Offset", u8"弹药HUD X偏移" },
+        { u8"Overlay translation in controller local space (meters).",
+          u8"覆盖层在手柄本地坐标系中的平移（米）。" },
+        { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
+          u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
+        -0.25f, 0.25f,
+        "0.02"
+    },
+    {
+        "RightAmmoHudYOffset",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD Y Offset", u8"弹药HUD Y偏移" },
+        { u8"Overlay translation in controller local space (meters).",
+          u8"覆盖层在手柄本地坐标系中的平移（米）。" },
+        { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
+          u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
+        -0.25f, 0.25f,
+        "0.00"
+    },
+    {
+        "RightAmmoHudZOffset",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD Z Offset", u8"弹药HUD Z偏移" },
+        { u8"Overlay translation in controller local space (meters).",
+          u8"覆盖层在手柄本地坐标系中的平移（米）。" },
+        { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
+          u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
+        -0.25f, 0.25f,
+        "0.09"
+    },
+    {
+        "RightAmmoHudAngleOffset",
+        OptionType::Vec3,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD Angle Offset (pitch,yaw,roll)", u8"弹药HUD角度偏移 (俯仰,偏航,翻滚)" },
+        { u8"Additional rotation for the ammo HUD overlay (degrees).",
+          u8"弹药HUD覆盖层的额外旋转（度）。" },
+        { u8"Adjust so it sits like a weapon-side panel.",
+          u8"调到像贴在武器旁边的小屏幕即可。" },
+        -180.f, 180.f,
+        "0,0,0"
+    },
+
+    {
+        "HandHudMaxHz",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Hand HUD Update Rate (Hz)", u8"手柄HUD刷新率(Hz)" },
+        { u8"Maximum update rate for hand HUD overlays. 0 disables throttling.",
+          u8"手柄HUD的最大刷新率。0表示不限制。" },
+        { u8"30 is plenty; lower reduces CPU overhead.",
+          u8"30就足够了；更低可以减少CPU开销。" },
+        0.0f, 240.0f,
+        "30"
+    },
+
+
     // Hands / Debug
     {
         "HideArms",
