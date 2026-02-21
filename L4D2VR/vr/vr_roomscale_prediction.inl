@@ -62,6 +62,26 @@ void VR::EncodeRoomscale1To1Move(CUserCmd* cmd)
     cmd->buttons &= ~(int)kRSButtonsMask;
     cmd->weaponsubtype = 0;
 
+    // HARD RULE: never apply 1:1 SetAbsOrigin-style movement while the player is using
+    // normal locomotion controls (keyboard WASD, thumbstick, etc.).
+    // If we mix both, the server-side SetAbsOrigin runs alongside standard movement and
+    // can manifest as a periodic "stop"/stutter in player movement.
+    //
+    // Note: we intentionally use the raw cmd move values here (not only m_LocomotionActive),
+    // because some call paths can update m_LocomotionActive late or not at all.
+    const bool controlLocomotionNow =
+        (fabsf(cmd->forwardmove) > 0.5f) ||
+        (fabsf(cmd->sidemove) > 0.5f) ||
+        (fabsf(cmd->upmove) > 0.5f);
+    if (controlLocomotionNow)
+    {
+        m_Roomscale1To1PrevCorrectedAbs = m_HmdPosCorrectedPrev;
+        m_Roomscale1To1PrevValid = true;
+        m_Roomscale1To1AccumMeters = Vector(0.0f, 0.0f, 0.0f);
+        m_Roomscale1To1ChaseActive = false;
+        return;
+    }
+
     const bool locomotionBlock = m_Roomscale1To1DisableWhileThumbstick && m_LocomotionActive;
 
     // Not in 1:1 server-teleport mode: keep continuity for when it re-enables.
