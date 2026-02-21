@@ -8,7 +8,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 {
 	static EngineThirdPersonCamSmoother s_engineTpCam;
 
-	if (!m_VR->m_CreatedVRTextures)
+	if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
 		m_VR->CreateVRTextures();
 
 	// Scope / rear-mirror RTTs may be created lazily (see LazyScopeRearMirrorRTT).
@@ -21,6 +21,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
+
+	// Reset "HUD painted" flag once per VR frame (prevents double HUD captures across eyes).
+	m_VR->m_HudPaintedThisFrame.store(false, std::memory_order_release);
 
 	// ------------------------------
 	// Third-person camera fix:
@@ -587,7 +590,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// ----------------------------
 	// Scope RTT pass: render from scope camera into vrScope RTT
 	// ----------------------------
-	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture && m_VR->ShouldUpdateScopeRTT())
+	if (m_VR->m_CreatedVRTextures.load(std::memory_order_acquire) && m_VR->ShouldRenderScope() && m_VR->m_ScopeTexture && m_VR->ShouldUpdateScopeRTT())
 	{
 		CViewSetup scopeView = setup;
 		scopeView.x = 0;
@@ -622,7 +625,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// ----------------------------
 	// Rear mirror RTT pass: render from HMD with 180 yaw into vrRearMirror RTT
 	// ----------------------------
-	if (m_VR->m_CreatedVRTextures && m_VR->ShouldRenderRearMirror() && m_VR->m_RearMirrorTexture && m_VR->ShouldUpdateRearMirrorRTT())
+	if (m_VR->m_CreatedVRTextures.load(std::memory_order_acquire) && m_VR->ShouldRenderRearMirror() && m_VR->m_RearMirrorTexture && m_VR->ShouldUpdateRearMirrorRTT())
 	{
 		CViewSetup mirrorView = setup;
 		mirrorView.x = 0;

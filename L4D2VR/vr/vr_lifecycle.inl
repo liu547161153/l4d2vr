@@ -589,7 +589,7 @@ void VR::Update()
             }
             rndrContext->SetRenderTarget(NULL);
             m_Game->m_CachedArmsModel = false;
-            m_CreatedVRTextures = false; // Have to recreate textures otherwise some workshop maps won't render
+            m_CreatedVRTextures.store(false, std::memory_order_release); // Have to recreate textures otherwise some workshop maps won't render
         }
     }
 
@@ -736,14 +736,14 @@ void VR::CreateVRTextures()
 
     m_Game->m_MaterialSystem->EndRenderTargetAllocation();
 
-    m_CreatedVRTextures = true;
+    m_CreatedVRTextures.store(true, std::memory_order_release);
 
     LogVAS("after CreateVRTextures");
 }
 
 void VR::EnsureOpticsRTTTextures()
 {
-    if (!m_CreatedVRTextures)
+    if (!m_CreatedVRTextures.load(std::memory_order_acquire))
         return;
 
     const bool needScope = (m_ScopeEnabled && !m_ScopeTexture);

@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <atomic>
+#include <mutex>
 #define MAX_STR_LEN 256
 
 class Game;
@@ -291,6 +293,9 @@ public:
 	SharedTextureHolder m_VKRearMirror;
 	SharedTextureHolder m_VKBlankTexture;
 
+	// Protects access to texture pointers when render/input threads overlap (mat_queue_mode != 0).
+	mutable std::mutex m_TextureMutex;
+
 	// If enabled, scope / rear-mirror render-target textures are created only when the feature is enabled.
 	// This can save large chunks of 32-bit VAS when ScopeRTTSize/RearMirrorRTTSize are high.
 	bool m_LazyScopeRearMirrorRTT = true;
@@ -300,8 +305,10 @@ public:
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
-	bool m_RenderedHud = false;
-	bool m_CreatedVRTextures = false;
+	std::atomic<bool> m_RenderedHud{ false };
+	// True once VGui_Paint has been redirected into m_HUDTexture for the current VR frame.
+	std::atomic<bool> m_HudPaintedThisFrame{ false };
+	std::atomic<bool> m_CreatedVRTextures{ false };
 	// Used by extra offscreen passes (scope RTT): prevents HUD hooks from hijacking RT stack
 	bool m_SuppressHudCapture = false;
 	bool m_CompositorExplicitTiming = false;
