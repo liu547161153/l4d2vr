@@ -751,16 +751,39 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
     const int tempHP = (int)std::max(0.0f, std::round(tempHPf));
     const int eff = std::max(0, std::min(100, hp + tempHP));
 
-    // Name
+    // Name: keep ASCII glyphs (5x7 font-safe) and when truncating, keep the tail (drop front).
     if (m_Game->m_EngineClient)
     {
         player_info_t info{};
         if (m_Game->m_EngineClient->GetPlayerInfo(m_AimTeammateDisplayIndex, &info))
         {
-            size_t n = 0;
-            for (; n + 1 < outNameSize && info.name[n]; ++n)
-                outName[n] = info.name[n];
-            outName[n] = 0;
+            char asciiName[sizeof(info.name)] = { 0 };
+            size_t asciiLen = 0;
+            bool hadNonAscii = false;
+            for (size_t i = 0; info.name[i] && asciiLen + 1 < sizeof(asciiName); ++i)
+            {
+                const unsigned char ch = static_cast<unsigned char>(info.name[i]);
+                if (ch >= 32 && ch <= 126)
+                    asciiName[asciiLen++] = static_cast<char>(ch);
+                else
+                    hadNonAscii = true;
+            }
+            asciiName[asciiLen] = 0;
+
+            if (asciiLen > 0)
+            {
+                const size_t maxCopy = outNameSize - 1;
+                const size_t start = (asciiLen > maxCopy) ? (asciiLen - maxCopy) : 0;
+                size_t n = 0;
+                for (size_t i = start; i < asciiLen && n + 1 < outNameSize; ++i)
+                    outName[n++] = asciiName[i];
+                outName[n] = 0;
+            }
+            else if (hadNonAscii)
+            {
+                // Font can't draw non-ASCII reliably; avoid a screen full of '?' boxes.
+                std::snprintf(outName, outNameSize, "P%d", m_AimTeammateDisplayIndex);
+            }
         }
     }
 

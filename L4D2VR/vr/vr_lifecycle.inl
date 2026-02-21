@@ -1962,7 +1962,7 @@ void VR::UpdateHandHudOverlays()
 
         int aimTargetIdx = -1;
         int aimTargetPct = 0;
-        char aimTargetName[32] = { 0 };
+        char aimTargetName[64] = { 0 };
         const bool hasAimTarget = GetAimTeammateHudInfo(aimTargetIdx, aimTargetPct, aimTargetName, sizeof(aimTargetName));
 
         int battL = -1, battR = -1;
