@@ -548,6 +548,20 @@ public:
 	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
+	bool m_Roomscale1To1Movement = true;
+	float m_Roomscale1To1MaxStepMeters = 0.35f;
+
+	Vector m_Roomscale1To1PrevCorrectedAbs = {};
+	// Accumulate sub-centimeter HMD deltas so slow walking/leaning still produces movement.
+	// This is in *meters* in the same corrected space as m_HmdPosCorrectedPrev.
+	Vector m_Roomscale1To1AccumMeters = {};
+	bool m_Roomscale1To1PrevValid = false;
+	// Debug logging for 1:1 roomscale pipeline (encode -> wire -> server apply).
+	bool m_Roomscale1To1DebugLog = false;
+	float m_Roomscale1To1DebugLogHz = 4.0f; // max prints per second; 0 disables throttling
+	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastEncode{};
+	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastPredict{};
+	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastServer{};
 	bool m_NonVRServerMovementAngleOverride = true;
 
 	// Non-VR server movement: client-side melee gesture -> IN_ATTACK tuning (ForceNonVRServerMovement=true only)
@@ -981,6 +995,8 @@ public:
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
+	void EncodeRoomscale1To1Move(CUserCmd* cmd);
+	static bool DecodeRoomscale1To1Delta(int weaponsubtype, Vector& outDeltaMeters);
 	void OnPredictionRunCommand(CUserCmd* cmd);
 	bool ShouldRunSecondaryPrediction(const CUserCmd* cmd) const;
 	void PrepareSecondaryPredictionCmd(CUserCmd& cmd) const;
