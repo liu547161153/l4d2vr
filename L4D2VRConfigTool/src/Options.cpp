@@ -142,6 +142,21 @@ static int GetInt(const std::string& key, int defVal)
     return defVal;
 }
 
+static bool GetBool(const std::string& key, bool defVal)
+{
+    return ParseBool(GetStr(key), defVal);
+}
+
+static bool IsOptionVisible(const Option& opt)
+{
+    // Hide Mouse Mode child settings until the mode is enabled,
+    // so the panel stays compact for controller-first users.
+    if (std::strncmp(opt.key, "MouseMode", 9) == 0 && std::strcmp(opt.key, "MouseModeEnabled") != 0)
+        return GetBool("MouseModeEnabled", false);
+
+    return true;
+}
+
 static ImVec4 ParseColorString(const std::string& s, const ImVec4& defVal)
 {
     if (s.empty()) return defVal;
@@ -1461,7 +1476,7 @@ void DrawOptionsUI()
     for (int i = 0; i < g_OptionCount; ++i)
     {
         const Option& opt = g_Options[i];
-        if (!OptionMatchesFilter(opt))
+        if (!IsOptionVisible(opt) || !OptionMatchesFilter(opt))
             continue;
 
         std::string key = opt.key;
