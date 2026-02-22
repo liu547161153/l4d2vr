@@ -67,6 +67,16 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 	m_RunCommandCurrentCmd = cmd;
 	m_RunCommandSecondaryCmd = nullptr;
 
+	if (m_VR)
+		m_VR->OnPredictionRunCommand(cmd);
+	// Debug: track whether packed 1:1 delta survives prediction/original RunCommand.
+	static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
+	uint32_t b_before = (uint32_t)cmd->buttons;
+	Vector b_dm_before;
+	const bool b_has_before = (m_VR && !m_VR->m_ForceNonVRServerMovement && m_VR->m_Roomscale1To1Movement && cmd->weaponselect == 0 && VR::DecodeRoomscale1To1Delta((int)(b_before & kRSButtonsMask), b_dm_before));
+	if (b_has_before && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
+		Game::logMsg("[VR][1to1][runcmd] pre  cmd=%d tick=%d cmdptr=%p buttons=0x%08X dM=(%.3f %.3f)", cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, b_dm_before.x, b_dm_before.y);
+
 	const bool canRunSecondaryPredict =
 		m_VR
 		&& !m_RunCommandInDetour
@@ -87,7 +97,29 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 		m_RunCommandInDetour = false;
 	}
 
+	// If we packed a 1:1 room-scale delta into buttons high bits, keep it for networking,
+	// but hide it from the stock prediction/movement code (weapon logic may peek at buttons).
+	const int rsPackedButtons = cmd ? (cmd->buttons & (int)kRSButtonsMask) : 0;
+	bool rsHideButtons = false;
+	if (m_VR && cmd && cmd->weaponselect == 0 && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
+	{
+		Vector _rsTmp;
+		rsHideButtons = m_VR->DecodeRoomscale1To1Delta(rsPackedButtons, _rsTmp);
+		if (rsHideButtons)
+			cmd->buttons &= ~(int)kRSButtonsMask;
+	}
+
 	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+	if (rsHideButtons)
+		cmd->buttons = (cmd->buttons & ~(int)kRSButtonsMask) | rsPackedButtons;
+	if (b_has_before && m_VR && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
+	{
+		uint32_t b_after = (uint32_t)cmd->buttons;
+		Vector b_dm_after;
+		const bool b_has_after = VR::DecodeRoomscale1To1Delta((int)(b_after & kRSButtonsMask), b_dm_after);
+		Game::logMsg("[VR][1to1][runcmd] post cmd=%d tick=%d cmdptr=%p buttons=0x%08X->0x%08X decoded=%d dM=(%.3f %.3f)",
+			cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, (unsigned)b_after, (int)b_has_after, b_dm_after.x, b_dm_after.y);
+	}
 
 	m_RunCommandCurrentCmd = nullptr;
 }
