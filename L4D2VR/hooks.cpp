@@ -396,17 +396,6 @@ namespace
 
 	static std::atomic<SteadyRep> g_ServerHookLastSeenRep{ 0 };
 
-	// CreateMove/WriteUsercmd consistency:
-	// serverHookFresh is used to decide whether to encode extra VR data into CUserCmd and whether
-	// to auto-force Non-VR server compatibility. If CreateMove and WriteUsercmd make that decision
-	// at different times (or from a noisy heartbeat), you can get a once-per-second "walk stutter"
-	// where one side thinks we're in VR-aware mode and the other doesn't.
-	//
-	// Cache the fresh/stale decision per command_number so both paths agree for the same cmd.
-	static std::atomic<int> g_ServerHookFreshCmdNum{ 0 };
-	static std::atomic<int> g_ServerHookFreshValue{ 0 }; // 0 = stale, 1 = fresh
-
-
 	// Auto-override ForceNonVRServerMovement while on a remote server (or server hooks not running).
 	// We save and restore the user's value when we re-enter a local listen-server context.
 	static bool g_ForceNonVRUserSaved = false;
@@ -417,26 +406,6 @@ namespace
 		Hooks::s_ServerUnderstandsVR.store(true, std::memory_order_relaxed);
 		g_ServerHookLastSeenRep.store(SteadyClock::now().time_since_epoch().count(), std::memory_order_relaxed);
 	}
-
-	static inline void CacheServerHookFreshForCmd(int cmdNum, bool fresh)
-	{
-		if (cmdNum <= 0)
-			return;
-		g_ServerHookFreshCmdNum.store(cmdNum, std::memory_order_relaxed);
-		g_ServerHookFreshValue.store(fresh ? 1 : 0, std::memory_order_relaxed);
-	}
-
-	static inline bool TryGetCachedServerHookFreshForCmd(int cmdNum, bool& outFresh)
-	{
-		if (cmdNum <= 0)
-			return false;
-		const int cachedNum = g_ServerHookFreshCmdNum.load(std::memory_order_relaxed);
-		if (cachedNum != cmdNum)
-			return false;
-		outFresh = (g_ServerHookFreshValue.load(std::memory_order_relaxed) != 0);
-		return true;
-	}
-
 
 	static inline bool IsServerHookFreshNow()
 	{

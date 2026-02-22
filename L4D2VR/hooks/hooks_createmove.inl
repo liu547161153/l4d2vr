@@ -62,18 +62,6 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				s_prevSpectatorLikeInitialized = false;
 			}
 		}
-		// If server-side VR decoding isn't running in *this* process (i.e. remote server),
-		// auto-fallback to Non-VR server compatibility mode.
-		// IMPORTANT: do this BEFORE we branch on ForceNonVRServerMovement for this cmd,
-		// otherwise CreateMove can build a "VR-aware" cmd while WriteUsercmd sends a
-		// "Non-VR" cmd (or vice-versa), which shows up as periodic walk stutter.
-		const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
-		const bool serverHookFresh = inGame && IsServerHookFreshNow();
-		CacheServerHookFreshForCmd(cmd->command_number, serverHookFresh);
-		if (!serverHookFresh)
-			Hooks::s_ServerUnderstandsVR.store(false, std::memory_order_relaxed);
-		SyncForceNonVRRemoteOverride(m_VR, serverHookFresh);
-
 		const bool treatServerAsNonVR = m_VR->m_ForceNonVRServerMovement;
 
 		// Mouse mode: consume raw mouse deltas to drive body yaw and independent aim pitch.
@@ -715,6 +703,17 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 	if (m_VR)
 	{
+		// If server-side VR decoding isn't running in *this* process (i.e. remote server),
+		// auto-fallback to Non-VR server compatibility mode for the whole tick.
+		const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
+		const bool serverHookFresh = inGame && IsServerHookFreshNow();
+		if (!serverHookFresh)
+			Hooks::s_ServerUnderstandsVR.store(false, std::memory_order_relaxed);
+		SyncForceNonVRRemoteOverride(m_VR, serverHookFresh);
+
+		// Debug: show whether the server-side hook is actually running in this process.
+		// For listen-server play, Hooks::dProcessUsercmds should get hit and flip s_ServerUnderstandsVR to true.
+		// If this stays false while in-game, then the ProcessUsercmds/ReadUsercmd offsets or hook installation are wrong.
 		// Detect any locomotion input (keyboard WASD, thumbstick, etc.).
 		// Used by roomscale anchoring and other movement-conflict avoidance.
 		const float fm = cmd ? cmd->forwardmove : 0.0f;
