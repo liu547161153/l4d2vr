@@ -269,7 +269,7 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 	int dropped_packets, bool ignore, bool paused)
 {
 	// ★ 进入该钩子，说明本进程正在跑“服务器”逻辑（listen/dedicated）
-	Hooks::s_ServerUnderstandsVR = true;
+	MarkServerHookSeen();
 
 	// Function pointer for CBaseEntity::entindex
 	typedef int(__thiscall* tEntindex)(void* thisptr);
@@ -364,6 +364,7 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 	const bool hasValidPlayer = m_Game->IsValidPlayerIndex(i);
 	if (m_VR->m_EncodeVRUsercmd && move->tick_count < 0) // Signal for VR CUserCmd
 	{
+		MarkServerHookSeen();
 		move->tick_count *= -1;
 
 		if (move->command_number < 0)
@@ -523,7 +524,15 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 		return hkWriteUsercmd.fOriginal(buf, to, from);
 
 	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）且（未强制走非 VR 标准）时才编码
-	const bool canEncode = (m_VR->m_EncodeVRUsercmd && !m_VR->m_ForceNonVRServerMovement);
+	// Auto-fallback: if server-side VR decoding isn't running in this process (remote server or bad hooks),
+	// force Non-VR server compatibility mode.
+	const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
+	const bool serverHookFresh = inGame && IsServerHookFreshNow();
+	if (!serverHookFresh)
+		Hooks::s_ServerUnderstandsVR.store(false, std::memory_order_relaxed);
+	SyncForceNonVRRemoteOverride(m_VR, serverHookFresh);
+
+	const bool canEncode = (m_VR->m_EncodeVRUsercmd && !m_VR->m_ForceNonVRServerMovement && serverHookFresh);
 
 	if (!canEncode)
 	{
