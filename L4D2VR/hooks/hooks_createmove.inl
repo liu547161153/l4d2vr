@@ -481,8 +481,14 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 		}
 		else {
-			// VR-aware servers: ensure cmd->viewangles matches HMD.
+			// VR-aware servers: default cmd->viewangles follows the HMD.
 			// Otherwise forward/sidemove get interpreted in the wrong basis (push forward -> strafe).
+			//
+			// However, some vanilla server interactions (IN_USE traces, throwables, etc.) still
+			// rely purely on cmd->viewangles. When ForceNonVRServerMovement=false we still want
+			// those to be driven by the right-hand aim, without making locomotion suddenly follow
+			// the hand. So: temporarily aim cmd->viewangles from the right hand for those actions,
+			// and re-project movement so world-direction stays the same.
 			Vector hmdAng = m_VR->GetViewAngle();
 			QAngle view(hmdAng.x, hmdAng.y, hmdAng.z);
 			if (m_VR->m_MouseModeEnabled)
@@ -498,7 +504,55 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			while (view.y > 180.f)  view.y -= 360.f;
 			while (view.y < -180.f) view.y += 360.f;
 			view.z = 0.f;
-			cmd->viewangles = view;
+
+			bool useHandAim = false;
+			if (!m_VR->m_MouseModeEnabled)
+			{
+				const bool useDown = (cmd->buttons & (1 << 5)) != 0;      // IN_USE
+				const bool attackDown = (cmd->buttons & (1 << 0)) != 0;   // IN_ATTACK
+				const bool attack2Down = (cmd->buttons & (1 << 11)) != 0; // IN_ATTACK2
+
+				const int lpIdxAim = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->GetLocalPlayer() : -1;
+				C_BasePlayer* lpAim = (lpIdxAim > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdxAim) : nullptr;
+				C_WeaponCSBase* wpnAim = lpAim ? (C_WeaponCSBase*)lpAim->GetActiveWeapon() : nullptr;
+
+				const bool isThrowable = m_VR->IsThrowableWeapon(wpnAim);
+				// m_iCurrentUseAction: healing/giving pack/reviving/etc. These actions also use viewangles to pick a target.
+				const bool doingUseAction = lpAim ? (ReadNetvar<int>(lpAim, 0x1ba8) != 0) : false;
+
+				useHandAim =
+					useDown ||
+					(isThrowable && (attackDown || attack2Down)) ||
+					(doingUseAction && attackDown);
+			}
+
+			if (useHandAim)
+			{
+				QAngle hand = m_VR->GetRightControllerAbsAngle();
+				if (hand.x > 89.f)  hand.x = 89.f;
+				if (hand.x < -89.f) hand.x = -89.f;
+				while (hand.y > 180.f)  hand.y -= 360.f;
+				while (hand.y < -180.f) hand.y += 360.f;
+				hand.z = 0.f;
+
+				// Preserve world movement direction while we temporarily change cmd yaw basis.
+				QAngle viewYawOnly(0.f, view.y, 0.f);
+				Vector viewForward, viewRight, viewUp;
+				QAngle::AngleVectors(viewYawOnly, &viewForward, &viewRight, &viewUp);
+				Vector worldMove = viewForward * cmd->forwardmove + viewRight * cmd->sidemove;
+
+				QAngle handYawOnly(0.f, hand.y, 0.f);
+				Vector handForward, handRight, handUp;
+				QAngle::AngleVectors(handYawOnly, &handForward, &handRight, &handUp);
+				cmd->forwardmove = DotProduct(worldMove, handForward);
+				cmd->sidemove = DotProduct(worldMove, handRight);
+
+				cmd->viewangles = hand;
+			}
+			else
+			{
+				cmd->viewangles = view;
+			}
 		}
 	}
 
@@ -698,4 +752,3 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	}
 	return result;
 }
-

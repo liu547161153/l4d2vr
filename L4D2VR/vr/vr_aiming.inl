@@ -561,8 +561,6 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         Vector pitchSource = direction;
         if (useMouse && !eyeDir.IsZero())
             pitchSource = eyeDir;
-        else if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
-            pitchSource = m_HmdForward;
 
         DrawThrowArc(origin, direction, pitchSource);
         return;
