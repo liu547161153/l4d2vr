@@ -376,6 +376,78 @@ static inline bool ShouldForceThirdPersonByState(const C_BasePlayer* player,
 	return dbg.dead || observer || dbg.ledge || dbg.tongue || dbg.pinned || dbg.selfMedkit;
 }
 
+// ------------------------------------------------------------
+// Server-hook heartbeat + auto fallback to Non-VR server compatibility
+//
+// When ForceNonVRServerMovement=false, we may encode extra VR data into CUserCmd.
+// This only works if the *server in this process* decodes it (listen/dedicated).
+// If we are connected to a remote server (or server hooks failed), sending encoded
+// cmds can cause periodic stalls/jerk. We track a heartbeat from server-side hooks
+// and automatically:
+//   - disable VR usercmd encoding when heartbeat is stale
+//   - force ForceNonVRServerMovement=true while heartbeat is stale (auto fallback)
+// ------------------------------------------------------------
+namespace
+{
+	using SteadyClock = std::chrono::steady_clock;
+	using SteadyRep = SteadyClock::duration::rep;
+
+	static std::atomic<SteadyRep> g_ServerHookLastSeenRep{ 0 };
+
+	// Auto-override ForceNonVRServerMovement while on a remote server (or server hooks not running).
+	// We save and restore the user's value when we re-enter a local listen-server context.
+	static bool g_ForceNonVRUserSaved = false;
+	static bool g_ForceNonVROverrideActive = false;
+
+	static inline void MarkServerHookSeen()
+	{
+		Hooks::s_ServerUnderstandsVR.store(true, std::memory_order_relaxed);
+		g_ServerHookLastSeenRep.store(SteadyClock::now().time_since_epoch().count(), std::memory_order_relaxed);
+	}
+
+	static inline bool IsServerHookFreshNow()
+	{
+		const SteadyRep last = g_ServerHookLastSeenRep.load(std::memory_order_relaxed);
+		if (last == 0)
+			return false;
+
+		const SteadyRep now = SteadyClock::now().time_since_epoch().count();
+		const SteadyRep window = std::chrono::duration_cast<SteadyClock::duration>(std::chrono::seconds(1)).count();
+		return (now - last) <= window;
+	}
+
+	static inline void SyncForceNonVRRemoteOverride(VR* vr, bool serverHookFresh)
+	{
+		if (!vr)
+			return;
+
+		if (serverHookFresh)
+		{
+			// Leaving remote-server fallback: restore user's choice.
+			if (g_ForceNonVROverrideActive)
+			{
+				vr->m_ForceNonVRServerMovement = g_ForceNonVRUserSaved;
+				g_ForceNonVROverrideActive = false;
+			}
+			else
+			{
+				// Track user's value while not overriding.
+				g_ForceNonVRUserSaved = vr->m_ForceNonVRServerMovement;
+			}
+			return;
+		}
+
+		// Enter / stay in remote-server fallback.
+		if (!g_ForceNonVROverrideActive)
+		{
+			g_ForceNonVRUserSaved = vr->m_ForceNonVRServerMovement;
+			g_ForceNonVROverrideActive = true;
+		}
+
+		vr->m_ForceNonVRServerMovement = true;
+	}
+}
+
 #include "hooks/hooks_init.inl"
 #include "hooks/hooks_render.inl"
 #include "hooks/hooks_createmove.inl"

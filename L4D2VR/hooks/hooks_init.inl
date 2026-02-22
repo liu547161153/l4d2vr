@@ -1,4 +1,4 @@
-bool Hooks::s_ServerUnderstandsVR = false;
+std::atomic_bool Hooks::s_ServerUnderstandsVR{ false };
 Hooks::Hooks(Game* game)
 {
 	if (MH_Initialize() != MH_OK)
@@ -194,5 +194,4 @@ int Hooks::initSourceHooks()
 	}
 	return 1;
 }
-
 

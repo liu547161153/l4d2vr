@@ -297,6 +297,13 @@ public:
 	// Debug: log Virtual Address Space (VAS) stats at key allocation points.
 	bool m_DebugVASLog = false;
 
+	// Auto mat_queue_mode management for multicore rendering.
+	// When enabled, the mod will keep mat_queue_mode=1 in menus/loading/pause/scoreboard,
+	// and switch to mat_queue_mode=2 once fully in-game.
+	bool m_AutoMatQueueMode = false;
+	int  m_AutoMatQueueModeLastRequested = -999;
+	std::chrono::steady_clock::time_point m_AutoMatQueueModeLastCmdTime{};
+
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	bool m_RenderedNewFrame = false;
@@ -646,7 +653,7 @@ public:
 	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
-	bool m_Roomscale1To1Movement = true;
+	bool m_Roomscale1To1Movement = false;
 	float m_Roomscale1To1MaxStepMeters = 0.35f;
 
 	// Roomscale 1:1 movement (ForceNonVRServerMovement=false):
@@ -1037,6 +1044,8 @@ public:
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
+	// Auto switch mat_queue_mode based on game/menu/pause/scoreboard state (when enabled in config).
+	void UpdateAutoMatQueueMode();
 	void CreateVRTextures();
 	void EnsureOpticsRTTTextures();
 	void LogVAS(const char* tag);

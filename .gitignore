@@ -397,3 +397,5 @@ FodyWeavers.xsd
 /Debug
 /L4D2VR/Debug
 /L4D2VR/ReleaseL4D2VR/special_infected_features.cpp
+/L4D2VR/special_infected_features.cpp
+*.zip
