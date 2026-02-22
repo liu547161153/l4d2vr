@@ -427,8 +427,30 @@ void VR::UpdateTracking()
             m_RoomscaleActive = false;
     }
 
+    // Camera anchor translation:
+    // In queued rendering (mat_queue_mode!=0), player movement is often advanced at tick-rate, while
+    // VR rendering/tracking runs faster. If we move the anchor only by (m_SetupOrigin - m_SetupOriginPrev),
+    // we get visible stepping/ghosting while locomoting.
+    //
+    // Fix: when queued rendering is active and the player has meaningful planar velocity, advance the
+    // anchor by velocity*dt each VR frame (smooth), while still using setup-origin delta for Z (crouch/steps).
+    Vector anchorDelta = (m_SetupOrigin - m_SetupOriginPrev);
     if (!m_RoomscaleActive)
-        m_CameraAnchor += m_SetupOrigin - m_SetupOriginPrev;
+    {
+        const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+        if (queued && !inEyeObserver && !usingMountedGunNow)
+        {
+            const float dt = std::clamp(m_LastFrameDuration, 0.0f, 0.05f);
+            Vector vel = localPlayer->m_vecVelocity;
+            vel.z = 0.0f;
+            if (dt > 0.0f && vel.LengthSqr() > 1.0f)
+            {
+                anchorDelta.x = vel.x * dt;
+                anchorDelta.y = vel.y * dt;
+            }
+        }
+        m_CameraAnchor += anchorDelta;
+    }
 
     m_CameraAnchor.z = m_SetupOrigin.z + m_HeightOffset;
 

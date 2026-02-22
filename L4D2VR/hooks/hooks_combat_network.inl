@@ -10,19 +10,13 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 
 	if (m_VR->m_IsVREnabled)
 	{
-		// Default: override viewmodel pose with our recommended VR values.
-		// NOTE: In mat_queue_mode!=0, CalcViewModelView may execute on either the main thread or
-		// the render thread depending on the engine's scheduling. Mixing a main-thread eyePosition
-		// with a render-thread eye center (or vice versa) is a reliable way to create double images
-		// when turning/moving.
-
+		// Multicore (mat_queue_mode!=0): CalcViewModelView may be scheduled on either thread.
+		// The important part is consistency: use the viewmodel snapshot produced by our render hook
+		// (m_RenderViewmodelSeq) instead of trying to resample poses here. Resampling here can
+		// easily desync viewmodel/world during locomotion and produces ghosting.
 		const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-		const uint32_t tid = static_cast<uint32_t>(GetCurrentThreadId());
-		const bool isRenderThread = (queueMode != 0) && (tid == m_VR->m_RenderThreadId.load(std::memory_order_relaxed));
-		const bool inRenderScope = VR::t_UseRenderFrameSnapshot;
+		const bool isRenderThread = (queueMode != 0) && (static_cast<uint32_t>(GetCurrentThreadId()) == m_VR->m_RenderThreadId.load(std::memory_order_relaxed));
 
-		// If we're on the render thread, force getters to use the render-frame snapshot to avoid
-		// racing main-thread tracking updates.
 		struct RenderSnapshotTLSGuard
 		{
 			bool enabled = false;
@@ -45,62 +39,6 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 
 		vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 		vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
-
-		// Stereo bias: push viewmodel half-way towards the current eye.
-		// - On the main thread: use main-thread HMD center (matches main-thread recommended poses).
-		// - On the render thread *inside* our dRenderView scope: use the render-thread eye-center
-		//   derived from the same WaitGetPoses sample as the world render.
-		if (!m_VR->IsThirdPersonCameraActive())
-		{
-			if (isRenderThread && inRenderScope)
-			{
-				static thread_local Vector s_LastRenderCenter{};
-				static thread_local bool s_HaveLastRenderCenter = false;
-
-				Vector renderCenter{};
-				bool haveRenderCenter = false;
-				for (int attempt = 0; attempt < 3; ++attempt)
-				{
-					const uint32_t s1 = m_VR->m_RenderFrameSeq.load(std::memory_order_acquire);
-					if (s1 == 0 || (s1 & 1u))
-						continue;
-
-					const Vector left(
-						m_VR->m_RenderViewOriginLeftX.load(std::memory_order_relaxed),
-						m_VR->m_RenderViewOriginLeftY.load(std::memory_order_relaxed),
-						m_VR->m_RenderViewOriginLeftZ.load(std::memory_order_relaxed));
-					const Vector right(
-						m_VR->m_RenderViewOriginRightX.load(std::memory_order_relaxed),
-						m_VR->m_RenderViewOriginRightY.load(std::memory_order_relaxed),
-						m_VR->m_RenderViewOriginRightZ.load(std::memory_order_relaxed));
-
-					const uint32_t s2 = m_VR->m_RenderFrameSeq.load(std::memory_order_acquire);
-					if (s1 == s2 && !(s2 & 1u))
-					{
-						renderCenter = (left + right) * 0.5f;
-						haveRenderCenter = true;
-						break;
-					}
-				}
-
-				if (haveRenderCenter)
-				{
-					s_LastRenderCenter = renderCenter;
-					s_HaveLastRenderCenter = true;
-					vecNewOrigin += (eyePosition - renderCenter) * 0.5f;
-				}
-				else if (s_HaveLastRenderCenter)
-				{
-					// Stable fallback within render thread only.
-					vecNewOrigin += (eyePosition - s_LastRenderCenter) * 0.5f;
-				}
-			}
-			else if (!isRenderThread)
-			{
-				// Main thread path (or any non-render thread): keep bias consistent with main-thread tracking.
-				vecNewOrigin += (eyePosition - m_VR->m_HmdPosAbs) * 0.5f;
-			}
-		}
 	}
 
 	return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);

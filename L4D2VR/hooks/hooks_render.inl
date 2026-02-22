@@ -47,14 +47,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Remember which thread is producing render snapshots (used by other render-time hooks).
 		m_VR->m_RenderThreadId.store(static_cast<uint32_t>(GetCurrentThreadId()), std::memory_order_relaxed);
 
-		// Track per-render-call setup.origin deltas (tick-rate movement) to reduce model/camera stepping.
-		static thread_local Vector s_prevSetupOrigin{};
-		static thread_local bool s_prevSetupOriginValid = false;
-		Vector pendingOriginDelta{};
-		if (s_prevSetupOriginValid)
-			pendingOriginDelta = setup.origin - s_prevSetupOrigin;
-		s_prevSetupOrigin = setup.origin;
-		s_prevSetupOriginValid = true;
+		// NOTE: Do NOT add render-thread tick deltas (setup.origin) onto the camera anchor here.
+		// In practice setup.origin can update at tick-rate during locomotion, and feeding that directly into
+		// the render snapshot causes visible strobing/ghosting while moving. The main thread already
+		// publishes a smoothed camera anchor via m_RenderViewParamsSeq; use that as the sole translation base.
 
 		struct ViewParams
 		{
@@ -125,8 +121,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				Vector hmdForward, hmdRight, hmdUp;
 				QAngle::AngleVectors(hmdAngLocal, &hmdForward, &hmdRight, &hmdUp);
 
-				// Advance the anchor by the tick-rate origin delta observed on the render thread.
-				Vector cameraAnchor = vp.cameraAnchor + pendingOriginDelta;
+				Vector cameraAnchor = vp.cameraAnchor;
 				Vector hmdPosAbs = cameraAnchor - Vector(0, 0, 64) + (hmdPosCorrected * vp.vrScale);
 
 				const float ipdSu = (vp.ipd * vp.ipdScale * vp.vrScale);
