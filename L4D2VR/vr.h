@@ -726,7 +726,7 @@ public:
 	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
-	bool m_Roomscale1To1Movement = true;
+	bool m_Roomscale1To1Movement = false;
 	float m_Roomscale1To1MaxStepMeters = 0.35f;
 
 	// Roomscale 1:1 movement (ForceNonVRServerMovement=false):
