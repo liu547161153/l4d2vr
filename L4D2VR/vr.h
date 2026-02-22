@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <atomic>
+#include <mutex>
 #define MAX_STR_LEN 256
 
 class Game;
@@ -172,6 +174,72 @@ public:
 
 	Vector m_ViewmodelPosOffset;
 	QAngle m_ViewmodelAngOffset;
+
+	// --- Multicore rendering snapshot bridging (mat_queue_mode!=0) ---
+	// Main thread publishes a stable copy of key tracking/view parameters; render thread consumes it
+	// and computes per-frame view/controller data from a render-thread WaitGetPoses() sample.
+	std::atomic<uint32_t> m_RenderViewParamsSeq{ 0 };
+	std::atomic<float> m_RenderCameraAnchorX{ 0.0f };
+	std::atomic<float> m_RenderCameraAnchorY{ 0.0f };
+	std::atomic<float> m_RenderCameraAnchorZ{ 0.0f };
+	std::atomic<float> m_RenderRotationOffset{ 0.0f };
+	std::atomic<float> m_RenderVRScale{ 1.0f };
+	std::atomic<float> m_RenderIpdScale{ 1.0f };
+	std::atomic<float> m_RenderEyeZ{ 0.0f };
+	std::atomic<float> m_RenderIpd{ 0.065f };
+	std::atomic<float> m_RenderHmdPosLocalPrevX{ 0.0f };
+	std::atomic<float> m_RenderHmdPosLocalPrevY{ 0.0f };
+	std::atomic<float> m_RenderHmdPosLocalPrevZ{ 0.0f };
+	std::atomic<float> m_RenderHmdPosCorrectedPrevX{ 0.0f };
+	std::atomic<float> m_RenderHmdPosCorrectedPrevY{ 0.0f };
+	std::atomic<float> m_RenderHmdPosCorrectedPrevZ{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosOffsetX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosOffsetY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosOffsetZ{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngOffsetX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngOffsetY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngOffsetZ{ 0.0f };
+
+	// Render-thread computed snapshot (updated once per dRenderView call).
+	std::atomic<uint32_t> m_RenderFrameSeq{ 0 };
+	std::atomic<float> m_RenderViewAngX{ 0.0f };
+	std::atomic<float> m_RenderViewAngY{ 0.0f };
+	std::atomic<float> m_RenderViewAngZ{ 0.0f };
+	std::atomic<float> m_RenderViewOriginLeftX{ 0.0f };
+	std::atomic<float> m_RenderViewOriginLeftY{ 0.0f };
+	std::atomic<float> m_RenderViewOriginLeftZ{ 0.0f };
+	std::atomic<float> m_RenderViewOriginRightX{ 0.0f };
+	std::atomic<float> m_RenderViewOriginRightY{ 0.0f };
+	std::atomic<float> m_RenderViewOriginRightZ{ 0.0f };
+	std::atomic<float> m_RenderRightControllerPosAbsX{ 0.0f };
+	std::atomic<float> m_RenderRightControllerPosAbsY{ 0.0f };
+	std::atomic<float> m_RenderRightControllerPosAbsZ{ 0.0f };
+	std::atomic<float> m_RenderRightControllerAngAbsX{ 0.0f };
+	std::atomic<float> m_RenderRightControllerAngAbsY{ 0.0f };
+	std::atomic<float> m_RenderRightControllerAngAbsZ{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelPosX{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelPosY{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelPosZ{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelAngX{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelAngY{ 0.0f };
+	std::atomic<float> m_RenderRecommendedViewmodelAngZ{ 0.0f };
+
+	// Render-thread viewmodel snapshot (separate from the per-frame view snapshot).
+	// CalcViewModelView may run outside our dRenderView TLS scope under mat_queue_mode!=0,
+	// so it needs a stable viewmodel pose produced on the render thread.
+	std::atomic<uint32_t> m_RenderViewmodelSeq{ 0 };
+	std::atomic<float> m_RenderViewmodelPosX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelPosZ{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngX{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngY{ 0.0f };
+	std::atomic<float> m_RenderViewmodelAngZ{ 0.0f };
+
+	// Render thread id (captured in dRenderView) used to gate render-only snapshot reads.
+	std::atomic<uint32_t> m_RenderThreadId{ 0 };
+
+	// True on the render thread while inside dRenderView when mat_queue_mode!=0.
+	static inline thread_local bool t_UseRenderFrameSnapshot = false;
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
 	ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };
@@ -291,6 +359,9 @@ public:
 	SharedTextureHolder m_VKRearMirror;
 	SharedTextureHolder m_VKBlankTexture;
 
+	// Protects access to texture pointers when render/input threads overlap (mat_queue_mode != 0).
+	mutable std::mutex m_TextureMutex;
+
 	// If enabled, scope / rear-mirror render-target textures are created only when the feature is enabled.
 	// This can save large chunks of 32-bit VAS when ScopeRTTSize/RearMirrorRTTSize are high.
 	bool m_LazyScopeRearMirrorRTT = true;
@@ -306,9 +377,11 @@ public:
 
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
-	bool m_RenderedNewFrame = false;
-	bool m_RenderedHud = false;
-	bool m_CreatedVRTextures = false;
+	std::atomic<bool> m_RenderedNewFrame{ false };
+	std::atomic<bool> m_RenderedHud{ false };
+	// True once VGui_Paint has been redirected into m_HUDTexture for the current VR frame.
+	std::atomic<bool> m_HudPaintedThisFrame{ false };
+	std::atomic<bool> m_CreatedVRTextures{ false };
 	// Used by extra offscreen passes (scope RTT): prevents HUD hooks from hijacking RT stack
 	bool m_SuppressHudCapture = false;
 	bool m_CompositorExplicitTiming = false;

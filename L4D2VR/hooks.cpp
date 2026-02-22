@@ -13,6 +13,8 @@
 #include <cstring>
 #include <algorithm> // std::clamp
 #include <chrono>
+#include <atomic>
+#include <mutex>
 #include <cmath>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

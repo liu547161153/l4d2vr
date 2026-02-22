@@ -688,7 +688,7 @@ void VR::Update()
             }
             rndrContext->SetRenderTarget(NULL);
             m_Game->m_CachedArmsModel = false;
-            m_CreatedVRTextures = false; // Have to recreate textures otherwise some workshop maps won't render
+            m_CreatedVRTextures.store(false, std::memory_order_release); // Have to recreate textures otherwise some workshop maps won't render
         }
     }
 
@@ -837,14 +837,14 @@ void VR::CreateVRTextures()
 
     m_Game->m_MaterialSystem->EndRenderTargetAllocation();
 
-    m_CreatedVRTextures = true;
+    m_CreatedVRTextures.store(true, std::memory_order_release);
 
     LogVAS("after CreateVRTextures");
 }
 
 void VR::EnsureOpticsRTTTextures()
 {
-    if (!m_CreatedVRTextures)
+    if (!m_CreatedVRTextures.load(std::memory_order_acquire))
         return;
 
     const bool needScope = (m_ScopeEnabled && !m_ScopeTexture);
@@ -959,8 +959,43 @@ void VR::SubmitVRTextures()
         };
 
     //     ֡û       ݣ    ߲˵ /Overlay ·  
-    if (!m_RenderedNewFrame)
+    if (!m_RenderedNewFrame.load(std::memory_order_acquire))
     {
+        // In mat_queue_mode!=0 (queued/multicore), the render thread can lag behind the submit thread.
+        // When that happens, m_RenderedNewFrame may still be false even though we're already in-game.
+        // Showing the backbuffer/menu overlay in this state creates an extra compositor layer and can cause
+        // severe stutter (and a visible backbuffer rectangle). Instead, just re-submit the last eye textures.
+        const bool inGame = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+        if (inGame)
+        {
+            // Ensure the menu overlay is not left visible while in-game.
+            if (vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
+                vr::VROverlay()->HideOverlay(m_MainMenuHandle);
+
+            // Submit the most recent stereo textures again (safe even if they didn't change this tick).
+            const bool texturesReady = m_CreatedVRTextures.load(std::memory_order_acquire);
+            if (texturesReady)
+            {
+                submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+                submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+            }
+            else
+            {
+                if (!m_BlankTexture)
+                    CreateVRTextures();
+                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+            }
+
+            if (successfulSubmit && m_CompositorExplicitTiming)
+            {
+                m_CompositorNeedsHandoff = true;
+                FinishFrame();
+            }
+
+            return;
+        }
+
         if (!m_BlankTexture)
             CreateVRTextures();
 
@@ -975,7 +1010,7 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
 
-        if (!m_Game->m_EngineClient->IsInGame())
+        if (!inGame)
         {
             submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
             submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
@@ -992,6 +1027,19 @@ void VR::SubmitVRTextures()
 
 
     vr::VROverlay()->HideOverlay(m_MainMenuHandle);
+
+    // Submit eye textures FIRST to minimize motion-to-photon latency.
+    // Old multicore branch behavior: do compositor submit before any overlay IPC work,
+    // because overlay calls can take ~0.3-0.5ms and make near-field objects (viewmodel) show reprojection trails.
+    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+
+    if (successfulSubmit && m_CompositorExplicitTiming)
+    {
+        m_CompositorNeedsHandoff = true;
+        FinishFrame();
+    }
+
     applyHudTexture(m_HUDTopHandle, topBounds);
     for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
         vr::VROverlay()->HideOverlay(overlay);
@@ -1211,17 +1259,7 @@ void VR::SubmitVRTextures()
 
     UpdateHandHudOverlays();
 
-    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
-
-    if (successfulSubmit && m_CompositorExplicitTiming)
-    {
-        m_CompositorNeedsHandoff = true;
-        FinishFrame();
-    }
-
-
-    m_RenderedNewFrame = false;
+    m_RenderedNewFrame.store(false, std::memory_order_release);
 }
 
 void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)
@@ -1688,7 +1726,12 @@ bool VR::UpdatePosesAndActions()
     if (!m_Compositor)
         return false;
 
-    vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
+    const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+    // In mat_queue_mode!=0, the render thread is decoupled; avoid blocking the main thread here.
+    // The render hook will do a render-thread WaitGetPoses() for latency-critical view transforms.
+    vr::EVRCompositorError result = queued
+        ? m_Compositor->GetLastPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0)
+        : m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
     bool posesValid = (result == vr::VRCompositorError_None);
 
     if (!posesValid && m_CompositorExplicitTiming)

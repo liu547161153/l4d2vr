@@ -9,7 +9,7 @@ Hooks::Hooks(Game* game)
 	m_Game = game;
 	m_VR = m_Game->m_VR;
 
-	m_PushHUDStep = -999;
+	m_HUDStep = HUDPushStep::None;
 	m_PushedHud = false;
 
 	initSourceHooks();
