@@ -1020,41 +1020,6 @@ void VR::UpdateTracking()
     m_ViewmodelRight = VectorRotate(m_ViewmodelRight, m_ViewmodelForward, m_ViewmodelAngOffset.z);
     m_ViewmodelUp = VectorRotate(m_ViewmodelUp, m_ViewmodelForward, m_ViewmodelAngOffset.z);
 
-    // Publish a stable snapshot of view/tracking parameters for the render thread (mat_queue_mode!=0).
-    // The render hook will consume these with a seqlock and combine them with a render-thread WaitGetPoses() sample
-    // to avoid screen/viewmodel jitter and head-turn ghosting under queued rendering.
-    {
-        uint32_t seq = m_RenderViewParamsSeq.load(std::memory_order_relaxed);
-        // Mark write in-progress (odd).
-        m_RenderViewParamsSeq.store(seq + 1, std::memory_order_release);
-
-        m_RenderCameraAnchorX.store(m_CameraAnchor.x, std::memory_order_relaxed);
-        m_RenderCameraAnchorY.store(m_CameraAnchor.y, std::memory_order_relaxed);
-        m_RenderCameraAnchorZ.store(m_CameraAnchor.z, std::memory_order_relaxed);
-        m_RenderRotationOffset.store(m_RotationOffset, std::memory_order_relaxed);
-        m_RenderVRScale.store(m_VRScale, std::memory_order_relaxed);
-        m_RenderIpdScale.store(m_IpdScale, std::memory_order_relaxed);
-        m_RenderEyeZ.store(m_EyeZ, std::memory_order_relaxed);
-        m_RenderIpd.store(m_Ipd, std::memory_order_relaxed);
-
-        m_RenderHmdPosLocalPrevX.store(m_HmdPosLocalPrev.x, std::memory_order_relaxed);
-        m_RenderHmdPosLocalPrevY.store(m_HmdPosLocalPrev.y, std::memory_order_relaxed);
-        m_RenderHmdPosLocalPrevZ.store(m_HmdPosLocalPrev.z, std::memory_order_relaxed);
-        m_RenderHmdPosCorrectedPrevX.store(m_HmdPosCorrectedPrev.x, std::memory_order_relaxed);
-        m_RenderHmdPosCorrectedPrevY.store(m_HmdPosCorrectedPrev.y, std::memory_order_relaxed);
-        m_RenderHmdPosCorrectedPrevZ.store(m_HmdPosCorrectedPrev.z, std::memory_order_relaxed);
-
-        m_RenderViewmodelPosOffsetX.store(m_ViewmodelPosOffset.x, std::memory_order_relaxed);
-        m_RenderViewmodelPosOffsetY.store(m_ViewmodelPosOffset.y, std::memory_order_relaxed);
-        m_RenderViewmodelPosOffsetZ.store(m_ViewmodelPosOffset.z, std::memory_order_relaxed);
-        m_RenderViewmodelAngOffsetX.store(m_ViewmodelAngOffset.x, std::memory_order_relaxed);
-        m_RenderViewmodelAngOffsetY.store(m_ViewmodelAngOffset.y, std::memory_order_relaxed);
-        m_RenderViewmodelAngOffsetZ.store(m_ViewmodelAngOffset.z, std::memory_order_relaxed);
-
-        // Mark write complete (even).
-        m_RenderViewParamsSeq.store(seq + 2, std::memory_order_release);
-    }
-
     UpdateMotionGestures(localPlayer);
 }
 

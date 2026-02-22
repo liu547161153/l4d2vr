@@ -1210,7 +1210,7 @@ void VR::ProcessInput()
         m_HudToggleState = !m_HudToggleState;
 
     const bool wantsTopHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
-    if ((wantsTopHud && m_RenderedHud.load(std::memory_order_acquire)) || menuActive)
+    if ((wantsTopHud && m_RenderedHud) || menuActive)
     {
         RepositionOverlays();
 
@@ -1227,7 +1227,7 @@ void VR::ProcessInput()
     }
 
     hideBottomHud();
-    m_RenderedHud.store(false, std::memory_order_release);
+    m_RenderedHud = false;
 
     if (PressedDigitalAction(m_Pause, true))
     {

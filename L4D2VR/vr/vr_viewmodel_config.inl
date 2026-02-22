@@ -24,24 +24,6 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
 
 Vector VR::GetViewAngle()
 {
-    if (t_UseRenderFrameSnapshot)
-    {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float ax = m_RenderViewAngX.load(std::memory_order_relaxed);
-            const float ay = m_RenderViewAngY.load(std::memory_order_relaxed);
-            const float az = m_RenderViewAngZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(ax, ay, az);
-        }
-    }
-
     return Vector(m_HmdAngAbs.x, m_HmdAngAbs.y, m_HmdAngAbs.z);
 }
 
@@ -70,24 +52,6 @@ float VR::GetMovementYawDeg()
 
 Vector VR::GetViewOriginLeft()
 {
-    if (t_UseRenderFrameSnapshot)
-    {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float x = m_RenderViewOriginLeftX.load(std::memory_order_relaxed);
-            const float y = m_RenderViewOriginLeftY.load(std::memory_order_relaxed);
-            const float z = m_RenderViewOriginLeftZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(x, y, z);
-        }
-    }
-
     Vector viewOriginLeft;
 
     viewOriginLeft = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));
@@ -98,24 +62,6 @@ Vector VR::GetViewOriginLeft()
 
 Vector VR::GetViewOriginRight()
 {
-    if (t_UseRenderFrameSnapshot)
-    {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float x = m_RenderViewOriginRightX.load(std::memory_order_relaxed);
-            const float y = m_RenderViewOriginRightY.load(std::memory_order_relaxed);
-            const float z = m_RenderViewOriginRightZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(x, y, z);
-        }
-    }
-
     Vector viewOriginRight;
 
     viewOriginRight = m_HmdPosAbs + (m_HmdForward * (-(m_EyeZ * m_VRScale)));

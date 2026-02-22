@@ -284,252 +284,106 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
 }
 
-// Returns true if the engine RT being pushed looks like the HUD/VGUI render target.
-// This is a heuristic (names + dimensions) to avoid hijacking other offscreen passes.
-static bool IsHudRenderTarget(ITexture* texture, ITexture* hudTexture)
-{
-    if (!texture)
-        return false;
-
-    const char* name = texture->GetName();
-    if (name && *name)
-    {
-        auto ciFind = [](const char* haystack, const char* needle) -> bool
-            {
-                const size_t nLen = strlen(needle);
-                for (const char* p = haystack; *p; ++p)
-                {
-                    if (_strnicmp(p, needle, nLen) == 0)
-                        return true;
-                }
-                return false;
-            };
-
-        // Exclude obvious non-HUD targets
-        if (ciFind(name, "backbuffer") || ciFind(name, "left") || ciFind(name, "right") ||
-            ciFind(name, "blank") || ciFind(name, "scope") || ciFind(name, "rearmirror"))
-            return false;
-
-        if (ciFind(name, "vgui") || ciFind(name, "hud"))
-            return true;
-    }
-
-    // Fallback: match the HUD texture size
-    if (hudTexture)
-    {
-        const int hudW = hudTexture->GetMappingWidth();
-        const int hudH = hudTexture->GetMappingHeight();
-        if (hudW > 0 && hudH > 0)
-        {
-            if (texture->GetMappingWidth() == hudW && texture->GetMappingHeight() == hudH)
-                return true;
-        }
-    }
-
-    return false;
-}
-
 void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTexture, ITexture* pDepthTexture, int nViewX, int nViewY, int nViewW, int nViewH)
 {
-    if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
-        return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+	if (!m_VR->m_CreatedVRTextures)
+		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
-    // Extra offscreen passes (scope/rear-mirror RTT) must not hijack HUD capture
-    if (m_VR->m_SuppressHudCapture)
-        return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+	// Extra offscreen passes (scope RTT) must not hijack HUD capture
+	if (m_VR->m_SuppressHudCapture)
+		return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
-    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-    if (queueMode != 0)
-    {
-        // Queued/multicore path: the Pop->IsSplitScreen->PrePush->Push sequence
-        // isn't reliable, so never attempt RT hijack here.
-        m_HUDStep = HUDPushStep::None;
-        m_PushedHud = false;
-        return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-    }
+	if (m_PushHUDStep == 2)
+		++m_PushHUDStep;
+	else
+		m_PushHUDStep = -999;
 
-    // Single-threaded path (mat_queue_mode 0): use state machine to detect HUD push
-    bool overrideHudRT = (m_HUDStep == HUDPushStep::ReadyToOverride) &&
-        !m_VR->m_HudPaintedThisFrame.load(std::memory_order_relaxed);
+	// RenderView calls PushRenderTargetAndViewport multiple times with different textures. 
+	// When the call order goes PopRenderTargetAndViewport -> IsSplitScreen -> PrePushRenderTarget -> PushRenderTargetAndViewport,
+	// then it pushed the HUD/GUI render target to the RT stack.
+	if (m_PushHUDStep == 3)
+	{
+		ITexture* originalTexture = pTexture;
+		pTexture = m_VR->m_HUDTexture;
 
-    if (overrideHudRT)
-    {
-        std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
-        if (!m_VR->m_HUDTexture || !IsHudRenderTarget(pTexture, m_VR->m_HUDTexture))
-            overrideHudRT = false;
-    }
+		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+		if (!renderContext)
+		{
+			m_VR->HandleMissingRenderContext("Hooks::dPushRenderTargetAndViewport");
+			return hkPushRenderTargetAndViewport.fOriginal(ecx, originalTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+		}
 
-    if (!overrideHudRT)
-    {
-        m_PushedHud = false;
-        m_HUDStep = HUDPushStep::None;
-        return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-    }
+		renderContext->ClearBuffers(false, true, true);
 
-    ITexture* hudTexture = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
-        hudTexture = m_VR->m_HUDTexture;
-    }
+		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
-    if (!hudTexture)
-    {
-        m_HUDStep = HUDPushStep::None;
-        m_PushedHud = false;
-        return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-    }
+		renderContext->OverrideAlphaWriteEnable(true, true);
+		renderContext->ClearColor4ub(0, 0, 0, 0);
+		renderContext->ClearBuffers(true, false);
 
-    IMatRenderContext* renderContext = m_Game->m_MaterialSystem ? m_Game->m_MaterialSystem->GetRenderContext() : nullptr;
-    if (!renderContext)
-    {
-        m_VR->HandleMissingRenderContext("Hooks::dPushRenderTargetAndViewport");
-        m_HUDStep = HUDPushStep::None;
-        m_PushedHud = false;
-        return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-    }
-
-    // Clear depth/stencil first, then push RT and clear color to transparent.
-    renderContext->ClearBuffers(false, true, true);
-    hkPushRenderTargetAndViewport.fOriginal(ecx, hudTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
-    renderContext->OverrideAlphaWriteEnable(true, true);
-    renderContext->ClearColor4ub(0, 0, 0, 0);
-    renderContext->ClearBuffers(true, false);
-
-    m_PushedHud = true;
-    m_HUDStep = HUDPushStep::None;
+		m_VR->m_RenderedHud = true;
+		m_PushedHud = true;
+	}
+	else
+	{
+		hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
+	}
 }
 
 void Hooks::dPopRenderTargetAndViewport(void* ecx, void* edx)
 {
-    if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
-        return hkPopRenderTargetAndViewport.fOriginal(ecx);
+	if (!m_VR->m_CreatedVRTextures)
+		return hkPopRenderTargetAndViewport.fOriginal(ecx);
 
-    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-    m_HUDStep = (queueMode == 0) ? HUDPushStep::AfterPop : HUDPushStep::None;
+	m_PushHUDStep = 0;
 
-    if (m_PushedHud)
-    {
-        IMatRenderContext* renderContext = m_Game->m_MaterialSystem ? m_Game->m_MaterialSystem->GetRenderContext() : nullptr;
-        if (renderContext)
-        {
-            renderContext->OverrideAlphaWriteEnable(false, true);
-            renderContext->ClearColor4ub(0, 0, 0, 255);
-        }
-    }
+	if (m_PushedHud)
+	{
+		IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+		if (!renderContext)
+		{
+			m_VR->HandleMissingRenderContext("Hooks::dPopRenderTargetAndViewport");
+			return hkPopRenderTargetAndViewport.fOriginal(ecx);
+		}
 
-    hkPopRenderTargetAndViewport.fOriginal(ecx);
-    m_PushedHud = false;
+		renderContext->OverrideAlphaWriteEnable(false, true);
+		renderContext->ClearColor4ub(0, 0, 0, 255);
+	}
+
+	hkPopRenderTargetAndViewport.fOriginal(ecx);
 }
 
 void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 {
-    if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
-        return hkVgui_Paint.fOriginal(ecx, mode);
+	if (!m_VR->m_CreatedVRTextures)
+		return hkVgui_Paint.fOriginal(ecx, mode);
 
-    // When scope/rear-mirror RTT is rendering, don't redirect HUD/VGUI
-    if (m_VR->m_SuppressHudCapture)
-        return;
+	// When scope RTT is rendering, don't redirect HUD/VGUI
+	if (m_VR->m_SuppressHudCapture)
+		return;
 
-    const bool inGame = m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame();
-    const bool isPaused = m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsPaused();
-    const bool cursorVisible = (m_Game && m_Game->m_VguiSurface) ? m_Game->m_VguiSurface->IsCursorVisible() : false;
-    const bool allowBackbufferVgui = !inGame || isPaused || cursorVisible;
+	if (m_PushedHud)
+		mode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
 
-    auto PaintToHudOnce = [&](int paintMode)
-        {
-            bool expected = false;
-            if (!m_VR->m_HudPaintedThisFrame.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
-                return;
-
-            IMatRenderContext* ctx = m_Game && m_Game->m_MaterialSystem ? m_Game->m_MaterialSystem->GetRenderContext() : nullptr;
-            if (!ctx)
-            {
-                m_VR->HandleMissingRenderContext("Hooks::dVGui_Paint");
-                return;
-            }
-
-            ITexture* hudTexture = nullptr;
-            {
-                std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
-                hudTexture = m_VR->m_HUDTexture;
-            }
-
-            if (!hudTexture)
-                return;
-
-            ITexture* prevTarget = ctx->GetRenderTarget();
-            if (prevTarget != hudTexture)
-            {
-                ctx->SetRenderTarget(hudTexture);
-                ctx->OverrideAlphaWriteEnable(true, true);
-                const unsigned char clearAlpha = isPaused ? 255 : 0;
-                ctx->ClearColor4ub(0, 0, 0, clearAlpha);
-                ctx->ClearBuffers(true, false, false);
-                hkVgui_Paint.fOriginal(ecx, paintMode);
-                ctx->OverrideAlphaWriteEnable(false, true);
-                ctx->SetRenderTarget(prevTarget);
-            }
-            else
-            {
-                // Already on the HUD RT (single-threaded PushRT hijack).
-                hkVgui_Paint.fOriginal(ecx, paintMode);
-            }
-
-            m_VR->m_RenderedHud.store(true, std::memory_order_release);
-        };
-
-    // Prefer a compact paint mode when capturing the HUD.
-    const int hudMode = PAINT_UIPANELS | PAINT_INGAMEPANELS;
-    const int fullHudMode = PAINT_UIPANELS | PAINT_INGAMEPANELS | PAINT_CURSOR;
-    const int paintMode = (!inGame || cursorVisible || isPaused) ? (mode | fullHudMode) : hudMode;
-
-    if (inGame && !allowBackbufferVgui)
-    {
-        // In-game: paint HUD into our HUD texture, suppress backbuffer VGUI to avoid
-        // duplicating HUD into the eye render targets (especially under multicore).
-        PaintToHudOnce(paintMode);
-        return;
-    }
-
-    // Menu/pause/cursor: keep normal VGUI on the backbuffer, but also update HUD texture once.
-    if (inGame)
-        PaintToHudOnce(paintMode);
-    hkVgui_Paint.fOriginal(ecx, mode);
+	hkVgui_Paint.fOriginal(ecx, mode);
 }
-
 //
 int Hooks::dIsSplitScreen()
 {
-    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-    if (queueMode == 0)
-    {
-        if (m_HUDStep == HUDPushStep::AfterPop)
-            m_HUDStep = HUDPushStep::AfterIsSplitScreen;
-        else
-            m_HUDStep = HUDPushStep::None;
-    }
-    else
-    {
-        m_HUDStep = HUDPushStep::None;
-    }
+	if (m_PushHUDStep == 0)
+		++m_PushHUDStep;
+	else
+		m_PushHUDStep = -999;
 
-    return hkIsSplitScreen.fOriginal();
+	return hkIsSplitScreen.fOriginal();
 }
 
 DWORD* Hooks::dPrePushRenderTarget(void* ecx, void* edx, int a2)
 {
-    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-    if (queueMode == 0)
-    {
-        if (m_HUDStep == HUDPushStep::AfterIsSplitScreen)
-            m_HUDStep = HUDPushStep::ReadyToOverride;
-        else
-            m_HUDStep = HUDPushStep::None;
-    }
-    else
-    {
-        m_HUDStep = HUDPushStep::None;
-    }
+	if (m_PushHUDStep == 1)
+		++m_PushHUDStep;
+	else
+		m_PushHUDStep = -999;
 
-    return hkPrePushRenderTarget.fOriginal(ecx, a2);
+	return hkPrePushRenderTarget.fOriginal(ecx, a2);
 }
