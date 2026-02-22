@@ -571,6 +571,69 @@ void VR::InstallApplicationManifest(const char* fileName)
 }
 
 
+void VR::UpdateAutoMatQueueMode()
+{
+    if (!m_AutoMatQueueMode)
+        return;
+
+    // Avoid changing engine threading mode when VR rendering is not active.
+    if (!m_IsVREnabled)
+        return;
+
+    if (!m_Game || !m_Game->m_EngineClient)
+        return;
+
+    const bool inGame = m_Game->m_EngineClient->IsInGame();
+    const bool paused = m_Game->m_EngineClient->IsPaused();
+    const bool cursorVisible = (m_Game->m_VguiSurface) ? m_Game->m_VguiSurface->IsCursorVisible() : false;
+    const bool scoreboardHeld = PressedDigitalAction(m_Scoreboard, false);
+
+    // "Loading map": IsInGame can be true while the client entities are not ready yet.
+    bool hasLocalPlayer = false;
+    if (inGame)
+    {
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+        hasLocalPlayer = (localPlayer != nullptr);
+    }
+    const bool loadingMap = inGame && !hasLocalPlayer;
+
+    const int desiredMode = (!inGame || loadingMap || paused || cursorVisible || scoreboardHeld) ? 1 : 2;
+    const int currentMode = m_Game->GetMatQueueMode();
+
+    if (currentMode == desiredMode)
+    {
+        m_AutoMatQueueModeLastRequested = desiredMode;
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const float secondsSinceCmd = (m_AutoMatQueueModeLastCmdTime.time_since_epoch().count() == 0)
+        ? 9999.0f
+        : std::chrono::duration<float>(now - m_AutoMatQueueModeLastCmdTime).count();
+
+    const bool isNewTarget = (m_AutoMatQueueModeLastRequested != desiredMode);
+
+    // Throttle retries to avoid spamming the command if the engine temporarily rejects changes (e.g., during level transitions).
+    if (m_AutoMatQueueModeLastRequested == desiredMode && secondsSinceCmd < 0.5f)
+        return;
+
+    std::string cmd = std::string("mat_queue_mode ") + std::to_string(desiredMode);
+    m_Game->ClientCmd_Unrestricted(cmd.c_str());
+
+    m_AutoMatQueueModeLastRequested = desiredMode;
+    m_AutoMatQueueModeLastCmdTime = now;
+
+    const char* reason = "in-game";
+    if (!inGame) reason = "menu";
+    else if (loadingMap) reason = "loading";
+    else if (paused) reason = "paused";
+    else if (scoreboardHeld) reason = "scoreboard";
+    else if (cursorVisible) reason = "cursor";
+    if (isNewTarget) Game::logMsg("[VR] AutoMatQueueMode -> mat_queue_mode %d (%s)", desiredMode, reason);
+}
+
+
 void VR::Update()
 {
     if (!m_IsInitialized || !m_Game->m_Initialized)
@@ -596,6 +659,8 @@ void VR::Update()
     SubmitVRTextures();
 
     bool posesValid = UpdatePosesAndActions();
+
+    UpdateAutoMatQueueMode();
 
     if (!posesValid)
     {
