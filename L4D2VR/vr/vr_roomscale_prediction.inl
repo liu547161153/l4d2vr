@@ -1,4 +1,22 @@
-void VR::OnPredictionRunCommand(CUserCmd* /*cmd*/) {}
+void VR::OnPredictionRunCommand(CUserCmd* cmd)
+{
+    if (!cmd || !m_SpecialInfectedPreWarningAutoAimEnabled)
+        return;
+
+    if ((cmd->buttons & (1 << 0)) == 0) // IN_ATTACK
+        return;
+
+    if (!m_SpecialInfectedPreWarningActive || !m_SpecialInfectedPreWarningInRange)
+        return;
+
+    const float window = std::max(0.0f, m_SpecialInfectedRunCommandShotWindow);
+    if (window <= 0.0f)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    m_SpecialInfectedRunCommandShotAimUntil = now
+        + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(window));
+}
 
 void VR::SendVirtualKey(WORD virtualKey)
 {
