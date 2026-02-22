@@ -424,8 +424,6 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 	}
 
 	// ---- roomscale 1:1 server apply ----
-	// Disabled when L4D2VR_DISABLE_ROOMSCALER_1TO1 is set.
-#if !L4D2VR_DISABLE_ROOMSCALER_1TO1
 	if (m_Game && m_VR && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
 	{
 		static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
@@ -511,10 +509,6 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 			}
 		}
 	}
-
-#else
-	// When disabled, we must NOT touch cmd->buttons (the stock server expects them verbatim).
-#endif
 	return result;
 }
 
