@@ -16,12 +16,6 @@
 #include <mutex>
 #define MAX_STR_LEN 256
 
-// Temporary debug kill-switch: disable the entire 1:1 roomscale movement pipeline
-// (client packing, server decoding/apply, and prediction-side masking). Set to 0 to re-enable.
-#ifndef L4D2VR_DISABLE_ROOMSCALER_1TO1
-#define L4D2VR_DISABLE_ROOMSCALER_1TO1 1
-#endif
-
 class Game;
 class C_BaseEntity;
 class C_BasePlayer;

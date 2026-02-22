@@ -735,13 +735,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		const float um = cmd ? cmd->upmove : 0.0f;
 		m_VR->m_LocomotionActive = (fabsf(fm) > 0.5f) || (fabsf(sm) > 0.5f) || (fabsf(um) > 0.5f) || m_VR->m_PushingThumbstick;
 
-#if !L4D2VR_DISABLE_ROOMSCALER_1TO1
 		m_VR->EncodeRoomscale1To1Move(cmd);
-#endif
 	}
 
 	// Debug: verify the packed 1:1 delta survives CreateMove and is still present for networking.
-#if !L4D2VR_DISABLE_ROOMSCALER_1TO1
 	if (m_VR && cmd && m_VR->m_Roomscale1To1DebugLog && !m_VR->m_ForceNonVRServerMovement && m_VR->m_Roomscale1To1Movement && cmd->weaponselect == 0)
 	{
 		Vector dm;
@@ -753,6 +750,5 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 					cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)cmd->buttons, dm.x, dm.y);
 		}
 	}
-#endif
 	return result;
 }
