@@ -68,14 +68,27 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 	m_RunCommandSecondaryCmd = nullptr;
 
 	if (m_VR)
+	{
+#if L4D2VR_DISABLE_ROOMSCALER_1TO1
+		// Temporarily suppress any 1:1 prediction logic that keys off m_Roomscale1To1Movement.
+		const bool saved1to1 = m_VR->m_Roomscale1To1Movement;
+		m_VR->m_Roomscale1To1Movement = false;
 		m_VR->OnPredictionRunCommand(cmd);
+		m_VR->m_Roomscale1To1Movement = saved1to1;
+#else
+		m_VR->OnPredictionRunCommand(cmd);
+#endif
+	}
+
 	// Debug: track whether packed 1:1 delta survives prediction/original RunCommand.
+#if !L4D2VR_DISABLE_ROOMSCALER_1TO1
 	static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
 	uint32_t b_before = (uint32_t)cmd->buttons;
 	Vector b_dm_before;
 	const bool b_has_before = (m_VR && !m_VR->m_ForceNonVRServerMovement && m_VR->m_Roomscale1To1Movement && cmd->weaponselect == 0 && VR::DecodeRoomscale1To1Delta((int)(b_before & kRSButtonsMask), b_dm_before));
 	if (b_has_before && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
 		Game::logMsg("[VR][1to1][runcmd] pre  cmd=%d tick=%d cmdptr=%p buttons=0x%08X dM=(%.3f %.3f)", cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, b_dm_before.x, b_dm_before.y);
+#endif
 
 	const bool canRunSecondaryPredict =
 		m_VR
@@ -99,6 +112,7 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 
 	// If we packed a 1:1 room-scale delta into buttons high bits, keep it for networking,
 	// but hide it from the stock prediction/movement code (weapon logic may peek at buttons).
+#if !L4D2VR_DISABLE_ROOMSCALER_1TO1
 	const int rsPackedButtons = cmd ? (cmd->buttons & (int)kRSButtonsMask) : 0;
 	bool rsHideButtons = false;
 	if (m_VR && cmd && cmd->weaponselect == 0 && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
@@ -109,7 +123,11 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 			cmd->buttons &= ~(int)kRSButtonsMask;
 	}
 
+#endif
+
 	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+
+#if !L4D2VR_DISABLE_ROOMSCALER_1TO1
 	if (rsHideButtons)
 		cmd->buttons = (cmd->buttons & ~(int)kRSButtonsMask) | rsPackedButtons;
 	if (b_has_before && m_VR && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
@@ -120,6 +138,7 @@ void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cm
 		Game::logMsg("[VR][1to1][runcmd] post cmd=%d tick=%d cmdptr=%p buttons=0x%08X->0x%08X decoded=%d dM=(%.3f %.3f)",
 			cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, (unsigned)b_after, (int)b_has_after, b_dm_after.x, b_dm_after.y);
 	}
+#endif
 
 	m_RunCommandCurrentCmd = nullptr;
 }
