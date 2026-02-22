@@ -941,6 +941,15 @@ void VR::ParseConfigFile()
     const bool prevVASLog = m_DebugVASLog;
     m_DebugVASLog = getBool("DebugVASLog", m_DebugVASLog);
     m_LazyScopeRearMirrorRTT = getBool("LazyScopeRearMirrorRTT", m_LazyScopeRearMirrorRTT);
+
+    const bool prevAutoMatQueueMode = m_AutoMatQueueMode;
+    m_AutoMatQueueMode = getBool("AutoMatQueueMode", m_AutoMatQueueMode);
+    if (m_AutoMatQueueMode != prevAutoMatQueueMode)
+    {
+        m_AutoMatQueueModeLastRequested = -999;
+        m_AutoMatQueueModeLastCmdTime = {};
+    }
+
     if (!prevVASLog && m_DebugVASLog)
         LogVAS("DebugVASLog enabled");
 
