@@ -160,21 +160,9 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
-	// HUD render-target interception uses a small state machine to detect the
-	// engine's "push HUD RT" sequence:
-	//   PopRenderTargetAndViewport -> IsSplitScreen -> PrePushRenderTarget -> PushRenderTargetAndViewport
-	// In mat_queue_mode != 0 (queued/multicore), this sequence isn't reliable, so we
-	// fall back to explicit VGui_Paint redirection.
-	enum class HUDPushStep : int
-	{
-		None = -1,
-		AfterPop,
-		AfterIsSplitScreen,
-		ReadyToOverride,
-	};
-
-	static inline thread_local HUDPushStep m_HUDStep = HUDPushStep::None;
-	static inline thread_local bool m_PushedHud = false;
+	// Blocks the game's Info/MOTD panel (default bind: H) when configured.
+	static inline int m_PushHUDStep;
+	static inline bool m_PushedHud;
 	// RunCommand prediction context (thread-local to avoid render/input thread interleave issues).
 	static inline thread_local bool m_RunCommandInDetour = false;
 	static inline thread_local bool m_RunCommandFromSecondaryPredict = false;
