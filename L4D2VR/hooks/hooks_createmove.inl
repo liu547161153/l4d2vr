@@ -649,20 +649,28 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 	if (m_VR)
 	{
+		// If server-side VR decoding isn't running in *this* process (i.e. remote server),
+		// auto-fallback to Non-VR server compatibility mode for the whole tick.
+		const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
+		const bool serverHookFresh = inGame && IsServerHookFreshNow();
+		if (!serverHookFresh)
+			Hooks::s_ServerUnderstandsVR.store(false, std::memory_order_relaxed);
+		SyncForceNonVRRemoteOverride(m_VR, serverHookFresh);
+
 		// Debug: show whether the server-side hook is actually running in this process.
 		// For listen-server play, Hooks::dProcessUsercmds should get hit and flip s_ServerUnderstandsVR to true.
 		// If this stays false while in-game, then the ProcessUsercmds/ReadUsercmd offsets or hook installation are wrong.
 		static std::chrono::steady_clock::time_point s_svHookDbgLast{};
 		if (m_VR->m_Roomscale1To1DebugLog && !ShouldThrottleLog(s_svHookDbgLast, 1.0f))
 		{
-			const bool inGame = (m_Game && m_Game->m_EngineClient) ? m_Game->m_EngineClient->IsInGame() : false;
 			Game::logMsg(
-				"[VR][1to1][svhook] cmd=%d tick=%d cmdptr=%p inGame=%d serverUnderstandsVR=%d ProcessUsercmds=0x%p ReadUsercmd=0x%p",
+				"[VR][1to1][svhook] cmd=%d tick=%d cmdptr=%p inGame=%d serverUnderstandsVR=%d fresh=%d ProcessUsercmds=0x%p ReadUsercmd=0x%p",
 				cmd->command_number,
 				cmd->tick_count,
 				(void*)cmd,
 				(int)inGame,
-				(int)Hooks::s_ServerUnderstandsVR,
+				(int)Hooks::s_ServerUnderstandsVR.load(std::memory_order_relaxed),
+				(int)serverHookFresh,
 				(void*)(uintptr_t)m_Game->m_Offsets->ProcessUsercmds.address,
 				(void*)(uintptr_t)m_Game->m_Offsets->ReadUserCmd.address);
 		}
