@@ -22,56 +22,38 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
 
+	// Reset "HUD painted" flag once per VR frame (prevents double HUD captures across eyes).
+	m_VR->m_HudPaintedThisFrame.store(false, std::memory_order_release);
+
 	// --- Multicore (queued) rendering stabilization ---
 	// When mat_queue_mode!=0, the render thread is decoupled from the main/update thread.
-	// If we keep using main-thread-computed tracking values inside rendering, we get tearing/jitter
-	// (data races) and head-turn ghosting (poses sampled too early / on the wrong thread).
+	// If we keep using main-thread-computed m_HmdPosAbs/m_HmdAngAbs/m_RightControllerPosAbs inside rendering,
+	// we get tearing/jitter (data races) and head-turn ghosting (poses sampled on the wrong thread).
 	//
-	// IMPORTANT for performance:
-	// WaitGetPoses() can block for a significant portion of the frame. If we do that at the very
-	// start of this hook, we can starve Source's queued render thread and lose a big chunk of the
-	// mat_queue_mode uplift. So we:
-	//  1) Avoid doing WaitGetPoses more than once per compositor frame.
-	//  2) Defer the WaitGetPoses until just before we actually need VR view origins/angles.
+	// Ported behavior from the old multicore branch: do a render-thread WaitGetPoses(), combine it with a
+	// main-thread seqlock snapshot of camera anchor/scale/offsets, then publish a render-thread snapshot
+	// that all render-time getters can read consistently during this dRenderView.
 	const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-
-	auto UpdateRenderFrameSnapshotIfNeeded = [&](const CViewSetup& setupForDelta) -> bool
+	struct RenderSnapshotTLSGuard
 	{
-		if (queueMode == 0 || !m_VR || !m_VR->m_System)
-			return false;
-		vr::IVRCompositor* compositor = vr::VRCompositor();
-		if (!compositor)
-			return false;
+		bool enable = false;
+		RenderSnapshotTLSGuard(bool e) : enable(e) { if (enable) VR::t_UseRenderFrameSnapshot = true; }
+		~RenderSnapshotTLSGuard() { if (enable) VR::t_UseRenderFrameSnapshot = false; }
+	};
+	RenderSnapshotTLSGuard __renderTls(queueMode != 0);
 
+	if (queueMode != 0 && m_VR && m_VR->m_System && vr::VRCompositor())
+	{
 		// Remember which thread is producing render snapshots (used by other render-time hooks).
 		m_VR->m_RenderThreadId.store(static_cast<uint32_t>(GetCurrentThreadId()), std::memory_order_relaxed);
-
-		// Try to key the snapshot to the compositor's frame index to avoid duplicate work when
-		// Source invokes RenderView multiple times within a single compositor frame.
-		uint32_t compositorFrameIndex = 0;
-		vr::Compositor_FrameTiming timing{};
-		timing.m_nSize = sizeof(timing);
-		if (compositor->GetFrameTiming(&timing))
-			compositorFrameIndex = timing.m_nFrameIndex;
-
-		static thread_local uint32_t s_lastSnapshotFrameIndex = 0;
-		// If GetFrameTiming fails, compositorFrameIndex==0; in that case we conservatively update.
-		if (compositorFrameIndex != 0 && compositorFrameIndex == s_lastSnapshotFrameIndex)
-			return true;
-
-		// Reset "HUD painted" once per VR compositor frame (prevents redundant HUD captures).
-		m_VR->m_HudPaintedThisFrame.store(false, std::memory_order_release);
-
-		if (compositorFrameIndex != 0)
-			s_lastSnapshotFrameIndex = compositorFrameIndex;
 
 		// Track per-render-call setup.origin deltas (tick-rate movement) to reduce model/camera stepping.
 		static thread_local Vector s_prevSetupOrigin{};
 		static thread_local bool s_prevSetupOriginValid = false;
 		Vector pendingOriginDelta{};
 		if (s_prevSetupOriginValid)
-			pendingOriginDelta = setupForDelta.origin - s_prevSetupOrigin;
-		s_prevSetupOrigin = setupForDelta.origin;
+			pendingOriginDelta = setup.origin - s_prevSetupOrigin;
+		s_prevSetupOrigin = setup.origin;
 		s_prevSetupOriginValid = true;
 
 		struct ViewParams
@@ -122,137 +104,135 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				vpOk = true;
 		}
 
-		if (!vpOk)
-			return false;
-
-		std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> renderPoses{};
-		vr::EVRCompositorError err = compositor->WaitGetPoses(renderPoses.data(), vr::k_unMaxTrackedDeviceCount, NULL, 0);
-		if (err != vr::VRCompositorError_None || !renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
-			return false;
-
-		TrackedDevicePoseData hmdPose{};
-		m_VR->GetPoseData(renderPoses[vr::k_unTrackedDeviceIndex_Hmd], hmdPose);
-		QAngle hmdAngLocal = hmdPose.TrackedDeviceAng;
-		Vector hmdPosLocal = hmdPose.TrackedDevicePos;
-
-		// Predict corrected position using the last main-thread corrected frame as a base.
-		Vector hmdPosCorrected = vp.hmdPosCorrectedPrev + (hmdPosLocal - vp.hmdPosLocalPrev);
-		VectorPivotXY(hmdPosCorrected, vp.hmdPosCorrectedPrev, vp.rotationOffset);
-
-		hmdAngLocal.y += vp.rotationOffset;
-		hmdAngLocal.y -= 360.0f * std::floor((hmdAngLocal.y + 180.0f) / 360.0f);
-
-		Vector hmdForward, hmdRight, hmdUp;
-		QAngle::AngleVectors(hmdAngLocal, &hmdForward, &hmdRight, &hmdUp);
-
-		// Advance the anchor by the tick-rate origin delta observed on this thread.
-		Vector cameraAnchor = vp.cameraAnchor + pendingOriginDelta;
-		Vector hmdPosAbs = cameraAnchor - Vector(0, 0, 64) + (hmdPosCorrected * vp.vrScale);
-
-		const float ipdSu = (vp.ipd * vp.ipdScale * vp.vrScale);
-		const float eyeZSu = (vp.eyeZ * vp.vrScale);
-		Vector viewCenter = hmdPosAbs + (hmdForward * (-eyeZSu));
-		Vector viewLeft = viewCenter + (hmdRight * (-(ipdSu * 0.5f)));
-		Vector viewRight = viewCenter + (hmdRight * (+(ipdSu * 0.5f)));
-
-		// Right controller (visual/viewmodel only, no gameplay auto-aim overrides here).
-		vr::TrackedDeviceIndex_t leftIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
-		vr::TrackedDeviceIndex_t rightIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
-		if (m_VR->m_LeftHanded)
-			std::swap(leftIdx, rightIdx);
-
-		Vector rightCtrlPosAbs = m_VR->m_RightControllerPosAbs;
-		QAngle rightCtrlAngAbs = m_VR->m_RightControllerAngAbs;
-		Vector vmForward = m_VR->m_ViewmodelForward;
-		Vector vmRight = m_VR->m_ViewmodelRight;
-		Vector vmUp = m_VR->m_ViewmodelUp;
-		Vector vmPosAbs = m_VR->GetRecommendedViewmodelAbsPos();
-		QAngle vmAngAbs = m_VR->GetRecommendedViewmodelAbsAngle();
-
-		if (rightIdx != vr::k_unTrackedDeviceIndexInvalid && rightIdx < vr::k_unMaxTrackedDeviceCount && renderPoses[rightIdx].bPoseIsValid)
+		if (vpOk)
 		{
-			TrackedDevicePoseData rightPose{};
-			m_VR->GetPoseData(renderPoses[rightIdx], rightPose);
-			Vector ctrlPosLocal = rightPose.TrackedDevicePos;
-			QAngle ctrlAngLocal = rightPose.TrackedDeviceAng;
+			std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> renderPoses{};
+			vr::EVRCompositorError err = vr::VRCompositor()->WaitGetPoses(renderPoses.data(), vr::k_unMaxTrackedDeviceCount, NULL, 0);
+			if (err == vr::VRCompositorError_None && renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
+			{
+				TrackedDevicePoseData hmdPose{};
+				m_VR->GetPoseData(renderPoses[vr::k_unTrackedDeviceIndex_Hmd], hmdPose);
+				QAngle hmdAngLocal = hmdPose.TrackedDeviceAng;
+				Vector hmdPosLocal = hmdPose.TrackedDevicePos;
 
-			Vector hmdToCtrl = ctrlPosLocal - hmdPosLocal;
-			Vector ctrlPosCorrected = hmdPosCorrected + hmdToCtrl;
-			VectorPivotXY(ctrlPosCorrected, hmdPosCorrected, vp.rotationOffset);
-			ctrlAngLocal.y += vp.rotationOffset;
-			ctrlAngLocal.y -= 360.0f * std::floor((ctrlAngLocal.y + 180.0f) / 360.0f);
+				// Predict corrected position using the last main-thread corrected frame as a base.
+				Vector hmdPosCorrected = vp.hmdPosCorrectedPrev + (hmdPosLocal - vp.hmdPosLocalPrev);
+				VectorPivotXY(hmdPosCorrected, vp.hmdPosCorrectedPrev, vp.rotationOffset);
 
-			Vector ctrlF, ctrlR, ctrlU;
-			QAngle::AngleVectors(ctrlAngLocal, &ctrlF, &ctrlR, &ctrlU);
-			// 45° downward tilt, matches main tracking path.
-			ctrlF = VectorRotate(ctrlF, ctrlR, -45.0);
-			ctrlU = VectorRotate(ctrlU, ctrlR, -45.0);
+				hmdAngLocal.y += vp.rotationOffset;
+				hmdAngLocal.y -= 360.0f * std::floor((hmdAngLocal.y + 180.0f) / 360.0f);
 
-			rightCtrlPosAbs = cameraAnchor - Vector(0, 0, 64) + (ctrlPosCorrected * vp.vrScale);
-			QAngle::VectorAngles(ctrlF, ctrlU, rightCtrlAngAbs);
+				Vector hmdForward, hmdRight, hmdUp;
+				QAngle::AngleVectors(hmdAngLocal, &hmdForward, &hmdRight, &hmdUp);
 
-			// Viewmodel basis from controller + per-weapon offsets.
-			vmForward = ctrlF;
-			vmRight = ctrlR;
-			vmUp = ctrlU;
-			// Yaw offset
-			vmForward = VectorRotate(vmForward, vmUp, vp.viewmodelAngOffset.y);
-			vmRight = VectorRotate(vmRight, vmUp, vp.viewmodelAngOffset.y);
-			// Pitch offset
-			vmForward = VectorRotate(vmForward, vmRight, vp.viewmodelAngOffset.x);
-			vmUp = VectorRotate(vmUp, vmRight, vp.viewmodelAngOffset.x);
-			// Roll offset
-			vmRight = VectorRotate(vmRight, vmForward, vp.viewmodelAngOffset.z);
-			vmUp = VectorRotate(vmUp, vmForward, vp.viewmodelAngOffset.z);
+				// Advance the anchor by the tick-rate origin delta observed on the render thread.
+				Vector cameraAnchor = vp.cameraAnchor + pendingOriginDelta;
+				Vector hmdPosAbs = cameraAnchor - Vector(0, 0, 64) + (hmdPosCorrected * vp.vrScale);
 
-			vmPosAbs = rightCtrlPosAbs
-				- (vmForward * vp.viewmodelPosOffset.x)
-				- (vmRight * vp.viewmodelPosOffset.y)
-				- (vmUp * vp.viewmodelPosOffset.z);
-			QAngle::VectorAngles(vmForward, vmUp, vmAngAbs);
+				const float ipdSu = (vp.ipd * vp.ipdScale * vp.vrScale);
+				const float eyeZSu = (vp.eyeZ * vp.vrScale);
+				Vector viewCenter = hmdPosAbs + (hmdForward * (-eyeZSu));
+				Vector viewLeft = viewCenter + (hmdRight * (-(ipdSu * 0.5f)));
+				Vector viewRight = viewCenter + (hmdRight * (+(ipdSu * 0.5f)));
+
+				// Right controller (visual/viewmodel only, no gameplay auto-aim overrides here).
+				vr::TrackedDeviceIndex_t leftIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
+				vr::TrackedDeviceIndex_t rightIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+				if (m_VR->m_LeftHanded)
+					std::swap(leftIdx, rightIdx);
+
+				Vector rightCtrlPosAbs = m_VR->m_RightControllerPosAbs;
+				QAngle rightCtrlAngAbs = m_VR->m_RightControllerAngAbs;
+				Vector vmForward = m_VR->m_ViewmodelForward;
+				Vector vmRight = m_VR->m_ViewmodelRight;
+				Vector vmUp = m_VR->m_ViewmodelUp;
+				Vector vmPosAbs = m_VR->GetRecommendedViewmodelAbsPos();
+				QAngle vmAngAbs = m_VR->GetRecommendedViewmodelAbsAngle();
+
+				if (rightIdx != vr::k_unTrackedDeviceIndexInvalid && rightIdx < vr::k_unMaxTrackedDeviceCount && renderPoses[rightIdx].bPoseIsValid)
+				{
+					TrackedDevicePoseData rightPose{};
+					m_VR->GetPoseData(renderPoses[rightIdx], rightPose);
+					Vector ctrlPosLocal = rightPose.TrackedDevicePos;
+					QAngle ctrlAngLocal = rightPose.TrackedDeviceAng;
+
+					Vector hmdToCtrl = ctrlPosLocal - hmdPosLocal;
+					Vector ctrlPosCorrected = hmdPosCorrected + hmdToCtrl;
+					VectorPivotXY(ctrlPosCorrected, hmdPosCorrected, vp.rotationOffset);
+					ctrlAngLocal.y += vp.rotationOffset;
+					ctrlAngLocal.y -= 360.0f * std::floor((ctrlAngLocal.y + 180.0f) / 360.0f);
+
+					Vector ctrlF, ctrlR, ctrlU;
+					QAngle::AngleVectors(ctrlAngLocal, &ctrlF, &ctrlR, &ctrlU);
+					// 45° downward tilt, matches main tracking path.
+					ctrlF = VectorRotate(ctrlF, ctrlR, -45.0);
+					ctrlU = VectorRotate(ctrlU, ctrlR, -45.0);
+
+					rightCtrlPosAbs = cameraAnchor - Vector(0, 0, 64) + (ctrlPosCorrected * vp.vrScale);
+					QAngle::VectorAngles(ctrlF, ctrlU, rightCtrlAngAbs);
+
+					// Viewmodel basis from controller + per-weapon offsets.
+					vmForward = ctrlF;
+					vmRight = ctrlR;
+					vmUp = ctrlU;
+					// Yaw offset
+					vmForward = VectorRotate(vmForward, vmUp, vp.viewmodelAngOffset.y);
+					vmRight = VectorRotate(vmRight, vmUp, vp.viewmodelAngOffset.y);
+					// Pitch offset
+					vmForward = VectorRotate(vmForward, vmRight, vp.viewmodelAngOffset.x);
+					vmUp = VectorRotate(vmUp, vmRight, vp.viewmodelAngOffset.x);
+					// Roll offset
+					vmRight = VectorRotate(vmRight, vmForward, vp.viewmodelAngOffset.z);
+					vmUp = VectorRotate(vmUp, vmForward, vp.viewmodelAngOffset.z);
+
+					vmPosAbs = rightCtrlPosAbs
+						- (vmForward * vp.viewmodelPosOffset.x)
+						- (vmRight * vp.viewmodelPosOffset.y)
+						- (vmUp * vp.viewmodelPosOffset.z);
+					QAngle::VectorAngles(vmForward, vmUp, vmAngAbs);
+				}
+
+				// Publish render-frame snapshot with a seqlock.
+				uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
+				m_VR->m_RenderFrameSeq.store(seq + 1, std::memory_order_release);
+
+				m_VR->m_RenderViewAngX.store(hmdAngLocal.x, std::memory_order_relaxed);
+				m_VR->m_RenderViewAngY.store(hmdAngLocal.y, std::memory_order_relaxed);
+				m_VR->m_RenderViewAngZ.store(hmdAngLocal.z, std::memory_order_relaxed);
+				m_VR->m_RenderViewOriginLeftX.store(viewLeft.x, std::memory_order_relaxed);
+				m_VR->m_RenderViewOriginLeftY.store(viewLeft.y, std::memory_order_relaxed);
+				m_VR->m_RenderViewOriginLeftZ.store(viewLeft.z, std::memory_order_relaxed);
+				m_VR->m_RenderViewOriginRightX.store(viewRight.x, std::memory_order_relaxed);
+				m_VR->m_RenderViewOriginRightY.store(viewRight.y, std::memory_order_relaxed);
+				m_VR->m_RenderViewOriginRightZ.store(viewRight.z, std::memory_order_relaxed);
+				m_VR->m_RenderRightControllerPosAbsX.store(rightCtrlPosAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderRightControllerPosAbsY.store(rightCtrlPosAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderRightControllerPosAbsZ.store(rightCtrlPosAbs.z, std::memory_order_relaxed);
+				m_VR->m_RenderRightControllerAngAbsX.store(rightCtrlAngAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderRightControllerAngAbsY.store(rightCtrlAngAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderRightControllerAngAbsZ.store(rightCtrlAngAbs.z, std::memory_order_relaxed);
+				m_VR->m_RenderRecommendedViewmodelPosX.store(vmPosAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderRecommendedViewmodelPosY.store(vmPosAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderRecommendedViewmodelPosZ.store(vmPosAbs.z, std::memory_order_relaxed);
+				m_VR->m_RenderRecommendedViewmodelAngX.store(vmAngAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderRecommendedViewmodelAngY.store(vmAngAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderRecommendedViewmodelAngZ.store(vmAngAbs.z, std::memory_order_relaxed);
+
+				// Publish a dedicated viewmodel snapshot as well (used by CalcViewModelView even outside render TLS).
+				uint32_t vmSeq = m_VR->m_RenderViewmodelSeq.load(std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelSeq.store(vmSeq + 1, std::memory_order_release);
+				m_VR->m_RenderViewmodelPosX.store(vmPosAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelPosY.store(vmPosAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelPosZ.store(vmPosAbs.z, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelAngX.store(vmAngAbs.x, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelAngY.store(vmAngAbs.y, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelAngZ.store(vmAngAbs.z, std::memory_order_relaxed);
+				m_VR->m_RenderViewmodelSeq.store(vmSeq + 2, std::memory_order_release);
+
+				m_VR->m_RenderFrameSeq.store(seq + 2, std::memory_order_release);
+			}
 		}
-
-		// Publish render-frame snapshot with a seqlock.
-		uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
-		m_VR->m_RenderFrameSeq.store(seq + 1, std::memory_order_release);
-
-		m_VR->m_RenderViewAngX.store(hmdAngLocal.x, std::memory_order_relaxed);
-		m_VR->m_RenderViewAngY.store(hmdAngLocal.y, std::memory_order_relaxed);
-		m_VR->m_RenderViewAngZ.store(hmdAngLocal.z, std::memory_order_relaxed);
-		m_VR->m_RenderViewOriginLeftX.store(viewLeft.x, std::memory_order_relaxed);
-		m_VR->m_RenderViewOriginLeftY.store(viewLeft.y, std::memory_order_relaxed);
-		m_VR->m_RenderViewOriginLeftZ.store(viewLeft.z, std::memory_order_relaxed);
-		m_VR->m_RenderViewOriginRightX.store(viewRight.x, std::memory_order_relaxed);
-		m_VR->m_RenderViewOriginRightY.store(viewRight.y, std::memory_order_relaxed);
-		m_VR->m_RenderViewOriginRightZ.store(viewRight.z, std::memory_order_relaxed);
-		m_VR->m_RenderRightControllerPosAbsX.store(rightCtrlPosAbs.x, std::memory_order_relaxed);
-		m_VR->m_RenderRightControllerPosAbsY.store(rightCtrlPosAbs.y, std::memory_order_relaxed);
-		m_VR->m_RenderRightControllerPosAbsZ.store(rightCtrlPosAbs.z, std::memory_order_relaxed);
-		m_VR->m_RenderRightControllerAngAbsX.store(rightCtrlAngAbs.x, std::memory_order_relaxed);
-		m_VR->m_RenderRightControllerAngAbsY.store(rightCtrlAngAbs.y, std::memory_order_relaxed);
-		m_VR->m_RenderRightControllerAngAbsZ.store(rightCtrlAngAbs.z, std::memory_order_relaxed);
-		m_VR->m_RenderRecommendedViewmodelPosX.store(vmPosAbs.x, std::memory_order_relaxed);
-		m_VR->m_RenderRecommendedViewmodelPosY.store(vmPosAbs.y, std::memory_order_relaxed);
-		m_VR->m_RenderRecommendedViewmodelPosZ.store(vmPosAbs.z, std::memory_order_relaxed);
-		m_VR->m_RenderRecommendedViewmodelAngX.store(vmAngAbs.x, std::memory_order_relaxed);
-		m_VR->m_RenderRecommendedViewmodelAngY.store(vmAngAbs.y, std::memory_order_relaxed);
-		m_VR->m_RenderRecommendedViewmodelAngZ.store(vmAngAbs.z, std::memory_order_relaxed);
-
-		// Publish a dedicated viewmodel snapshot as well (used by CalcViewModelView even outside render TLS).
-		uint32_t vmSeq = m_VR->m_RenderViewmodelSeq.load(std::memory_order_relaxed);
-		m_VR->m_RenderViewmodelSeq.store(vmSeq + 1, std::memory_order_release);
-		m_VR->m_RenderViewmodelPosX.store(vmPosAbs.x, std::memory_order_relaxed);
-		m_VR->m_RenderViewmodelPosY.store(vmPosAbs.y, std::memory_order_relaxed);
-		m_VR->m_RenderViewmodelPosZ.store(vmPosAbs.z, std::memory_order_relaxed);
-		m_VR->m_RenderViewmodelAngX.store(vmAngAbs.x, std::memory_order_relaxed);
-		m_VR->m_RenderViewmodelAngY.store(vmAngAbs.y, std::memory_order_relaxed);
-		m_VR->m_RenderViewmodelAngZ.store(vmAngAbs.z, std::memory_order_relaxed);
-		m_VR->m_RenderViewmodelSeq.store(vmSeq + 2, std::memory_order_release);
-
-		m_VR->m_RenderFrameSeq.store(seq + 2, std::memory_order_release);
-
-		return true;
-	};
+	}
 
 	// ------------------------------
 	// Third-person camera fix:
@@ -629,22 +609,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	m_VR->m_SetupAngles.Init(setup.angles.x, setup.angles.y, setup.angles.z);
 
 	Vector leftOrigin, rightOrigin;
-
-	// Under mat_queue_mode!=0, publish/read a coherent render-thread snapshot for this compositor frame.
-	bool enableRenderTls = false;
-	if (queueMode != 0)
-	{
-		const bool ok = UpdateRenderFrameSnapshotIfNeeded(setup);
-		enableRenderTls = ok || (m_VR->m_RenderFrameSeq.load(std::memory_order_acquire) != 0);
-	}
-	struct RenderSnapshotTLSGuard
-	{
-		bool enable = false;
-		RenderSnapshotTLSGuard(bool e) : enable(e) { if (enable) VR::t_UseRenderFrameSnapshot = true; }
-		~RenderSnapshotTLSGuard() { if (enable) VR::t_UseRenderFrameSnapshot = false; }
-	};
-	RenderSnapshotTLSGuard __renderTls(enableRenderTls);
-
 	Vector viewAngles = m_VR->GetViewAngle();
 
 	// Recenter the VR anchors once per threshold when yaw turns left/right a lot.
