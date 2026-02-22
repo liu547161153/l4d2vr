@@ -147,12 +147,64 @@ static bool GetBool(const std::string& key, bool defVal)
     return ParseBool(GetStr(key), defVal);
 }
 
+static bool StartsWith(const char* value, const char* prefix)
+{
+    if (!value || !prefix) return false;
+    const size_t len = std::strlen(prefix);
+    return std::strncmp(value, prefix, len) == 0;
+}
+
+static bool IsEnabled(const char* key, bool defVal = false)
+{
+    return GetBool(key, defVal);
+}
+
 static bool IsOptionVisible(const Option& opt)
 {
-    // Hide Mouse Mode child settings until the mode is enabled,
-    // so the panel stays compact for controller-first users.
-    if (std::strncmp(opt.key, "MouseMode", 9) == 0 && std::strcmp(opt.key, "MouseModeEnabled") != 0)
-        return GetBool("MouseModeEnabled", false);
+    const char* key = opt.key;
+
+    // Key groups hidden behind their main feature toggles.
+    if (StartsWith(key, "MouseMode") && std::strcmp(key, "MouseModeEnabled") != 0)
+        return IsEnabled("MouseModeEnabled");
+
+    if (StartsWith(key, "LeftWristHud") && std::strcmp(key, "LeftWristHudEnabled") != 0)
+        return IsEnabled("LeftWristHudEnabled");
+
+    if (StartsWith(key, "RightAmmoHud") && std::strcmp(key, "RightAmmoHudEnabled") != 0)
+        return IsEnabled("RightAmmoHudEnabled");
+
+    if (StartsWith(key, "InventoryQuickSwitch") && std::strcmp(key, "InventoryQuickSwitchEnabled") != 0)
+        return IsEnabled("InventoryQuickSwitchEnabled");
+
+    if (StartsWith(key, "Scope") && std::strcmp(key, "ScopeEnabled") != 0)
+    {
+        if (!IsEnabled("ScopeEnabled"))
+            return false;
+
+        // Look-through tuning options only matter when look-through gating is enabled.
+        if ((std::strcmp(key, "ScopeLookThroughDistanceMeters") == 0 || std::strcmp(key, "ScopeLookThroughAngleDeg") == 0) &&
+            !IsEnabled("ScopeRequireLookThrough"))
+            return false;
+    }
+
+    // Individual dependency rules.
+    if (std::strcmp(key, "SnapTurnAngle") == 0)
+        return IsEnabled("SnapTurning");
+
+    if (StartsWith(key, "Roomscale1To1") && std::strcmp(key, "Roomscale1To1Movement") != 0)
+        return IsEnabled("Roomscale1To1Movement");
+
+    if (std::strcmp(key, "ViewmodelAdjustCombo") == 0)
+        return IsEnabled("ViewmodelAdjustEnabled");
+
+    if (std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0)
+        return IsEnabled("AutoRepeatSemiAutoFire");
+
+    if (std::strcmp(key, "AimLineOnlyWhenLaserSight") == 0 ||
+        std::strcmp(key, "AimLineThickness") == 0 ||
+        std::strcmp(key, "AimLineColor") == 0 ||
+        std::strcmp(key, "AimLineMaxHz") == 0)
+        return IsEnabled("AimLineEnabled");
 
     return true;
 }
