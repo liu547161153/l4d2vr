@@ -262,6 +262,53 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		}
 	}
 
+
+	// ----------------------------------------------------------------------
+	// Viewmodel late-latch for queued rendering:
+	//
+	// Under mat_queue_mode!=0, CalcViewModelView can execute on the main thread before the
+	// render-thread pose for the current frame is sampled. That makes the 1P viewmodel lag
+	// behind the world while moving / stick-turning ("double image"/ghosting).
+	//
+	// Fix: on the render thread, during actual rendering, override the viewmodel model's
+	// render origin/angles with the render-frame viewmodel snapshot computed in dRenderView.
+	// ----------------------------------------------------------------------
+	if (m_VR && m_VR->m_IsVREnabled && m_Game)
+	{
+		const int queueMode = m_Game->GetMatQueueMode();
+		if (queueMode != 0 && !m_VR->IsThirdPersonCameraActive() && !modelName.empty())
+		{
+			const uint32_t tid = static_cast<uint32_t>(GetCurrentThreadId());
+			const uint32_t renderTid = m_VR->m_RenderThreadId.load(std::memory_order_relaxed);
+			if (tid == renderTid)
+			{
+				const bool isViewmodel =
+					(modelName.find("models/v_models/") != std::string::npos)
+					|| (modelName.find("models/weapons/v_models/") != std::string::npos);
+				const bool isArms = (modelName.find("/arms/") != std::string::npos);
+				if (hideArms && isArms)
+				{
+					// Let the existing arms hide/material override path run.
+				}
+				else if (isViewmodel)
+				{
+					const Vector vmPos = m_VR->GetRecommendedViewmodelAbsPos();
+					const QAngle vmAng = m_VR->GetRecommendedViewmodelAbsAngle();
+
+					ModelRenderInfo_t patched = info;
+					patched.origin = vmPos;
+					patched.angles = vmAng;
+					// Try to make the model render path respect origin/angles (some call-sites provide a
+					// model-to-world pointer; clearing it nudges the renderer to rebuild from origin/angles).
+					patched.pModelToWorld = nullptr;
+
+					hkDrawModelExecute.fOriginal(ecx, state, patched, pCustomBoneToWorld);
+					return;
+				}
+			}
+		}
+	}
+
 	if (info.pModel && hideArms && !m_Game->m_CachedArmsModel)
 	{
 		if (modelName.find("/arms/") != std::string::npos)
