@@ -662,7 +662,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				cmd->tick_count,
 				(void*)cmd,
 				(int)inGame,
-				(int)Hooks::s_ServerUnderstandsVR,
+				(int)Hooks::s_ServerUnderstandsVR.load(std::memory_order_relaxed),
 				(void*)(uintptr_t)m_Game->m_Offsets->ProcessUsercmds.address,
 				(void*)(uintptr_t)m_Game->m_Offsets->ReadUserCmd.address);
 		}

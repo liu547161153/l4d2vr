@@ -1,5 +1,6 @@
 #pragma once
 #include <iostream>
+#include <atomic>
 #include "MinHook.h"
 
 class Game;
@@ -121,7 +122,7 @@ public:
 	static inline Hook<tVgui_Paint> hkVgui_Paint;
 	static inline Hook<tIsSplitScreen> hkIsSplitScreen;
 	static inline Hook<tPrePushRenderTarget> hkPrePushRenderTarget;
-	static bool s_ServerUnderstandsVR;
+	static std::atomic_bool s_ServerUnderstandsVR;
 
 	Hooks() {};
 	Hooks(Game* game);

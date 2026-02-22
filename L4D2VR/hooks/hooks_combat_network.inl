@@ -1,3 +1,25 @@
+namespace
+{
+	// Heartbeat for whether the current *process* is actually executing server-side hooks
+	// (listen server / dedicated). This matters because we overload CUserCmd fields when
+	// encoding VR controller pose. If we send encoded usercmds to a server that cannot
+	// decode them, movement can become jerky (dropped/rejected cmds, periodic stalls).
+	using SteadyClock = std::chrono::steady_clock;
+	using SteadyRep = SteadyClock::duration::rep;
+	static std::atomic<SteadyRep> g_ServerHookLastSeenRep{ 0 };
+
+	static inline bool IsServerHookFresh(SteadyRep nowRep)
+	{
+		const SteadyRep last = g_ServerHookLastSeenRep.load(std::memory_order_relaxed);
+		if (last == 0)
+			return false;
+		// Server hooks run at tick rate (~30Hz). 1s is a generous window that still clears
+		// quickly when switching from listen-server to a remote server.
+		const SteadyRep window = std::chrono::duration_cast<SteadyClock::duration>(std::chrono::seconds(1)).count();
+		return (nowRep - last) <= window;
+	}
+}
+
 void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 {
 	return hkEndFrame.fOriginal(ecx);
@@ -269,7 +291,8 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 	int dropped_packets, bool ignore, bool paused)
 {
 	// ★ 进入该钩子，说明本进程正在跑“服务器”逻辑（listen/dedicated）
-	Hooks::s_ServerUnderstandsVR = true;
+	Hooks::s_ServerUnderstandsVR.store(true, std::memory_order_relaxed);
+	g_ServerHookLastSeenRep.store(SteadyClock::now().time_since_epoch().count(), std::memory_order_relaxed);
 
 	// Function pointer for CBaseEntity::entindex
 	typedef int(__thiscall* tEntindex)(void* thisptr);
@@ -359,6 +382,10 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 	int result = hkReadUsercmd.fOriginal(buf, move, from);
 	if (!result || !move)
 		return result;
+
+	// Server-side hook heartbeat (see dWriteUsercmd gating).
+	Hooks::s_ServerUnderstandsVR.store(true, std::memory_order_relaxed);
+	g_ServerHookLastSeenRep.store(SteadyClock::now().time_since_epoch().count(), std::memory_order_relaxed);
 
 	int i = m_Game->m_CurrentUsercmdID;
 	const bool hasValidPlayer = m_Game->IsValidPlayerIndex(i);
@@ -522,8 +549,16 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	if (!m_VR->m_IsVREnabled)
 		return hkWriteUsercmd.fOriginal(buf, to, from);
 
-	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）且（未强制走非 VR 标准）时才编码
-	const bool canEncode = (m_VR->m_EncodeVRUsercmd && !m_VR->m_ForceNonVRServerMovement);
+	// 只有（配置开启编码）且（本进程确实在跑服务器钩子＝能解码）且（未强制走非 VR 标准）时才编码。
+	// 注意：Hooks::s_ServerUnderstandsVR 以前是“一旦 true 就永远 true”，如果你先开了
+	// 本地 listen-server 再去连远程服务器，就会错误地继续编码 VR usercmd，导致走路
+	// 周期性停顿/卡顿。这里用 server-hook 心跳做 gating，1 秒内没看到 server hook 就
+	// 认为当前不是本进程 server。
+	const SteadyRep nowRep = SteadyClock::now().time_since_epoch().count();
+	const bool serverHookFresh = IsServerHookFresh(nowRep);
+	if (!serverHookFresh)
+		Hooks::s_ServerUnderstandsVR.store(false, std::memory_order_relaxed);
+	const bool canEncode = (m_VR->m_EncodeVRUsercmd && !m_VR->m_ForceNonVRServerMovement && serverHookFresh);
 
 	if (!canEncode)
 	{
