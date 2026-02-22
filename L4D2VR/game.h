@@ -103,6 +103,10 @@ public:
     char* getNetworkName(uintptr_t* entity);
     const char* GetNetworkClassName(uintptr_t* entity) const;
 
+    // === Rendering Thread Mode ===
+    // Returns material system thread mode (0 = single-threaded, >0 = queued/multicore).
+    int GetMatQueueMode() const;
+
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);
     void ClientCmd_Unrestricted(const char* szCmdString);

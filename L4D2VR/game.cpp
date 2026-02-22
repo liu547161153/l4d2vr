@@ -247,3 +247,22 @@ void Game::ClientCmd_Unrestricted(const char* szCmdString)
     if (m_EngineClient)
         m_EngineClient->ClientCmd_Unrestricted(szCmdString);
 }
+
+// === Rendering Thread Mode ===
+int Game::GetMatQueueMode() const
+{
+    if (!m_MaterialSystem)
+        return 0;
+
+    void** vtbl = *reinterpret_cast<void***>(m_MaterialSystem);
+    if (!vtbl)
+        return 0;
+
+    // IMaterialSystem::GetThreadMode() is vfunc #11 in this ABI (0-based index).
+    using tGetThreadMode = int(__thiscall*)(IMaterialSystem*);
+    auto fn = reinterpret_cast<tGetThreadMode>(vtbl[11]);
+    if (!fn)
+        return 0;
+
+    return fn(m_MaterialSystem);
+}

@@ -10,8 +10,69 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 
 	if (m_VR->m_IsVREnabled)
 	{
+		// In mat_queue_mode!=0, CalcViewModelView can run on the render thread outside our dRenderView scope.
+		// Gate render-frame snapshot usage to the render thread to avoid feeding render-only data into gameplay threads.
+		const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+		const bool isRenderThread = (queueMode != 0) && (static_cast<uint32_t>(GetCurrentThreadId()) == m_VR->m_RenderThreadId.load(std::memory_order_relaxed));
+		struct RenderSnapshotTLSGuard
+		{
+			bool enabled = false;
+			bool prev = false;
+			RenderSnapshotTLSGuard(bool en)
+			{
+				enabled = en;
+				if (enabled)
+				{
+					prev = VR::t_UseRenderFrameSnapshot;
+					VR::t_UseRenderFrameSnapshot = true;
+				}
+			}
+			~RenderSnapshotTLSGuard()
+			{
+				if (enabled)
+					VR::t_UseRenderFrameSnapshot = prev;
+			}
+		} tlsGuard(isRenderThread);
+
 		vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 		vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
+
+		// Multicore (mat_queue_mode!=0): viewmodel can look like it "trails" during head turns if
+		// the engine's eyePosition for this call is a different pose/sample than the one used to
+		// build the viewmodel anchor. Borrow the old multicore fix: bias the viewmodel towards the
+		// current eye position using the delta between this call's eyePosition and the last rendered
+		// VR eye-center.
+		if (queueMode != 0 && !m_VR->IsThirdPersonCameraActive())
+		{
+			Vector renderCenter{};
+			bool haveRenderCenter = false;
+			for (int attempt = 0; attempt < 3; ++attempt)
+			{
+				const uint32_t s1 = m_VR->m_RenderFrameSeq.load(std::memory_order_acquire);
+				if (s1 == 0 || (s1 & 1u))
+					continue;
+
+				const Vector left(
+					m_VR->m_RenderViewOriginLeftX.load(std::memory_order_relaxed),
+					m_VR->m_RenderViewOriginLeftY.load(std::memory_order_relaxed),
+					m_VR->m_RenderViewOriginLeftZ.load(std::memory_order_relaxed));
+				const Vector right(
+					m_VR->m_RenderViewOriginRightX.load(std::memory_order_relaxed),
+					m_VR->m_RenderViewOriginRightY.load(std::memory_order_relaxed),
+					m_VR->m_RenderViewOriginRightZ.load(std::memory_order_relaxed));
+
+				const uint32_t s2 = m_VR->m_RenderFrameSeq.load(std::memory_order_acquire);
+				if (s1 == s2 && !(s2 & 1u))
+				{
+					renderCenter = (left + right) * 0.5f;
+					haveRenderCenter = true;
+					break;
+				}
+			}
+
+			const Vector refCenter = haveRenderCenter ? renderCenter : m_VR->m_HmdPosAbs;
+			vecNewOrigin += (eyePosition - refCenter) * 0.5f;
+		}
 	}
 
 	return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
