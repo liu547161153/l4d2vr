@@ -371,7 +371,7 @@ public:
 	// Auto mat_queue_mode management for multicore rendering.
 	// When enabled, the mod will keep mat_queue_mode=1 in menus/loading/pause/scoreboard,
 	// and switch to mat_queue_mode=2 once fully in-game.
-	bool m_AutoMatQueueMode = false;
+	bool m_AutoMatQueueMode = true;
 	int  m_AutoMatQueueModeLastRequested = -999;
 	std::chrono::steady_clock::time_point m_AutoMatQueueModeLastCmdTime{};
 
