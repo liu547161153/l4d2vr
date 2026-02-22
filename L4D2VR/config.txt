@@ -6,6 +6,7 @@ SnapTurnAngle=45.0
 LeftHanded=false
 AntiAliasing=2
 ForceNonVRServerMovement=false
+AutoMatQueueMode=false
 
 HudDistance=1.3
 HudSize=1.8
