@@ -212,7 +212,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			walkNy = ny;
 			walkMaxSpeed = maxSpeed;
 
-			// Track thumbstick locomotion state (used to disable 1:1 roomscale when requested).
+			// Track thumbstick locomotion state.
 			m_VR->m_PushingThumbstick = (fabsf(nx) > 0.0001f) || (fabsf(ny) > 0.0001f);
 
 			// VR-aware servers: we can apply movement directly in cmd space.
@@ -711,44 +711,14 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			Hooks::s_ServerUnderstandsVR.store(false, std::memory_order_relaxed);
 		SyncForceNonVRRemoteOverride(m_VR, serverHookFresh);
 
-		// Debug: show whether the server-side hook is actually running in this process.
-		// For listen-server play, Hooks::dProcessUsercmds should get hit and flip s_ServerUnderstandsVR to true.
-		// If this stays false while in-game, then the ProcessUsercmds/ReadUsercmd offsets or hook installation are wrong.
-		static std::chrono::steady_clock::time_point s_svHookDbgLast{};
-		if (m_VR->m_Roomscale1To1DebugLog && !ShouldThrottleLog(s_svHookDbgLast, 1.0f))
-		{
-			Game::logMsg(
-				"[VR][1to1][svhook] cmd=%d tick=%d cmdptr=%p inGame=%d serverUnderstandsVR=%d fresh=%d ProcessUsercmds=0x%p ReadUsercmd=0x%p",
-				cmd->command_number,
-				cmd->tick_count,
-				(void*)cmd,
-				(int)inGame,
-				(int)Hooks::s_ServerUnderstandsVR.load(std::memory_order_relaxed),
-				(int)serverHookFresh,
-				(void*)(uintptr_t)m_Game->m_Offsets->ProcessUsercmds.address,
-				(void*)(uintptr_t)m_Game->m_Offsets->ReadUserCmd.address);
-		}
 		// Detect any locomotion input (keyboard WASD, thumbstick, etc.).
-		// Used to disable 1:1 roomscale movement/camera decoupling while actively moving via controls.
+		// Used by roomscale/anchor logic to detect active locomotion.
 		const float fm = cmd ? cmd->forwardmove : 0.0f;
 		const float sm = cmd ? cmd->sidemove : 0.0f;
 		const float um = cmd ? cmd->upmove : 0.0f;
 		m_VR->m_LocomotionActive = (fabsf(fm) > 0.5f) || (fabsf(sm) > 0.5f) || (fabsf(um) > 0.5f) || m_VR->m_PushingThumbstick;
 
-		m_VR->EncodeRoomscale1To1Move(cmd);
 	}
 
-	// Debug: verify the packed 1:1 delta survives CreateMove and is still present for networking.
-	if (m_VR && cmd && m_VR->m_Roomscale1To1DebugLog && !m_VR->m_ForceNonVRServerMovement && m_VR->m_Roomscale1To1Movement && cmd->weaponselect == 0)
-	{
-		Vector dm;
-		if (VR::DecodeRoomscale1To1Delta(cmd->buttons, dm))
-		{
-			// Log at a low rate to avoid spam: once every 32 cmds.
-			if ((cmd->command_number & 31) == 0)
-				Game::logMsg("[VR][1to1][netprep] cmd=%d tick=%d cmdptr=%p buttons=0x%08X dM=(%.3f %.3f)",
-					cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)cmd->buttons, dm.x, dm.y);
-		}
-	}
 	return result;
 }
