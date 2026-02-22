@@ -609,6 +609,8 @@ public:
 
 	float m_HandHudMaxHz = 30.0f;
 	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
+	// Force a periodic redraw even when cached values are unchanged, so battery/teammate bars can't get stuck.
+	std::chrono::steady_clock::time_point m_LastHandHudForceRedrawTime{};
 	// Double-buffered pixel storage to avoid flicker/tearing when SteamVR reads the same buffer we are updating.
 	std::array<std::vector<uint8_t>, 2> m_LeftWristHudPixels{};
 	std::array<std::vector<uint8_t>, 2> m_RightAmmoHudPixels{};

@@ -1929,8 +1929,46 @@ void VR::UpdateHandHudOverlays()
     if (!m_Overlay || !m_System || !m_Game || !m_Game->m_EngineClient)
         return;
 
+    auto resetHandHudState = [&]()
+    {
+        // Ensure we redraw after returning to a map / respawn, even if the first-frame values
+        // happen to match the previous session.
+        m_LastHudHealth = -9999;
+        m_LastHudTempHealth = -9999;
+        m_LastHudThrowable = -1;
+        m_LastHudMedItem = -1;
+        m_LastHudPillItem = -1;
+        m_LastHudIncap = false;
+        m_LastHudLedge = false;
+        m_LastHudThirdStrike = false;
+        m_LastHudAimTargetVisible = false;
+        m_LastHudAimTargetIndex = -1;
+        m_LastHudAimTargetPct = -1;
+
+        m_LastHudClip = -9999;
+        m_LastHudReserve = -9999;
+        m_LastHudUpg = -9999;
+        m_LastHudUpgBits = 0;
+        m_LastHudWeaponId = -1;
+        m_HudMaxClipObserved = 0;
+        m_HudMaxReserveObserved = 0;
+
+        m_LastHandHudUpdateTime = {};
+        m_LastHandHudForceRedrawTime = {};
+
+        for (auto& st : m_HandHudTempHealthStates)
+        {
+            st.initialized = false;
+            st.rawBuffer = 0.0f;
+            st.rawBufferTime = 0.0f;
+            st.wallStart = {};
+            st.lastRemaining = 0.0f;
+        }
+    };
+
     if (!m_Game->m_EngineClient->IsInGame())
     {
+        resetHandHudState();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         return;
@@ -1940,6 +1978,7 @@ void VR::UpdateHandHudOverlays()
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
     if (!localPlayer)
     {
+        resetHandHudState();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         return;
@@ -1949,6 +1988,7 @@ void VR::UpdateHandHudOverlays()
     const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(pBase + kLifeStateOffset);
     if (lifeState != 0)
     {
+        resetHandHudState();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         return;
@@ -1966,6 +2006,36 @@ void VR::UpdateHandHudOverlays()
     const vr::TrackedDeviceIndex_t rightRoleIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
 
     const bool throttle = ShouldThrottle(m_LastHandHudUpdateTime, m_HandHudMaxHz);
+
+    // Mouse mode: controllers may not exist. Anchor hand HUD overlays off the HMD using the
+    // fixed mouse-mode viewmodel anchor as the base point.
+    const bool mouseHandHud = m_MouseModeEnabled;
+    const vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
+    const bool haveHmdPose = mouseHandHud && hmdPose.bPoseIsValid;
+    const vr::HmdMatrix34_t hmdMat = hmdPose.mDeviceToAbsoluteTracking;
+    const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
+
+    // Convert MouseModeViewmodelAnchorOffset (forward,right,up) into the overlay offset convention (right,up,back).
+    Vector anchorLocalRuB{ 0.0f, 0.0f, 0.0f };
+    if (haveHmdPose)
+    {
+        const Vector& a = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
+        anchorLocalRuB = { a.y, a.z, -a.x };
+    }
+
+    auto mul34 = [](const vr::HmdMatrix34_t& A, const vr::HmdMatrix34_t& B) -> vr::HmdMatrix34_t
+    {
+        vr::HmdMatrix34_t out{};
+        for (int r = 0; r < 3; ++r)
+        {
+            for (int c = 0; c < 3; ++c)
+            {
+                out.m[r][c] = A.m[r][0] * B.m[0][c] + A.m[r][1] * B.m[1][c] + A.m[r][2] * B.m[2][c];
+            }
+            out.m[r][3] = A.m[r][0] * B.m[0][3] + A.m[r][1] * B.m[1][3] + A.m[r][2] * B.m[2][3] + A.m[r][3];
+        }
+        return out;
+    };
 
     // Compute decayed temp HP from (m_healthBuffer, m_healthBufferTime) using wall-clock time.
     // The engine does: max(0, healthBuffer - decayRate * (curtime - healthBufferTime)).
@@ -2085,13 +2155,26 @@ void VR::UpdateHandHudOverlays()
         return rel;
     };
 
-    const bool canShowLeft = m_LeftWristHudEnabled && m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid && offHandIndex != vr::k_unTrackedDeviceIndexInvalid;
+    const bool canShowLeft = m_LeftWristHudEnabled && m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid && (haveHmdPose || offHandIndex != vr::k_unTrackedDeviceIndexInvalid);
     if (canShowLeft)
     {
         const unsigned char bgA = (unsigned char)std::round(std::max(0.0f, std::min(1.0f, m_LeftWristHudBgAlpha)) * 255.0f);
 
-        vr::HmdMatrix34_t rel = buildRel(m_LeftWristHudXOffset, m_LeftWristHudYOffset, m_LeftWristHudZOffset, m_LeftWristHudAngleOffset);
-        vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
+        if (haveHmdPose)
+        {
+            vr::HmdMatrix34_t rel = buildRel(
+                anchorLocalRuB.x + m_LeftWristHudXOffset,
+                anchorLocalRuB.y + m_LeftWristHudYOffset,
+                anchorLocalRuB.z + m_LeftWristHudZOffset,
+                m_LeftWristHudAngleOffset);
+            const vr::HmdMatrix34_t abs = mul34(hmdMat, rel);
+            vr::VROverlay()->SetOverlayTransformAbsolute(m_LeftWristHudHandle, trackingOrigin, &abs);
+        }
+        else
+        {
+            vr::HmdMatrix34_t rel = buildRel(m_LeftWristHudXOffset, m_LeftWristHudYOffset, m_LeftWristHudZOffset, m_LeftWristHudAngleOffset);
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
+        }
         vr::VROverlay()->SetOverlayWidthInMeters(m_LeftWristHudHandle, std::max(0.01f, m_LeftWristHudWidthMeters));
         // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
         vr::VROverlay()->SetOverlayTexelAspect(m_LeftWristHudHandle, 1.0f);
@@ -2138,6 +2221,12 @@ void VR::UpdateHandHudOverlays()
         if (C_WeaponCSBase* w = (C_WeaponCSBase*)localPlayer->Weapon_GetSlot(4))
             pillItem = (int)w->GetWeaponID();
 
+        // Force a slow periodic redraw so battery percentage and teammate bars can't get stuck.
+        const auto now = std::chrono::steady_clock::now();
+        const float kForceRedrawSeconds = 1.0f;
+        const bool forceRedraw = (m_LastHandHudForceRedrawTime.time_since_epoch().count() == 0)
+            || (std::chrono::duration<float>(now - m_LastHandHudForceRedrawTime).count() >= kForceRedrawSeconds);
+
         const bool changed = (hp != m_LastHudHealth) || (tempHP != m_LastHudTempHealth)
             || (throwable != m_LastHudThrowable) || (medItem != m_LastHudMedItem) || (pillItem != m_LastHudPillItem)
             || (incap != m_LastHudIncap) || (ledge != m_LastHudLedge) || (third != m_LastHudThirdStrike);
@@ -2146,7 +2235,7 @@ void VR::UpdateHandHudOverlays()
             || (aimTargetIdx != m_LastHudAimTargetIndex)
             || (aimTargetPct != m_LastHudAimTargetPct);
 
-        if (!throttle && (changed || aimChanged))
+        if (!throttle && (changed || aimChanged || forceRedraw))
         {
             m_LastHudHealth = hp;
             m_LastHudTempHealth = tempHP;
@@ -2309,6 +2398,9 @@ void VR::UpdateHandHudOverlays()
 
             vr::VROverlay()->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
             m_LeftWristHudPixelsFront = backIdx;
+
+            // Update the periodic redraw timer only when we actually submit a new texture.
+            m_LastHandHudForceRedrawTime = now;
         }
 
         vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
@@ -2318,13 +2410,26 @@ void VR::UpdateHandHudOverlays()
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
     }
 
-    const bool canShowRight = m_RightAmmoHudEnabled && m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid && gunHandIndex != vr::k_unTrackedDeviceIndexInvalid;
+    const bool canShowRight = m_RightAmmoHudEnabled && m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid && (haveHmdPose || gunHandIndex != vr::k_unTrackedDeviceIndexInvalid);
     if (canShowRight)
     {
         const unsigned char bgA = (unsigned char)std::round(std::max(0.0f, std::min(1.0f, m_RightAmmoHudBgAlpha)) * 255.0f);
 
-        vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
-        vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
+        if (haveHmdPose)
+        {
+            vr::HmdMatrix34_t rel = buildRel(
+                anchorLocalRuB.x + m_RightAmmoHudXOffset,
+                anchorLocalRuB.y + m_RightAmmoHudYOffset,
+                anchorLocalRuB.z + m_RightAmmoHudZOffset,
+                m_RightAmmoHudAngleOffset);
+            const vr::HmdMatrix34_t abs = mul34(hmdMat, rel);
+            vr::VROverlay()->SetOverlayTransformAbsolute(m_RightAmmoHudHandle, trackingOrigin, &abs);
+        }
+        else
+        {
+            vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
+        }
         vr::VROverlay()->SetOverlayAlpha(m_RightAmmoHudHandle, std::max(0.0f, std::min(1.0f, m_RightAmmoHudAlpha)));
 
         // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
@@ -2439,8 +2544,13 @@ void VR::UpdateHandHudOverlays()
         bounds.vMax = 1.0f;
         vr::VROverlay()->SetOverlayTextureBounds(m_RightAmmoHudHandle, &bounds);
         vr::VROverlay()->SetOverlayWidthInMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters) * uMax);
+        const auto now = std::chrono::steady_clock::now();
+        const float kForceRedrawSeconds = 1.0f;
+        const bool forceRedraw = (m_LastHandHudForceRedrawTime.time_since_epoch().count() == 0)
+            || (std::chrono::duration<float>(now - m_LastHandHudForceRedrawTime).count() >= kForceRedrawSeconds);
+
         const bool changed = (clip != m_LastHudClip) || (reserve != m_LastHudReserve) || (upg != m_LastHudUpg) || (upgBits != m_LastHudUpgBits);
-        if (!throttle && changed)
+        if (!throttle && (changed || forceRedraw))
         {
             m_LastHudClip = clip;
             m_LastHudReserve = reserve;
@@ -2513,6 +2623,9 @@ void VR::UpdateHandHudOverlays()
             }
             vr::VROverlay()->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
             m_RightAmmoHudPixelsFront = backIdx;
+
+            // Update the periodic redraw timer only when we actually submit a new texture.
+            m_LastHandHudForceRedrawTime = now;
         }
 
         vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
