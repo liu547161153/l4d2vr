@@ -423,6 +423,92 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 		}
 	}
 
+	// ---- roomscale 1:1 server apply ----
+	if (m_Game && m_VR && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
+	{
+		static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
+		const uint32_t rawButtons = (uint32_t)move->buttons;
+		const uint32_t rawPacked = (rawButtons & kRSButtonsMask);
+		// NOTE: Do NOT reuse m_Roomscale1To1DebugLastServer for both "pre" and "apply".
+		// Otherwise "pre" consumes the throttle budget and "apply" never prints.
+		static std::chrono::steady_clock::time_point s_roomscaleServerPreLast{};
+		if (m_VR->m_Roomscale1To1DebugLog && rawPacked != 0 && !ShouldThrottleLog(s_roomscaleServerPreLast, m_VR->m_Roomscale1To1DebugLogHz))
+		{
+			Game::logMsg("[VR][1to1][server] pre cmd=%d tick=%d player=%d wsel=%d buttons=0x%08X",
+				move->command_number, move->tick_count, i, move->weaponselect, (unsigned)rawButtons);
+		}
+		Vector deltaM;
+		if (VR::DecodeRoomscale1To1Delta((int)rawPacked, deltaM) && move->weaponselect == 0)
+		{
+			// Hide our custom packed bits from the stock server movement/weapon code.
+			move->buttons &= ~(int)kRSButtonsMask;
+			Server_BaseEntity* ent = m_Game->m_CurrentUsercmdPlayer;
+			if (ent && m_Game->m_EngineTrace && m_Game->m_Offsets)
+			{
+				using SetAbsOriginFn = void(__thiscall*)(void*, const Vector&);
+				auto setAbsOrigin = (SetAbsOriginFn)(m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Server.address);
+
+				if (setAbsOrigin)
+				{
+					Vector origin = *(Vector*)((uintptr_t)ent + 0x2CC);
+					Vector deltaU(deltaM.x * m_VR->m_VRScale, deltaM.y * m_VR->m_VRScale, 0.0f);
+					Vector target = origin + deltaU;
+
+					Vector mins(-16, -16, 0);
+					Vector maxs(16, 16, 72);
+					// NOTE: Our server entity type is a thin vtable stub; pointer-casting it to IHandleEntity
+					// is not reliable for self-filtering. For 1:1 roomscale we only need world collision here.
+					struct TraceFilterWorldOnly final : public CTraceFilter
+					{
+						TraceFilterWorldOnly() : CTraceFilter(nullptr, 0) {}
+						bool ShouldHitEntity(IHandleEntity*, int) override { return false; }
+						TraceType GetTraceType() const override { return TraceType::TRACE_WORLD_ONLY; }
+					} filter;
+
+					// Lift slightly to avoid rare floor-penetration marking the start as solid.
+					Vector o2 = origin;
+					Vector t2 = target;
+					o2.z += 0.25f;
+					t2.z += 0.25f;
+					Ray_t ray;
+					ray.Init(o2, t2, mins, maxs);
+
+					trace_t tr;
+
+					const unsigned int mask = CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_GRATE;
+					m_Game->m_EngineTrace->TraceRay(ray, mask, &filter, &tr);
+
+					bool didMove = false;
+					if (!tr.startsolid)
+					{
+						Vector end = tr.endpos;
+						end.z = origin.z; // keep vertical position unchanged (we only apply planar room-scale)
+						setAbsOrigin(ent, end);
+						didMove = true;
+					}
+
+					// Hard debug sample: once every 32 cmds, no throttle. This tells us whether the server actually moved the entity.
+					if (m_VR->m_Roomscale1To1DebugLog && ((move->command_number & 31) == 0))
+					{
+						Game::logMsg("[VR][1to1][server] APPLY-SAMPLE cmd=%d tick=%d player=%d ent=%p setAbsOrigin=%p packed=0x%08X dM=(%.3f %.3f) origin=(%.2f %.2f %.2f) target=(%.2f %.2f %.2f) end=(%.2f %.2f %.2f) frac=%.3f startsolid=%d didMove=%d",
+							move->command_number, move->tick_count, i, (void*)ent, (void*)setAbsOrigin, (unsigned)rawPacked,
+							deltaM.x, deltaM.y,
+							origin.x, origin.y, origin.z,
+							target.x, target.y, target.z,
+							tr.endpos.x, tr.endpos.y, tr.endpos.z,
+							tr.fraction, (int)tr.startsolid, (int)didMove);
+					}
+
+					// Normal throttled "apply" log (separate from pre).
+					if (m_VR->m_Roomscale1To1DebugLog && !ShouldThrottleLog(m_VR->m_Roomscale1To1DebugLastServer, m_VR->m_Roomscale1To1DebugLogHz))
+					{
+						Game::logMsg("[VR][1to1][server] apply player=%d dM=(%.3f %.3f) origin=(%.2f %.2f %.2f) target=(%.2f %.2f %.2f) end=(%.2f %.2f %.2f) frac=%.3f startsolid=%d",
+							i, deltaM.x, deltaM.y, origin.x, origin.y, origin.z, target.x, target.y, target.z, tr.endpos.x, tr.endpos.y, tr.endpos.z, tr.fraction, (int)tr.startsolid);
+					}
+				}
+			}
+		}
+	}
 	return result;
 }
 
@@ -509,3 +595,4 @@ int Hooks::dWriteUsercmd(void* buf, CUserCmd* to, CUserCmd* from)
 	pVerified->m_crc = to->GetChecksum();
 	return 1;
 }
+

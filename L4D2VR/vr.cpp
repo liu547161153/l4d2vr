@@ -53,6 +53,45 @@ namespace
         return 1.0f / std::max(1.0f, maxHz);
     }
 
+    // Roomscale 1:1 delta packing.
+    //
+    // We originally used a 32-bit payload stored in CUserCmd::weaponsubtype. In practice,
+    // some builds/routes appear to truncate this field during usercmd serialization.
+    // To be robust, prefer a compact 15-bit format (1 marker + 7-bit signed X + 7-bit signed Y)
+    // that survives 16-bit truncation, while still accepting the legacy 32-bit format.
+    static constexpr uint32_t kRSMarker32 = 0x80000000u;
+
+    static constexpr uint32_t kRSMarker15 = 0x00004000u; // bit 14
+    static constexpr int kAxisBits15 = 7;
+    static constexpr int kAxisMask15 = (1 << kAxisBits15) - 1; // 0x7F
+    static constexpr int kAxisBias15 = 1 << (kAxisBits15 - 1); // 64
+
+    static constexpr int kAxisBits32 = 15;
+    static constexpr int kAxisMask32 = (1 << kAxisBits32) - 1;
+    static constexpr int kAxisBias32 = 1 << (kAxisBits32 - 1);
+
+    static inline int QuantizeCm(float meters)
+    {
+        int cm = (int)roundf(meters * 100.0f);
+        if (cm < -kAxisBias32) cm = -kAxisBias32;
+        if (cm > (kAxisBias32 - 1)) cm = (kAxisBias32 - 1);
+        return cm;
+    }
+
+    static inline uint32_t PackDeltaCm(int dx, int dy)
+    {
+        // Compact 15-bit format: marker + 7-bit signed dx + 7-bit signed dy (centimeters).
+        // Clamp to +/-63cm per command to guarantee it fits.
+        if (dx < -(kAxisBias15 - 1)) dx = -(kAxisBias15 - 1);
+        if (dx > (kAxisBias15 - 1))  dx = (kAxisBias15 - 1);
+        if (dy < -(kAxisBias15 - 1)) dy = -(kAxisBias15 - 1);
+        if (dy > (kAxisBias15 - 1))  dy = (kAxisBias15 - 1);
+
+        uint32_t ux = (uint32_t)((dx + kAxisBias15) & kAxisMask15);
+        uint32_t uy = (uint32_t)((dy + kAxisBias15) & kAxisMask15);
+        return kRSMarker15 | ux | (uy << kAxisBits15);
+    }
+
     struct VASStats
     {
         size_t freeTotal = 0;

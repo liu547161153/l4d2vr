@@ -391,7 +391,7 @@ public:
 	bool m_PressedTurn = false;
 	bool m_PushingThumbstick = false;
 	// Any locomotion (keyboard WASD, thumbstick, etc.) detected in the current CreateMove.
-	// Used by roomscale/anchor logic to detect active locomotion.
+	// Used to avoid conflicts with 1:1 roomscale movement/camera decoupling.
 	bool m_LocomotionActive = false;
 	bool m_CrouchToggleActive = false;
 	bool m_VoiceRecordActive = false;
@@ -726,6 +726,34 @@ public:
 	int m_InventoryAnchorColorA = 64;
 
 	bool m_ForceNonVRServerMovement = false;
+	bool m_Roomscale1To1Movement = false;
+	float m_Roomscale1To1MaxStepMeters = 0.35f;
+
+	// Roomscale 1:1 movement (ForceNonVRServerMovement=false):
+	// - Camera stays 1:1 with the HMD at render rate (no tick-rate stepping).
+	// - The player entity is only pulled/teleported when the camera drifts too far away.
+	// - Roomscale is optionally disabled while thumbstick locomotion is active to avoid conflicts.
+	bool m_Roomscale1To1DecoupleCamera = true;
+	bool m_Roomscale1To1UseCameraDistanceChase = true;
+	bool m_Roomscale1To1DisableWhileThumbstick = true;
+	float m_Roomscale1To1AllowedCameraDriftMeters = 0.25f;
+	float m_Roomscale1To1ChaseHysteresisMeters = 0.05f;
+	float m_Roomscale1To1MinApplyMeters = 0.02f;
+	bool m_Roomscale1To1ChaseActive = false;
+	// After control locomotion stops, keep 1:1 chase/apply paused for a few cmds to avoid stop-time pullback.
+	int m_Roomscale1To1LocomotionCooldownCmds = 0;
+
+	Vector m_Roomscale1To1PrevCorrectedAbs = {};
+	// Accumulate sub-centimeter HMD deltas so slow walking/leaning still produces movement.
+	// This is in *meters* in the same corrected space as m_HmdPosCorrectedPrev.
+	Vector m_Roomscale1To1AccumMeters = {};
+	bool m_Roomscale1To1PrevValid = false;
+	// Debug logging for 1:1 roomscale pipeline (encode -> wire -> server apply).
+	bool m_Roomscale1To1DebugLog = false;
+	float m_Roomscale1To1DebugLogHz = 4.0f; // max prints per second; 0 disables throttling
+	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastEncode{};
+	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastPredict{};
+	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastServer{};
 	bool m_NonVRServerMovementAngleOverride = true;
 
 	// Non-VR server movement: client-side melee gesture -> IN_ATTACK tuning (ForceNonVRServerMovement=true only)
@@ -1189,6 +1217,9 @@ public:
 	bool IsSpecialInfectedInBlindSpot(const Vector& infectedOrigin) const;
 	void UpdateSpecialInfectedWarningState();
 	void UpdateSpecialInfectedPreWarningState();
+	void EncodeRoomscale1To1Move(CUserCmd* cmd);
+	static bool DecodeRoomscale1To1Delta(int weaponsubtype, Vector& outDeltaMeters);
+	void OnPredictionRunCommand(CUserCmd* cmd);
 	bool ShouldRunSecondaryPrediction(const CUserCmd* cmd) const;
 	void PrepareSecondaryPredictionCmd(CUserCmd& cmd) const;
 	void OnPrimaryAttackServerDecision(CUserCmd* cmd, bool fromSecondaryPrediction);
