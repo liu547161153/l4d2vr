@@ -1,8 +1,10 @@
+#include "checksum_crc.h"
+
 namespace
 {
-    // NOTE: This file uses a tiny 5x7 glyph set for UI labels (LC/RC, item abbreviations, teammate names).
-    // We intentionally keep it small and uppercase-only; unknown chars become "?".
-    // Digits are still rendered by the 7-seg routines for a clean sci-fi look.
+    // NOTE: This file uses a tiny 5x7 glyph set for UI labels (LC/RC, item abbreviations, etc.).
+    // For player names (teammates / aim target), we also support UTF-8 via a GDI fallback renderer
+    // so Chinese/JP/KR/etc names can display correctly on the HUD overlay.
 
     struct Rgba
     {
@@ -147,6 +149,219 @@ namespace
         DrawText5x7(s, x, y - off, text, o, scale);
         DrawText5x7(s, x, y + off, text, o, scale);
         DrawText5x7(s, x, y, text, c, scale);
+    }
+
+
+    inline bool ContainsNonAscii(const char* s)
+    {
+        if (!s) return false;
+        for (const unsigned char* p = (const unsigned char*)s; *p; ++p)
+        {
+            if (*p >= 0x80)
+                return true;
+        }
+        return false;
+    }
+
+    inline uint32_t Fnv1a32(const void* data, size_t len, uint32_t h = 2166136261u)
+    {
+        const unsigned char* p = (const unsigned char*)data;
+        for (size_t i = 0; i < len; ++i)
+        {
+            h ^= (uint32_t)p[i];
+            h *= 16777619u;
+        }
+        return h;
+    }
+
+    inline uint32_t Fnv1aStr32(const char* s, uint32_t h = 2166136261u)
+    {
+        if (!s) return h;
+        return Fnv1a32(s, strlen(s), h);
+    }
+
+    // ----------------------------
+    // UTF-8 text rendering fallback (GDI -> alpha mask -> blend into HudSurface)
+    // Only used for non-ASCII names so we can support Chinese/JP/KR/etc.
+    // ----------------------------
+    inline std::wstring Utf8ToWideFallback(const char* s)
+    {
+        if (!s || !*s) return L"";
+        int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+        UINT cp = CP_UTF8;
+        if (len <= 0)
+        {
+            cp = CP_ACP;
+            len = MultiByteToWideChar(cp, 0, s, -1, nullptr, 0);
+        }
+        if (len <= 0) return L"";
+        std::wstring out((size_t)len - 1, L'\0');
+        MultiByteToWideChar(cp, 0, s, -1, out.data(), len);
+        return out;
+    }
+
+    struct GdiTextMask
+    {
+        HDC hdc = nullptr;
+        HBITMAP bmp = nullptr;
+        void* bits = nullptr;
+        int w = 0;
+        int h = 0;
+        HFONT font = nullptr;
+        int fontPx = 0;
+        bool bold = false;
+        wchar_t face[64] = L"Microsoft YaHei UI";
+
+        ~GdiTextMask() { destroy(); }
+
+        void destroy()
+        {
+            if (font) { DeleteObject(font); font = nullptr; }
+            if (hdc) { DeleteDC(hdc); hdc = nullptr; }
+            if (bmp) { DeleteObject(bmp); bmp = nullptr; }
+            bits = nullptr; w = h = 0;
+        }
+
+        void ensure(int W, int H)
+        {
+            if (W <= w && H <= h && hdc && bmp && bits)
+                return;
+
+            W = std::max(W, w);
+            H = std::max(H, h);
+            if (W <= 0) W = 1;
+            if (H <= 0) H = 1;
+
+            if (hdc) { DeleteDC(hdc); hdc = nullptr; }
+            if (bmp) { DeleteObject(bmp); bmp = nullptr; }
+            bits = nullptr;
+
+            BITMAPINFO bmi{};
+            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            bmi.bmiHeader.biWidth = W;
+            bmi.bmiHeader.biHeight = -H;
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = BI_RGB;
+
+            hdc = CreateCompatibleDC(nullptr);
+            bmp = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+            SelectObject(hdc, bmp);
+            w = W;
+            h = H;
+        }
+
+        void ensureFont(int px, bool isBold, const wchar_t* fontFace)
+        {
+            if (px <= 0) px = 12;
+            if (!fontFace || !*fontFace) fontFace = L"Microsoft YaHei UI";
+
+            if (font && fontPx == px && bold == isBold && wcscmp(face, fontFace) == 0)
+                return;
+
+            if (font) { DeleteObject(font); font = nullptr; }
+            wcsncpy_s(face, fontFace, _TRUNCATE);
+            bold = isBold;
+            fontPx = px;
+
+            font = CreateFontW(
+                -px, 0, 0, 0,
+                isBold ? FW_BOLD : FW_NORMAL,
+                FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY,
+                DEFAULT_PITCH | FF_DONTCARE,
+                face);
+        }
+
+        void clear()
+        {
+            if (bits)
+                memset(bits, 0, (size_t)w * (size_t)h * 4);
+        }
+    };
+
+    inline void BlendMaskToHud(const HudSurface& dst, int x, int y, const GdiTextMask& mask, int srcW, int srcH, const Rgba& col)
+    {
+        if (!dst.pixels || !mask.bits || srcW <= 0 || srcH <= 0)
+            return;
+
+        const uint8_t* src = (const uint8_t*)mask.bits; // BGRA
+        for (int yy = 0; yy < srcH; ++yy)
+        {
+            const int dy = y + yy;
+            if (dy < 0 || dy >= dst.h) continue;
+            uint8_t* drow = dst.pixels + dy * dst.stride;
+            const uint8_t* srow = src + (size_t)yy * (size_t)mask.w * 4;
+            for (int xx = 0; xx < srcW; ++xx)
+            {
+                const int dx = x + xx;
+                if (dx < 0 || dx >= dst.w) continue;
+
+                const uint8_t sb = srow[xx * 4 + 0];
+                const uint8_t sg = srow[xx * 4 + 1];
+                const uint8_t sr = srow[xx * 4 + 2];
+                const uint8_t m = (uint8_t)std::max<int>(sr, std::max<int>(sg, sb));
+                if (m == 0) continue;
+
+                const int a = (m * (int)col.a) / 255;
+                const int inv = 255 - a;
+
+                uint8_t* dp = drow + dx * 4;
+                dp[0] = (uint8_t)((col.r * a + dp[0] * inv) / 255);
+                dp[1] = (uint8_t)((col.g * a + dp[1] * inv) / 255);
+                dp[2] = (uint8_t)((col.b * a + dp[2] * inv) / 255);
+                dp[3] = (uint8_t)std::min(255, (int)dp[3] + a);
+            }
+        }
+    }
+
+    inline void DrawTextUtf8OutlinedGdiClipped(const HudSurface& dst, int x, int y, int maxW, const char* utf8, int fontPx, const Rgba& col)
+    {
+        if (!utf8 || !*utf8 || !dst.pixels || maxW <= 0)
+            return;
+
+        static thread_local GdiTextMask g;
+        const std::wstring ws = Utf8ToWideFallback(utf8);
+        if (ws.empty())
+            return;
+
+        const int pad = 6;
+        const int surfW = std::max(16, maxW + pad);
+        const int surfH = std::max(16, fontPx + pad);
+        g.ensure(surfW, surfH);
+        g.ensureFont(fontPx, true, L"Microsoft YaHei UI");
+        g.clear();
+
+        SelectObject(g.hdc, g.font);
+        SetBkMode(g.hdc, TRANSPARENT);
+
+        RECT rc{ 0, 0, maxW, surfH };
+
+        SetTextColor(g.hdc, RGB(0, 0, 0));
+        RECT r1 = rc; OffsetRect(&r1, -1, 0); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r1, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        RECT r2 = rc; OffsetRect(&r2, +1, 0); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r2, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        RECT r3 = rc; OffsetRect(&r3, 0, -1); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r3, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        RECT r4 = rc; OffsetRect(&r4, 0, +1); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r4, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+        SetTextColor(g.hdc, RGB(255, 255, 255));
+        DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &rc, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+        const int blendW = std::min(maxW, g.w);
+        const int blendH = std::min(surfH, g.h);
+        BlendMaskToHud(dst, x, y, g, blendW, blendH, col);
+    }
+
+    inline void DrawHudTextAuto(const HudSurface& s, int x, int y, int maxW, const char* text, const Rgba& c, int scaleFor5x7 = 1, int gdiFontPx = 14)
+    {
+        if (!text) return;
+        if (ContainsNonAscii(text))
+        {
+            DrawTextUtf8OutlinedGdiClipped(s, x, y, maxW, text, gdiFontPx, c);
+            return;
+        }
+        DrawText5x7Outlined(s, x, y, text, c, scaleFor5x7);
     }
 
     inline void DrawInfinity(const HudSurface& s, int x, int y, int w, int h, const Rgba& c)
@@ -2023,11 +2238,36 @@ void VR::UpdateHandHudOverlays()
     if (!m_Overlay || !m_System || !m_Game || !m_Game->m_EngineClient)
         return;
 
+
+    auto resetHandHudCache = [&]()
+    {
+        m_LastHudHealth = -9999;
+        m_LastHudTempHealth = -9999;
+        m_LastHudThrowable = -1;
+        m_LastHudMedItem = -1;
+        m_LastHudPillItem = -1;
+        m_LastHudIncap = false;
+        m_LastHudLedge = false;
+        m_LastHudThirdStrike = false;
+        m_LastHudAimTargetVisible = false;
+        m_LastHudAimTargetIndex = -1;
+        m_LastHudAimTargetPct = -1;
+        m_LastHudAimTargetNameHash = 0;
+        m_LastHudTeammatesHash = 0;
+        m_LastHudClip = -9999;
+        m_LastHudReserve = -9999;
+        m_LastHudUpg = -9999;
+        m_LastHudUpgBits = 0;
+        m_LeftWristHudLastCrc = 0;
+        m_RightAmmoHudLastCrc = 0;
+    };
+
     bool leftVisible = false;
     bool rightVisible = false;
 
     if (!m_Game->m_EngineClient->IsInGame())
     {
+        resetHandHudCache();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
@@ -2039,6 +2279,7 @@ void VR::UpdateHandHudOverlays()
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
     if (!localPlayer)
     {
+        resetHandHudCache();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
@@ -2047,9 +2288,12 @@ void VR::UpdateHandHudOverlays()
     }
 
     const unsigned char* pBase = reinterpret_cast<const unsigned char*>(localPlayer);
-    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(pBase + kLifeStateOffset);
+    unsigned char lifeState = 0;
+    __try { lifeState = *reinterpret_cast<const unsigned char*>(pBase + kLifeStateOffset); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { lifeState = 1; }
     if (lifeState != 0)
     {
+        resetHandHudCache();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
@@ -2070,6 +2314,24 @@ void VR::UpdateHandHudOverlays()
 
     const bool throttle = ShouldThrottle(m_LastHandHudUpdateTime, m_HandHudMaxHz);
 
+    // Safe memory reads: UpdateHandHudOverlays can run on the present/render thread while the game
+    // is loading/unloading, so client entity pointers may become invalid mid-frame.
+    auto TryReadU8 = [](const unsigned char* base, int off, unsigned char& out) -> bool
+    {
+        __try { out = *reinterpret_cast<const unsigned char*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    };
+    auto TryReadInt = [](const unsigned char* base, int off, int& out) -> bool
+    {
+        __try { out = *reinterpret_cast<const int*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    };
+    auto TryReadFloat = [](const unsigned char* base, int off, float& out) -> bool
+    {
+        __try { out = *reinterpret_cast<const float*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
+    };
+
     // Compute decayed temp HP from (m_healthBuffer, m_healthBufferTime) using wall-clock time.
     // The engine does: max(0, healthBuffer - decayRate * (curtime - healthBufferTime)).
     // We don't have gpGlobals->curtime here, so we approximate with steady_clock since the
@@ -2079,10 +2341,27 @@ void VR::UpdateHandHudOverlays()
         if (!entBase)
             return 0;
 
-        const float raw = std::max(0.0f, *reinterpret_cast<const float*>(entBase + kHealthBufferOffset));
-        const float rawTime = *reinterpret_cast<const float*>(entBase + kHealthBufferTimeOffset);
+        float hb = 0.0f;
+        float hbTime = 0.0f;
+
+        // Guard against freed/unmapped entity memory (common during level transitions).
+        if (!TryReadFloat(entBase, kHealthBufferOffset, hb) || !TryReadFloat(entBase, kHealthBufferTimeOffset, hbTime))
+        {
+            if (!m_HandHudTempHealthStates.empty())
+            {
+                const int slot = std::max(0, std::min((int)m_HandHudTempHealthStates.size() - 1, entIndex));
+                m_HandHudTempHealthStates[(size_t)slot].initialized = false;
+            }
+            return 0;
+        }
+
+        const float raw = std::max(0.0f, hb);
+        const float rawTime = hbTime;
         if (raw <= 0.0f)
             return 0;
+
+        if (m_HandHudTempHealthStates.empty())
+            return (int)std::round(raw);
 
         const int slot = std::max(0, std::min((int)m_HandHudTempHealthStates.size() - 1, entIndex));
         TempHealthDecayState& st = m_HandHudTempHealthStates[(size_t)slot];
@@ -2204,11 +2483,14 @@ void VR::UpdateHandHudOverlays()
         vr::VROverlay()->SetOverlayCurvature(m_LeftWristHudHandle, std::max(0.0f, m_LeftWristHudCurvature));
         vr::VROverlay()->SetOverlayAlpha(m_LeftWristHudHandle, std::max(0.0f, std::min(1.0f, m_LeftWristHudAlpha)));
 
-        const int hp = *reinterpret_cast<const int*>(pBase + kHealthOffset);
+        int hp = 0;
+        TryReadInt(pBase, kHealthOffset, hp);
         const int tempHP = computeDecayedTempHP(playerIndex, pBase);
-        const bool incap = (*reinterpret_cast<const unsigned char*>(pBase + kIsIncapacitatedOffset)) != 0;
-        const bool ledge = (*reinterpret_cast<const unsigned char*>(pBase + kIsHangingFromLedgeOffset)) != 0;
-        const bool third = (*reinterpret_cast<const unsigned char*>(pBase + kIsOnThirdStrikeOffset)) != 0;
+
+        unsigned char b = 0;
+        const bool incap = TryReadU8(pBase, kIsIncapacitatedOffset, b) ? (b != 0) : false;
+        const bool ledge = TryReadU8(pBase, kIsHangingFromLedgeOffset, b) ? (b != 0) : false;
+        const bool third = TryReadU8(pBase, kIsOnThirdStrikeOffset, b) ? (b != 0) : false;
 
         int aimTargetIdx = -1;
         int aimTargetPct = 0;
@@ -2224,13 +2506,90 @@ void VR::UpdateHandHudOverlays()
         if (C_WeaponCSBase* w = (C_WeaponCSBase*)localPlayer->Weapon_GetSlot(4))
             pillItem = (int)w->GetWeaponID();
 
+
+        // Snapshot teammates so changes in THEIR HP/name also trigger redraw (fix: teammates only updated when local changed).
+        struct TeammateRow
+        {
+            int entIndex = -1;
+            int hp = 0;
+            int temp = 0;
+            char name[64] = { 0 };
+            bool nonAscii = false;
+        };
+        TeammateRow mates[3]{};
+        int mateCount = 0;
+        uint32_t matesHash = 2166136261u;
+
+        if (m_LeftWristHudShowTeammates && m_Game->m_ClientEntityList)
+        {
+            const int hi = std::min(64, m_Game->m_ClientEntityList->GetHighestEntityIndex());
+            for (int i = 1; i <= hi && mateCount < 3; ++i)
+            {
+                if (i == playerIndex)
+                    continue;
+                C_BasePlayer* p = (C_BasePlayer*)m_Game->GetClientEntity(i);
+                if (!p) continue;
+                const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
+                unsigned char ls = 0;
+                if (!TryReadU8(pb, kLifeStateOffset, ls) || ls != 0) continue;
+
+                int team = 0;
+                if (!TryReadInt(pb, kTeamNumOffset, team) || team != 2) continue;
+
+                TeammateRow& row = mates[mateCount];
+                row.entIndex = i;
+                row.hp = 0;
+                if (!TryReadInt(pb, kHealthOffset, row.hp)) continue;
+                row.temp = computeDecayedTempHP(i, pb);
+
+                player_info_t info{};
+                if (m_Game->m_EngineClient->GetPlayerInfo(i, &info) && info.name[0])
+                {
+                    std::snprintf(row.name, sizeof(row.name), "%s", info.name);
+                }
+                else
+                {
+                    int survivorChar = -1;
+                    if (TryReadInt(pb, kSurvivorCharacterOffset, survivorChar))
+                    {
+                        const char* sname = survivorNameFromCharacter(survivorChar);
+                        if (sname && sname[0])
+                        {
+                            std::snprintf(row.name, sizeof(row.name), "%s", sname);
+                        }
+                        else
+                        {
+                            std::snprintf(row.name, sizeof(row.name), "P%d", i);
+                        }
+                    }
+                    else
+                    {
+                        std::snprintf(row.name, sizeof(row.name), "P%d", i);
+                    }
+                }
+
+                row.nonAscii = ContainsNonAscii(row.name);
+
+                matesHash = Fnv1a32(&row.entIndex, sizeof(row.entIndex), matesHash);
+                matesHash = Fnv1a32(&row.hp, sizeof(row.hp), matesHash);
+                matesHash = Fnv1a32(&row.temp, sizeof(row.temp), matesHash);
+                matesHash = Fnv1aStr32(row.name, matesHash);
+
+                ++mateCount;
+            }
+        }
+
+        const uint32_t aimNameHash = hasAimTarget ? Fnv1aStr32(aimTargetName) : 0u;
+
         const bool changed = (hp != m_LastHudHealth) || (tempHP != m_LastHudTempHealth)
             || (throwable != m_LastHudThrowable) || (medItem != m_LastHudMedItem) || (pillItem != m_LastHudPillItem)
-            || (incap != m_LastHudIncap) || (ledge != m_LastHudLedge) || (third != m_LastHudThirdStrike);
+            || (incap != m_LastHudIncap) || (ledge != m_LastHudLedge) || (third != m_LastHudThirdStrike)
+            || (matesHash != m_LastHudTeammatesHash);
 
         const bool aimChanged = (hasAimTarget != m_LastHudAimTargetVisible)
             || (aimTargetIdx != m_LastHudAimTargetIndex)
-            || (aimTargetPct != m_LastHudAimTargetPct);
+            || (aimTargetPct != m_LastHudAimTargetPct)
+            || (aimNameHash != m_LastHudAimTargetNameHash);
 
         if (!throttle && (changed || aimChanged))
         {
@@ -2246,6 +2605,8 @@ void VR::UpdateHandHudOverlays()
             m_LastHudAimTargetVisible = hasAimTarget;
             m_LastHudAimTargetIndex = aimTargetIdx;
             m_LastHudAimTargetPct = aimTargetPct;
+            m_LastHudAimTargetNameHash = aimNameHash;
+            m_LastHudTeammatesHash = matesHash;
 
             const int w = m_LeftWristHudTexW;
             const int h = m_LeftWristHudTexH;
@@ -2254,9 +2615,22 @@ void VR::UpdateHandHudOverlays()
             pixels.resize((size_t)w * (size_t)h * 4);
             HudSurface s{ pixels.data(), w, h, w * 4 };
              
-            Clear(s, { 8, 10, 14, bgA });
-            DrawCornerBrackets(s, 2, 2, w - 4, h - 4, { 60, 220, 255, 220 });
-            DrawRect(s, 8, 8, w - 16, h - 16, { 20, 60, 70, bgA }, 1);
+            // Static background cache (fix: background box blinking on updates)
+            if (m_LeftWristHudBgCacheW != w || m_LeftWristHudBgCacheH != h || m_LeftWristHudBgCacheA != bgA
+                || m_LeftWristHudBgCache.size() != (size_t)w * (size_t)h * 4)
+            {
+                m_LeftWristHudBgCacheW = w;
+                m_LeftWristHudBgCacheH = h;
+                m_LeftWristHudBgCacheA = bgA;
+                m_LeftWristHudBgCache.assign((size_t)w * (size_t)h * 4, 0);
+                HudSurface bg{ m_LeftWristHudBgCache.data(), w, h, w * 4 };
+                Clear(bg, { 8, 10, 14, bgA });
+                DrawCornerBrackets(bg, 2, 2, w - 4, h - 4, { 60, 220, 255, 220 });
+                DrawRect(bg, 8, 8, w - 16, h - 16, { 20, 60, 70, bgA }, 1);
+            }
+
+            // Start from cached background
+            memcpy(s.pixels, m_LeftWristHudBgCache.data(), m_LeftWristHudBgCache.size());
 
             const Rgba hpCol = healthColorFor(hp, 255);
             const SevenSegStyle hpSt{ 12, 3, 2, 4 };
@@ -2273,7 +2647,7 @@ void VR::UpdateHandHudOverlays()
             {
                 char tgtBuf[64];
                 std::snprintf(tgtBuf, sizeof(tgtBuf), "%s:%d%%", aimTargetName, aimTargetPct);
-                DrawText5x7Outlined(s, 18, 66, tgtBuf, { 240, 240, 240, 255 }, 2);
+                DrawHudTextAuto(s, 18, 64, 220, tgtBuf, { 240, 240, 240, 255 }, 2, 16);
             }
 
             int dotX = w - 62;
@@ -2289,70 +2663,33 @@ void VR::UpdateHandHudOverlays()
             dot(ledge, { 255, 200, 60, 255 });
             dot(third, { 220, 220, 220, 255 });
 
-            if (m_LeftWristHudShowTeammates && m_Game->m_ClientEntityList)
+            if (m_LeftWristHudShowTeammates && mateCount > 0)
             {
-                const int hi = std::min(64, m_Game->m_ClientEntityList->GetHighestEntityIndex());
-                int row = 0;
-                for (int i = 1; i <= hi && row < 3; ++i)
+                for (int row = 0; row < mateCount; ++row)
                 {
-                    if (i == playerIndex)
-                        continue;
-                    C_BasePlayer* p = (C_BasePlayer*)m_Game->GetClientEntity(i);
-                    if (!p) continue;
-                    const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
-                    const unsigned char ls = *reinterpret_cast<const unsigned char*>(pb + kLifeStateOffset);
-                    if (ls != 0) continue;
-                    const int team = *reinterpret_cast<const int*>(pb + kTeamNumOffset);
-                    if (team != 2) continue;
+                    const TeammateRow& tr = mates[row];
+                    const int y0 = 18 + row * 18;
 
-                    const int thp = *reinterpret_cast<const int*>(pb + kHealthOffset);
-                    const int ttmp = computeDecayedTempHP(i, pb);
-
-                    char nameBuf[16] = { 0 };
-                    player_info_t info{};
-                    if (m_Game->m_EngineClient->GetPlayerInfo(i, &info))
+                    // Name: ASCII uses 5x7 (uppercase), Unicode uses GDI fallback.
+                    char nameAscii[16] = { 0 };
+                    if (!tr.nonAscii)
                     {
                         int n = 0;
-                        for (; n < 7 && info.name[n]; ++n)
+                        for (; n < 7 && tr.name[n]; ++n)
                         {
-                            char ch = info.name[n];
+                            char ch = tr.name[n];
                             if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
-                            nameBuf[n] = ch;
+                            nameAscii[n] = ch;
                         }
-                        nameBuf[n] = 0;
-                        if (nameBuf[0] == 0)
-                        {
-                            const int survivorChar = *reinterpret_cast<const int*>(pb + kSurvivorCharacterOffset);
-                            const char* sname = survivorNameFromCharacter(survivorChar);
-                            if (sname && sname[0])
-                                std::snprintf(nameBuf, sizeof(nameBuf), "%s", sname);
-                        }
+                        nameAscii[n] = 0;
+                        DrawText5x7Outlined(s, 124, y0, nameAscii, { 240, 240, 240, 255 }, 1);
                     }
                     else
                     {
-                        const int survivorChar = *reinterpret_cast<const int*>(pb + kSurvivorCharacterOffset);
-                        const char* sname = survivorNameFromCharacter(survivorChar);
-                        if (sname && sname[0])
-                            std::snprintf(nameBuf, sizeof(nameBuf), "%s", sname);
-                        else
-                            std::snprintf(nameBuf, sizeof(nameBuf), "P%d", i);
-
-
-
+                        // Tight name area; ellipsis if too long.
+                        DrawHudTextAuto(s, 124, y0 - 2, 42, tr.name, { 240, 240, 240, 255 }, 1, 14);
                     }
 
-                    // Keep names short so bars can be longer; also force uppercase for legibility.
-                    nameBuf[7] = 0;
-                    for (int k = 0; nameBuf[k]; ++k)
-                    {
-                        char ch = nameBuf[k];
-                        if (ch >= 'a' && ch <= 'z')
-                            nameBuf[k] = (char)(ch - 32);
-                    }
-
-                    const int y0 = 18 + row * 18;
-                    DrawText5x7Outlined(s, 124, y0, nameBuf, { 240, 240, 240, 255 }, 1);
-                    // Longer teammate bar (more readable)
                     const int barX = 170;
                     const int barW = 78;
                     const int barH = 10;
@@ -2361,16 +2698,15 @@ void VR::UpdateHandHudOverlays()
                     const int innerW = barW - 2;
                     const int innerH = barH - 2;
 
-                    const int perm = std::max(0, std::min(100, thp));
+                    const int perm = std::max(0, std::min(100, tr.hp));
                     const int permW = (innerW * perm) / 100;
                     FillRect(s, barX + 1, y0 + 1, permW, innerH, { 60, 220, 255, 230 });
 
-                    const int extra = std::max(0, std::min(100, ttmp));
+                    const int extra = std::max(0, std::min(100, tr.temp));
                     const int extraW = (innerW * extra) / 100;
                     const int remW = std::max(0, innerW - permW);
                     const int tempFillW = std::max(0, std::min(remW, extraW));
                     FillRect(s, barX + 1 + permW, y0 + 1, tempFillW, innerH, { 255, 220, 120, 210 });
-                    ++row;
                 }
             }
 
@@ -2406,8 +2742,14 @@ void VR::UpdateHandHudOverlays()
             drawItem(medItem);
             drawItem(pillItem);
 
-            vr::VROverlay()->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
-            m_LeftWristHudPixelsFront = backIdx;
+            // Avoid redundant uploads (helps with perceived flicker when SteamVR is busy)
+            const CRC32_t crc = CRC32_ProcessSingleBuffer(pixels.data(), (int)((size_t)w * (size_t)h * 4));
+            if (crc != (CRC32_t)m_LeftWristHudLastCrc)
+            {
+                m_LeftWristHudLastCrc = (uint32_t)crc;
+                vr::VROverlay()->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+                m_LeftWristHudPixelsFront = backIdx;
+            }
         }
 
         vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
@@ -2415,6 +2757,21 @@ void VR::UpdateHandHudOverlays()
     }
     else
     {
+        // Force a full redraw next time it becomes visible.
+        m_LastHudHealth = -9999;
+        m_LastHudTempHealth = -9999;
+        m_LastHudThrowable = -1;
+        m_LastHudMedItem = -1;
+        m_LastHudPillItem = -1;
+        m_LastHudIncap = false;
+        m_LastHudLedge = false;
+        m_LastHudThirdStrike = false;
+        m_LastHudAimTargetVisible = false;
+        m_LastHudAimTargetIndex = -1;
+        m_LastHudAimTargetPct = -1;
+        m_LastHudAimTargetNameHash = 0;
+        m_LastHudTeammatesHash = 0;
+        m_LeftWristHudLastCrc = 0;
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
     }
@@ -2481,8 +2838,14 @@ void VR::UpdateHandHudOverlays()
 
         if (weaponId <= 0 || !isAmmoHudEligible(weaponId) || clip < 0)
         {
+            // Force a full redraw next time we become eligible again.
+            m_LastHudClip = -9999;
+            m_LastHudReserve = -9999;
+            m_LastHudUpg = -9999;
+            m_LastHudUpgBits = 0;
+            m_RightAmmoHudLastCrc = 0;
+
             vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
-        rightVisible = false;
             rightVisible = false;
             goto after_right;
         }
@@ -2560,10 +2923,24 @@ void VR::UpdateHandHudOverlays()
             pixels.resize((size_t)w * (size_t)h * 4);
             HudSurface s{ pixels.data(), w, h, w * 4 };
 
-            Clear(s, { 0, 0, 0, 0 });
-            FillRect(s, 0, 0, visW, h, { 6, 10, 14, bgA });
-            DrawCornerBrackets(s, 2, 2, visW - 4, h - 4, { 120, 255, 220, 220 });
-            DrawRect(s, 8, 18, visW - 16, h - 36, { 20, 80, 60, 220 }, 1);
+            // Static background cache (fix: background box blinking on updates)
+            if (m_RightAmmoHudBgCacheW != w || m_RightAmmoHudBgCacheH != h || m_RightAmmoHudBgCacheVisW != visW || m_RightAmmoHudBgCacheA != bgA
+                || m_RightAmmoHudBgCache.size() != (size_t)w * (size_t)h * 4)
+            {
+                m_RightAmmoHudBgCacheW = w;
+                m_RightAmmoHudBgCacheH = h;
+                m_RightAmmoHudBgCacheVisW = visW;
+                m_RightAmmoHudBgCacheA = bgA;
+                m_RightAmmoHudBgCache.assign((size_t)w * (size_t)h * 4, 0);
+                HudSurface bg{ m_RightAmmoHudBgCache.data(), w, h, w * 4 };
+                Clear(bg, { 0, 0, 0, 0 });
+                FillRect(bg, 0, 0, visW, h, { 6, 10, 14, bgA });
+                DrawCornerBrackets(bg, 2, 2, visW - 4, h - 4, { 120, 255, 220, 220 });
+                DrawRect(bg, 8, 18, visW - 16, h - 36, { 20, 80, 60, 220 }, 1);
+            }
+
+            // Start from cached background
+            memcpy(s.pixels, m_RightAmmoHudBgCache.data(), m_RightAmmoHudBgCache.size());
 
             const int clipLowTh = std::max(1, (m_HudMaxClipObserved + 2) / 3);
             const int resLowTh = std::max(1, (m_HudMaxReserveObserved + 4) / 5);
@@ -2617,8 +2994,14 @@ void VR::UpdateHandHudOverlays()
                 std::snprintf(upgBuf, sizeof(upgBuf), "%d", upg);
                 DrawText5x7(s, visW - 52, 22, upgBuf, { 240, 240, 240, 255 }, 2);
             }
-            vr::VROverlay()->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
-            m_RightAmmoHudPixelsFront = backIdx;
+            // Avoid redundant uploads
+            const CRC32_t crc = CRC32_ProcessSingleBuffer(pixels.data(), (int)((size_t)w * (size_t)h * 4));
+            if (crc != (CRC32_t)m_RightAmmoHudLastCrc)
+            {
+                m_RightAmmoHudLastCrc = (uint32_t)crc;
+                vr::VROverlay()->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+                m_RightAmmoHudPixelsFront = backIdx;
+            }
         }
 
         vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
@@ -2626,6 +3009,12 @@ void VR::UpdateHandHudOverlays()
     }
     else
     {
+        // Force a full redraw next time it becomes visible.
+        m_LastHudClip = -9999;
+        m_LastHudReserve = -9999;
+        m_LastHudUpg = -9999;
+        m_LastHudUpgBits = 0;
+        m_RightAmmoHudLastCrc = 0;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         rightVisible = false;
     }

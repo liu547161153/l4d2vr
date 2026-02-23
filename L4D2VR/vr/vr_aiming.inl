@@ -741,13 +741,35 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
         return false;
 
     const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
-    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(pb + kLifeStateOffset);
-    const int team = *reinterpret_cast<const int*>(pb + kTeamNumOffset);
+
+    auto TryReadU8 = [](const unsigned char* base, int off, unsigned char& out) -> bool
+    {
+        __try { out = *reinterpret_cast<const unsigned char*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    };
+    auto TryReadInt = [](const unsigned char* base, int off, int& out) -> bool
+    {
+        __try { out = *reinterpret_cast<const int*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    };
+    auto TryReadFloat = [](const unsigned char* base, int off, float& out) -> bool
+    {
+        __try { out = *reinterpret_cast<const float*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
+    };
+
+    unsigned char lifeState = 0;
+    int team = 0;
+    if (!TryReadU8(pb, kLifeStateOffset, lifeState) || !TryReadInt(pb, kTeamNumOffset, team))
+        return false;
     if (lifeState != 0 || team != 2)
         return false;
 
-    const int hp = *reinterpret_cast<const int*>(pb + kHealthOffset);
-    const float tempHPf = *reinterpret_cast<const float*>(pb + kHealthBufferOffset);
+    int hp = 0;
+    float tempHPf = 0.0f;
+    if (!TryReadInt(pb, kHealthOffset, hp) || !TryReadFloat(pb, kHealthBufferOffset, tempHPf))
+        return false;
+
     const int tempHP = (int)std::max(0.0f, std::round(tempHPf));
     const int eff = std::max(0, std::min(100, hp + tempHP));
 

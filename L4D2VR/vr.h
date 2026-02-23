@@ -648,6 +648,23 @@ public:
 	int  m_LastHudUpgBits = 0;
 	int  m_LastHudWeaponId = -1;
 
+	// Hand HUD rendering caches (avoid re-rendering static background + avoid redundant uploads)
+	std::vector<uint8_t> m_LeftWristHudBgCache{};
+	int m_LeftWristHudBgCacheW = 0;
+	int m_LeftWristHudBgCacheH = 0;
+	uint8_t m_LeftWristHudBgCacheA = 0;
+	uint32_t m_LeftWristHudLastCrc = 0;
+	uint32_t m_LastHudTeammatesHash = 0;
+	uint32_t m_LastHudAimTargetNameHash = 0;
+
+	std::vector<uint8_t> m_RightAmmoHudBgCache{};
+	int m_RightAmmoHudBgCacheW = 0;
+	int m_RightAmmoHudBgCacheH = 0;
+	int m_RightAmmoHudBgCacheVisW = 0;
+	uint8_t m_RightAmmoHudBgCacheA = 0;
+	uint32_t m_RightAmmoHudLastCrc = 0;
+
+
 	// Dynamic maxima for percentage thresholds (works even if weapon scripts change clip/reserve sizes)
 	int  m_HudMaxClipObserved = 0;
 	int  m_HudMaxReserveObserved = 0;
