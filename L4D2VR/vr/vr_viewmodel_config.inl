@@ -953,6 +953,49 @@ void VR::ParseConfigFile()
     if (!prevVASLog && m_DebugVASLog)
         LogVAS("DebugVASLog enabled");
 
+
+    // Mock OpenVR backend (no SteamVR/OpenVR API calls). Startup-only.
+    {
+        const bool requestedMock = getBool("UseMockVR", m_UseMockVR);
+        if (!m_IsInitialized)
+        {
+            m_UseMockVR = requestedMock;
+        }
+        else if (requestedMock != m_UseMockVR)
+        {
+            Game::logMsg("[VR] UseMockVR change detected in config.txt, but this is startup-only. Restart required.");
+        }
+
+        m_MockVRKeyboardMouse = getBool("MockVRKeyboardMouse", m_MockVRKeyboardMouse);
+        m_MockVRMouseLook = getBool("MockVRMouseLook", m_MockVRMouseLook);
+        m_MockVRMouseLookRequiresRMB = getBool("MockVRMouseLookRequiresRMB", m_MockVRMouseLookRequiresRMB);
+        m_MockVRMouseSensitivity = std::clamp(getFloat("MockVRMouseSensitivity", m_MockVRMouseSensitivity), 0.001f, 5.0f);
+        m_MockVRMoveSpeed = std::clamp(getFloat("MockVRMoveSpeed", m_MockVRMoveSpeed), 0.0f, 50.0f);
+        m_MockVRRunMultiplier = std::clamp(getFloat("MockVRRunMultiplier", m_MockVRRunMultiplier), 1.0f, 50.0f);
+        m_MockVRHandsFollowHmd = getBool("MockVRHandsFollowHmd", m_MockVRHandsFollowHmd);
+        m_MockVRHandPitchOffset = std::clamp(getFloat("MockVRHandPitchOffset", m_MockVRHandPitchOffset), -180.0f, 180.0f);
+
+        m_MockVRHmdPos = getVector3("MockVRHmdPos", m_MockVRHmdPos);
+        {
+            Vector tmp = getVector3("MockVRHmdAng", Vector{ m_MockVRHmdAng.x, m_MockVRHmdAng.y, m_MockVRHmdAng.z });
+            m_MockVRHmdAng = QAngle{ tmp.x, tmp.y, tmp.z };
+        }
+
+        m_MockVRLeftHandOffset = getVector3("MockVRLeftHandOffset", m_MockVRLeftHandOffset);
+        m_MockVRRightHandOffset = getVector3("MockVRRightHandOffset", m_MockVRRightHandOffset);
+
+        m_MockVRLeftHandPos = getVector3("MockVRLeftHandPos", m_MockVRLeftHandPos);
+        m_MockVRRightHandPos = getVector3("MockVRRightHandPos", m_MockVRRightHandPos);
+        {
+            Vector tmp = getVector3("MockVRLeftHandAng", Vector{ m_MockVRLeftHandAng.x, m_MockVRLeftHandAng.y, m_MockVRLeftHandAng.z });
+            m_MockVRLeftHandAng = QAngle{ tmp.x, tmp.y, tmp.z };
+        }
+        {
+            Vector tmp = getVector3("MockVRRightHandAng", Vector{ m_MockVRRightHandAng.x, m_MockVRRightHandAng.y, m_MockVRRightHandAng.z });
+            m_MockVRRightHandAng = QAngle{ tmp.x, tmp.y, tmp.z };
+        }
+    }
+
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);

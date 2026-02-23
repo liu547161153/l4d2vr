@@ -426,6 +426,17 @@ vr::HmdMatrix34_t VR::VMatrixToHmdMatrix(const VMatrix& vMat)
 
 vr::HmdMatrix34_t VR::GetControllerTipMatrix(vr::ETrackedControllerRole controllerRole)
 {
+    // Mock backend or missing OpenVR interfaces: return identity.
+    const vr::HmdMatrix34_t identity =
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f
+    };
+
+    if (m_UseMockVR || !m_Input || !m_System)
+        return identity;
+
     vr::VRInputValueHandle_t inputValue = vr::k_ulInvalidInputValueHandle;
 
     if (controllerRole == vr::TrackedControllerRole_RightHand)
@@ -453,19 +464,14 @@ vr::HmdMatrix34_t VR::GetControllerTipMatrix(vr::ETrackedControllerRole controll
         }
     }
 
-    // Not a hand controller role or tip lookup failed, return identity
-    const vr::HmdMatrix34_t identity =
-    {
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f
-    };
-
     return identity;
 }
 
 bool VR::CheckOverlayIntersectionForController(vr::VROverlayHandle_t overlayHandle, vr::ETrackedControllerRole controllerRole)
 {
+    if (m_UseMockVR || !m_System || !m_Overlay || !vr::VRCompositor())
+        return false;
+
     vr::TrackedDeviceIndex_t deviceIndex = m_System->GetTrackedDeviceIndexForControllerRole(controllerRole);
 
     if (deviceIndex == vr::k_unTrackedDeviceIndexInvalid)

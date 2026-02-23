@@ -1,5 +1,8 @@
 void VR::ProcessInput()
 {
+    if (m_UseMockVR || !m_Input)
+        return;
+
     if (!m_IsVREnabled)
         return;
 

@@ -42,7 +42,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	};
 	RenderSnapshotTLSGuard __renderTls(queueMode != 0);
 
-	if (queueMode != 0 && m_VR && m_VR->m_System && vr::VRCompositor())
+	const bool canSampleRenderPoses = (m_VR && (m_VR->IsMockVR() || (m_VR->m_System && vr::VRCompositor())));
+	if (queueMode != 0 && canSampleRenderPoses)
 	{
 		// Remember which thread is producing render snapshots (used by other render-time hooks).
 		m_VR->m_RenderThreadId.store(static_cast<uint32_t>(GetCurrentThreadId()), std::memory_order_relaxed);
@@ -103,7 +104,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (vpOk)
 		{
 			std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> renderPoses{};
-			vr::EVRCompositorError err = vr::VRCompositor()->WaitGetPoses(renderPoses.data(), vr::k_unMaxTrackedDeviceCount, NULL, 0);
+			vr::EVRCompositorError err = vr::VRCompositorError_None;
+			if (m_VR->IsMockVR())
+				err = m_VR->MockWaitGetPoses(renderPoses.data(), vr::k_unMaxTrackedDeviceCount);
+			else
+				err = vr::VRCompositor()->WaitGetPoses(renderPoses.data(), vr::k_unMaxTrackedDeviceCount, NULL, 0);
 			if (err == vr::VRCompositorError_None && renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
 			{
 				TrackedDevicePoseData hmdPose{};
@@ -131,8 +136,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				Vector viewRight = viewCenter + (hmdRight * (+(ipdSu * 0.5f)));
 
 				// Right controller (visual/viewmodel only, no gameplay auto-aim overrides here).
-				vr::TrackedDeviceIndex_t leftIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
-				vr::TrackedDeviceIndex_t rightIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+				vr::TrackedDeviceIndex_t leftIdx = m_VR->GetControllerIndexForRole(vr::TrackedControllerRole_LeftHand);
+				vr::TrackedDeviceIndex_t rightIdx = m_VR->GetControllerIndexForRole(vr::TrackedControllerRole_RightHand);
 				if (m_VR->m_LeftHanded)
 					std::swap(leftIdx, rightIdx);
 

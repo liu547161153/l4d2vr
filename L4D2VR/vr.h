@@ -375,6 +375,46 @@ public:
 	int  m_AutoMatQueueModeLastRequested = -999;
 	std::chrono::steady_clock::time_point m_AutoMatQueueModeLastCmdTime{};
 
+	// Mock OpenVR backend: run without SteamVR/OpenVR by generating synthetic poses.
+	// Startup-only: set UseMockVR=true in VR/config.txt before launching.
+	bool m_UseMockVR = false;
+	bool m_MockVRKeyboardMouse = true;
+	bool m_MockVRMouseLook = true;
+	bool m_MockVRMouseLookRequiresRMB = false;
+	float m_MockVRMouseSensitivity = 0.12f; // degrees per pixel
+	float m_MockVRMoveSpeed = 1.5f;        // meters/sec
+	float m_MockVRRunMultiplier = 3.0f;    // Shift multiplier
+	bool  m_MockVRHandsFollowHmd = true;
+	float m_MockVRHandPitchOffset = 45.0f; // degrees
+	Vector m_MockVRHmdPos = { 0.0f, 0.0f, 1.65f };
+	QAngle m_MockVRHmdAng = { 0.0f, 0.0f, 0.0f };
+	Vector m_MockVRLeftHandOffset = { 0.25f, 0.18f, -0.35f };
+	Vector m_MockVRRightHandOffset = { 0.25f, -0.18f, -0.35f };
+	Vector m_MockVRLeftHandPos = { 0.25f, 0.18f, 1.30f };
+	Vector m_MockVRRightHandPos = { 0.25f, -0.18f, 1.30f };
+	QAngle m_MockVRLeftHandAng = { 45.0f, 0.0f, 0.0f };
+	QAngle m_MockVRRightHandAng = { 45.0f, 0.0f, 0.0f };
+
+	// Internal mock state / cross-thread pose snapshot (seqlock).
+	std::chrono::steady_clock::time_point m_MockVRLastUpdate{};
+	POINT m_MockVRLastMouse{};
+	bool m_MockVRMouseInit = false;
+	Vector m_MockVRPrevHmdPos = { 0.0f, 0.0f, 1.65f };
+	QAngle m_MockVRPrevHmdAng = { 0.0f, 0.0f, 0.0f };
+	Vector m_MockVRPrevLeftPos = { 0.25f, 0.18f, 1.30f };
+	QAngle m_MockVRPrevLeftAng = { 45.0f, 0.0f, 0.0f };
+	Vector m_MockVRPrevRightPos = { 0.25f, -0.18f, 1.30f };
+	QAngle m_MockVRPrevRightAng = { 45.0f, 0.0f, 0.0f };
+	std::atomic<uint32_t> m_MockPoseSeq{ 0 };
+	std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> m_MockPoseBuf{};
+
+	// Mock backend helpers
+	bool IsMockVR() const { return m_UseMockVR; }
+	void InitMockVR();
+	void UpdateMockVRPoses();
+	vr::EVRCompositorError MockWaitGetPoses(vr::TrackedDevicePose_t* posesOut, uint32_t poseCount) const;
+	vr::TrackedDeviceIndex_t GetControllerIndexForRole(vr::ETrackedControllerRole role) const;
+
 	bool m_IsVREnabled = false;
 	bool m_IsInitialized = false;
 	std::atomic<bool> m_RenderedNewFrame{ false };
@@ -1119,6 +1159,10 @@ public:
 	void Update();
 	// Auto switch mat_queue_mode based on game/menu/pause/scoreboard state (when enabled in config).
 	void UpdateAutoMatQueueMode();
+	// Mock OpenVR backend (no SteamVR/OpenVR).
+	// Generates synthetic poses and feeds the existing pose cache logic.
+	// UseMockVR is startup-only: set it in config.txt before launching.
+
 	void CreateVRTextures();
 	void EnsureOpticsRTTTextures();
 	void LogVAS(const char* tag);

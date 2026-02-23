@@ -366,6 +366,30 @@ VR::VR(Game* game)
 {
     m_Game = game;
 
+    // Load viewmodel adjustment table early (also used in mock mode).
+    {
+        char currentDir[MAX_STR_LEN];
+        GetCurrentDirectory(MAX_STR_LEN, currentDir);
+        m_ViewmodelAdjustmentSavePath = std::string(currentDir) + "\\viewmodel_adjustments.txt";
+        LoadViewmodelAdjustments();
+    }
+
+    // Parse config.txt once at startup so UseMockVR and other early flags apply before initializing OpenVR.
+    try
+    {
+        ParseConfigFile();
+    }
+    catch (...)
+    {
+        // Keep defaults if config parse fails at startup.
+    }
+
+    if (m_UseMockVR)
+    {
+        InitMockVR();
+        return;
+    }
+
     char errorString[MAX_STR_LEN];
 
     vr::HmdError error = vr::VRInitError_None;
@@ -385,10 +409,6 @@ VR::VR(Game* game)
         return;
     }
 
-    char currentDir[MAX_STR_LEN];
-    GetCurrentDirectory(MAX_STR_LEN, currentDir);
-    m_ViewmodelAdjustmentSavePath = std::string(currentDir) + "\\viewmodel_adjustments.txt";
-    LoadViewmodelAdjustments();
 
     ConfigureExplicitTiming();
 
@@ -1703,8 +1723,8 @@ void VR::GetPoses()
 {
     vr::TrackedDevicePose_t hmdPose = m_Poses[vr::k_unTrackedDeviceIndex_Hmd];
 
-    vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
-    vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
+    vr::TrackedDeviceIndex_t leftControllerIndex = GetControllerIndexForRole(vr::TrackedControllerRole_LeftHand);
+    vr::TrackedDeviceIndex_t rightControllerIndex = GetControllerIndexForRole(vr::TrackedControllerRole_RightHand);
 
     if (m_LeftHanded)
         std::swap(leftControllerIndex, rightControllerIndex);
@@ -1719,6 +1739,12 @@ void VR::GetPoses()
 
 bool VR::UpdatePosesAndActions()
 {
+    if (m_UseMockVR)
+    {
+        UpdateMockVRPoses();
+        return true;
+    }
+
     if (!m_Compositor)
         return false;
 
@@ -1733,12 +1759,21 @@ bool VR::UpdatePosesAndActions()
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;
 
-    m_Input->UpdateActionState(&m_ActiveActionSet, sizeof(vr::VRActiveActionSet_t), 1);
+    if (m_Input)
+        m_Input->UpdateActionState(&m_ActiveActionSet, sizeof(vr::VRActiveActionSet_t), 1);
     return posesValid;
 }
 
 void VR::GetViewParameters()
 {
+    if (m_UseMockVR || !m_System)
+    {
+        const float ipd = 0.065f;
+        m_EyeToHeadTransformPosLeft = { -ipd * 0.5f, 0.0f, 0.0f };
+        m_EyeToHeadTransformPosRight = { ipd * 0.5f, 0.0f, 0.0f };
+        return;
+    }
+
     vr::HmdMatrix34_t eyeToHeadLeft = m_System->GetEyeToHeadTransform(vr::Eye_Left);
     vr::HmdMatrix34_t eyeToHeadRight = m_System->GetEyeToHeadTransform(vr::Eye_Right);
     m_EyeToHeadTransformPosLeft.x = eyeToHeadLeft.m[0][3];
@@ -1765,6 +1800,9 @@ bool VR::PressedDigitalAction(vr::VRActionHandle_t& actionHandle, bool checkIfAc
 
 bool VR::GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigitalActionData_t& digitalDataOut)
 {
+    if (m_UseMockVR || !m_Input)
+        return false;
+
     vr::EVRInputError result = m_Input->GetDigitalActionData(actionHandle, &digitalDataOut, sizeof(digitalDataOut), vr::k_ulInvalidInputValueHandle);
 
     return result == vr::VRInputError_None;
@@ -1772,6 +1810,9 @@ bool VR::GetDigitalActionData(vr::VRActionHandle_t& actionHandle, vr::InputDigit
 
 bool VR::GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut)
 {
+    if (m_UseMockVR || !m_Input)
+        return false;
+
     vr::EVRInputError result = m_Input->GetAnalogActionData(actionHandle, &analogDataOut, sizeof(analogDataOut), vr::k_ulInvalidInputValueHandle);
 
     if (result == vr::VRInputError_None)
@@ -1782,6 +1823,9 @@ bool VR::GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalog
 
 void VR::ProcessMenuInput()
 {
+    if (m_UseMockVR || !m_Input || !m_Overlay)
+        return;
+
     const bool inGame = m_Game->m_EngineClient->IsInGame();
     vr::VROverlayHandle_t currentOverlay = inGame ? m_HUDTopHandle : m_MainMenuHandle;
 
