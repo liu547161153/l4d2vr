@@ -571,6 +571,105 @@ void VR::InstallApplicationManifest(const char* fileName)
 }
 
 
+void VR::UpdateAutoMatQueueMode()
+{
+    // Mouse-mode (keyboard/mouse): do NOT auto-manage multicore.
+    // Only enforce a safe mat_queue_mode in the main menu.
+    if (m_MouseModeEnabled)
+    {
+        if (!m_IsVREnabled)
+            return;
+
+        if (!m_Game || !m_Game->m_EngineClient)
+            return;
+
+        const bool inGame = m_Game->m_EngineClient->IsInGame();
+        if (!inGame)
+        {
+            const int currentMode = m_Game->GetMatQueueMode();
+            // Accept 0 or 1; if it's anything else (e.g. 2), force 0.
+            if (currentMode != 0 && currentMode != 1)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                const float secondsSinceCmd = (m_AutoMatQueueModeLastCmdTime.time_since_epoch().count() == 0)
+                    ? 9999.0f
+                    : std::chrono::duration<float>(now - m_AutoMatQueueModeLastCmdTime).count();
+
+                // Throttle retries to avoid spamming at menu.
+                if (m_AutoMatQueueModeLastRequested == 0 && secondsSinceCmd < 0.5f)
+                    return;
+
+                m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
+                m_AutoMatQueueModeLastRequested = 0;
+                m_AutoMatQueueModeLastCmdTime = now;
+
+                Game::logMsg("[VR] MouseMode menu: mat_queue_mode -> 0 (was %d)", currentMode);
+            }
+        }
+        return;
+    }
+
+    if (!m_AutoMatQueueMode)
+        return;
+
+    // Avoid changing engine threading mode when VR rendering is not active.
+    if (!m_IsVREnabled)
+        return;
+
+    if (!m_Game || !m_Game->m_EngineClient)
+        return;
+
+    const bool inGame = m_Game->m_EngineClient->IsInGame();
+    const bool paused = m_Game->m_EngineClient->IsPaused();
+    const bool cursorVisible = (m_Game->m_VguiSurface) ? m_Game->m_VguiSurface->IsCursorVisible() : false;
+    const bool scoreboardHeld = PressedDigitalAction(m_Scoreboard, false);
+
+    // "Loading map": IsInGame can be true while the client entities are not ready yet.
+    bool hasLocalPlayer = false;
+    if (inGame)
+    {
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+        hasLocalPlayer = (localPlayer != nullptr);
+    }
+    const bool loadingMap = inGame && !hasLocalPlayer;
+
+    const int desiredMode = (!inGame || loadingMap || paused || cursorVisible || scoreboardHeld) ? 1 : 2;
+    const int currentMode = m_Game->GetMatQueueMode();
+
+    if (currentMode == desiredMode)
+    {
+        m_AutoMatQueueModeLastRequested = desiredMode;
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const float secondsSinceCmd = (m_AutoMatQueueModeLastCmdTime.time_since_epoch().count() == 0)
+        ? 9999.0f
+        : std::chrono::duration<float>(now - m_AutoMatQueueModeLastCmdTime).count();
+
+    const bool isNewTarget = (m_AutoMatQueueModeLastRequested != desiredMode);
+
+    // Throttle retries to avoid spamming the command if the engine temporarily rejects changes (e.g., during level transitions).
+    if (m_AutoMatQueueModeLastRequested == desiredMode && secondsSinceCmd < 0.5f)
+        return;
+
+    std::string cmd = std::string("mat_queue_mode ") + std::to_string(desiredMode);
+    m_Game->ClientCmd_Unrestricted(cmd.c_str());
+
+    m_AutoMatQueueModeLastRequested = desiredMode;
+    m_AutoMatQueueModeLastCmdTime = now;
+
+    const char* reason = "in-game";
+    if (!inGame) reason = "menu";
+    else if (loadingMap) reason = "loading";
+    else if (paused) reason = "paused";
+    else if (scoreboardHeld) reason = "scoreboard";
+    else if (cursorVisible) reason = "cursor";
+    if (isNewTarget) Game::logMsg("[VR] AutoMatQueueMode -> mat_queue_mode %d (%s)", desiredMode, reason);
+}
+
+
 void VR::Update()
 {
     if (!m_IsInitialized || !m_Game->m_Initialized)
@@ -596,7 +695,7 @@ void VR::Update()
     SubmitVRTextures();
 
     bool posesValid = UpdatePosesAndActions();
-
+	UpdateAutoMatQueueMode();
     if (!posesValid)
     {
         // Continue using the last known poses so smoothing and aim helpers stay active.
@@ -1617,18 +1716,95 @@ void VR::GetPoses()
     GetPoseData(rightControllerPose, m_RightControllerPose);
 }
 
+bool VR::ReadPoseWaiterSnapshot(vr::TrackedDevicePose_t* outPoses, uint32_t* outSeq) const
+{
+    if (!outPoses)
+        return false;
+
+    // Seqlock read: writer flips seq odd->even around the memcpy.
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        const uint32_t s1 = m_PoseWaiterSeq.load(std::memory_order_acquire);
+        if (s1 == 0 || (s1 & 1u))
+            continue;
+
+        std::memcpy(outPoses, m_PoseWaiterPoses.data(), sizeof(vr::TrackedDevicePose_t) * vr::k_unMaxTrackedDeviceCount);
+
+        const uint32_t s2 = m_PoseWaiterSeq.load(std::memory_order_acquire);
+        if (s1 == s2 && !(s2 & 1u))
+        {
+            if (outSeq)
+                *outSeq = s2;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void VR::PoseWaiterThreadMain()
+{
+    // Detached thread. Runs only when mat_queue_mode!=0 (m_PoseWaiterEnabled).
+    // This keeps WaitGetPoses() off the queued render thread, preserving mat_queue_mode throughput.
+    while (true)
+    {
+        if (!m_PoseWaiterEnabled.load(std::memory_order_acquire) || !m_Compositor)
+        {
+            Sleep(1);
+            continue;
+        }
+
+        std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> poses{};
+        vr::EVRCompositorError result = m_Compositor->WaitGetPoses(poses.data(), vr::k_unMaxTrackedDeviceCount, NULL, 0);
+        if (result != vr::VRCompositorError_None)
+            continue;
+
+        // Publish snapshot.
+        m_PoseWaiterSeq.fetch_add(1, std::memory_order_acq_rel); // odd
+        std::memcpy(m_PoseWaiterPoses.data(), poses.data(), sizeof(vr::TrackedDevicePose_t) * vr::k_unMaxTrackedDeviceCount);
+        m_PoseWaiterSeq.fetch_add(1, std::memory_order_release); // even
+    }
+}
+
 bool VR::UpdatePosesAndActions()
 {
     if (!m_Compositor)
         return false;
-
     const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
-    // In mat_queue_mode!=0, the render thread is decoupled; avoid blocking the main thread here.
-    // The render hook will do a render-thread WaitGetPoses() for latency-critical view transforms.
-    vr::EVRCompositorError result = queued
-        ? m_Compositor->GetLastPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0)
-        : m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
-    bool posesValid = (result == vr::VRCompositorError_None);
+
+    // Start pose waiter once; enable it only in queued mode.
+    if (queued && !m_PoseWaiterStarted.exchange(true, std::memory_order_acq_rel))
+    {
+        std::thread t(&VR::PoseWaiterThreadMain, this);
+        t.detach();
+    }
+    m_PoseWaiterEnabled.store(queued, std::memory_order_release);
+
+    bool posesValid = false;
+    if (queued && m_System)
+    {
+        // In mat_queue_mode!=0, keep the main thread non-blocking.
+        // Read the latest WaitGetPoses() snapshot produced by the pose waiter thread.
+        if (ReadPoseWaiterSnapshot(m_Poses))
+        {
+            posesValid = m_Poses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid;
+        }
+        else
+        {
+            // Fallback (early frames before waiter publishes): non-blocking VRSystem prediction.
+            const vr::ETrackingUniverseOrigin trackingOrigin = m_Compositor ? m_Compositor->GetTrackingSpace() : vr::TrackingUniverseStanding;
+            float predicted = m_Compositor ? m_Compositor->GetFrameTimeRemaining() : 0.0f;
+            if (!(predicted >= 0.0f && predicted <= 0.5f))
+                predicted = 0.0f;
+            m_System->GetDeviceToAbsoluteTrackingPose(trackingOrigin, predicted, m_Poses, vr::k_unMaxTrackedDeviceCount);
+            posesValid = m_Poses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid;
+        }
+    }
+    else
+    {
+        vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
+        posesValid = (result == vr::VRCompositorError_None);
+    }
 
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;

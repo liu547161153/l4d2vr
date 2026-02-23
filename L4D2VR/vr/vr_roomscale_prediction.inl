@@ -490,71 +490,108 @@ bool VR::CheckOverlayIntersectionForController(vr::VROverlayHandle_t overlayHand
     return m_Overlay->ComputeOverlayIntersection(overlayHandle, &params, &results);
 }
 
+
+namespace vr_render_snapshot_cache_roomscale
+{
+    struct HandCache
+    {
+        uint32_t seq = 0;
+        Vector rightPos{ 0.0f, 0.0f, 0.0f };
+        QAngle rightAng{ 0.0f, 0.0f, 0.0f };
+        Vector vmPos{ 0.0f, 0.0f, 0.0f };
+        QAngle vmAng{ 0.0f, 0.0f, 0.0f };
+    };
+
+    inline HandCache& TLS()
+    {
+        static thread_local HandCache cache{};
+        return cache;
+    }
+
+    inline bool Refresh(const VR* vr, HandCache& c)
+    {
+        for (int attempt = 0; attempt < 3; ++attempt)
+        {
+            const uint32_t s1 = vr->m_RenderFrameSeq.load(std::memory_order_acquire);
+            if (s1 == 0 || (s1 & 1u))
+                continue;
+
+            const float rpx = vr->m_RenderRightControllerPosAbsX.load(std::memory_order_relaxed);
+            const float rpy = vr->m_RenderRightControllerPosAbsY.load(std::memory_order_relaxed);
+            const float rpz = vr->m_RenderRightControllerPosAbsZ.load(std::memory_order_relaxed);
+
+            const float rax = vr->m_RenderRightControllerAngAbsX.load(std::memory_order_relaxed);
+            const float ray = vr->m_RenderRightControllerAngAbsY.load(std::memory_order_relaxed);
+            const float raz = vr->m_RenderRightControllerAngAbsZ.load(std::memory_order_relaxed);
+
+            const float vpx = vr->m_RenderRecommendedViewmodelPosX.load(std::memory_order_relaxed);
+            const float vpy = vr->m_RenderRecommendedViewmodelPosY.load(std::memory_order_relaxed);
+            const float vpz = vr->m_RenderRecommendedViewmodelPosZ.load(std::memory_order_relaxed);
+
+            const float vax = vr->m_RenderRecommendedViewmodelAngX.load(std::memory_order_relaxed);
+            const float vay = vr->m_RenderRecommendedViewmodelAngY.load(std::memory_order_relaxed);
+            const float vaz = vr->m_RenderRecommendedViewmodelAngZ.load(std::memory_order_relaxed);
+
+            const uint32_t s2 = vr->m_RenderFrameSeq.load(std::memory_order_acquire);
+            if (s1 == s2 && !(s2 & 1u))
+            {
+                c.seq = s2;
+                c.rightPos = Vector(rpx, rpy, rpz);
+                c.rightAng = QAngle(rax, ray, raz);
+                c.vmPos = Vector(vpx, vpy, vpz);
+                c.vmAng = QAngle(vax, vay, vaz);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    inline bool Get(const VR* vr, HandCache& c)
+    {
+        if (!VR::t_UseRenderFrameSnapshot)
+            return false;
+
+        const uint32_t s = vr->m_RenderFrameSeq.load(std::memory_order_acquire);
+        if (s != 0 && !(s & 1u) && s == c.seq)
+            return true;
+
+        return Refresh(vr, c);
+    }
+}
+
 QAngle VR::GetRightControllerAbsAngle()
 {
     if (t_UseRenderFrameSnapshot)
     {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            QAngle ang;
-            ang.x = m_RenderRightControllerAngAbsX.load(std::memory_order_relaxed);
-            ang.y = m_RenderRightControllerAngAbsY.load(std::memory_order_relaxed);
-            ang.z = m_RenderRightControllerAngAbsZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return ang;
-        }
+        auto& cache = vr_render_snapshot_cache_roomscale::TLS();
+        if (vr_render_snapshot_cache_roomscale::Get(this, cache))
+            return cache.rightAng;
     }
 
     return m_RightControllerAngAbs;
 }
 
+
 Vector VR::GetRightControllerAbsPos()
 {
     if (t_UseRenderFrameSnapshot)
     {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float x = m_RenderRightControllerPosAbsX.load(std::memory_order_relaxed);
-            const float y = m_RenderRightControllerPosAbsY.load(std::memory_order_relaxed);
-            const float z = m_RenderRightControllerPosAbsZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(x, y, z);
-        }
+        auto& cache = vr_render_snapshot_cache_roomscale::TLS();
+        if (vr_render_snapshot_cache_roomscale::Get(this, cache))
+            return cache.rightPos;
     }
 
     return m_RightControllerPosAbs;
 }
 
+
 Vector VR::GetRecommendedViewmodelAbsPos()
 {
     if (t_UseRenderFrameSnapshot)
     {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float x = m_RenderRecommendedViewmodelPosX.load(std::memory_order_relaxed);
-            const float y = m_RenderRecommendedViewmodelPosY.load(std::memory_order_relaxed);
-            const float z = m_RenderRecommendedViewmodelPosZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(x, y, z);
-        }
+        auto& cache = vr_render_snapshot_cache_roomscale::TLS();
+        if (vr_render_snapshot_cache_roomscale::Get(this, cache))
+            return cache.vmPos;
     }
 
     Vector viewmodelPos = GetRightControllerAbsPos();
@@ -573,25 +610,14 @@ Vector VR::GetRecommendedViewmodelAbsPos()
     return viewmodelPos;
 }
 
+
 QAngle VR::GetRecommendedViewmodelAbsAngle()
 {
     if (t_UseRenderFrameSnapshot)
     {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            QAngle ang;
-            ang.x = m_RenderRecommendedViewmodelAngX.load(std::memory_order_relaxed);
-            ang.y = m_RenderRecommendedViewmodelAngY.load(std::memory_order_relaxed);
-            ang.z = m_RenderRecommendedViewmodelAngZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return ang;
-        }
+        auto& cache = vr_render_snapshot_cache_roomscale::TLS();
+        if (vr_render_snapshot_cache_roomscale::Get(this, cache))
+            return cache.vmAng;
     }
 
     QAngle result{};
@@ -600,6 +626,7 @@ QAngle VR::GetRecommendedViewmodelAbsAngle()
 
     return result;
 }
+
 
 void VR::HandleMissingRenderContext(const char* location)
 {

@@ -107,8 +107,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (vpOk)
 		{
 			std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> renderPoses{};
-			vr::EVRCompositorError err = vr::VRCompositor()->WaitGetPoses(renderPoses.data(), vr::k_unMaxTrackedDeviceCount, NULL, 0);
-			if (err == vr::VRCompositorError_None && renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
+
+			// In queued mode, avoid calling into OpenVR every render call if we can.
+			// Prefer the pose waiter snapshot (WaitGetPoses on a dedicated thread), fallback to a
+			// non-blocking VRSystem prediction for early frames.
+			bool havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data());
+			if (!havePoses)
+			{
+				const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
+				float predicted = vr::VRCompositor()->GetFrameTimeRemaining();
+				if (!(predicted >= 0.0f && predicted <= 0.5f))
+					predicted = 0.0f;
+				m_VR->m_System->GetDeviceToAbsoluteTrackingPose(trackingOrigin, predicted, renderPoses.data(), vr::k_unMaxTrackedDeviceCount);
+			}
+
+			if (renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
 			{
 				TrackedDevicePoseData hmdPose{};
 				m_VR->GetPoseData(renderPoses[vr::k_unTrackedDeviceIndex_Hmd], hmdPose);

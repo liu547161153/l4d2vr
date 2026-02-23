@@ -22,28 +22,81 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
     a = m_AimLineColorA;
 }
 
+
+namespace vr_render_snapshot_cache_viewmodel
+{
+    struct ViewCache
+    {
+        uint32_t seq = 0;
+        Vector viewAng{ 0.0f, 0.0f, 0.0f };
+        Vector viewLeft{ 0.0f, 0.0f, 0.0f };
+        Vector viewRight{ 0.0f, 0.0f, 0.0f };
+    };
+
+    inline ViewCache& TLS()
+    {
+        static thread_local ViewCache cache{};
+        return cache;
+    }
+
+    inline bool Refresh(const VR* vr, ViewCache& c)
+    {
+        for (int attempt = 0; attempt < 3; ++attempt)
+        {
+            const uint32_t s1 = vr->m_RenderFrameSeq.load(std::memory_order_acquire);
+            if (s1 == 0 || (s1 & 1u))
+                continue;
+
+            const float ax = vr->m_RenderViewAngX.load(std::memory_order_relaxed);
+            const float ay = vr->m_RenderViewAngY.load(std::memory_order_relaxed);
+            const float az = vr->m_RenderViewAngZ.load(std::memory_order_relaxed);
+
+            const float lx = vr->m_RenderViewOriginLeftX.load(std::memory_order_relaxed);
+            const float ly = vr->m_RenderViewOriginLeftY.load(std::memory_order_relaxed);
+            const float lz = vr->m_RenderViewOriginLeftZ.load(std::memory_order_relaxed);
+
+            const float rx = vr->m_RenderViewOriginRightX.load(std::memory_order_relaxed);
+            const float ry = vr->m_RenderViewOriginRightY.load(std::memory_order_relaxed);
+            const float rz = vr->m_RenderViewOriginRightZ.load(std::memory_order_relaxed);
+
+            const uint32_t s2 = vr->m_RenderFrameSeq.load(std::memory_order_acquire);
+            if (s1 == s2 && !(s2 & 1u))
+            {
+                c.seq = s2;
+                c.viewAng = Vector(ax, ay, az);
+                c.viewLeft = Vector(lx, ly, lz);
+                c.viewRight = Vector(rx, ry, rz);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    inline bool Get(const VR* vr, ViewCache& c)
+    {
+        if (!VR::t_UseRenderFrameSnapshot)
+            return false;
+
+        const uint32_t s = vr->m_RenderFrameSeq.load(std::memory_order_acquire);
+        if (s != 0 && !(s & 1u) && s == c.seq)
+            return true;
+
+        return Refresh(vr, c);
+    }
+}
+
 Vector VR::GetViewAngle()
 {
     if (t_UseRenderFrameSnapshot)
     {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float ax = m_RenderViewAngX.load(std::memory_order_relaxed);
-            const float ay = m_RenderViewAngY.load(std::memory_order_relaxed);
-            const float az = m_RenderViewAngZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(ax, ay, az);
-        }
+        auto& cache = vr_render_snapshot_cache_viewmodel::TLS();
+        if (vr_render_snapshot_cache_viewmodel::Get(this, cache))
+            return cache.viewAng;
     }
 
     return Vector(m_HmdAngAbs.x, m_HmdAngAbs.y, m_HmdAngAbs.z);
 }
+
 
 float VR::GetMovementYawDeg()
 {
@@ -72,20 +125,9 @@ Vector VR::GetViewOriginLeft()
 {
     if (t_UseRenderFrameSnapshot)
     {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float x = m_RenderViewOriginLeftX.load(std::memory_order_relaxed);
-            const float y = m_RenderViewOriginLeftY.load(std::memory_order_relaxed);
-            const float z = m_RenderViewOriginLeftZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(x, y, z);
-        }
+        auto& cache = vr_render_snapshot_cache_viewmodel::TLS();
+        if (vr_render_snapshot_cache_viewmodel::Get(this, cache))
+            return cache.viewLeft;
     }
 
     Vector viewOriginLeft;
@@ -96,24 +138,14 @@ Vector VR::GetViewOriginLeft()
     return viewOriginLeft;
 }
 
+
 Vector VR::GetViewOriginRight()
 {
     if (t_UseRenderFrameSnapshot)
     {
-        for (int attempt = 0; attempt < 3; ++attempt)
-        {
-            const uint32_t s1 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == 0 || (s1 & 1u))
-                continue;
-
-            const float x = m_RenderViewOriginRightX.load(std::memory_order_relaxed);
-            const float y = m_RenderViewOriginRightY.load(std::memory_order_relaxed);
-            const float z = m_RenderViewOriginRightZ.load(std::memory_order_relaxed);
-
-            const uint32_t s2 = m_RenderFrameSeq.load(std::memory_order_acquire);
-            if (s1 == s2 && !(s2 & 1u))
-                return Vector(x, y, z);
-        }
+        auto& cache = vr_render_snapshot_cache_viewmodel::TLS();
+        if (vr_render_snapshot_cache_viewmodel::Get(this, cache))
+            return cache.viewRight;
     }
 
     Vector viewOriginRight;
@@ -123,6 +155,7 @@ Vector VR::GetViewOriginRight()
 
     return viewOriginRight;
 }
+
 
 
 void VR::ResetPosition()
@@ -943,7 +976,13 @@ void VR::ParseConfigFile()
     m_LazyScopeRearMirrorRTT = getBool("LazyScopeRearMirrorRTT", m_LazyScopeRearMirrorRTT);
     if (!prevVASLog && m_DebugVASLog)
         LogVAS("DebugVASLog enabled");
-
+   const bool prevAutoMatQueueMode = m_AutoMatQueueMode;
+   m_AutoMatQueueMode = getBool("AutoMatQueueMode", m_AutoMatQueueMode);
+   if (m_AutoMatQueueMode != prevAutoMatQueueMode)
+   {
+       m_AutoMatQueueModeLastRequested = -999;
+       m_AutoMatQueueModeLastCmdTime = {};
+   }
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);

@@ -14,6 +14,8 @@
 #include <vector>
 #include <atomic>
 #include <mutex>
+#include <thread>
+#include <cstring>
 #define MAX_STR_LEN 256
 
 class Game;
@@ -177,7 +179,7 @@ public:
 
 	// --- Multicore rendering snapshot bridging (mat_queue_mode!=0) ---
 	// Main thread publishes a stable copy of key tracking/view parameters; render thread consumes it
-	// and computes per-frame view/controller data from a render-thread WaitGetPoses() sample.
+	// and computes per-frame view/controller data from a render-thread pose sample.
 	std::atomic<uint32_t> m_RenderViewParamsSeq{ 0 };
 	std::atomic<float> m_RenderCameraAnchorX{ 0.0f };
 	std::atomic<float> m_RenderCameraAnchorY{ 0.0f };
@@ -229,6 +231,15 @@ public:
 
 	// True on the render thread while inside dRenderView when mat_queue_mode!=0.
 	static inline thread_local bool t_UseRenderFrameSnapshot = false;
+
+	// --- Pose waiter (mat_queue_mode!=0) ---
+	// WaitGetPoses() is a hard pacing barrier. If we call it on the queued render thread, we can
+	// destroy mat_queue_mode 2 throughput. Instead, in queued mode we run a tiny "pose waiter" thread
+	// that blocks in WaitGetPoses() and publishes a seqlock snapshot. Render/main threads only read.
+	std::atomic<bool> m_PoseWaiterStarted{ false };
+	std::atomic<bool> m_PoseWaiterEnabled{ false };
+	std::atomic<uint32_t> m_PoseWaiterSeq{ 0 };
+	std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> m_PoseWaiterPoses{};
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
 	ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };
@@ -700,6 +711,12 @@ public:
 	float m_InventoryHudMarkerDistance = 0.45f;   // meters forward from head
 	float m_InventoryHudMarkerUpOffset = -0.10f;  // meters up (+) / down (-)
 	float m_InventoryHudMarkerSeparation = 0.14f; // meters between markers horizontally
+	// Auto mat_queue_mode management for multicore rendering.
+	// When enabled, the mod will keep mat_queue_mode=1 in menus/loading/pause/scoreboard,
+	// and switch to mat_queue_mode=2 once fully in-game.
+	bool m_AutoMatQueueMode = false;
+	int  m_AutoMatQueueModeLastRequested = -999;
+	std::chrono::steady_clock::time_point m_AutoMatQueueModeLastCmdTime{};
 
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;
@@ -1099,6 +1116,7 @@ public:
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
+	void UpdateAutoMatQueueMode();
 	void CreateVRTextures();
 	void EnsureOpticsRTTTextures();
 	void LogVAS(const char* tag);
@@ -1151,6 +1169,8 @@ public:
 	bool GetAnalogActionData(vr::VRActionHandle_t& actionHandle, vr::InputAnalogActionData_t& analogDataOut);
 	void ResetPosition();
 	void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
+	void PoseWaiterThreadMain();
+	bool ReadPoseWaiterSnapshot(vr::TrackedDevicePose_t* outPoses, uint32_t* outSeq = nullptr) const;
 	void ParseConfigFile();
 	void LoadViewmodelAdjustments();
 	void SaveViewmodelAdjustments();
