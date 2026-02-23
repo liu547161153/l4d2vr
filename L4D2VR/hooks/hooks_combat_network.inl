@@ -320,8 +320,6 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 {
 	hkReadUsercmd.fOriginal(buf, move, from);
-	if (!result || !move)
-		return result;
 
 	int i = m_Game->m_CurrentUsercmdID;
 	const bool hasValidPlayer = m_Game->IsValidPlayerIndex(i);
