@@ -728,7 +728,9 @@ public:
 	int m_InventoryAnchorColorG = 255;
 	int m_InventoryAnchorColorB = 255;
 	int m_InventoryAnchorColorA = 64;
-
+	bool m_ServerHookFallbackPending = false;
+	int m_ServerHookFallbackDelayMs = 3000;
+	std::chrono::steady_clock::time_point m_ServerHookFallbackCheckTime{};
 	bool m_ForceNonVRServerMovement = false;
 	bool m_Roomscale1To1Movement = true;
 	float m_Roomscale1To1MaxStepMeters = 0.35f;

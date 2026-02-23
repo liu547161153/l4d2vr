@@ -6,8 +6,15 @@ void VR::UpdateTracking()
     // - We arm a short cooldown window whenever we (re)enter "in game" or we lose/regain the local player pointer.
     // - The render hook will use this window to suppress observer-driven third-person latching.
     const bool inGameNow = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
-    if (!m_WasInGamePrev && inGameNow)
+    if (!m_WasInGamePrev && inGameNow){
         m_ThirdPersonMapLoadCooldownPending = true;
+        Hooks::s_ServerUnderstandsVR = false;
+        m_ServerHookFallbackPending = true;
+        if (m_ServerHookFallbackDelayMs > 0)
+            m_ServerHookFallbackCheckTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(m_ServerHookFallbackDelayMs);
+        else
+            m_ServerHookFallbackCheckTime = std::chrono::steady_clock::now();
+    }
     m_WasInGamePrev = inGameNow;
     int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
@@ -21,6 +28,22 @@ void VR::UpdateTracking()
         m_ThirdPersonMapLoadCooldownPending = true;
         m_ThirdPersonMapLoadCooldownEnd = {};
         return;
+    }
+    if (m_ServerHookFallbackPending)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (Hooks::s_ServerUnderstandsVR)
+        {
+            m_ServerHookFallbackPending = false;
+        }
+        else if (now >= m_ServerHookFallbackCheckTime)
+        {
+            if (!m_ForceNonVRServerMovement)
+            {
+                m_ForceNonVRServerMovement = true;
+            }
+            m_ServerHookFallbackPending = false;
+        }
     }
     // Rising edge: local player pointer recovered (after connect/disconnect/map load).
     if (!m_HadLocalPlayerPrev)

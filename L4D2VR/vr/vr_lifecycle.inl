@@ -133,6 +133,22 @@ namespace
         }
     }
 
+
+    inline void DrawText5x7Outlined(const HudSurface& s, int x, int y, const char* text, const Rgba& c, int scale = 1)
+    {
+        // Cheap readability boost: draw a 1px outline (4-neighborhood) then the text.
+        // Works well for thin 5x7 glyphs on bright/complex backgrounds.
+        if (!text)
+            return;
+        const int off = std::max(1, scale / 2);
+        const Rgba o{ 0, 0, 0, (unsigned char)std::min<int>(255, (int)c.a) };
+        DrawText5x7(s, x - off, y, text, o, scale);
+        DrawText5x7(s, x + off, y, text, o, scale);
+        DrawText5x7(s, x, y - off, text, o, scale);
+        DrawText5x7(s, x, y + off, text, o, scale);
+        DrawText5x7(s, x, y, text, c, scale);
+    }
+
     inline void DrawInfinity(const HudSurface& s, int x, int y, int w, int h, const Rgba& c)
     {
         // Minimal ∞ icon: two loops with a crossing.
@@ -695,7 +711,7 @@ void VR::Update()
     SubmitVRTextures();
 
     bool posesValid = UpdatePosesAndActions();
-	UpdateAutoMatQueueMode();
+    UpdateAutoMatQueueMode();
     if (!posesValid)
     {
         // Continue using the last known poses so smoothing and aim helpers stay active.
@@ -1812,7 +1828,6 @@ bool VR::UpdatePosesAndActions()
         vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
         posesValid = (result == vr::VRCompositorError_None);
     }
-
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;
 
@@ -2008,10 +2023,15 @@ void VR::UpdateHandHudOverlays()
     if (!m_Overlay || !m_System || !m_Game || !m_Game->m_EngineClient)
         return;
 
+    bool leftVisible = false;
+    bool rightVisible = false;
+
     if (!m_Game->m_EngineClient->IsInGame())
     {
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
+        leftVisible = false;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
+        rightVisible = false;
         return;
     }
 
@@ -2020,7 +2040,9 @@ void VR::UpdateHandHudOverlays()
     if (!localPlayer)
     {
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
+        leftVisible = false;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
+        rightVisible = false;
         return;
     }
 
@@ -2029,7 +2051,9 @@ void VR::UpdateHandHudOverlays()
     if (lifeState != 0)
     {
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
+        leftVisible = false;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
+        rightVisible = false;
         return;
     }
 
@@ -2164,13 +2188,16 @@ void VR::UpdateHandHudOverlays()
         return rel;
     };
 
-    const bool canShowLeft = m_LeftWristHudEnabled && m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid && offHandIndex != vr::k_unTrackedDeviceIndexInvalid;
+    const bool canShowLeft = m_LeftWristHudEnabled && m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid && (m_MouseModeEnabled || offHandIndex != vr::k_unTrackedDeviceIndexInvalid);
     if (canShowLeft)
     {
         const unsigned char bgA = (unsigned char)std::round(std::max(0.0f, std::min(1.0f, m_LeftWristHudBgAlpha)) * 255.0f);
 
-        vr::HmdMatrix34_t rel = buildRel(m_LeftWristHudXOffset, m_LeftWristHudYOffset, m_LeftWristHudZOffset, m_LeftWristHudAngleOffset);
-        vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
+        if (!m_MouseModeEnabled && offHandIndex != vr::k_unTrackedDeviceIndexInvalid)
+        {
+            vr::HmdMatrix34_t rel = buildRel(m_LeftWristHudXOffset, m_LeftWristHudYOffset, m_LeftWristHudZOffset, m_LeftWristHudAngleOffset);
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
+        }
         vr::VROverlay()->SetOverlayWidthInMeters(m_LeftWristHudHandle, std::max(0.01f, m_LeftWristHudWidthMeters));
         // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
         vr::VROverlay()->SetOverlayTexelAspect(m_LeftWristHudHandle, 1.0f);
@@ -2187,26 +2214,6 @@ void VR::UpdateHandHudOverlays()
         int aimTargetPct = 0;
         char aimTargetName[64] = { 0 };
         const bool hasAimTarget = GetAimTeammateHudInfo(aimTargetIdx, aimTargetPct, aimTargetName, sizeof(aimTargetName));
-
-        int battL = -1, battR = -1;
-        bool battLCharging = false, battRCharging = false;
-        if (m_LeftWristHudShowBattery)
-        {
-            vr::ETrackedPropertyError e1 = vr::TrackedProp_Success;
-            const float b1 = m_System->GetFloatTrackedDeviceProperty(leftRoleIndex, vr::Prop_DeviceBatteryPercentage_Float, &e1);
-            if (e1 == vr::TrackedProp_Success) battL = (int)std::round(std::max(0.0f, std::min(1.0f, b1)) * 100.0f);
-            vr::ETrackedPropertyError e2 = vr::TrackedProp_Success;
-            battLCharging = m_System->GetBoolTrackedDeviceProperty(leftRoleIndex, vr::Prop_DeviceIsCharging_Bool, &e2) && (e2 == vr::TrackedProp_Success);
-
-            vr::ETrackedPropertyError e3 = vr::TrackedProp_Success;
-            const float b2 = m_System->GetFloatTrackedDeviceProperty(rightRoleIndex, vr::Prop_DeviceBatteryPercentage_Float, &e3);
-            if (e3 == vr::TrackedProp_Success) battR = (int)std::round(std::max(0.0f, std::min(1.0f, b2)) * 100.0f);
-            vr::ETrackedPropertyError e4 = vr::TrackedProp_Success;
-            battRCharging = m_System->GetBoolTrackedDeviceProperty(rightRoleIndex, vr::Prop_DeviceIsCharging_Bool, &e4) && (e4 == vr::TrackedProp_Success);
-            (void)battLCharging;
-            (void)battRCharging;
-        }
-
         int throwable = -1;
         int medItem = -1;
         int pillItem = -1;
@@ -2253,30 +2260,20 @@ void VR::UpdateHandHudOverlays()
 
             const Rgba hpCol = healthColorFor(hp, 255);
             const SevenSegStyle hpSt{ 12, 3, 2, 4 };
-            Draw7SegInt(s, 18, 18, std::max(0, hp), hpSt, hpCol);
-
+            const int hpW = Draw7SegInt(s, 18, 18, std::max(0, hp), hpSt, hpCol);
             if (tempHP > 0)
             {
-                // Keep temp HP beside the main HP number (there is horizontal room),
-                // instead of pushing it below where it can clash with extra hint text.
+                // Temp HP: keep it tight to the main HP number (readability + less eye travel).
                 char hpBuf[16];
                 std::snprintf(hpBuf, sizeof(hpBuf), "+%d", tempHP);
-                DrawText5x7(s, 108, 26, hpBuf, { 200, 200, 200, 230 }, 2);
+                const int tempX = 18 + hpW + 8;
+                DrawText5x7Outlined(s, tempX, 24, hpBuf, { 255, 220, 120, 255 }, 2);
             }
-
-            if (m_LeftWristHudShowBattery && battL >= 0 && battR >= 0)
-            {
-                char batBuf[64];
-                std::snprintf(batBuf, sizeof(batBuf), "LC:%d%% RC:%d%%", battL, battR);
-                const int battScale = std::max(1, std::min(4, m_LeftWristHudBatteryTextScale));
-                DrawText5x7(s, 18, 54, batBuf, { 200, 200, 200, 230 }, battScale);
-            }
-
             if (hasAimTarget)
             {
                 char tgtBuf[64];
                 std::snprintf(tgtBuf, sizeof(tgtBuf), "%s:%d%%", aimTargetName, aimTargetPct);
-                DrawText5x7(s, 18, 72, tgtBuf, { 200, 200, 200, 230 }, 2);
+                DrawText5x7Outlined(s, 18, 66, tgtBuf, { 240, 240, 240, 255 }, 2);
             }
 
             int dotX = w - 62;
@@ -2339,17 +2336,40 @@ void VR::UpdateHandHudOverlays()
                             std::snprintf(nameBuf, sizeof(nameBuf), "%s", sname);
                         else
                             std::snprintf(nameBuf, sizeof(nameBuf), "P%d", i);
+
+
+
+                    }
+
+                    // Keep names short so bars can be longer; also force uppercase for legibility.
+                    nameBuf[7] = 0;
+                    for (int k = 0; nameBuf[k]; ++k)
+                    {
+                        char ch = nameBuf[k];
+                        if (ch >= 'a' && ch <= 'z')
+                            nameBuf[k] = (char)(ch - 32);
                     }
 
                     const int y0 = 18 + row * 18;
-                    DrawText5x7(s, 148, y0, nameBuf, { 200, 200, 200, 220 }, 1);
-                    DrawRect(s, 196, y0, 52, 8, { 60, 60, 60, 180 }, 1);
+                    DrawText5x7Outlined(s, 124, y0, nameBuf, { 240, 240, 240, 255 }, 1);
+                    // Longer teammate bar (more readable)
+                    const int barX = 170;
+                    const int barW = 78;
+                    const int barH = 10;
+                    DrawRect(s, barX, y0, barW, barH, { 60, 60, 60, 190 }, 1);
+
+                    const int innerW = barW - 2;
+                    const int innerH = barH - 2;
+
                     const int perm = std::max(0, std::min(100, thp));
-                    const int permW = (50 * perm) / 100;
-                    FillRect(s, 197, y0 + 1, permW, 6, { 60, 220, 255, 200 });
-                    const int extra = std::max(0, std::min(50, ttmp));
-                    const int extraW = (50 * extra) / 150;
-                    FillRect(s, 197 + permW, y0 + 1, std::max(0, std::min(50 - permW, extraW)), 6, { 255, 220, 120, 180 });
+                    const int permW = (innerW * perm) / 100;
+                    FillRect(s, barX + 1, y0 + 1, permW, innerH, { 60, 220, 255, 230 });
+
+                    const int extra = std::max(0, std::min(100, ttmp));
+                    const int extraW = (innerW * extra) / 100;
+                    const int remW = std::max(0, innerW - permW);
+                    const int tempFillW = std::max(0, std::min(remW, extraW));
+                    FillRect(s, barX + 1 + permW, y0 + 1, tempFillW, innerH, { 255, 220, 120, 210 });
                     ++row;
                 }
             }
@@ -2391,19 +2411,24 @@ void VR::UpdateHandHudOverlays()
         }
 
         vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
+        leftVisible = true;
     }
     else
     {
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
+        leftVisible = false;
     }
 
-    const bool canShowRight = m_RightAmmoHudEnabled && m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid && gunHandIndex != vr::k_unTrackedDeviceIndexInvalid;
+    const bool canShowRight = m_RightAmmoHudEnabled && m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid && (m_MouseModeEnabled || gunHandIndex != vr::k_unTrackedDeviceIndexInvalid);
     if (canShowRight)
     {
         const unsigned char bgA = (unsigned char)std::round(std::max(0.0f, std::min(1.0f, m_RightAmmoHudBgAlpha)) * 255.0f);
 
-        vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
-        vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
+        if (!m_MouseModeEnabled && gunHandIndex != vr::k_unTrackedDeviceIndexInvalid)
+        {
+            vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
+        }
         vr::VROverlay()->SetOverlayAlpha(m_RightAmmoHudHandle, std::max(0.0f, std::min(1.0f, m_RightAmmoHudAlpha)));
 
         // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
@@ -2457,7 +2482,9 @@ void VR::UpdateHandHudOverlays()
         if (weaponId <= 0 || !isAmmoHudEligible(weaponId) || clip < 0)
         {
             vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
-            return;
+        rightVisible = false;
+            rightVisible = false;
+            goto after_right;
         }
 
         if (weaponId != m_LastHudWeaponId)
@@ -2595,9 +2622,115 @@ void VR::UpdateHandHudOverlays()
         }
 
         vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
+        rightVisible = true;
     }
     else
     {
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
+        rightVisible = false;
     }
+
+
+after_right:
+    // Mouse mode: hand HUDs are not bound to controllers.
+    // Place them side-by-side under the RearMirrorOverlay, inheriting its pose.
+    if (m_MouseModeEnabled && (leftVisible || rightVisible) && m_RearMirrorHandle != vr::k_ulOverlayHandleInvalid)
+    {
+        auto mul34 = [](const vr::HmdMatrix34_t& a, const vr::HmdMatrix34_t& b) -> vr::HmdMatrix34_t
+        {
+            vr::HmdMatrix34_t out{};
+            for (int r = 0; r < 3; ++r)
+            {
+                for (int c = 0; c < 3; ++c)
+                    out.m[r][c] = a.m[r][0] * b.m[0][c] + a.m[r][1] * b.m[1][c] + a.m[r][2] * b.m[2][c];
+                out.m[r][3] = a.m[r][0] * b.m[0][3] + a.m[r][1] * b.m[1][3] + a.m[r][2] * b.m[2][3] + a.m[r][3];
+            }
+            return out;
+        };
+
+        auto translate34 = [](float x, float y, float z) -> vr::HmdMatrix34_t
+        {
+            vr::HmdMatrix34_t t{};
+            t.m[0][0] = 1.0f; t.m[0][1] = 0.0f; t.m[0][2] = 0.0f; t.m[0][3] = x;
+            t.m[1][0] = 0.0f; t.m[1][1] = 1.0f; t.m[1][2] = 0.0f; t.m[1][3] = y;
+            t.m[2][0] = 0.0f; t.m[2][1] = 0.0f; t.m[2][2] = 1.0f; t.m[2][3] = z;
+            return t;
+        };
+
+        auto getWidthMeters = [&](vr::VROverlayHandle_t h, float fallback) -> float
+        {
+            float w = 0.0f;
+            if (vr::VROverlay()->GetOverlayWidthInMeters(h, &w) == vr::VROverlayError_None && w > 0.001f)
+                return w;
+            return fallback;
+        };
+
+        float mirrorW = 0.0f;
+        if (vr::VROverlay()->GetOverlayWidthInMeters(m_RearMirrorHandle, &mirrorW) != vr::VROverlayError_None || mirrorW <= 0.001f)
+            mirrorW = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+
+        const float wL = leftVisible ? getWidthMeters(m_LeftWristHudHandle, std::max(0.01f, m_LeftWristHudWidthMeters)) : 0.0f;
+        const float wR = rightVisible ? getWidthMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters)) : 0.0f;
+
+        const float gapX = 0.01f;
+        float xL = 0.0f;
+        float xR = 0.0f;
+        if (leftVisible && rightVisible)
+        {
+            // Keep the combined bounding box centered.
+            xL = -(wR + gapX) * 0.5f;
+            xR = +(wL + gapX) * 0.5f;
+        }
+
+        const float lAspect = (m_LeftWristHudTexW > 0) ? ((float)m_LeftWristHudTexH / (float)m_LeftWristHudTexW) : 0.5f;
+        const float rAspect = (m_RightAmmoHudTexW > 0) ? ((float)m_RightAmmoHudTexH / (float)m_RightAmmoHudTexW) : 0.5f;
+        const float hL = wL * lAspect;
+        const float hR = wR * rAspect;
+        const float rowH = std::max(hL, hR);
+        const float gapY = 0.01f;
+        const float yRow = -(mirrorW * 0.5f + rowH * 0.5f + gapY);
+
+        vr::VROverlayTransformType parentType{};
+	    	if (vr::VROverlay()->GetOverlayTransformType(m_RearMirrorHandle, &parentType) != vr::VROverlayError_None)
+	    	    parentType = vr::VROverlayTransform_Absolute;
+
+	    	if (parentType == vr::VROverlayTransform_Absolute)
+        {
+            vr::ETrackingUniverseOrigin origin{};
+            vr::HmdMatrix34_t originToMirror{};
+            if (vr::VROverlay()->GetOverlayTransformAbsolute(m_RearMirrorHandle, &origin, &originToMirror) == vr::VROverlayError_None)
+            {
+                if (leftVisible)
+                {
+                    const vr::HmdMatrix34_t mat = mul34(originToMirror, translate34(xL, yRow, 0.0f));
+                    vr::VROverlay()->SetOverlayTransformAbsolute(m_LeftWristHudHandle, origin, &mat);
+                }
+                if (rightVisible)
+                {
+                    const vr::HmdMatrix34_t mat = mul34(originToMirror, translate34(xR, yRow, 0.0f));
+                    vr::VROverlay()->SetOverlayTransformAbsolute(m_RightAmmoHudHandle, origin, &mat);
+                }
+            }
+        }
+	    	else if (parentType == vr::VROverlayTransform_TrackedDeviceRelative)
+        {
+            vr::TrackedDeviceIndex_t parentDev = vr::k_unTrackedDeviceIndexInvalid;
+            vr::HmdMatrix34_t devToMirror{};
+            if (vr::VROverlay()->GetOverlayTransformTrackedDeviceRelative(m_RearMirrorHandle, &parentDev, &devToMirror) == vr::VROverlayError_None
+                && parentDev != vr::k_unTrackedDeviceIndexInvalid)
+            {
+                if (leftVisible)
+                {
+                    const vr::HmdMatrix34_t mat = mul34(devToMirror, translate34(xL, yRow, 0.0f));
+                    vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, parentDev, &mat);
+                }
+                if (rightVisible)
+                {
+                    const vr::HmdMatrix34_t mat = mul34(devToMirror, translate34(xR, yRow, 0.0f));
+                    vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, parentDev, &mat);
+                }
+            }
+        }
+    }
+
 }
