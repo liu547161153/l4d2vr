@@ -319,7 +319,7 @@ float __fastcall Hooks::dProcessUsercmds(void* ecx, void* edx, edict_t* player,
 
 int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 {
-	int result = hkReadUsercmd.fOriginal(buf, move, from);
+	hkReadUsercmd.fOriginal(buf, move, from);
 	if (!result || !move)
 		return result;
 
@@ -471,7 +471,7 @@ int Hooks::dReadUsercmd(void* buf, CUserCmd* move, CUserCmd* from)
 			}
 		}
 	}
-	return result;
+	return 1;
 }
 
 void __fastcall Hooks::dWriteUsercmdDeltaToBuffer(void* ecx, void* edx, int a1, void* buf, int from, int to, bool isnewcommand)
