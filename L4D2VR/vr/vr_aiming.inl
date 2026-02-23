@@ -105,12 +105,8 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     VectorNormalize(direction);
 
     Vector originBase = m_RightControllerPosAbs;
-    // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
-    Vector camDelta = m_IsThirdPersonCamera
-        ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
-        : (m_ThirdPersonViewOrigin - m_SetupOrigin);
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-        originBase += camDelta;
+    // Third-person: keep the aim ray anchored to the controller in world space.
+    // Applying render-camera deltas here can drift under queued rendering and only recovers after ResetPosition().
 
     Vector origin = originBase + direction * 2.0f;
 
@@ -212,12 +208,8 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     VectorNormalize(gunDir);
 
     Vector gunOriginBase = gunOrigin;
-    // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
-    Vector camDelta = m_IsThirdPersonCamera
-        ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
-        : (m_ThirdPersonViewOrigin - m_SetupOrigin);
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-        gunOriginBase += camDelta;
+    // Third-person: keep the ray origin anchored to the controller in world space.
+    // Render-camera deltas can cause apparent drift while moving/turning until ResetPosition().
 
     Vector gunStart = gunOriginBase + gunDir * 2.0f;
     Vector gunEnd = gunStart + gunDir * 8192.0f;
@@ -531,9 +523,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     }
     VectorNormalize(direction);
 
-    // Aim line origin is controller-based. In third-person the rendered camera is offset behind the player,
-    // so we translate the controller position into the rendered-camera frame.
-    // We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
+    // Aim line origin is always controller-based (world space).
+    // Third-person adjusts convergence/targeting separately; the start point should remain glued to the hand.
     Vector originBase = m_RightControllerPosAbs;
     if (useMouse)
     {
@@ -543,12 +534,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             + (m_HmdRight * (anchor.y * m_VRScale))
             + (m_HmdUp * (anchor.z * m_VRScale));
     }
-    // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
-    Vector camDelta = m_IsThirdPersonCamera
-        ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
-        : (m_ThirdPersonViewOrigin - m_SetupOrigin);
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-        originBase += camDelta;
+    // Third-person: keep aim line anchored to the controller in world space.
+    // Do not translate by third-person camera deltas; that can drift under queued rendering.
 
     Vector origin = originBase + direction * 2.0f;
 

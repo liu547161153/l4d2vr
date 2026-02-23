@@ -1123,12 +1123,8 @@ void VR::SubmitVRTextures()
                 VectorNormalize(dir);
 
                 Vector rayStart = m_RightControllerPosAbs;
-                // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
-                Vector camDelta = m_IsThirdPersonCamera
-                    ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
-                    : (m_ThirdPersonViewOrigin - m_SetupOrigin);
-                if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
-                    rayStart += camDelta;
+                // Third-person: keep the ray anchored to the controller in world space.
+                // Avoid applying render-camera deltas here; those can drift under queued rendering.
 
                 rayStart = rayStart + dir * 2.0f;
                 Vector rayEnd = rayStart + dir * 8192.0f;
