@@ -983,6 +983,11 @@ void VR::ParseConfigFile()
        m_AutoMatQueueModeLastRequested = -999;
        m_AutoMatQueueModeLastCmdTime = {};
    }
+
+    // Multicore rendering: render-thread wait time (ms) for a fresh WaitGetPoses() snapshot in queued mode.
+    // 0 = no wait, 1~3 = balanced, 5+ = prioritize stability, -1 = strong sync (wait up to ~50ms).
+    m_QueuedRenderPoseWaitMs = std::clamp(getInt("QueuedRenderPoseWaitMs", m_QueuedRenderPoseWaitMs), -1, 20);
+
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);

@@ -111,7 +111,58 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			// In queued mode, avoid calling into OpenVR every render call if we can.
 			// Prefer the pose waiter snapshot (WaitGetPoses on a dedicated thread), fallback to a
 			// non-blocking VRSystem prediction for early frames.
-			bool havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data());
+			uint32_t poseSeq = 0;
+			bool havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq);
+
+			// Optional pacing knob: in queued mode the render thread can outrun VR pose updates.
+			// Waiting a bit for a fresh WaitGetPoses() snapshot trades throughput for stability.
+			const int waitMsCfg = m_VR->m_QueuedRenderPoseWaitMs;
+			if (waitMsCfg != 0 && m_VR->m_PoseWaiterEvent)
+			{
+				static thread_local uint32_t s_lastPoseSeq = 0;
+				static thread_local uint32_t s_lastWaitAttemptSeq = 0;
+
+				const DWORD timeoutMs = (waitMsCfg < 0) ? 50u : (DWORD)std::clamp(waitMsCfg, 0, 200);
+
+				// Early-frame assist: if we have no snapshot yet, wait briefly for the first one.
+				if (!havePoses && timeoutMs > 0)
+				{
+					const DWORD firstWait = (timeoutMs < 5u) ? timeoutMs : 5u;
+					if (WaitForSingleObject(m_VR->m_PoseWaiterEvent, firstWait) == WAIT_OBJECT_0)
+						havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq);
+				}
+
+				// If we already consumed this snapshot, optionally wait for the next one (only once per pose seq).
+				if (havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && poseSeq != s_lastWaitAttemptSeq && timeoutMs > 0)
+				{
+					const uint32_t wantSeq = poseSeq;
+					s_lastWaitAttemptSeq = wantSeq;
+					DWORD startTicks = GetTickCount();
+					DWORD remaining = timeoutMs;
+					while (remaining > 0)
+					{
+						const DWORD wr = WaitForSingleObject(m_VR->m_PoseWaiterEvent, remaining);
+						if (wr != WAIT_OBJECT_0)
+							break;
+
+						uint32_t poseSeq2 = 0;
+						if (m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq2) && poseSeq2 != 0 && poseSeq2 != wantSeq)
+						{
+							poseSeq = poseSeq2;
+							break;
+						}
+
+						const DWORD elapsed = GetTickCount() - startTicks;
+						if (elapsed >= timeoutMs)
+							break;
+						remaining = timeoutMs - elapsed;
+					}
+				}
+
+				if (havePoses)
+					s_lastPoseSeq = poseSeq;
+			}
+
 			if (!havePoses)
 			{
 				const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();

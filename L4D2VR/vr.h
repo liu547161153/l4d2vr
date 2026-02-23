@@ -240,6 +240,11 @@ public:
 	std::atomic<bool> m_PoseWaiterEnabled{ false };
 	std::atomic<uint32_t> m_PoseWaiterSeq{ 0 };
 	std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> m_PoseWaiterPoses{};
+
+	HANDLE m_PoseWaiterEvent = NULL;
+	// In queued (mat_queue_mode!=0) rendering, optionally wait for a fresh pose snapshot on the render thread.
+	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
+	int m_QueuedRenderPoseWaitMs = 1;
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
 	ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };

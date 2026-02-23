@@ -1763,6 +1763,8 @@ void VR::PoseWaiterThreadMain()
         m_PoseWaiterSeq.fetch_add(1, std::memory_order_acq_rel); // odd
         std::memcpy(m_PoseWaiterPoses.data(), poses.data(), sizeof(vr::TrackedDevicePose_t) * vr::k_unMaxTrackedDeviceCount);
         m_PoseWaiterSeq.fetch_add(1, std::memory_order_release); // even
+		if (m_PoseWaiterEvent)
+			SetEvent(m_PoseWaiterEvent);
     }
 }
 
@@ -1771,6 +1773,11 @@ bool VR::UpdatePosesAndActions()
     if (!m_Compositor)
         return false;
     const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+
+	// Pose waiter publishes WaitGetPoses() snapshots on a dedicated thread in queued mode.
+	// Optional render-thread pacing uses this event to wait for a fresh snapshot.
+	if (queued && !m_PoseWaiterEvent)
+		m_PoseWaiterEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
 
     // Start pose waiter once; enable it only in queued mode.
     if (queued && !m_PoseWaiterStarted.exchange(true, std::memory_order_acq_rel))
