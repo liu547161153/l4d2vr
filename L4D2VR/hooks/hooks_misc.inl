@@ -361,12 +361,20 @@ if (m_VR->m_IsVREnabled && queueMode != 0 && m_VR->m_QueuedViewmodelStabilize)
 		(modelName.find("models/weapons/v_") != std::string::npos) ||
 		(modelName.find("/v_models/") != std::string::npos) ||
 		(modelName.find("models/v_models/") != std::string::npos) ||
+
+		// L4D2 melee viewmodels often live under models/weapons/melee/...
+		(modelName.find("models/weapons/melee/v_") != std::string::npos) ||
+		(modelName.find("models/weapons/melee/") != std::string::npos && modelName.find("/v_") != std::string::npos) ||
+		(modelName.find("/melee/v_") != std::string::npos) ||
+
+		// Arms/hands are frequently separate models from the gun.
 		(modelName.find("models/weapons/arms/") != std::string::npos) ||
 		(modelName.find("/arms/") != std::string::npos) ||
 		(modelName.find("v_arms") != std::string::npos) ||
 		(modelName.find("models/weapons/hands/") != std::string::npos) ||
 		(modelName.find("/hands/") != std::string::npos) ||
 		(modelName.find("v_hands") != std::string::npos);
+
 
 	if (isViewmodelClass || isViewmodelModel)
 	{

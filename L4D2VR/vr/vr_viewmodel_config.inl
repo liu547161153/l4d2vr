@@ -998,6 +998,18 @@ void VR::ParseConfigFile()
     m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);
     m_QueuedViewmodelStabilizeDebugLogHz = std::max(0.0f, getFloat("QueuedViewmodelStabilizeDebugLogHz", m_QueuedViewmodelStabilizeDebugLogHz));
 
+    // Queued (mat_queue_mode!=0) bullet FX alignment: fine-tune client-side tracer/impact visuals.
+    m_QueuedBulletVisualHitOffset = getVector3("QueuedBulletVisualHitOffset", m_QueuedBulletVisualHitOffset);
+    m_QueuedBulletVisualHitOffset.x = std::clamp(m_QueuedBulletVisualHitOffset.x, -1.0f, 1.0f);
+    m_QueuedBulletVisualHitOffset.y = std::clamp(m_QueuedBulletVisualHitOffset.y, -1.0f, 1.0f);
+    m_QueuedBulletVisualHitOffset.z = std::clamp(m_QueuedBulletVisualHitOffset.z, -1.0f, 1.0f);
+
+    if (userConfig.find("QueuedBulletVisualHitOffset") != userConfig.end())
+    {
+        Game::logMsg("[VR][Config] QueuedBulletVisualHitOffset=(%.4f, %.4f, %.4f)",
+            m_QueuedBulletVisualHitOffset.x, m_QueuedBulletVisualHitOffset.y, m_QueuedBulletVisualHitOffset.z);
+    }
+
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);

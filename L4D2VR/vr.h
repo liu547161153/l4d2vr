@@ -246,11 +246,15 @@ public:
 	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
 	int m_QueuedRenderPoseWaitMs = 1;
 	// Queued (mat_queue_mode!=0) viewmodel stabilization: prevents first-person viewmodel ghosting
-	// when engine viewmodel bob/lag runs on a decoupled thread.
+	// when engine viewmodel bob/lag runs on a decoupled thread. 
 	bool m_QueuedViewmodelStabilize = true;
 	// Debug logging for queued viewmodel stabilization (prints viewmodel pose + engine-produced pose).
 	bool  m_QueuedViewmodelStabilizeDebugLog = false;
 	float m_QueuedViewmodelStabilizeDebugLogHz = 4.0f; // max prints per second; 0 disables throttling
+	// Queued (mat_queue_mode!=0) bullet FX alignment: optional visual-only offset applied to	
+	// client-side bullet tracers/impact effects so they can be tuned to match the aim line.
+	// Units: meters in aim-ray space (X=forward, Y=right, Z=up).
+	Vector m_QueuedBulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
 
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
@@ -1256,6 +1260,9 @@ public:
 	C_BaseEntity* GetMountedGunUseEntity(C_BasePlayer* localPlayer) const;
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
+	// In queued (multicore) rendering, the render thread uses a render-frame pose snapshot.
+	// Draw the aim line from the render hook (dRenderView) using that snapshot to avoid head-turn ghosting.
+	void RenderDrawAimLineQueued(C_BasePlayer* localPlayer);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
 	bool ShouldDrawAimLine(C_WeaponCSBase* weapon) const;
