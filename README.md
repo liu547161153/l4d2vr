@@ -27,9 +27,7 @@
 
 
 ## How to play multiplayer
-* The host must have the mod installed and the server must be set to local. Other players can play in VR too (if they also installed the mod).
-* To host a local server, click Play Campaign -> Play With Friends -> Create new campaign lobby -> Server Type: Local Server
-* You can make your game public if you want.
+* You can join any server to play, but if the server wasn't created by VR some VR-exclusive features. 
 * Versus works but it's barely been tested.
 
 ## Troubleshooting
