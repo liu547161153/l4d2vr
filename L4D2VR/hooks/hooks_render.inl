@@ -315,41 +315,43 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// - 3D is a fallback for edge cases.
 	constexpr float kThirdPersonXY = 20.0f;
 	constexpr float kThirdPerson3D = 90.0f;
-	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition()
-	// even though we want to keep first-person VR rendering. Treat that as NOT third-person.
-	bool playerReviving = false;
+	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition().
+	// Rule:
+	//  - If YOU are reviving someone else: force third-person rendering (stable anchor, less weirdness).
+	//  - If YOU are being revived: do NOT force third-person; keep whatever the engine heuristic says,
+	//    so we won't flip a true first-person view into third-person.
+	bool revivingOther = false;
+	bool beingRevived = false;
 	if (localPlayer)
 	{
-		const int reviveOwner = ReadNetvar<int>(localPlayer, 0x1f88);   // m_reviveOwner
-		const int reviveTarget = ReadNetvar<int>(localPlayer, 0x1f8c);  // m_reviveTarget
-		playerReviving = HandleValid(reviveOwner) || HandleValid(reviveTarget);
+		const int reviveOwner = ReadNetvar<int>(localPlayer, 0x1f88);   // m_reviveOwner (someone reviving you)
+		const int reviveTarget = ReadNetvar<int>(localPlayer, 0x1f8c);   // m_reviveTarget (you reviving someone)
+		beingRevived = HandleValid(reviveOwner);
+		revivingOther = HandleValid(reviveTarget);
 	}
 
 	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
-	// Revive camera can temporarily offset setup.origin away from EyePosition() even though we want first-person VR rendering.
-	if (playerReviving)
-		engineThirdPersonNow = false;
+
+	// Only force TP when reviving others. Being revived keeps current FP/TP decision.
+	if (revivingOther)
+		engineThirdPersonNow = true;
+
 	// Mounted gun (.50cal/minigun): always force first-person rendering.
-	// The engine often runs these in third-person/shoulder cam, which feels wrong in VR
-	// and can poison our tracking anchors.
 	const bool usingMountedGun = m_VR->IsUsingMountedGun(localPlayer);
 	if (usingMountedGun)
 		engineThirdPersonNow = false;
+
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
 
 	// Some scripts/mods use point_viewcontrol_survivor via m_hViewEntity.
-	// There are two very different cases:
-	//  1) Real cinematic/cutscene camera control (we MUST keep the engine camera, or you lose camera choreography).
-	//  2) Transitional revive/incap camera weirdness (can look like a "fake" third-person and will latch our hold frames).
-	//
-	// Heuristic: only ignore view-entity overrides during unstable revive/incap windows.
-	// Otherwise, treat it as a real external camera and let the engine camera drive rendering.
+	// Only ignore view-entity overrides during unstable INCAP windows.
 	bool playerIncap = false;
 	if (localPlayer)
 		playerIncap = (ReadNetvar<int>(localPlayer, 0x1ea9) != 0); // m_isIncapacitated
+
 	if (hasViewEntityOverride && !customWalkThirdPersonNow)
 	{
-		const bool unstableViewEntity = playerReviving || playerIncap;
+		const bool unstableViewEntity = playerIncap;
 		if (unstableViewEntity)
 			engineThirdPersonNow = false;
 	}

@@ -865,7 +865,7 @@ void VR::UpdateAutoMatQueueMode()
     }
     const bool loadingMap = inGame && !hasLocalPlayer;
 
-    const int desiredMode = (!inGame || loadingMap || paused || cursorVisible || scoreboardHeld) ? 1 : 2;
+    const int desiredMode = (!inGame || loadingMap || paused || cursorVisible || scoreboardHeld) ? 0 : 2;
     const int currentMode = m_Game->GetMatQueueMode();
 
     if (currentMode == desiredMode)
@@ -2235,9 +2235,24 @@ void VR::ProcessMenuInput()
 
 void VR::UpdateHandHudOverlays()
 {
-    if (!m_Overlay || !m_System || !m_Game || !m_Game->m_EngineClient)
-        return;
+    // Debug: hand HUD update diagnostics (rate-limited).
+    const auto dbgNow = std::chrono::steady_clock::now();
+    m_HandHudDebugLastCall = dbgNow;
+    const bool dbgTick = m_HandHudDebugLog && !ShouldThrottle(m_HandHudDebugLastLog, m_HandHudDebugLogHz);
 
+    if (!m_Overlay || !m_System || !m_Game || !m_Game->m_EngineClient)
+    {
+        if (dbgTick)
+            Game::logMsg("[VR][HandHUD] tick: missing ptr overlay=%p system=%p game=%p engine=%p", (void*)m_Overlay, (void*)m_System, (void*)m_Game, m_Game ? (void*)m_Game->m_EngineClient : nullptr);
+        return;
+    }
+
+    auto secsSince = [&](const std::chrono::steady_clock::time_point& tp) -> float
+    {
+        if (tp.time_since_epoch().count() == 0)
+            return -1.0f;
+        return std::chrono::duration<float>(dbgNow - tp).count();
+    };
 
     auto resetHandHudCache = [&]()
     {
@@ -2262,12 +2277,28 @@ void VR::UpdateHandHudOverlays()
         m_RightAmmoHudLastCrc = 0;
     };
 
+
+    // If SetOverlayRaw starts returning RequestFailed persistently, the overlay system can end up
+    // "stuck" and the HUD freezes on the last successfully-uploaded frame. We recover by recreating
+    // the hand HUD overlays after N consecutive failures.
+    const uint32_t kHandHudRecoverFailThreshold = 5;     // consecutive SetOverlayRaw failures
+    const float    kHandHudRecoverMinIntervalSec = 1.0f; // avoid thrashing
+    bool needHandHudOverlayRecover = false;
+
     bool leftVisible = false;
     bool rightVisible = false;
 
     if (!m_Game->m_EngineClient->IsInGame())
     {
+        if (dbgTick)
+            Game::logMsg("[VR][HandHUD] tick: not in game -> hide overlays (lastLUpload=%.2fs lastRUpload=%.2fs)", secsSince(m_HandHudDebugLastLeftUpload), secsSince(m_HandHudDebugLastRightUpload));
         resetHandHudCache();
+        m_HandHudLeftConsecutiveRawFails = 0;
+        m_HandHudRightConsecutiveRawFails = 0;
+        m_HandHudLeftConsecutiveRawFails = 0;
+        m_HandHudRightConsecutiveRawFails = 0;
+        m_HandHudLeftConsecutiveRawFails = 0;
+        m_HandHudRightConsecutiveRawFails = 0;
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
@@ -2279,6 +2310,8 @@ void VR::UpdateHandHudOverlays()
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
     if (!localPlayer)
     {
+        if (dbgTick)
+            Game::logMsg("[VR][HandHUD] tick: localPlayer null (idx=%d) -> hide overlays", playerIndex);
         resetHandHudCache();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
@@ -2293,6 +2326,8 @@ void VR::UpdateHandHudOverlays()
     __except (EXCEPTION_EXECUTE_HANDLER) { lifeState = 1; }
     if (lifeState != 0)
     {
+        if (dbgTick)
+            Game::logMsg("[VR][HandHUD] tick: localPlayer dead lifeState=%u -> hide overlays", (unsigned)lifeState);
         resetHandHudCache();
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
@@ -2313,6 +2348,15 @@ void VR::UpdateHandHudOverlays()
     const vr::TrackedDeviceIndex_t rightRoleIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
 
     const bool throttle = ShouldThrottle(m_LastHandHudUpdateTime, m_HandHudMaxHz);
+
+    if (dbgTick)
+    {
+        const bool paused = m_Game->m_EngineClient ? m_Game->m_EngineClient->IsPaused() : false;
+        Game::logMsg(
+            "[VR][HandHUD] tick: inGame=1 paused=%d pidx=%d lp=%p life=%u maxHz=%.1f throttle=%d offDev=%u gunDev=%u Lrole=%u Rrole=%u",
+            paused ? 1 : 0, playerIndex, (void*)localPlayer, (unsigned)lifeState, m_HandHudMaxHz, throttle ? 1 : 0,
+            (unsigned)offHandIndex, (unsigned)gunHandIndex, (unsigned)leftRoleIndex, (unsigned)rightRoleIndex);
+    }
 
     // Safe memory reads: UpdateHandHudOverlays can run on the present/render thread while the game
     // is loading/unloading, so client entity pointers may become invalid mid-frame.
@@ -2591,6 +2635,13 @@ void VR::UpdateHandHudOverlays()
             || (aimTargetPct != m_LastHudAimTargetPct)
             || (aimNameHash != m_LastHudAimTargetNameHash);
 
+        if (dbgTick)
+        {
+            Game::logMsg("[VR][HandHUD] left: hp=%d temp=%d incap=%d ledge=%d third=%d items=%d,%d,%d mates=%d hash=0x%08X changed=%d aim=%d idx=%d pct=%d aimChanged=%d",
+                hp, tempHP, incap ? 1 : 0, ledge ? 1 : 0, third ? 1 : 0, throwable, medItem, pillItem, mateCount, matesHash,
+                changed ? 1 : 0, hasAimTarget ? 1 : 0, aimTargetIdx, aimTargetPct, aimChanged ? 1 : 0);
+        }
+
         if (!throttle && (changed || aimChanged))
         {
             m_LastHudHealth = hp;
@@ -2747,12 +2798,42 @@ void VR::UpdateHandHudOverlays()
             if (crc != (CRC32_t)m_LeftWristHudLastCrc)
             {
                 m_LeftWristHudLastCrc = (uint32_t)crc;
-                vr::VROverlay()->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+                {
+                    vr::EVROverlayError err = vr::VROverlayError_Unknown;
+                    {
+                        std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
+                        err = m_Overlay->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+                    }
+                    m_HandHudDebugLastLeftSetRawErr = (int)err;
+                    if (err == vr::VROverlayError_None)
+                    {
+                        m_HandHudDebugLastLeftUpload = dbgNow;
+                        ++m_HandHudDebugLeftUploadCount;
+                        m_HandHudLeftConsecutiveRawFails = 0;
+                    }
+                    else
+                    {
+                        ++m_HandHudLeftConsecutiveRawFails;
+                        if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudLeftConsecutiveRawFails >= kHandHudRecoverFailThreshold))
+                            needHandHudOverlayRecover = true;
+                        if (dbgTick)
+                            Game::logMsg("[VR][HandHUD] left SetOverlayRaw failed err=%d", (int)err);
+                        // Important: raw upload failures (often transient when SteamVR is busy) must not
+                        // commit cached state/CRC, otherwise the hand HUD can freeze forever.
+                        resetHandHudCache();
+                    }
+                }
                 m_LeftWristHudPixelsFront = backIdx;
             }
         }
 
-        vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
+        {
+            const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
+            m_HandHudDebugLastLeftShowErr = (int)err;
+            if (err != vr::VROverlayError_None && dbgTick)
+                Game::logMsg("[VR][HandHUD] left ShowOverlay failed err=%d", (int)err);
+        }
+
         leftVisible = true;
     }
     else
@@ -2838,6 +2919,9 @@ void VR::UpdateHandHudOverlays()
 
         if (weaponId <= 0 || !isAmmoHudEligible(weaponId) || clip < 0)
         {
+            if (dbgTick)
+                Game::logMsg("[VR][HandHUD] right: ineligible wid=%d clip=%d (melee/item/etc) -> hide", weaponId, clip);
+
             // Force a full redraw next time we become eligible again.
             m_LastHudClip = -9999;
             m_LastHudReserve = -9999;
@@ -2909,6 +2993,11 @@ void VR::UpdateHandHudOverlays()
         vr::VROverlay()->SetOverlayTextureBounds(m_RightAmmoHudHandle, &bounds);
         vr::VROverlay()->SetOverlayWidthInMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters) * uMax);
         const bool changed = (clip != m_LastHudClip) || (reserve != m_LastHudReserve) || (upg != m_LastHudUpg) || (upgBits != m_LastHudUpgBits);
+        if (dbgTick)
+        {
+            Game::logMsg("[VR][HandHUD] right: wid=%d clip=%d res=%d upg=%d bits=0x%X pistolInf=%d changed=%d",
+                weaponId, clip, reserve, upg, upgBits, pistolInfinite ? 1 : 0, changed ? 1 : 0);
+        }
         if (!throttle && changed)
         {
             m_LastHudClip = clip;
@@ -2999,12 +3088,41 @@ void VR::UpdateHandHudOverlays()
             if (crc != (CRC32_t)m_RightAmmoHudLastCrc)
             {
                 m_RightAmmoHudLastCrc = (uint32_t)crc;
-                vr::VROverlay()->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+                {
+                    vr::EVROverlayError err = vr::VROverlayError_Unknown;
+                    {
+                        std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
+                        err = m_Overlay->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
+                    }
+                    m_HandHudDebugLastRightSetRawErr = (int)err;
+                    if (err == vr::VROverlayError_None)
+                    {
+                        m_HandHudDebugLastRightUpload = dbgNow;
+                        ++m_HandHudDebugRightUploadCount;
+                        m_HandHudRightConsecutiveRawFails = 0;
+                    }
+                    else
+                    {
+                        ++m_HandHudRightConsecutiveRawFails;
+                        if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudRightConsecutiveRawFails >= kHandHudRecoverFailThreshold))
+                            needHandHudOverlayRecover = true;
+                        if (dbgTick)
+                            Game::logMsg("[VR][HandHUD] right SetOverlayRaw failed err=%d", (int)err);
+                        // Same as left: force retry next tick so it can't get stuck.
+                        resetHandHudCache();
+                    }
+                }
                 m_RightAmmoHudPixelsFront = backIdx;
             }
         }
 
-        vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
+        {
+            const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
+            m_HandHudDebugLastRightShowErr = (int)err;
+            if (err != vr::VROverlayError_None && dbgTick)
+                Game::logMsg("[VR][HandHUD] right ShowOverlay failed err=%d", (int)err);
+        }
+
         rightVisible = true;
     }
     else
@@ -3021,6 +3139,88 @@ void VR::UpdateHandHudOverlays()
 
 
 after_right:
+    if (needHandHudOverlayRecover)
+    {
+        float since = secsSince(m_HandHudLastOverlayRecover);
+        if (since < 0.0f) since = 9999.0f;
+
+        if (since >= kHandHudRecoverMinIntervalSec)
+        {
+            vr::EVROverlayError eLeft = vr::VROverlayError_None;
+            vr::EVROverlayError eRight = vr::VROverlayError_None;
+
+            {
+                std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
+                vr::IVROverlay* ov = m_Overlay ? m_Overlay : vr::VROverlay();
+
+                if (ov)
+                {
+                    auto destroyIfValid = [&](vr::VROverlayHandle_t& h)
+                    {
+                        if (h != vr::k_ulOverlayHandleInvalid)
+                        {
+                            ov->HideOverlay(h);
+                            ov->DestroyOverlay(h);
+                            h = vr::k_ulOverlayHandleInvalid;
+                        }
+                    };
+
+                    destroyIfValid(m_LeftWristHudHandle);
+                    destroyIfValid(m_RightAmmoHudHandle);
+
+                    eLeft = ov->CreateOverlay("LeftWristHudOverlayKey", "LeftWristHUD", &m_LeftWristHudHandle);
+                    if (eLeft != vr::VROverlayError_None)
+                    {
+                        vr::VROverlayHandle_t found = vr::k_ulOverlayHandleInvalid;
+                        if (ov->FindOverlay("LeftWristHudOverlayKey", &found) == vr::VROverlayError_None)
+                            m_LeftWristHudHandle = found;
+                    }
+
+                    eRight = ov->CreateOverlay("RightAmmoHudOverlayKey", "RightAmmoHUD", &m_RightAmmoHudHandle);
+                    if (eRight != vr::VROverlayError_None)
+                    {
+                        vr::VROverlayHandle_t found = vr::k_ulOverlayHandleInvalid;
+                        if (ov->FindOverlay("RightAmmoHudOverlayKey", &found) == vr::VROverlayError_None)
+                            m_RightAmmoHudHandle = found;
+                    }
+
+                    if (m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid)
+                        ov->SetOverlayInputMethod(m_LeftWristHudHandle, vr::VROverlayInputMethod_None);
+                    if (m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid)
+                        ov->SetOverlayInputMethod(m_RightAmmoHudHandle, vr::VROverlayInputMethod_None);
+                }
+            }
+
+            m_HandHudLastOverlayRecover = dbgNow;
+            ++m_HandHudOverlayRecoverCount;
+            m_HandHudLeftConsecutiveRawFails = 0;
+            m_HandHudRightConsecutiveRawFails = 0;
+
+            resetHandHudCache();
+
+            if (dbgTick)
+            {
+                Game::logMsg("[VR][HandHUD] overlay recover: recreated (eL=%d eR=%d) count=%u newHandles L=%llu R=%llu",
+                    (int)eLeft, (int)eRight, (unsigned)m_HandHudOverlayRecoverCount,
+                    (unsigned long long)m_LeftWristHudHandle, (unsigned long long)m_RightAmmoHudHandle);
+            }
+        }
+
+        return;
+    }
+
+    if (dbgTick)
+    {
+        Game::logMsg(
+            "[VR][HandHUD] tick: Lcan=%d Rcan=%d Lvis=%d Rvis=%d LrawErr=%d RrawErr=%d LshowErr=%d RshowErr=%d Lcnt=%u Rcnt=%u Lsince=%.2fs Rsince=%.2fs Lfail=%u Rfail=%u Rec=%u",
+            canShowLeft ? 1 : 0, canShowRight ? 1 : 0, leftVisible ? 1 : 0, rightVisible ? 1 : 0,
+            m_HandHudDebugLastLeftSetRawErr, m_HandHudDebugLastRightSetRawErr,
+            m_HandHudDebugLastLeftShowErr, m_HandHudDebugLastRightShowErr,
+            (unsigned)m_HandHudDebugLeftUploadCount, (unsigned)m_HandHudDebugRightUploadCount,
+            secsSince(m_HandHudDebugLastLeftUpload), secsSince(m_HandHudDebugLastRightUpload),
+            (unsigned)m_HandHudLeftConsecutiveRawFails, (unsigned)m_HandHudRightConsecutiveRawFails, (unsigned)m_HandHudOverlayRecoverCount);
+    }
+
     // Mouse mode: hand HUDs are not bound to controllers.
     // Place them side-by-side under the RearMirrorOverlay, inheriting its pose.
     if (m_MouseModeEnabled && (leftVisible || rightVisible) && m_RearMirrorHandle != vr::k_ulOverlayHandleInvalid)

@@ -926,6 +926,11 @@ void VR::ParseConfigFile()
     }
 
     m_HandHudMaxHz = std::clamp(getFloat("HandHudMaxHz", m_HandHudMaxHz), 0.0f, 240.0f);
+
+    // Debug: hand HUD update diagnostics (prints periodic state + overlay errors).
+    m_HandHudDebugLog = getBool("HandHudDebugLog", m_HandHudDebugLog);
+    m_HandHudDebugLogHz = std::clamp(getFloat("HandHudDebugLogHz", m_HandHudDebugLogHz), 0.0f, 240.0f);
+
     m_AntiAliasing = std::stol(userConfig["AntiAliasing"]);
     m_FixedHudYOffset = getFloat("FixedHudYOffset", m_FixedHudYOffset);
     m_FixedHudDistanceOffset = getFloat("FixedHudDistanceOffset", m_FixedHudDistanceOffset);

@@ -607,6 +607,29 @@ public:
 
 	float m_HandHudMaxHz = 30.0f;
 	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
+	// Debug logging for hand HUD update stalls (UpdateHandHudOverlays).
+	bool  m_HandHudDebugLog = false;
+	float m_HandHudDebugLogHz = 1.0f; // max prints per second; 0 disables throttling
+	std::chrono::steady_clock::time_point m_HandHudDebugLastLog{};
+	std::chrono::steady_clock::time_point m_HandHudDebugLastCall{};
+	std::chrono::steady_clock::time_point m_HandHudDebugLastLeftUpload{};
+	std::chrono::steady_clock::time_point m_HandHudDebugLastRightUpload{};
+	uint32_t m_HandHudDebugLeftUploadCount = 0;
+	uint32_t m_HandHudDebugRightUploadCount = 0;
+	int m_HandHudDebugLastLeftSetRawErr = 0;
+	int m_HandHudDebugLastRightSetRawErr = 0;
+	int m_HandHudDebugLastLeftShowErr = 0;
+	int m_HandHudDebugLastRightShowErr = 0;
+
+	// Serialize all IVROverlay calls. OpenVR overlay APIs are not guaranteed thread-safe,
+	// and concurrent access can lead to persistent EVROverlayError_RequestFailed.
+	std::mutex m_VROverlayMutex{};
+	// Hand HUD overlay recovery state (for SetOverlayRaw failures).
+	uint32_t m_HandHudLeftConsecutiveRawFails = 0;
+	uint32_t m_HandHudRightConsecutiveRawFails = 0;
+	std::chrono::steady_clock::time_point m_HandHudLastOverlayRecover{};
+	uint32_t m_HandHudOverlayRecoverCount = 0;
+
 	// Double-buffered pixel storage to avoid flicker/tearing when SteamVR reads the same buffer we are updating.
 	std::array<std::vector<uint8_t>, 2> m_LeftWristHudPixels{};
 	std::array<std::vector<uint8_t>, 2> m_RightAmmoHudPixels{};
