@@ -1143,6 +1143,11 @@ void VR::ParseConfigFile()
         0.0f, 60.0f);
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
+
+    // Non-VR server movement: make client-side bullet/muzzle effects originate from controller (visual-only).
+    m_NonVRServerMovementEffectsFromController = getBool("NonVRServerMovementEffectsFromController", m_NonVRServerMovementEffectsFromController);
+    m_NonVRServerMovementEffectsDebugLog = getBool("NonVRServerMovementEffectsDebugLog", m_NonVRServerMovementEffectsDebugLog);
+    m_NonVRServerMovementEffectsDebugLogHz = std::max(0.0f, getFloat("NonVRServerMovementEffectsDebugLogHz", m_NonVRServerMovementEffectsDebugLogHz));
     m_Roomscale1To1Movement = getBool("Roomscale1To1Movement", m_Roomscale1To1Movement);
     m_Roomscale1To1MaxStepMeters = getFloat("Roomscale1To1MaxStepMeters", m_Roomscale1To1MaxStepMeters);
     m_Roomscale1To1DebugLog = getBool("Roomscale1To1DebugLog", m_Roomscale1To1DebugLog);

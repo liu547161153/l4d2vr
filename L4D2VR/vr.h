@@ -808,6 +808,10 @@ public:
 	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastPredict{};
 	std::chrono::steady_clock::time_point m_Roomscale1To1DebugLastServer{};
 	bool m_NonVRServerMovementAngleOverride = true;
+	// Non-VR server movement: make client-side bullet/muzzle effects originate from controller (visual-only).
+	bool m_NonVRServerMovementEffectsFromController = true;
+	bool m_NonVRServerMovementEffectsDebugLog = false;
+	float m_NonVRServerMovementEffectsDebugLogHz = 4.0f;
 
 	// Non-VR server movement: client-side melee gesture -> IN_ATTACK tuning (ForceNonVRServerMovement=true only)
 	// These are intentionally separate from generic MotionGesture* knobs.
