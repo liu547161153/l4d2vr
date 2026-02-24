@@ -6,15 +6,19 @@
 ## Things that work
 * Singleplayer and multiplayer (see below)
 * 6DoF VR view
+* Roomscale movement support
 * Motion controls for guns and melee weapons
 * Workshop content
-
+* Multi-core rendering support
+* SMAA support
+  
 ## Things that need fixing
-
-* Interactions and throwables require you to aim with your face
-* Roomscale needs work
-* CPU is underutilized
-
+* Interactions and throwables require you to aim with your face(Except for servers that do not support non‑VR)
+* 
+## How to play multiplayer
+* You can join any server to play, but if the server wasn't created by VR some VR-exclusive features. 
+* Versus works but it's barely been tested.
+* 
 ## How to use
 1. Download [L4D2VR.zip](https://github.com/liu547161153/l4d2vr/releases) and extract the files to your Left 4 Dead 2 directory (steamapps\common\Left 4 Dead 2)
 2. Launch SteamVR, then launch Left 4 Dead 2 with these launch options:
@@ -26,9 +30,7 @@
 5. To recenter the camera height, press down on the left stick. To see the HUD, aim the controller up or down.
 
 
-## How to play multiplayer
-* You can join any server to play, but if the server wasn't created by VR some VR-exclusive features. 
-* Versus works but it's barely been tested.
+
 
 ## Troubleshooting
 If the game isn't loading in VR:
