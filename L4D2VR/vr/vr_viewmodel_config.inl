@@ -993,6 +993,11 @@ void VR::ParseConfigFile()
     // 0 = no wait, 1~3 = balanced, 5+ = prioritize stability, -1 = strong sync (wait up to ~50ms).
     m_QueuedRenderPoseWaitMs = std::clamp(getInt("QueuedRenderPoseWaitMs", m_QueuedRenderPoseWaitMs), -1, 20);
 
+    // Queued rendering: stabilize first-person viewmodel (disable engine bob/lag in queued mode).
+    m_QueuedViewmodelStabilize = getBool("QueuedViewmodelStabilize", m_QueuedViewmodelStabilize);
+    m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);
+    m_QueuedViewmodelStabilizeDebugLogHz = std::max(0.0f, getFloat("QueuedViewmodelStabilizeDebugLogHz", m_QueuedViewmodelStabilizeDebugLogHz));
+
     // Gun-mounted scope
     m_ScopeEnabled = getBool("ScopeEnabled", m_ScopeEnabled);
     m_ScopeRTTSize = std::clamp(getInt("ScopeRTTSize", m_ScopeRTTSize), 128, 4096);

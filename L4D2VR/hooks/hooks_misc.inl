@@ -1,3 +1,169 @@
+// ------------------------------------------------------------
+// Multicore viewmodel stabilization helpers
+//
+// In Source, viewmodels are often drawn with pCustomBoneToWorld (bone matrices in world space).
+// In that case, overriding ModelRenderInfo_t.origin/angles does NOT move the model.
+//
+// For queued rendering (mat_queue_mode!=0) we must instead apply a delta transform to the
+// custom bone matrices for the draw call, so the viewmodel uses the controller-anchored pose
+// sampled on the render thread (no shared-state writes, no tearing).
+// ------------------------------------------------------------
+namespace vr_vm_stabilize
+{
+    struct Mat3x4
+    {
+        float m[3][4];
+    };
+
+    template <typename T>
+    inline bool SafeRead(const void* p, T& out)
+    {
+#if defined(_MSC_VER)
+        __try
+        {
+            out = *reinterpret_cast<const T*>(p);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+#else
+        // Non-MSVC builds are not expected for this project.
+        // Keep it simple: attempt the read.
+        out = *reinterpret_cast<const T*>(p);
+        return true;
+#endif
+    }
+
+    inline Vector GetOrigin(const Mat3x4& a)
+    {
+        return Vector(a.m[0][3], a.m[1][3], a.m[2][3]);
+    }
+
+    inline void BuildFromOrgAngles(const Vector& origin, const QAngle& ang, Mat3x4& out)
+    {
+        Vector f, r, u;
+        QAngle::AngleVectors(ang, &f, &r, &u);
+
+        out.m[0][0] = f.x; out.m[0][1] = r.x; out.m[0][2] = u.x; out.m[0][3] = origin.x;
+        out.m[1][0] = f.y; out.m[1][1] = r.y; out.m[1][2] = u.y; out.m[1][3] = origin.y;
+        out.m[2][0] = f.z; out.m[2][1] = r.z; out.m[2][2] = u.z; out.m[2][3] = origin.z;
+    }
+
+    // Invert a rigid transform (rotation + translation only)
+    inline void InvertTR(const Mat3x4& in, Mat3x4& out)
+    {
+        // Transpose rotation
+        out.m[0][0] = in.m[0][0]; out.m[0][1] = in.m[1][0]; out.m[0][2] = in.m[2][0];
+        out.m[1][0] = in.m[0][1]; out.m[1][1] = in.m[1][1]; out.m[1][2] = in.m[2][1];
+        out.m[2][0] = in.m[0][2]; out.m[2][1] = in.m[1][2]; out.m[2][2] = in.m[2][2];
+
+        const float tx = -in.m[0][3];
+        const float ty = -in.m[1][3];
+        const float tz = -in.m[2][3];
+
+        out.m[0][3] = tx * out.m[0][0] + ty * out.m[0][1] + tz * out.m[0][2];
+        out.m[1][3] = tx * out.m[1][0] + ty * out.m[1][1] + tz * out.m[1][2];
+        out.m[2][3] = tx * out.m[2][0] + ty * out.m[2][1] + tz * out.m[2][2];
+    }
+
+    inline void Mul(const Mat3x4& a, const Mat3x4& b, Mat3x4& out)
+    {
+        // Rotation
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int j = 0; j < 3; ++j)
+            {
+                out.m[i][j] = a.m[i][0] * b.m[0][j] + a.m[i][1] * b.m[1][j] + a.m[i][2] * b.m[2][j];
+            }
+        }
+        // Translation
+        out.m[0][3] = a.m[0][0] * b.m[0][3] + a.m[0][1] * b.m[1][3] + a.m[0][2] * b.m[2][3] + a.m[0][3];
+        out.m[1][3] = a.m[1][0] * b.m[0][3] + a.m[1][1] * b.m[1][3] + a.m[1][2] * b.m[2][3] + a.m[1][3];
+        out.m[2][3] = a.m[2][0] * b.m[0][3] + a.m[2][1] * b.m[1][3] + a.m[2][2] * b.m[2][3] + a.m[2][3];
+    }
+
+    inline void ApplyDelta(const Mat3x4& delta, Mat3x4* bones, int numBones)
+    {
+        for (int i = 0; i < numBones; ++i)
+        {
+            Mat3x4 tmp{};
+            Mul(delta, bones[i], tmp);
+            bones[i] = tmp;
+        }
+    }
+    // IMPORTANT for mat_queue_mode!=0:
+    // DrawModelExecute may queue commands that reference pCustomBoneToWorld later on another thread.
+    // If we pass a pointer to a temporary / thread_local scratch buffer, it can be overwritten before
+    // the queued command executes, causing severe ghosting / double images.
+    //
+    // So we allocate per-draw bone copies from a small ring of per-frame slots. Each slot is kept
+    // alive for kRing frames before being recycled. This makes the pointer stable long enough for
+    // the material queue to consume it.
+    struct BoneRingSlot
+    {
+        uint64_t frame = 0;
+        std::vector<Mat3x4*> blocks;
+    };
+
+    inline Mat3x4* AllocStableBones(int numBones, uint32_t seqEven)
+    {
+        if (numBones <= 0 || numBones > 512)
+            return nullptr;
+
+        static constexpr uint32_t kRing = 64;
+        static BoneRingSlot s_slots[kRing];
+        static std::mutex s_mu;
+
+        const uint64_t frame = (uint64_t)(seqEven >> 1);
+        const uint32_t slot = (uint32_t)(frame % kRing);
+
+        std::lock_guard<std::mutex> lock(s_mu);
+        BoneRingSlot& s = s_slots[slot];
+        if (s.frame != frame)
+        {
+            for (Mat3x4* p : s.blocks)
+                delete[] p;
+            s.blocks.clear();
+            s.frame = frame;
+        }
+
+        Mat3x4* p = nullptr;
+        try { p = new Mat3x4[(size_t)numBones]; } catch (...) { p = nullptr; }
+        if (!p)
+            return nullptr;
+
+        s.blocks.push_back(p);
+        return p;
+    }
+    // DrawModelState_t is opaque here, but in Source the first pointer is typically studiohdr_t*.
+    // We avoid hard-crashing by SEH-guarding reads and probing common studiohdr_t offsets for numbones.
+    inline bool TryGetNumBonesFromDrawState(void* drawState, int& outBones)
+    {
+        if (!drawState)
+            return false;
+
+        void* studioHdr = nullptr;
+        if (!SafeRead(drawState, studioHdr) || !studioHdr)
+            return false;
+
+        // Common studiohdr_t::numbones offsets across Source branches.
+        static const int kOffsets[] = { 0x9C, 0xA0, 0x98, 0x94, 0xA4, 0xA8, 0x90, 0x8C, 0xB0 };
+        for (int off : kOffsets)
+        {
+            int n = 0;
+            const uint8_t* p = reinterpret_cast<const uint8_t*>(studioHdr) + off;
+            if (SafeRead(p, n) && n > 0 && n <= 512)
+            {
+                outBones = n;
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 void Hooks::dAdjustEngineViewport(int& x, int& y, int& width, int& height)
 {
 	hkAdjustEngineViewport.fOriginal(x, y, width, height);
@@ -147,6 +313,14 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 
 	bool hideArms = m_Game->m_IsMeleeWeaponActive || m_VR->m_HideArms;
 
+	void* pBonesToWorldFinal = pCustomBoneToWorld;
+
+	// Per-draw origin/angles override (used for multicore viewmodel stabilization).
+	// We never write into shared entity state here; we only override the ModelRenderInfo_t
+	// passed down to the renderer for this draw call (frame-stable, avoids queued-thread tearing).
+	ModelRenderInfo_t drawInfo = info;
+	const ModelRenderInfo_t* pDrawInfo = &info;
+
 	std::string modelName;
 	if (info.pModel)
 	{
@@ -173,7 +347,149 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 			}
 		}
 
-		// if (entity && info.entity_index > 0 && m_Game->IsValidPlayerIndex(info.entity_index))
+
+// --- Multicore viewmodel stabilization (first-person viewmodel ghosting fix) ---
+// In queued rendering (mat_queue_mode!=0), viewmodels are frequently submitted with custom bone matrices.
+// In that case, overriding ModelRenderInfo_t.origin/angles does NOT move the model (it stays "head-locked").
+// So we apply a rigid delta to the bone matrices for this draw call, based on our controller-anchored target.
+const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+if (m_VR->m_IsVREnabled && queueMode != 0 && m_VR->m_QueuedViewmodelStabilize)
+{
+	const bool isViewmodelClass = className &&
+		(std::strcmp(className, "CBaseViewModel") == 0 || std::strcmp(className, "C_BaseViewModel") == 0);
+	const bool isViewmodelModel =
+		(modelName.find("models/weapons/v_") != std::string::npos) ||
+		(modelName.find("/v_models/") != std::string::npos) ||
+		(modelName.find("models/v_models/") != std::string::npos) ||
+		(modelName.find("models/weapons/arms/") != std::string::npos) ||
+		(modelName.find("/arms/") != std::string::npos) ||
+		(modelName.find("v_arms") != std::string::npos) ||
+		(modelName.find("models/weapons/hands/") != std::string::npos) ||
+		(modelName.find("/hands/") != std::string::npos) ||
+		(modelName.find("v_hands") != std::string::npos);
+
+	if (isViewmodelClass || isViewmodelModel)
+	{
+		struct RenderSnapshotTLSGuard
+		{
+			bool prev = false;
+			RenderSnapshotTLSGuard()
+			{
+				prev = VR::t_UseRenderFrameSnapshot;
+				VR::t_UseRenderFrameSnapshot = true;
+			}
+			~RenderSnapshotTLSGuard()
+			{
+				VR::t_UseRenderFrameSnapshot = prev;
+			}
+		} tlsGuard;
+
+		const Vector targetOrigin = m_VR->GetRecommendedViewmodelAbsPos();
+		const QAngle targetAngles = m_VR->GetRecommendedViewmodelAbsAngle();
+
+		// Always override origin/angles for lighting/etc (even if bones are used).
+		drawInfo = info;
+		drawInfo.origin = targetOrigin;
+		drawInfo.angles = targetAngles;
+		pDrawInfo = &drawInfo;
+
+		bool appliedBoneDelta = false;
+		int numBones = 0;
+
+		if (pCustomBoneToWorld)
+		{
+			if (vr_vm_stabilize::TryGetNumBonesFromDrawState(state, numBones) && numBones > 0)
+			{
+										uint32_t seqEven = m_VR->m_RenderFrameSeq.load(std::memory_order_acquire);
+										seqEven &= ~1u;
+										if (seqEven == 0)
+											seqEven = 2;
+
+										vr_vm_stabilize::Mat3x4* bonesCopy = vr_vm_stabilize::AllocStableBones(numBones, seqEven);
+										if (bonesCopy)
+										{
+											memcpy(bonesCopy, pCustomBoneToWorld, (size_t)numBones * sizeof(vr_vm_stabilize::Mat3x4));
+
+											// NOTE:
+											// pCustomBoneToWorld is already in WORLD space. However, bone[0] is NOT guaranteed
+											// to be at the entity origin (studio root can have a built-in offset). Using bone[0]
+											// as the reference will mis-anchor the whole model (often looks like it's still HMD-bound).
+											//
+											// Correct approach: treat the bones as (EntityToWorld * BoneLocal). Recover BoneLocal
+											// via inverse(EntityToWorld), then re-apply with TargetEntityToWorld.
+											vr_vm_stabilize::Mat3x4 origEntity{};
+											vr_vm_stabilize::BuildFromOrgAngles(info.origin, info.angles, origEntity);
+											vr_vm_stabilize::Mat3x4 origInv{};
+											vr_vm_stabilize::InvertTR(origEntity, origInv);
+											vr_vm_stabilize::Mat3x4 targetEntity{};
+											vr_vm_stabilize::BuildFromOrgAngles(targetOrigin, targetAngles, targetEntity);
+											vr_vm_stabilize::Mat3x4 delta{};
+											vr_vm_stabilize::Mul(targetEntity, origInv, delta);
+											vr_vm_stabilize::ApplyDelta(delta, bonesCopy, numBones);
+
+											pBonesToWorldFinal = bonesCopy;
+											appliedBoneDelta = true;
+										}
+			}
+		}
+
+		if (m_VR->m_QueuedViewmodelStabilizeDebugLog)
+		{
+			static thread_local std::chrono::steady_clock::time_point s_last{};
+			if (!ShouldThrottleLog(s_last, m_VR->m_QueuedViewmodelStabilizeDebugLogHz))
+			{
+				const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
+				const uint32_t tid = (uint32_t)GetCurrentThreadId();
+										Vector root0 = info.origin;
+										Vector root1 = targetOrigin;
+										if (pCustomBoneToWorld)
+										{
+											vr_vm_stabilize::Mat3x4 r0{};
+											if (vr_vm_stabilize::SafeRead(pCustomBoneToWorld, r0))
+												root0 = vr_vm_stabilize::GetOrigin(r0);
+										}
+										if (appliedBoneDelta && pBonesToWorldFinal)
+										{
+											root1 = vr_vm_stabilize::GetOrigin(reinterpret_cast<const vr_vm_stabilize::Mat3x4*>(pBonesToWorldFinal)[0]);
+										}
+
+										const Vector eyeO = m_VR->m_HmdPosAbs;
+										const Vector rcO = m_VR->GetRightControllerAbsPos();
+										const float dTgtRc = (targetOrigin - rcO).Length();
+                                        const Vector entDelta = targetOrigin - info.origin;
+                                        Vector bone0Off(0.0f, 0.0f, 0.0f);
+                                        if (pCustomBoneToWorld)
+                                        {
+                                            vr_vm_stabilize::Mat3x4 r0{};
+                                            if (vr_vm_stabilize::SafeRead(pCustomBoneToWorld, r0))
+                                                bone0Off = vr_vm_stabilize::GetOrigin(r0) - info.origin;
+                                        }
+
+										Game::logMsg(
+										"[VR][VM][draw] tid=%u qmode=%d seq=%u ent=%d model=\"%s\" customBones=%d bones=%d applied=%d slot=%u root0=(%.2f %.2f %.2f) root1=(%.2f %.2f %.2f) eyeO=(%.2f %.2f %.2f) rcO=(%.2f %.2f %.2f) dTgtRc=%.2f entD=(%.2f %.2f %.2f) bone0Off=(%.2f %.2f %.2f) origO=(%.2f %.2f %.2f) origA=(%.2f %.2f %.2f) tgtO=(%.2f %.2f %.2f) tgtA=(%.2f %.2f %.2f)"
+										,
+										tid, queueMode, seq, info.entity_index, modelName.c_str(),
+										(pCustomBoneToWorld != nullptr) ? 1 : 0,
+										numBones,
+										appliedBoneDelta ? 1 : 0,
+										(uint32_t)((seq >> 1) % 64),
+										root0.x, root0.y, root0.z,
+										root1.x, root1.y, root1.z,
+										eyeO.x, eyeO.y, eyeO.z,
+										rcO.x, rcO.y, rcO.z,
+										dTgtRc,
+                                        entDelta.x, entDelta.y, entDelta.z,
+                                        bone0Off.x, bone0Off.y, bone0Off.z,
+										info.origin.x, info.origin.y, info.origin.z,
+										info.angles.x, info.angles.y, info.angles.z,
+										targetOrigin.x, targetOrigin.y, targetOrigin.z,
+										targetAngles.x, targetAngles.y, targetAngles.z);
+			}
+		}
+	}
+}
+
+// if (entity && info.entity_index > 0 && m_Game->IsValidPlayerIndex(info.entity_index))
 		// {
 		// 	infectedType = m_VR->GetSpecialInfectedType(entity);
 		// }
@@ -276,12 +592,12 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	{
 		m_Game->m_ArmsMaterial->SetMaterialVarFlag(MATERIAL_VAR_NO_DRAW, true);
 		m_Game->m_ModelRender->ForcedMaterialOverride(m_Game->m_ArmsMaterial);
-		hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
+		hkDrawModelExecute.fOriginal(ecx, state, *pDrawInfo, pBonesToWorldFinal);
 		m_Game->m_ModelRender->ForcedMaterialOverride(NULL);
 		return;
 	}
 
-	hkDrawModelExecute.fOriginal(ecx, state, info, pCustomBoneToWorld);
+	hkDrawModelExecute.fOriginal(ecx, state, *pDrawInfo, pBonesToWorldFinal);
 }
 
 // Returns true if the engine RT being pushed looks like the HUD/VGUI render target.

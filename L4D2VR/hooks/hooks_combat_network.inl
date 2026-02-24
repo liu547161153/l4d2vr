@@ -5,40 +5,80 @@ void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 
 void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
 {
-	Vector vecNewOrigin = eyePosition;
-	QAngle vecNewAngles = eyeAngles;
+    // IMPORTANT (multicore / mat_queue_mode!=0):
+    // Do NOT mutate the viewmodel entity's abs origin/angles here. In queued rendering
+    // the viewmodel can be read by multiple threads (render + material queue), and writing
+    // here causes tearing that looks like "ghosting" during stick-move / view-yaw changes.
+    //
+    // We keep the engine's CalcViewModelView state updates intact, and perform
+    // the actual stabilization in Hooks::dDrawModelExecute by overriding ModelRenderInfo_t
+    // for CBaseViewModel renders (per-draw, no shared-state writes).
 
-	if (m_VR->m_IsVREnabled)
-	{
-		// In mat_queue_mode!=0, CalcViewModelView can run on the render thread outside our dRenderView scope.
-		// Gate render-frame snapshot usage to the render thread to avoid feeding render-only data into gameplay threads.
-		const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-		const bool isRenderThread = (queueMode != 0) && (static_cast<uint32_t>(GetCurrentThreadId()) == m_VR->m_RenderThreadId.load(std::memory_order_relaxed));
-		struct RenderSnapshotTLSGuard
-		{
-			bool enabled = false;
-			bool prev = false;
-			RenderSnapshotTLSGuard(bool en)
-			{
-				enabled = en;
-				if (enabled)
-				{
-					prev = VR::t_UseRenderFrameSnapshot;
-					VR::t_UseRenderFrameSnapshot = true;
-				}
-			}
-			~RenderSnapshotTLSGuard()
-			{
-				if (enabled)
-					VR::t_UseRenderFrameSnapshot = prev;
-			}
-		} tlsGuard(isRenderThread);
+    if (!m_VR->m_IsVREnabled)
+        return hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
 
-		vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
-		vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
-	}
+    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
 
-	return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+    struct RenderSnapshotTLSGuard
+    {
+        bool enabled = false;
+        bool prev = false;
+        RenderSnapshotTLSGuard(bool en)
+        {
+            enabled = en;
+            if (enabled)
+            {
+                prev = VR::t_UseRenderFrameSnapshot;
+                VR::t_UseRenderFrameSnapshot = true;
+            }
+        }
+        ~RenderSnapshotTLSGuard()
+        {
+            if (enabled)
+                VR::t_UseRenderFrameSnapshot = prev;
+        }
+    } tlsGuard(queueMode != 0);
+
+    // Let engine update its internal bob/lag state (we won't use its final transform for rendering in queued mode).
+    hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+
+    // Optional debug: compare engine-produced viewmodel transform vs our controller-anchored target.
+    if (queueMode != 0 && m_VR->m_QueuedViewmodelStabilizeDebugLog)
+    {
+        static thread_local std::chrono::steady_clock::time_point s_last{};
+        if (!ShouldThrottleLog(s_last, m_VR->m_QueuedViewmodelStabilizeDebugLogHz))
+        {
+            Vector engineOrigin{};
+            QAngle engineAngles{};
+            if (ecx)
+            {
+                IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
+                engineOrigin = ent->GetAbsOrigin();
+                engineAngles = ent->GetAbsAngles();
+            }
+
+            const Vector targetOrigin = m_VR->GetRecommendedViewmodelAbsPos();
+            const QAngle targetAngles = m_VR->GetRecommendedViewmodelAbsAngle();
+
+            const float dx = targetOrigin.x - engineOrigin.x;
+            const float dy = targetOrigin.y - engineOrigin.y;
+            const float dz = targetOrigin.z - engineOrigin.z;
+            const float dpos = sqrtf(dx * dx + dy * dy + dz * dz);
+
+            const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
+            const uint32_t tid = (uint32_t)GetCurrentThreadId();
+
+            Game::logMsg(
+                "[VR][VM][calc] tid=%u qmode=%d seq=%u dpos=%.2f eyeO=(%.2f %.2f %.2f) eyeA=(%.2f %.2f %.2f) tgtO=(%.2f %.2f %.2f) tgtA=(%.2f %.2f %.2f) engO=(%.2f %.2f %.2f) engA=(%.2f %.2f %.2f)",
+                tid, queueMode, seq, dpos,
+                eyePosition.x, eyePosition.y, eyePosition.z,
+                eyeAngles.x, eyeAngles.y, eyeAngles.z,
+                targetOrigin.x, targetOrigin.y, targetOrigin.z,
+                targetAngles.x, targetAngles.y, targetAngles.z,
+                engineOrigin.x, engineOrigin.y, engineOrigin.z,
+                engineAngles.x, engineAngles.y, engineAngles.z);
+        }
+    }
 }
 
 int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7)

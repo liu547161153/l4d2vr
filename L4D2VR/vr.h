@@ -245,6 +245,13 @@ public:
 	// In queued (mat_queue_mode!=0) rendering, optionally wait for a fresh pose snapshot on the render thread.
 	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
 	int m_QueuedRenderPoseWaitMs = 1;
+	// Queued (mat_queue_mode!=0) viewmodel stabilization: prevents first-person viewmodel ghosting
+	// when engine viewmodel bob/lag runs on a decoupled thread.
+	bool m_QueuedViewmodelStabilize = true;
+	// Debug logging for queued viewmodel stabilization (prints viewmodel pose + engine-produced pose).
+	bool  m_QueuedViewmodelStabilizeDebugLog = false;
+	float m_QueuedViewmodelStabilizeDebugLogHz = 4.0f; // max prints per second; 0 disables throttling
+
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
 	ViewmodelAdjustment m_DefaultViewmodelAdjust{ {0,0,0}, {0,0,0} };
