@@ -2,6 +2,24 @@
 
 namespace
 {
+    inline bool SafeReadU8(const unsigned char* base, int off, unsigned char& out)
+    {
+        __try { out = *reinterpret_cast<const unsigned char*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    }
+
+    inline bool SafeReadInt(const unsigned char* base, int off, int& out)
+    {
+        __try { out = *reinterpret_cast<const int*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    }
+
+    inline bool SafeReadFloat(const unsigned char* base, int off, float& out)
+    {
+        __try { out = *reinterpret_cast<const float*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
+    }
+
     // NOTE: This file uses a tiny 5x7 glyph set for UI labels (LC/RC, item abbreviations, etc.).
     // For player names (teammates / aim target), we also support UTF-8 via a GDI fallback renderer
     // so Chinese/JP/KR/etc names can display correctly on the HUD overlay.
@@ -2322,8 +2340,8 @@ void VR::UpdateHandHudOverlays()
 
     const unsigned char* pBase = reinterpret_cast<const unsigned char*>(localPlayer);
     unsigned char lifeState = 0;
-    __try { lifeState = *reinterpret_cast<const unsigned char*>(pBase + kLifeStateOffset); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { lifeState = 1; }
+    if (!SafeReadU8(pBase, kLifeStateOffset, lifeState))
+        lifeState = 1;
     if (lifeState != 0)
     {
         if (dbgTick)
@@ -2360,21 +2378,9 @@ void VR::UpdateHandHudOverlays()
 
     // Safe memory reads: UpdateHandHudOverlays can run on the present/render thread while the game
     // is loading/unloading, so client entity pointers may become invalid mid-frame.
-    auto TryReadU8 = [](const unsigned char* base, int off, unsigned char& out) -> bool
-    {
-        __try { out = *reinterpret_cast<const unsigned char*>(base + off); return true; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
-    };
-    auto TryReadInt = [](const unsigned char* base, int off, int& out) -> bool
-    {
-        __try { out = *reinterpret_cast<const int*>(base + off); return true; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
-    };
-    auto TryReadFloat = [](const unsigned char* base, int off, float& out) -> bool
-    {
-        __try { out = *reinterpret_cast<const float*>(base + off); return true; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
-    };
+    auto TryReadU8 = [](const unsigned char* base, int off, unsigned char& out) -> bool { return SafeReadU8(base, off, out); };
+    auto TryReadInt = [](const unsigned char* base, int off, int& out) -> bool { return SafeReadInt(base, off, out); };
+    auto TryReadFloat = [](const unsigned char* base, int off, float& out) -> bool { return SafeReadFloat(base, off, out); };
 
     // Compute decayed temp HP from (m_healthBuffer, m_healthBufferTime) using wall-clock time.
     // The engine does: max(0, healthBuffer - decayRate * (curtime - healthBufferTime)).
@@ -2799,7 +2805,7 @@ void VR::UpdateHandHudOverlays()
             {
                 m_LeftWristHudLastCrc = (uint32_t)crc;
                 {
-                    vr::EVROverlayError err = vr::VROverlayError_Unknown;
+                    vr::EVROverlayError err = vr::VROverlayError_None;
                     {
                         std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
                         err = m_Overlay->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
@@ -3089,7 +3095,7 @@ void VR::UpdateHandHudOverlays()
             {
                 m_RightAmmoHudLastCrc = (uint32_t)crc;
                 {
-                    vr::EVROverlayError err = vr::VROverlayError_Unknown;
+                    vr::EVROverlayError err = vr::VROverlayError_None;
                     {
                         std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
                         err = m_Overlay->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4);
