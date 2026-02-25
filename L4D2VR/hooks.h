@@ -1,8 +1,14 @@
 #pragma once
+
 #include <iostream>
+#include <cstdio>
+#include <typeinfo>
+
 #include "MinHook.h"
 
-class Game;
+// We call Game::logMsg / Game::errorMsg here, so we need the full declaration.
+#include "game.h"
+
 class VR;
 class ITexture;
 class CViewSetup;
@@ -14,13 +20,20 @@ class ModelRenderInfo_t;
 class C_BasePlayer;
 
 template <typename T>
-struct Hook {
+struct Hook
+{
 	T fOriginal;
 	LPVOID pTarget;
 	bool isEnabled;
 
 	int createHook(LPVOID targetFunc, LPVOID detourFunc)
 	{
+		if (!targetFunc)
+		{
+			Game::errorMsg("Failed to create hook: targetFunc is NULL (offset/signature scan failed?)");
+			return 1;
+		}
+
 		if (MH_CreateHook(targetFunc, detourFunc, reinterpret_cast<LPVOID*>(&fOriginal)) != MH_OK)
 		{
 			char errorString[512];
@@ -160,6 +173,7 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
+
 	// HUD render-target interception uses a small state machine to detect the
 	// engine's "push HUD RT" sequence:
 	//   PopRenderTargetAndViewport -> IsSplitScreen -> PrePushRenderTarget -> PushRenderTargetAndViewport

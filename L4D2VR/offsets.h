@@ -11,14 +11,17 @@ struct Offset
     std::string signature;
     int sigOffset;
     bool optional;
+    bool valid;
 
     Offset(std::string moduleName, int currentOffset, std::string signature, int sigOffset = 0, bool optional = false)
     {
         this->moduleName = moduleName;
         this->offset = currentOffset;
+        this->address = 0;      // Always initialize to safe value
         this->signature = signature;
         this->sigOffset = sigOffset;
         this->optional = optional;
+        this->valid = false;
 
         int newOffset = SigScanner::VerifyOffset(moduleName, currentOffset, signature, sigOffset);
         if (newOffset > 0)
@@ -32,9 +35,10 @@ struct Offset
             Game::logMsg("[Offsets] Signature verified: module=%s offset=0x%X sigOffset=%d sig=\"%s\"",
                 moduleName.c_str(), this->offset, sigOffset, signature.c_str());
         }
-            
+
         if (newOffset == -1)
         {
+            // Keep address=0 and valid=false so hook setup can safely skip.
             if (optional)
             {
                 Game::logMsg("[Offsets] Optional signature not found: module=%s sig=\"%s\"",
@@ -47,7 +51,16 @@ struct Offset
             return;
         }
 
-        this->address = (uintptr_t)GetModuleHandle(moduleName.c_str()) + this->offset;
+        HMODULE mod = GetModuleHandle(moduleName.c_str());
+        if (!mod)
+        {
+            if (!optional)
+                Game::errorMsg(("Module not loaded: " + moduleName).c_str());
+            return;
+        }
+
+        this->address = (uintptr_t)mod + this->offset;
+        this->valid = (this->address != 0);
     }
 };
 

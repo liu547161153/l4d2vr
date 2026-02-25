@@ -3,6 +3,7 @@
 #include <psapi.h>
 #include <vector>
 #include <sstream>
+#include <limits>
 
 class SigScanner
 {
@@ -18,10 +19,9 @@ public:
 		MODULEINFO moduleInfo;
 		GetModuleInformation(GetCurrentProcess(), hModule, &moduleInfo, sizeof(moduleInfo));
 
-		uint8_t *bytes = (uint8_t *)moduleInfo.lpBaseOfDll;
+		uint8_t* bytes = (uint8_t*)moduleInfo.lpBaseOfDll;
 
 		std::vector<int> pattern;
-
 		std::stringstream ss(signature);
 		std::string sigByte;
 		while (ss >> sigByte)
@@ -32,7 +32,7 @@ public:
 				pattern.push_back(strtoul(sigByte.c_str(), NULL, 16));
 		}
 
-		int patternLen = pattern.size();
+		const int patternLen = (int)pattern.size();
 
 		// Check if current offset is good when a known offset exists.
 		if (currentOffset > 0)
@@ -51,7 +51,13 @@ public:
 				return 0;
 		}
 
-		// Scan the dll for new offset
+		// Scan the dll for new offset.
+		//
+		// IMPORTANT: Many of our signatures are "short" (prologue-only) and can match multiple sites.
+		// If we have a previous known offset, pick the closest match to reduce false positives.
+		int bestOffset = -1;
+		int bestDist = std::numeric_limits<int>::max();
+
 		for (int i = 0; i <= (int)moduleInfo.SizeOfImage - patternLen; ++i)
 		{
 			bool found = true;
@@ -63,12 +69,26 @@ public:
 					break;
 				}
 			}
-			if (found)
+			if (!found)
+				continue;
+
+			const int candidate = i + sigOffset;
+
+			// No prior offset: keep old behavior (first match).
+			if (currentOffset <= 0)
+				return candidate;
+
+			int dist = candidate - currentOffset;
+			if (dist < 0)
+				dist = -dist;
+
+			if (dist < bestDist)
 			{
-				return i + sigOffset;
+				bestDist = dist;
+				bestOffset = candidate;
 			}
 		}
-		return -1;
 
+		return bestOffset;
 	}
 };

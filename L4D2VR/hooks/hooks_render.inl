@@ -1117,13 +1117,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->RenderDrawAimLineQueued(localPlayer);
 
 	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
-	// Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,
-	// then restore, so the engine's view history/interp isn't corrupted.
+	// Do NOT permanently overwrite engine viewangles.
+	//
+	// NOTE: In mat_queue_mode != 0, dRenderView runs on the render thread.
+	// Calling IEngineClient::GetViewAngles/SetViewAngles from the render thread is NOT thread-safe
+	// and can intermittently corrupt client state (a common symptom is NX/DEP execute-at-NULL crashes).
+	// So we only touch engine viewangles in single-threaded mode.
 	QAngle prevEngineAngles;
-	m_Game->m_EngineClient->GetViewAngles(prevEngineAngles);
-
-	QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
-	m_Game->m_EngineClient->SetViewAngles(renderAngles);
+	bool touchedEngineAngles = false;
+	if (queueMode == 0 && m_Game && m_Game->m_EngineClient)
+	{
+		m_Game->m_EngineClient->GetViewAngles(prevEngineAngles);
+		QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
+		m_Game->m_EngineClient->SetViewAngles(renderAngles);
+		touchedEngineAngles = true;
+	}
 
 	// Align HUD view to the same origin/angles; otherwise you can get a second layer that
 	// appears to "follow the controller / stick" (classic double-image artifact).
@@ -1170,12 +1178,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				hkPushRenderTargetAndViewport.fOriginal(rc, target, nullptr, 0, 0, texW, texH);
 
 				QAngle oldEngineAngles;
-				m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
-				m_Game->m_EngineClient->SetViewAngles(passAngles);
+				bool touchedAngles = false;
+				if (queueMode == 0 && m_Game && m_Game->m_EngineClient)
+				{
+					m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+					m_Game->m_EngineClient->SetViewAngles(passAngles);
+					touchedAngles = true;
+				}
 
 				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 
-				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+				if (touchedAngles && m_Game && m_Game->m_EngineClient)
+					m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
 				return;
 			}
@@ -1194,12 +1208,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			rc->ClearBuffers(true, true, true);
 
 			QAngle oldEngineAngles;
-			m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
-			m_Game->m_EngineClient->SetViewAngles(passAngles);
+			bool touchedAngles = false;
+			if (queueMode == 0 && m_Game && m_Game->m_EngineClient)
+			{
+				m_Game->m_EngineClient->GetViewAngles(oldEngineAngles);
+				m_Game->m_EngineClient->SetViewAngles(passAngles);
+				touchedAngles = true;
+			}
 
 			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 
-			m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
+			if (touchedAngles && m_Game && m_Game->m_EngineClient)
+				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 
 			rc->SetRenderTarget(oldRT);
 			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
@@ -1304,8 +1324,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		}
 	}
 
-	// Restore engine angles immediately after our stereo render.
-	m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
+	// Restore engine angles immediately after our stereo render (single-threaded only).
+	if (touchedEngineAngles && m_Game && m_Game->m_EngineClient)
+		m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame.store(true, std::memory_order_release);
 }
 
