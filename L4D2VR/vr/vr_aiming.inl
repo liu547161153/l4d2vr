@@ -583,7 +583,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
 
             if (allowAimLineDraw)
-                DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
+                DrawAimLine(m_AimLineStart, m_AimLineEnd);
             return;
         }
 
@@ -1099,13 +1099,24 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
     if (!m_AimLineEnabled)
         return;
 
-    // Throttle expensive overlay geometry. Duration persistence keeps it visible.
-    if (ShouldThrottle(m_LastAimLineDrawTime, m_AimLineMaxHz))
-        return;
 
-    // Keep the overlay alive for at least two frames so it doesn't disappear when the framerate drops.
-    const float duration = std::max(std::max(m_AimLinePersistence, m_LastFrameDuration * m_AimLineFrameDurationMultiplier), MinIntervalSeconds(m_AimLineMaxHz));
-    if (!m_Game->m_DebugOverlay || !m_AimLineEnabled)
+    // NOTE: IVDebugOverlay primitives persist for "duration" seconds.
+    // If duration is longer than the time between draws, you will see multiple historical
+    // aim lines at once (classic VR "ghosts").
+    //
+    // To keep it BOTH readable and stable: draw every frame, but clamp lifetime to
+    // about one frame.
+    float frameDt = std::clamp(m_LastFrameDuration, 0.0f, 0.25f);
+    if (frameDt <= 0.0001f)
+        frameDt = 1.0f / 90.0f;
+
+    const float desired = std::max(m_AimLinePersistence, frameDt * m_AimLineFrameDurationMultiplier);
+
+    // Keep it alive for roughly one frame: long enough to avoid blinking, short enough
+    // to avoid trails.
+    const float duration = std::clamp(desired, frameDt * 0.95f, frameDt);
+
+    if (!m_Game->m_DebugOverlay)
         return;
 
     DrawLineWithThickness(start, end, duration);

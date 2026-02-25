@@ -1006,13 +1006,38 @@ void VR::ParseConfigFile()
     m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);
     m_QueuedViewmodelStabilizeDebugLogHz = std::max(0.0f, getFloat("QueuedViewmodelStabilizeDebugLogHz", m_QueuedViewmodelStabilizeDebugLogHz));
 
-    // Queued (mat_queue_mode!=0) bullet FX alignment: fine-tune client-side tracer/impact visuals.
+    // Bullet FX alignment: fine-tune client-side tracer/impact visuals.
+    // Units: meters in aim-ray space (X=forward, Y=right, Z=up). Visual-only.
+    const bool hasBulletFxOff = (userConfig.find("BulletVisualHitOffset") != userConfig.end());
+    const bool hasQueuedFxOff = (userConfig.find("QueuedBulletVisualHitOffset") != userConfig.end());
+
+    m_BulletVisualHitOffset = getVector3("BulletVisualHitOffset", m_BulletVisualHitOffset);
+    m_BulletVisualHitOffset.x = std::clamp(m_BulletVisualHitOffset.x, -1.0f, 1.0f);
+    m_BulletVisualHitOffset.y = std::clamp(m_BulletVisualHitOffset.y, -1.0f, 1.0f);
+    m_BulletVisualHitOffset.z = std::clamp(m_BulletVisualHitOffset.z, -1.0f, 1.0f);
+
+    // Additional correction only when queued rendering is enabled (mat_queue_mode!=0).
     m_QueuedBulletVisualHitOffset = getVector3("QueuedBulletVisualHitOffset", m_QueuedBulletVisualHitOffset);
     m_QueuedBulletVisualHitOffset.x = std::clamp(m_QueuedBulletVisualHitOffset.x, -1.0f, 1.0f);
     m_QueuedBulletVisualHitOffset.y = std::clamp(m_QueuedBulletVisualHitOffset.y, -1.0f, 1.0f);
     m_QueuedBulletVisualHitOffset.z = std::clamp(m_QueuedBulletVisualHitOffset.z, -1.0f, 1.0f);
 
-    if (userConfig.find("QueuedBulletVisualHitOffset") != userConfig.end())
+    // Backward compatibility: older configs used only QueuedBulletVisualHitOffset.
+    // If BulletVisualHitOffset is not set but QueuedBulletVisualHitOffset is set,
+    // treat the queued value as the base offset (applies in both single/queued render).
+    if (!hasBulletFxOff && hasQueuedFxOff)
+    {
+        m_BulletVisualHitOffset = m_QueuedBulletVisualHitOffset;
+        m_QueuedBulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
+        Game::logMsg("[VR][Config] QueuedBulletVisualHitOffset provided without BulletVisualHitOffset -> using it as BulletVisualHitOffset (compat)");
+    }
+
+    if (hasBulletFxOff)
+    {
+        Game::logMsg("[VR][Config] BulletVisualHitOffset=(%.4f, %.4f, %.4f)",
+            m_BulletVisualHitOffset.x, m_BulletVisualHitOffset.y, m_BulletVisualHitOffset.z);
+    }
+    if (hasQueuedFxOff)
     {
         Game::logMsg("[VR][Config] QueuedBulletVisualHitOffset=(%.4f, %.4f, %.4f)",
             m_QueuedBulletVisualHitOffset.x, m_QueuedBulletVisualHitOffset.y, m_QueuedBulletVisualHitOffset.z);

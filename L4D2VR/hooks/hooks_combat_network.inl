@@ -305,66 +305,6 @@ int Hooks::dClientFireTerrorBullets(
 					vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
 				}
 
-				// Prefer aiming towards solved hit point H so visuals match the non-VR server hit point.
-				if (m_VR->m_HasNonVRAimSolution)
-				{
-					Vector targetH = m_VR->m_NonVRAimHitPoint;
-
-					// Optional visual-only fine-tune for queued rendering: shift the target point in aim-ray space
-					// so client tracers/impact particles can be aligned with the aim line.
-					if (queueMode != 0 && !m_VR->m_QueuedBulletVisualHitOffset.IsZero())
-					{
-						Vector fwd = targetH - vecNewOrigin;
-						if (!fwd.IsZero())
-						{
-							VectorNormalize(fwd);
-							Vector worldUp(0.0f, 0.0f, 1.0f);
-							Vector right;
-							CrossProduct(worldUp, fwd, right);
-							if (right.LengthSqr() < 1e-6f)
-							{
-								worldUp = Vector(0.0f, 1.0f, 0.0f);
-								CrossProduct(worldUp, fwd, right);
-							}
-							VectorNormalize(right);
-							Vector up;
-							CrossProduct(fwd, right, up);
-							VectorNormalize(up);
-
-							const float su = m_VR->m_VRScale;
-							const Vector offSu = m_VR->m_QueuedBulletVisualHitOffset * su;
-							targetH += (fwd * offSu.x) + (right * offSu.y) + (up * offSu.z);
-						}
-					}
-
-					Vector to = targetH - vecNewOrigin;
-					if (!to.IsZero())
-					{
-						VectorNormalize(to);
-						QAngle ang;
-						QAngle::VectorAngles(to, ang);
-						NormalizeAndClampViewAngles(ang);
-						vecNewAngles = ang;
-					}
-				}
-
-				if (m_VR->m_NonVRServerMovementEffectsDebugLog)
-				{
-					static thread_local std::chrono::steady_clock::time_point s_lastFx{};
-					if (!ShouldThrottleLog(s_lastFx, m_VR->m_NonVRServerMovementEffectsDebugLogHz))
-					{
-						const uint32_t tid = (uint32_t)GetCurrentThreadId();
-						const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
-						Game::logMsg(
-							"[VR][FX][bullets] tid=%u qmode=%d seq=%u eyeO=(%.2f %.2f %.2f) newO=(%.2f %.2f %.2f) newA=(%.2f %.2f %.2f) hitH=(%.2f %.2f %.2f)",
-							tid, (m_Game ? m_Game->GetMatQueueMode() : 0), seq,
-							vecOrigin.x, vecOrigin.y, vecOrigin.z,
-							vecNewOrigin.x, vecNewOrigin.y, vecNewOrigin.z,
-							vecNewAngles.x, vecNewAngles.y, vecNewAngles.z,
-							m_VR->m_NonVRAimHitPoint.x, m_VR->m_NonVRAimHitPoint.y, m_VR->m_NonVRAimHitPoint.z);
-					}
-				}
-			}
 			// 开关决定：要不要把 angles 替换成“控制器纯角度/汇聚角度”
 			// - true  : 覆盖 angles（通常会让本地弹道更“直/更跟手”，但只是本地表现）
 			// - false : 保持 vecAngles（通常包含引擎/服务器那套散布偏转 → 看起来更“标准散布”）
@@ -404,70 +344,80 @@ int Hooks::dClientFireTerrorBullets(
 		}
 	}
 
-	
-
-    // Final queued-render visual tuning: apply an additional hit-point offset AFTER all angle overrides.
+    // Final bullet FX alignment: apply hit-point offset AFTER all angle overrides.
     // This is intentionally visual-only (client FX). It does not affect server hit registration.
     if (m_VR->m_IsVREnabled
         && m_VR->m_ForceNonVRServerMovement
-        && m_Game->GetMatQueueMode() != 0
-        && m_VR->m_HasNonVRAimSolution
-        && !m_VR->m_QueuedBulletVisualHitOffset.IsZero())
+        && m_VR->m_HasNonVRAimSolution)
     {
-        Vector originForDir = vecNewOrigin;
-        Vector targetH = m_VR->m_NonVRAimHitPoint;
-
-        Vector fwd = targetH - originForDir;
-        if (!fwd.IsZero())
+        const int qmode = (m_Game ? m_Game->GetMatQueueMode() : 0);
+        Vector visualOff = m_VR->m_BulletVisualHitOffset;
+        if (qmode != 0)
         {
-            VectorNormalize(fwd);
-            Vector worldUp(0.0f, 0.0f, 1.0f);
-            Vector right;
-            CrossProduct(worldUp, fwd, right);
-            if (right.LengthSqr() < 1e-6f)
+            visualOff.x += m_VR->m_QueuedBulletVisualHitOffset.x;
+            visualOff.y += m_VR->m_QueuedBulletVisualHitOffset.y;
+            visualOff.z += m_VR->m_QueuedBulletVisualHitOffset.z;
+        }
+
+        if (!visualOff.IsZero())
+        {
+            Vector originForDir = vecNewOrigin;
+            Vector targetH = m_VR->m_NonVRAimHitPoint;
+
+            Vector fwd = targetH - originForDir;
+            if (!fwd.IsZero())
             {
-                worldUp = Vector(0.0f, 1.0f, 0.0f);
+                VectorNormalize(fwd);
+                Vector worldUp(0.0f, 0.0f, 1.0f);
+                Vector right;
                 CrossProduct(worldUp, fwd, right);
-            }
-            VectorNormalize(right);
-            Vector up;
-            CrossProduct(fwd, right, up);
-            VectorNormalize(up);
-
-            const float su = m_VR->m_VRScale;
-            const Vector offSu = m_VR->m_QueuedBulletVisualHitOffset * su;
-            targetH += (fwd * offSu.x) + (right * offSu.y) + (up * offSu.z);
-
-            Vector to = targetH - originForDir;
-            if (!to.IsZero())
-            {
-                VectorNormalize(to);
-                QAngle ang;
-                QAngle::VectorAngles(to, ang);
-                NormalizeAndClampViewAngles(ang);
-                vecNewAngles = ang;
-
-                if (m_VR->m_NonVRServerMovementEffectsDebugLog)
+                if (right.LengthSqr() < 1e-6f)
                 {
-                    static thread_local std::chrono::steady_clock::time_point s_lastOff{};
-                    if (!ShouldThrottleLog(s_lastOff, m_VR->m_NonVRServerMovementEffectsDebugLogHz))
+                    worldUp = Vector(0.0f, 1.0f, 0.0f);
+                    CrossProduct(worldUp, fwd, right);
+                }
+                VectorNormalize(right);
+                Vector up;
+                CrossProduct(fwd, right, up);
+                VectorNormalize(up);
+
+                const float su = m_VR->m_VRScale;
+                const Vector offSu = visualOff * su;
+                targetH += (fwd * offSu.x) + (right * offSu.y) + (up * offSu.z);
+
+                Vector to = targetH - originForDir;
+                if (!to.IsZero())
+                {
+                    VectorNormalize(to);
+                    QAngle ang;
+                    QAngle::VectorAngles(to, ang);
+                    NormalizeAndClampViewAngles(ang);
+                    vecNewAngles = ang;
+
+                    if (m_VR->m_NonVRServerMovementEffectsDebugLog)
                     {
-                        const uint32_t tid = (uint32_t)GetCurrentThreadId();
-                        const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
-                        Game::logMsg(
-                            "[VR][FX][bullets][offset] tid=%u qmode=%d seq=%u off=(%.3f %.3f %.3f)m origin=(%.2f %.2f %.2f) H=(%.2f %.2f %.2f) ang=(%.2f %.2f %.2f)",
-                            tid, (m_Game ? m_Game->GetMatQueueMode() : 0), seq,
-                            m_VR->m_QueuedBulletVisualHitOffset.x, m_VR->m_QueuedBulletVisualHitOffset.y, m_VR->m_QueuedBulletVisualHitOffset.z,
-                            originForDir.x, originForDir.y, originForDir.z,
-                            targetH.x, targetH.y, targetH.z,
-                            vecNewAngles.x, vecNewAngles.y, vecNewAngles.z);
+                        static thread_local std::chrono::steady_clock::time_point s_lastOff{};
+                        if (!ShouldThrottleLog(s_lastOff, m_VR->m_NonVRServerMovementEffectsDebugLogHz))
+                        {
+                            const uint32_t tid = (uint32_t)GetCurrentThreadId();
+                            const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
+                            Game::logMsg(
+                                "[VR][FX][bullets][offset] tid=%u qmode=%d seq=%u offTotal=(%.3f %.3f %.3f)m base=(%.3f %.3f %.3f)m qExtra=(%.3f %.3f %.3f)m origin=(%.2f %.2f %.2f) H=(%.2f %.2f %.2f)",
+                                tid, qmode, seq,
+                                visualOff.x, visualOff.y, visualOff.z,
+                                m_VR->m_BulletVisualHitOffset.x, m_VR->m_BulletVisualHitOffset.y, m_VR->m_BulletVisualHitOffset.z,
+                                m_VR->m_QueuedBulletVisualHitOffset.x, m_VR->m_QueuedBulletVisualHitOffset.y, m_VR->m_QueuedBulletVisualHitOffset.z,
+                                originForDir.x, originForDir.y, originForDir.z,
+                                targetH.x, targetH.y, targetH.z);
+                        }
                     }
                 }
             }
         }
     }
 
-return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
+    return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
+}
 }
 
 

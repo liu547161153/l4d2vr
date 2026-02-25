@@ -260,10 +260,13 @@ public:
 	// Debug logging for queued viewmodel stabilization (prints viewmodel pose + engine-produced pose).
 	bool  m_QueuedViewmodelStabilizeDebugLog = false;
 	float m_QueuedViewmodelStabilizeDebugLogHz = 4.0f; // max prints per second; 0 disables throttling
-	// Queued (mat_queue_mode!=0) bullet FX alignment: optional visual-only offset applied to	
-	// client-side bullet tracers/impact effects so they can be tuned to match the aim line.
-	// Units: meters in aim-ray space (X=forward, Y=right, Z=up).
-	Vector m_QueuedBulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
+	// Bullet FX alignment: optional visual-only offset applied to
+		// client-side bullet tracers/impact effects so they can be tuned to match the aim line.
+		// Units: meters in aim-ray space (X=forward, Y=right, Z=up). Applies in all render modes.
+		Vector m_BulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
+		// Additional offset only when queued rendering is enabled (mat_queue_mode!=0).
+		// Lets you apply extra correction for render-thread decoupling without affecting single-thread.
+		Vector m_QueuedBulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
 
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
