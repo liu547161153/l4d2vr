@@ -104,7 +104,12 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
 
     VectorNormalize(direction);
 
-    Vector originBase = m_RightControllerPosAbs;
+	// In queued render + view smoothing, the rendered controller pose may differ from the
+	// update-thread controller pose. Always use the same source as the aiming laser so
+	// the non-VR server aim solution stays consistent with what the player sees.
+	const Vector controllerPosAbs = GetRightControllerAbsPos();
+
+    Vector originBase = controllerPosAbs;
     // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
     Vector camDelta = m_IsThirdPersonCamera
         ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
@@ -434,6 +439,30 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     UpdateSpecialInfectedWarningState();
     UpdateSpecialInfectedPreWarningState();
 
+
+    // In mat_queue_mode!=0, aim-line visuals should prefer the render-frame snapshot
+    // to stay aligned with queued render smoothing (controller/viewmodel/eyes).
+    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+    struct RenderSnapshotTLSGuard
+    {
+        bool enabled = false;
+        bool prev = false;
+        RenderSnapshotTLSGuard(bool en)
+        {
+            enabled = en;
+            if (enabled)
+            {
+                prev = VR::t_UseRenderFrameSnapshot;
+                VR::t_UseRenderFrameSnapshot = true;
+            }
+        }
+        ~RenderSnapshotTLSGuard()
+        {
+            if (enabled)
+                VR::t_UseRenderFrameSnapshot = prev;
+        }
+    } tlsGuard(queueMode != 0);
+
     const bool canDraw = (m_Game->m_DebugOverlay != nullptr);
 
 
@@ -476,10 +505,15 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         GetMouseModeEyeRay(eyeDir);
 
     // Aim direction:
-    //  - Normal mode: controller forward (existing behavior).
+    //  - Normal mode: controller forward (prefer render snapshot in queued mode).
     //  - Mouse mode (scheme B): start at the viewmodel anchor, but steer the ray to converge
     //    to the eye-center ray at MouseModeAimConvergeDistance.
-    Vector direction = m_RightControllerForward;
+    const Vector controllerPosAbs = GetRightControllerAbsPos();
+    const QAngle controllerAngAbs = GetRightControllerAbsAngle();
+    Vector controllerForward{}, controllerRight{}, controllerUp{};
+    QAngle::AngleVectors(controllerAngAbs, &controllerForward, &controllerRight, &controllerUp);
+
+    Vector direction = controllerForward;
     if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
         direction = m_RightControllerForwardUnforced;
 
@@ -534,7 +568,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     // Aim line origin is controller-based. In third-person the rendered camera is offset behind the player,
     // so we translate the controller position into the rendered-camera frame.
     // We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
-    Vector originBase = m_RightControllerPosAbs;
+    Vector originBase = controllerPosAbs;
     if (useMouse)
     {
         const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;

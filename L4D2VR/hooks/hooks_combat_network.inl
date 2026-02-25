@@ -52,15 +52,19 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
             const Vector targetOrigin = m_VR->GetRecommendedViewmodelAbsPos();
             const QAngle targetAngles = m_VR->GetRecommendedViewmodelAbsAngle();
 
-            // Capture what the engine produced (for debugging before we override).
-            Vector engineOrigin{};
-            QAngle engineAngles{};
-            if (ecx)
-            {
-                IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
-                engineOrigin = ent->GetAbsOrigin();
-                engineAngles = ent->GetAbsAngles();
-            }
+            // Capture what the engine produced (before we override).
+            Vector engineOrigin = {};
+            QAngle engineAngles = {};
+			// Hard-override viewmodel transform.
+			// IMPORTANT: Do NOT call client CBaseEntity::SetAbsOrigin here.
+			// The signature scan can false-match, and even when correct it’s not guaranteed
+			// to be safe to mutate entity state on queued/material threads.
+			if (ecx)
+			{
+				IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
+				ent->GetAbsOrigin() = targetOrigin;
+				ent->GetAbsAngles() = targetAngles;
+			}
 
             // Hard-override origin.
             bool originSet = false;

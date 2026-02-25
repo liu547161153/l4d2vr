@@ -993,6 +993,14 @@ void VR::ParseConfigFile()
     // 0 = no wait, 1~3 = balanced, 5+ = prioritize stability, -1 = strong sync (wait up to ~50ms).
     m_QueuedRenderPoseWaitMs = std::clamp(getInt("QueuedRenderPoseWaitMs", m_QueuedRenderPoseWaitMs), -1, 20);
 
+    // Queued rendering: render-thread smoothing time constant (ms) for cameraAnchor/rotationOffset.
+    // 0 = off, 20~80 typical, higher = smoother but more latency.
+    m_QueuedRenderViewSmoothMs = std::clamp(getInt("QueuedRenderViewSmoothMs", m_QueuedRenderViewSmoothMs), 0, 250);
+
+    // Queued rendering: HMD pose smoothing time constant (ms) for visual stability.
+    // 0 = off, 10~40 reduces head-turn ghosting when pose-wait is low. Higher = more latency.
+    m_QueuedRenderHmdSmoothMs = std::clamp(getInt("QueuedRenderHmdSmoothMs", m_QueuedRenderHmdSmoothMs), 0, 250);
+
     // Queued rendering: stabilize first-person viewmodel (disable engine bob/lag in queued mode).
     m_QueuedViewmodelStabilize = getBool("QueuedViewmodelStabilize", m_QueuedViewmodelStabilize);
     m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);

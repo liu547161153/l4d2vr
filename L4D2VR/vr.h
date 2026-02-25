@@ -245,6 +245,15 @@ public:
 	// In queued (mat_queue_mode!=0) rendering, optionally wait for a fresh pose snapshot on the render thread.
 	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
 	int m_QueuedRenderPoseWaitMs = 1;
+	// Queued rendering: render-thread smoothing time constant (ms) for cameraAnchor/rotationOffset.
+	// 0 = off (follow snapshot exactly), 20~80 = typical. Higher = smoother but more latency.
+	int m_QueuedRenderViewSmoothMs = 35;
+
+	// Queued rendering: HMD pose smoothing time constant (ms) for visual stability.
+	// 0 = off (follow pose exactly), 10~40 = reduce head-turn ghosting when pose-wait is low.
+	// Higher = smoother but more latency between head movement and world.
+	int m_QueuedRenderHmdSmoothMs = 0;
+
 	// Queued (mat_queue_mode!=0) viewmodel stabilization: prevents first-person viewmodel ghosting
 	// when engine viewmodel bob/lag runs on a decoupled thread. 
 	bool m_QueuedViewmodelStabilize = true;

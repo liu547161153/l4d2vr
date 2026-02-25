@@ -47,14 +47,32 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Remember which thread is producing render snapshots (used by other render-time hooks).
 		m_VR->m_RenderThreadId.store(static_cast<uint32_t>(GetCurrentThreadId()), std::memory_order_relaxed);
 
-		// Track per-render-call setup.origin deltas (tick-rate movement) to reduce model/camera stepping.
-		static thread_local Vector s_prevSetupOrigin{};
-		static thread_local bool s_prevSetupOriginValid = false;
+		// Track per-render-call view-origin deltas to reduce model/camera stepping.
+		// In queued rendering, the engine camera can update at tick-rate (30/60Hz) while we still
+		// render at HMD rate (90Hz+). That can feel like micro-stutter during stick locomotion/turning
+		// (even when frametime graphs look flat). We smooth the engine-provided setup origin between
+		// tick samples and use that for anchor deltas.
+		static EngineThirdPersonCamSmoother s_engineSetupCam;
+		QAngle __rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
+		s_engineSetupCam.PushRaw(setup.origin, __rawSetupAngles);
+		Vector smoothedSetupOrigin = setup.origin;
+		QAngle smoothedSetupAngles = __rawSetupAngles;
+		if (s_engineSetupCam.ShouldSmooth())
+			s_engineSetupCam.GetSmoothed(smoothedSetupOrigin, smoothedSetupAngles);
+
+		static thread_local Vector s_prevSmoothedSetupOrigin{};
+		static thread_local QAngle s_prevSmoothedSetupAngles{};
+		static thread_local bool s_prevSmoothedSetupValid = false;
 		Vector pendingOriginDelta{};
-		if (s_prevSetupOriginValid)
-			pendingOriginDelta = setup.origin - s_prevSetupOrigin;
-		s_prevSetupOrigin = setup.origin;
-		s_prevSetupOriginValid = true;
+		float pendingYawDelta = 0.0f;
+		if (s_prevSmoothedSetupValid)
+		{
+			pendingOriginDelta = smoothedSetupOrigin - s_prevSmoothedSetupOrigin;
+			pendingYawDelta = AngleDeltaDeg(smoothedSetupAngles.y, s_prevSmoothedSetupAngles.y);
+		}
+		s_prevSmoothedSetupOrigin = smoothedSetupOrigin;
+		s_prevSmoothedSetupAngles = smoothedSetupAngles;
+		s_prevSmoothedSetupValid = true;
 
 		struct ViewParams
 		{
@@ -72,11 +90,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 		ViewParams vp{};
 		bool vpOk = false;
-		for (int attempt = 0; attempt < 3 && !vpOk; ++attempt)
+		uint32_t vpSeqEven = 0;
+		// Read main-thread view params with a seqlock. Under heavy load the render thread can
+		// consistently collide with the writer; a small yield here avoids freezing the snapshot
+		// (which feels like micro-stutter during stick movement/turning).
+		for (int attempt = 0; attempt < 32 && !vpOk; ++attempt)
 		{
 			const uint32_t s1 = m_VR->m_RenderViewParamsSeq.load(std::memory_order_acquire);
 			if (s1 == 0 || (s1 & 1u))
+			{
+				SwitchToThread();
 				continue;
+			}
 
 			vp.cameraAnchor.x = m_VR->m_RenderCameraAnchorX.load(std::memory_order_relaxed);
 			vp.cameraAnchor.y = m_VR->m_RenderCameraAnchorY.load(std::memory_order_relaxed);
@@ -101,8 +126,188 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 			const uint32_t s2 = m_VR->m_RenderViewParamsSeq.load(std::memory_order_acquire);
 			if (s1 == s2 && !(s2 & 1u))
+			{
+				vpSeqEven = s2;
 				vpOk = true;
+			}
+			else
+			{
+				SwitchToThread();
+			}
 		}
+		// If we fail to read a consistent seqlock snapshot, do NOT freeze the render-frame snapshot.
+		// Freezing for a frame or two feels like "stutter + ghosting" during stick locomotion/turning,
+		// even when CPU/GPU frametime graphs look flat.
+		static thread_local ViewParams s_cachedVp{};
+		static thread_local uint32_t s_cachedVpSeqEven = 0;
+		static thread_local bool s_cachedVpValid = false;
+		static thread_local int s_vpMissStreak = 0;
+		static thread_local std::chrono::steady_clock::time_point s_lastVpMissLog{};
+
+		auto ReadViewParamsUnsafe = [&]()
+			{
+				vp.cameraAnchor.x = m_VR->m_RenderCameraAnchorX.load(std::memory_order_relaxed);
+				vp.cameraAnchor.y = m_VR->m_RenderCameraAnchorY.load(std::memory_order_relaxed);
+				vp.cameraAnchor.z = m_VR->m_RenderCameraAnchorZ.load(std::memory_order_relaxed);
+				vp.rotationOffset = m_VR->m_RenderRotationOffset.load(std::memory_order_relaxed);
+				vp.vrScale = m_VR->m_RenderVRScale.load(std::memory_order_relaxed);
+				vp.ipdScale = m_VR->m_RenderIpdScale.load(std::memory_order_relaxed);
+				vp.eyeZ = m_VR->m_RenderEyeZ.load(std::memory_order_relaxed);
+				vp.ipd = m_VR->m_RenderIpd.load(std::memory_order_relaxed);
+				vp.hmdPosLocalPrev.x = m_VR->m_RenderHmdPosLocalPrevX.load(std::memory_order_relaxed);
+				vp.hmdPosLocalPrev.y = m_VR->m_RenderHmdPosLocalPrevY.load(std::memory_order_relaxed);
+				vp.hmdPosLocalPrev.z = m_VR->m_RenderHmdPosLocalPrevZ.load(std::memory_order_relaxed);
+				vp.hmdPosCorrectedPrev.x = m_VR->m_RenderHmdPosCorrectedPrevX.load(std::memory_order_relaxed);
+				vp.hmdPosCorrectedPrev.y = m_VR->m_RenderHmdPosCorrectedPrevY.load(std::memory_order_relaxed);
+				vp.hmdPosCorrectedPrev.z = m_VR->m_RenderHmdPosCorrectedPrevZ.load(std::memory_order_relaxed);
+				vp.viewmodelPosOffset.x = m_VR->m_RenderViewmodelPosOffsetX.load(std::memory_order_relaxed);
+				vp.viewmodelPosOffset.y = m_VR->m_RenderViewmodelPosOffsetY.load(std::memory_order_relaxed);
+				vp.viewmodelPosOffset.z = m_VR->m_RenderViewmodelPosOffsetZ.load(std::memory_order_relaxed);
+				vp.viewmodelAngOffset.x = m_VR->m_RenderViewmodelAngOffsetX.load(std::memory_order_relaxed);
+				vp.viewmodelAngOffset.y = m_VR->m_RenderViewmodelAngOffsetY.load(std::memory_order_relaxed);
+				vp.viewmodelAngOffset.z = m_VR->m_RenderViewmodelAngOffsetZ.load(std::memory_order_relaxed);
+			};
+
+		if (vpOk)
+		{
+			s_cachedVp = vp;
+			s_cachedVpValid = true;
+			s_cachedVpSeqEven = vpSeqEven;
+			s_vpMissStreak = 0;
+		}
+		else
+		{
+			++s_vpMissStreak;
+
+			if (s_cachedVpValid)
+			{
+				vp = s_cachedVp;
+				vpOk = true;
+				vpSeqEven = s_cachedVpSeqEven;
+			}
+			else
+			{
+				// First frames after map load: accept a torn read rather than rendering with a stale snapshot.
+				ReadViewParamsUnsafe();
+				vpOk = true;
+			}
+
+			const auto nowLog = std::chrono::steady_clock::now();
+			if (s_lastVpMissLog.time_since_epoch().count() == 0 ||
+				std::chrono::duration<float>(nowLog - s_lastVpMissLog).count() > 1.0f)
+			{
+				Game::logMsg("[VR][Queued][RenderView] seqlock read miss (streak=%d cached=%d) -> using fallback view params",
+					s_vpMissStreak, s_cachedVpValid ? 1 : 0);
+				s_lastVpMissLog = nowLog;
+			}
+		}
+
+		// Render-thread smoothing of camera anchor / body yaw in queued rendering.
+//
+// Why: under mat_queue_mode 2, cameraAnchor/rotationOffset are produced on the update thread.
+// Even when seqlock prevents tearing, those values can still advance in \"steps\" (tick cadence),
+// which SteamVR reprojection turns into ghosting / micro-stutter during stick locomotion/turning.
+//
+// Strategy: run a tiny 1st-order low-pass filter on the render thread. This turns step updates
+// into continuous motion at HMD rate. The smoothing is only \"active\" while there's a meaningful
+// error between the filtered state and the latest snapshot; when idle, we snap to avoid lag.
+		static thread_local bool s_viewSmoothValid = false;
+		static thread_local Vector s_viewSmoothAnchor{};
+		static thread_local float s_viewSmoothRot = 0.0f;
+		static thread_local std::chrono::steady_clock::time_point s_viewSmoothLastT{};
+		bool didSnapSmooth = false;
+
+		auto Wrap360 = [&](float a) -> float
+			{
+				a -= 360.0f * std::floor(a / 360.0f);
+				return a;
+			};
+
+		const int smoothMsCfg = std::max(0, m_VR->m_QueuedRenderViewSmoothMs);
+		float alpha = 1.0f;
+		if (smoothMsCfg > 0)
+		{
+			const auto nowSmooth = std::chrono::steady_clock::now();
+			float dt = 0.0f;
+			if (s_viewSmoothLastT.time_since_epoch().count() != 0)
+				dt = std::chrono::duration<float>(nowSmooth - s_viewSmoothLastT).count();
+			s_viewSmoothLastT = nowSmooth;
+
+			// Clamp dt so we don't get a giant alpha after alt-tab / breakpoint.
+			dt = std::clamp(dt, 0.0f, 0.050f);
+			const float tau = (float)smoothMsCfg / 1000.0f;
+			alpha = (tau > 0.0f) ? (1.0f - std::exp(-dt / tau)) : 1.0f;
+			alpha = std::clamp(alpha, 0.0f, 1.0f);
+		}
+
+		if (vpOk)
+		{
+			if (!s_viewSmoothValid)
+			{
+				s_viewSmoothAnchor = vp.cameraAnchor;
+				s_viewSmoothRot = Wrap360(vp.rotationOffset);
+				s_viewSmoothValid = true;
+				didSnapSmooth = true;
+			}
+			else
+			{
+				const Vector errA = vp.cameraAnchor - s_viewSmoothAnchor;
+				const float errYaw = AngleDeltaDeg(vp.rotationOffset, s_viewSmoothRot);
+
+				// Large discontinuities -> snap immediately.
+				if (errA.LengthSqr() > (256.0f * 256.0f) || std::fabs(errYaw) > 120.0f)
+				{
+					s_viewSmoothAnchor = vp.cameraAnchor;
+					s_viewSmoothRot = Wrap360(vp.rotationOffset);
+					didSnapSmooth = true;
+				}
+				else if (smoothMsCfg <= 0)
+				{
+					// Smoothing disabled -> follow exactly.
+					s_viewSmoothAnchor = vp.cameraAnchor;
+					s_viewSmoothRot = Wrap360(vp.rotationOffset);
+				}
+				else
+				{
+					// If we're basically synced, snap to avoid tiny residual lag.
+					const bool smallErr = (errA.LengthSqr() < (0.05f * 0.05f)) && (std::fabs(errYaw) < 0.05f);
+					if (smallErr)
+					{
+						s_viewSmoothAnchor = vp.cameraAnchor;
+						s_viewSmoothRot = Wrap360(vp.rotationOffset);
+						didSnapSmooth = true;
+					}
+					else
+					{
+						s_viewSmoothAnchor += errA * alpha;
+						s_viewSmoothRot = Wrap360(s_viewSmoothRot + errYaw * alpha);
+					}
+				}
+			}
+		}
+
+		const Vector extrapAnchor = s_viewSmoothValid ? s_viewSmoothAnchor : vp.cameraAnchor;
+		const float extrapRot = s_viewSmoothValid ? s_viewSmoothRot : vp.rotationOffset;
+
+		// For debug: show how \"steppy\" the engine view inputs are (not used for smoothing).
+		const float pendingDeltaSq = pendingOriginDelta.LengthSqr();
+
+		// Heuristic: treat thumbstick locomotion/turn as "active" if we see meaningful anchor delta
+		// or view-rotation offset changes. Used only for optional pose-wait pacing.
+		bool locomotionNow = (pendingDeltaSq > (0.05f * 0.05f));
+
+		static thread_local bool s_prevRotValid = false;
+		static thread_local float s_prevRot = 0.0f;
+		if (s_prevRotValid)
+		{
+			float dRot = vp.rotationOffset - s_prevRot;
+			dRot -= 360.0f * std::floor((dRot + 180.0f) / 360.0f);
+			if (std::fabs(dRot) > 0.01f)
+				locomotionNow = true;
+		}
+		s_prevRot = vp.rotationOffset;
+		s_prevRotValid = true;
+
 
 		if (vpOk)
 		{
@@ -114,15 +319,41 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			uint32_t poseSeq = 0;
 			bool havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq);
 
+			// Heuristic: treat fast HMD rotation as "active" (helps decide whether to nudge pose waiting).
+			bool headTurningNow = false;
+			if (havePoses && renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
+			{
+				const auto& av = renderPoses[vr::k_unTrackedDeviceIndex_Hmd].vAngularVelocity;
+				const double ax = (double)av.v[0];
+				const double ay = (double)av.v[1];
+				const double az = (double)av.v[2];
+				if (std::isfinite(ax) && std::isfinite(ay) && std::isfinite(az))
+				{
+					const double radPerSec = std::sqrt(ax * ax + ay * ay + az * az);
+					const double degPerSec = radPerSec * (180.0 / 3.14159265358979323846);
+					headTurningNow = (degPerSec > 50.0);
+				}
+			}
+
+
 			// Optional pacing knob: in queued mode the render thread can outrun VR pose updates.
 			// Waiting a bit for a fresh WaitGetPoses() snapshot trades throughput for stability.
 			const int waitMsCfg = m_VR->m_QueuedRenderPoseWaitMs;
-			if (waitMsCfg != 0 && m_VR->m_PoseWaiterEvent)
+			int waitMs = waitMsCfg;
+
+			const bool motionNow = (locomotionNow || headTurningNow);
+
+			// Auto-stabilize: in queued mode, if we're locomoting/turning but the render thread keeps reusing
+			// the same pose snapshot, it feels like "stutter + ghosting". A tiny wait here encourages a fresh pose.
+			if (waitMs == 0 && queueMode == 2 && motionNow)
+				waitMs = 2;
+
+			if (waitMs != 0 && m_VR->m_PoseWaiterEvent)
 			{
 				static thread_local uint32_t s_lastPoseSeq = 0;
 				static thread_local uint32_t s_lastWaitAttemptSeq = 0;
 
-				const DWORD timeoutMs = (waitMsCfg < 0) ? 50u : (DWORD)std::clamp(waitMsCfg, 0, 200);
+				const DWORD timeoutMs = (waitMs < 0) ? 50u : (DWORD)std::clamp(waitMs, 0, 200);
 
 				// Early-frame assist: if we have no snapshot yet, wait briefly for the first one.
 				if (!havePoses && timeoutMs > 0)
@@ -135,6 +366,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				// If we already consumed this snapshot, optionally wait for the next one (only once per pose seq).
 				if (havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && poseSeq != s_lastWaitAttemptSeq && timeoutMs > 0)
 				{
+					// If the user didn't opt into waiting but we're moving/turning and reusing the same pose,
+					// do a tiny auto-wait to avoid "stutter + ghosting" during thumbstick locomotion / head turns.
+					if (waitMsCfg == 0 && waitMs > 0)
+					{
+						static thread_local std::chrono::steady_clock::time_point s_lastAutoWaitLog{};
+						const auto nowLog = std::chrono::steady_clock::now();
+						if (s_lastAutoWaitLog.time_since_epoch().count() == 0 ||
+							std::chrono::duration<float>(nowLog - s_lastAutoWaitLog).count() > 1.0f)
+						{
+							Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d headturn=%d) poseSeq=%u",
+										(unsigned)timeoutMs, motionNow ? 1 : 0, headTurningNow ? 1 : 0, (unsigned)poseSeq);
+							s_lastAutoWaitLog = nowLog;
+						}
+					}
+
 					const uint32_t wantSeq = poseSeq;
 					s_lastWaitAttemptSeq = wantSeq;
 					DWORD startTicks = GetTickCount();
@@ -163,6 +409,24 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 					s_lastPoseSeq = poseSeq;
 			}
 
+			// Periodic diagnostics (piggyback on QueuedViewmodelStabilizeDebugLog).
+			if (m_VR->m_QueuedViewmodelStabilizeDebugLog)
+			{
+				static thread_local std::chrono::steady_clock::time_point s_lastStatusLog{};
+				if (!ShouldThrottleLog(s_lastStatusLog, 1.0f))
+				{
+					const Vector smoothErrA = vp.cameraAnchor - extrapAnchor;
+					const float smoothErrYaw = AngleDeltaDeg(vp.rotationOffset, extrapRot);
+					Game::logMsg("[VR][Queued][RenderView] status q=%d vpSeq=%u poseSeq=%u havePoses=%d waitCfg=%d waitEff=%d snap=%d smoothMs=%d alpha=%.3f errD=%.3f errYaw=%.3f pendD=%.4f pendYaw=%.3f vpRot=%.2f smRot=%.2f tick=%.1fms",
+						queueMode, (unsigned)vpSeqEven, (unsigned)poseSeq, havePoses ? 1 : 0,
+						waitMsCfg, waitMs, didSnapSmooth ? 1 : 0, smoothMsCfg, alpha,
+						smoothErrA.Length(), smoothErrYaw,
+						std::sqrt(pendingDeltaSq), pendingYawDelta,
+						vp.rotationOffset, extrapRot,
+						s_engineSetupCam.tickIntervalSec * 1000.0f);
+				}
+			}
+
 			if (!havePoses)
 			{
 				const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
@@ -181,16 +445,102 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 				// Predict corrected position using the last main-thread corrected frame as a base.
 				Vector hmdPosCorrected = vp.hmdPosCorrectedPrev + (hmdPosLocal - vp.hmdPosLocalPrev);
-				VectorPivotXY(hmdPosCorrected, vp.hmdPosCorrectedPrev, vp.rotationOffset);
+				VectorPivotXY(hmdPosCorrected, vp.hmdPosCorrectedPrev, extrapRot);
 
-				hmdAngLocal.y += vp.rotationOffset;
+				hmdAngLocal.y += extrapRot;
 				hmdAngLocal.y -= 360.0f * std::floor((hmdAngLocal.y + 180.0f) / 360.0f);
+
+				// Optional HMD pose smoothing (visual-only). Helps when the render thread reuses the same
+				// pose snapshot during head turns (low pose-wait) and you see slight ghosting.
+				const int hmdSmoothMsCfg = std::max(0, m_VR->m_QueuedRenderHmdSmoothMs);
+				static thread_local bool s_hmdSmoothValid = false;
+				static thread_local Vector s_hmdSmoothPos{};
+				static thread_local QAngle s_hmdSmoothAng{};
+				static thread_local std::chrono::steady_clock::time_point s_hmdSmoothLastT{};
+
+				float hmdAlpha = 1.0f;
+				if (hmdSmoothMsCfg > 0)
+				{
+					const auto nowSmooth = std::chrono::steady_clock::now();
+					float dt = 0.0f;
+					if (s_hmdSmoothLastT.time_since_epoch().count() != 0)
+						dt = std::chrono::duration<float>(nowSmooth - s_hmdSmoothLastT).count();
+					s_hmdSmoothLastT = nowSmooth;
+
+					// Clamp dt so we don't get a giant alpha after alt-tab / breakpoint.
+					dt = std::clamp(dt, 0.0f, 0.050f);
+					const float tau = (float)hmdSmoothMsCfg / 1000.0f;
+					hmdAlpha = (tau > 0.0f) ? (1.0f - std::exp(-dt / tau)) : 1.0f;
+					hmdAlpha = std::clamp(hmdAlpha, 0.0f, 1.0f);
+				}
+
+				auto Wrap180 = [&](float a) -> float
+					{
+						a -= 360.0f * std::floor((a + 180.0f) / 360.0f);
+						return a;
+					};
+
+				if (hmdSmoothMsCfg > 0)
+				{
+					if (!s_hmdSmoothValid)
+					{
+						s_hmdSmoothPos = hmdPosCorrected;
+						s_hmdSmoothAng = hmdAngLocal;
+						s_hmdSmoothAng.x = Wrap180(s_hmdSmoothAng.x);
+						s_hmdSmoothAng.y = Wrap180(s_hmdSmoothAng.y);
+						s_hmdSmoothAng.z = Wrap180(s_hmdSmoothAng.z);
+						s_hmdSmoothValid = true;
+					}
+					else
+					{
+						const Vector errP = hmdPosCorrected - s_hmdSmoothPos;
+						const float errX = AngleDeltaDeg(hmdAngLocal.x, s_hmdSmoothAng.x);
+						const float errY = AngleDeltaDeg(hmdAngLocal.y, s_hmdSmoothAng.y);
+						const float errZ = AngleDeltaDeg(hmdAngLocal.z, s_hmdSmoothAng.z);
+
+						// Large discontinuities -> snap immediately (teleport/reset).
+						if (errP.LengthSqr() > (1.0f * 1.0f) || (std::fabs(errX) > 90.0f) || (std::fabs(errY) > 90.0f) || (std::fabs(errZ) > 90.0f))
+						{
+							s_hmdSmoothPos = hmdPosCorrected;
+							s_hmdSmoothAng = hmdAngLocal;
+							s_hmdSmoothAng.x = Wrap180(s_hmdSmoothAng.x);
+							s_hmdSmoothAng.y = Wrap180(s_hmdSmoothAng.y);
+							s_hmdSmoothAng.z = Wrap180(s_hmdSmoothAng.z);
+						}
+						else
+						{
+							// If we're basically synced, snap to avoid tiny residual lag.
+							const bool smallErr = (errP.LengthSqr() < (0.0005f * 0.0005f))
+								&& (std::fabs(errX) < 0.05f) && (std::fabs(errY) < 0.05f) && (std::fabs(errZ) < 0.05f);
+							if (smallErr)
+							{
+								s_hmdSmoothPos = hmdPosCorrected;
+								s_hmdSmoothAng = hmdAngLocal;
+								s_hmdSmoothAng.x = Wrap180(s_hmdSmoothAng.x);
+								s_hmdSmoothAng.y = Wrap180(s_hmdSmoothAng.y);
+								s_hmdSmoothAng.z = Wrap180(s_hmdSmoothAng.z);
+							}
+							else
+							{
+								s_hmdSmoothPos += errP * hmdAlpha;
+								s_hmdSmoothAng.x = Wrap180(s_hmdSmoothAng.x + errX * hmdAlpha);
+								s_hmdSmoothAng.y = Wrap180(s_hmdSmoothAng.y + errY * hmdAlpha);
+								s_hmdSmoothAng.z = Wrap180(s_hmdSmoothAng.z + errZ * hmdAlpha);
+							}
+						}
+					}
+
+					// Apply smoothed pose.
+					hmdPosCorrected = s_hmdSmoothPos;
+					hmdAngLocal = s_hmdSmoothAng;
+				}
+
 
 				Vector hmdForward, hmdRight, hmdUp;
 				QAngle::AngleVectors(hmdAngLocal, &hmdForward, &hmdRight, &hmdUp);
 
 				// Advance the anchor by the tick-rate origin delta observed on the render thread.
-				Vector cameraAnchor = vp.cameraAnchor + pendingOriginDelta;
+				Vector cameraAnchor = extrapAnchor;
 				Vector hmdPosAbs = cameraAnchor - Vector(0, 0, 64) + (hmdPosCorrected * vp.vrScale);
 
 				const float ipdSu = (vp.ipd * vp.ipdScale * vp.vrScale);
@@ -222,8 +572,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 					Vector hmdToCtrl = ctrlPosLocal - hmdPosLocal;
 					Vector ctrlPosCorrected = hmdPosCorrected + hmdToCtrl;
-					VectorPivotXY(ctrlPosCorrected, hmdPosCorrected, vp.rotationOffset);
-					ctrlAngLocal.y += vp.rotationOffset;
+					VectorPivotXY(ctrlPosCorrected, hmdPosCorrected, extrapRot);
+					ctrlAngLocal.y += extrapRot;
 					ctrlAngLocal.y -= 360.0f * std::floor((ctrlAngLocal.y + 180.0f) / 360.0f);
 
 					Vector ctrlF, ctrlR, ctrlU;
