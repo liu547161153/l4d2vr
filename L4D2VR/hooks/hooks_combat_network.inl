@@ -3,121 +3,131 @@ void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 	return hkEndFrame.fOriginal(ecx);
 }
 
+
 void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
 {
-    Vector vecNewOrigin = eyePosition;
-    QAngle vecNewAngles = eyeAngles;
+	Vector vecNewOrigin = eyePosition;
+	QAngle vecNewAngles = eyeAngles;
 
-    if (m_VR->m_IsVREnabled)
-    {
-        const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+	if (m_VR->m_IsVREnabled)
+	{
+		const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+		const bool multiCoreQueued = (queueMode == 2);
 
-        // In mat_queue_mode!=0, CalcViewModelView may run on the material/queue thread.
-        // Using thread-id gating is fragile (dRenderView may execute on a different thread depending on engine config).
-        // Instead: treat CalcViewModelView as render-only and allow it to consume the render-frame snapshot whenever queued mode is enabled.
-        struct RenderSnapshotTLSGuard
-        {
-            bool enabled = false;
-            bool prev = false;
-            RenderSnapshotTLSGuard(bool en)
-            {
-                enabled = en;
-                if (enabled)
-                {
-                    prev = VR::t_UseRenderFrameSnapshot;
-                    VR::t_UseRenderFrameSnapshot = true;
-                }
-            }
-            ~RenderSnapshotTLSGuard()
-            {
-                if (enabled)
-                    VR::t_UseRenderFrameSnapshot = prev;
-            }
-        } tlsGuard(queueMode != 0);
+		// ------------------------------------------------------------
+		// Single-thread path (mat_queue_mode 0/1)
+		//
+		// 你的“单线程 vm 正常版本”里就是这个行为：把 controller 侧的
+		// viewmodel 推荐位姿当作 eye 输入喂给 CalcViewModelView。
+		//
+		// 这样 engine 生成的 viewmodel/weapon/attachment(枪口闪光/烟雾)
+		// 都会围绕枪来算，而不会 head-locked 在 HMD 上。
+		// ------------------------------------------------------------
+		if (!multiCoreQueued)
+		{
+			vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
+			vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
+			return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+		}
 
-        // IMPORTANT:
-        // CalcViewModelView( owner, eyePos, eyeAng ) takes *eye* inputs and writes the viewmodel's transform internally.
-        // Feeding a controller-anchored pose as eye input can blow up engine bob/lag state and make ghosting worse.
-        //
-        // Correct strategy:
-        //  1) Call original with the real eye inputs.
-        //  2) In queued mode, override the produced viewmodel transform to our controller-anchored target.
+		// ------------------------------------------------------------
+		// Multi-core queued path (mat_queue_mode 2)
+		//
+		// queued 渲染下 CalcViewModelView 可能跑在 material/queue 线程。
+		// 这里把它当“纯渲染期”逻辑：
+		//  1) 先用真实 eye 输入跑一遍 engine 内部状态（避免把 controller 当 eye
+		//     导致 bob/lag 状态被污染）；
+		//  2) 再用 controller 目标位姿做一次 best-effort 覆盖（视觉稳定）。
+		// ------------------------------------------------------------
+		struct RenderSnapshotTLSGuard
+		{
+			bool enabled = false;
+			bool prev = false;
+			RenderSnapshotTLSGuard(bool en)
+			{
+				enabled = en;
+				if (enabled)
+				{
+					prev = VR::t_UseRenderFrameSnapshot;
+					VR::t_UseRenderFrameSnapshot = true;
+				}
+			}
+			~RenderSnapshotTLSGuard()
+			{
+				if (enabled)
+					VR::t_UseRenderFrameSnapshot = prev;
+			}
+		} tlsGuard(true);
 
-        // Call engine logic (keeps internal viewmodel state up to date).
-        hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+		// Call engine logic (keeps internal viewmodel state up to date).
+		hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
 
-        if (queueMode != 0 && m_VR->m_QueuedViewmodelStabilize)
-        {
-            // Our desired controller-anchored pose (prefer render-frame snapshot in queued mode).
-            const Vector targetOrigin = m_VR->GetRecommendedViewmodelAbsPos();
-            const QAngle targetAngles = m_VR->GetRecommendedViewmodelAbsAngle();
+		if (m_VR->m_QueuedViewmodelStabilize)
+		{
+			const Vector targetOrigin = m_VR->GetRecommendedViewmodelAbsPos();
+			const QAngle targetAngles = m_VR->GetRecommendedViewmodelAbsAngle();
 
-            // Capture what the engine produced (before we override).
-            Vector engineOrigin = {};
-            QAngle engineAngles = {};
-			// Hard-override viewmodel transform.
-			// IMPORTANT: Do NOT call client CBaseEntity::SetAbsOrigin here.
-			// The signature scan can false-match, and even when correct it’s not guaranteed
-			// to be safe to mutate entity state on queued/material threads.
+			// Capture what the engine produced (before we override) for debug.
+			Vector engineOrigin = {};
+			QAngle engineAngles = {};
 			if (ecx)
 			{
 				IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
-				ent->GetAbsOrigin() = targetOrigin;
-				ent->GetAbsAngles() = targetAngles;
+				engineOrigin = ent->GetAbsOrigin();
+				engineAngles = ent->GetAbsAngles();
 			}
 
-            // Hard-override origin.
-            bool originSet = false;
-            if (m_Game && m_Game->m_Offsets && m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Client.address && ecx)
-            {
-                using SetAbsOriginFn = void(__thiscall*)(void*, const Vector&);
-                auto setAbsOrigin = (SetAbsOriginFn)m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Client.address;
-                setAbsOrigin(ecx, targetOrigin);
-                originSet = true;
-            }
+			// Hard-override viewmodel transform (best-effort).
+			// NOTE: queued 渲染下尽量别写 entity 状态，但为了让枪口 attachment/FX
+			// 更贴近 controller，这里保留你当前工程的覆盖逻辑。
+			bool originSet = false;
+			if (m_Game && m_Game->m_Offsets && m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Client.address && ecx)
+			{
+				using SetAbsOriginFn = void(__thiscall*)(void*, const Vector&);
+				auto setAbsOrigin = (SetAbsOriginFn)m_Game->m_Offsets->CBaseEntity_SetAbsOrigin_Client.address;
+				setAbsOrigin(ecx, targetOrigin);
+				originSet = true;
+			}
 
-            // Set angles via the entity's abs cache (we don't have a reliable SetAbsAngles address in this project).
-            if (ecx)
-            {
-                IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
-                ent->GetAbsAngles() = targetAngles;
-                if (!originSet)
-                    ent->GetAbsOrigin() = targetOrigin;
-            }
+			if (ecx)
+			{
+				IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
+				ent->GetAbsAngles() = targetAngles;
+				if (!originSet)
+					ent->GetAbsOrigin() = targetOrigin;
+			}
 
-            // Debug logging (throttled)
-            if (m_VR->m_QueuedViewmodelStabilizeDebugLog)
-            {
-                static thread_local std::chrono::steady_clock::time_point s_last{};
-                if (!ShouldThrottleLog(s_last, m_VR->m_QueuedViewmodelStabilizeDebugLogHz))
-                {
-                    const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
-                    const uint32_t tid = (uint32_t)GetCurrentThreadId();
+			if (m_VR->m_QueuedViewmodelStabilizeDebugLog)
+			{
+				static thread_local std::chrono::steady_clock::time_point s_last{};
+				if (!ShouldThrottleLog(s_last, m_VR->m_QueuedViewmodelStabilizeDebugLogHz))
+				{
+					const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
+					const uint32_t tid = (uint32_t)GetCurrentThreadId();
 
-                    const float dx = targetOrigin.x - engineOrigin.x;
-                    const float dy = targetOrigin.y - engineOrigin.y;
-                    const float dz = targetOrigin.z - engineOrigin.z;
-                    const float dpos = sqrtf(dx * dx + dy * dy + dz * dz);
+					const float dx = targetOrigin.x - engineOrigin.x;
+					const float dy = targetOrigin.y - engineOrigin.y;
+					const float dz = targetOrigin.z - engineOrigin.z;
+					const float dpos = sqrtf(dx * dx + dy * dy + dz * dz);
 
-                    Game::logMsg(
-                        "[VR][VM][queue] tid=%u qmode=%d seq=%u dpos=%.2f eyeO=(%.2f %.2f %.2f) eyeA=(%.2f %.2f %.2f) tgtO=(%.2f %.2f %.2f) tgtA=(%.2f %.2f %.2f) engO=(%.2f %.2f %.2f) engA=(%.2f %.2f %.2f)",
-                        tid, queueMode, seq, dpos,
-                        eyePosition.x, eyePosition.y, eyePosition.z,
-                        eyeAngles.x, eyeAngles.y, eyeAngles.z,
-                        targetOrigin.x, targetOrigin.y, targetOrigin.z,
-                        targetAngles.x, targetAngles.y, targetAngles.z,
-                        engineOrigin.x, engineOrigin.y, engineOrigin.z,
-                        engineAngles.x, engineAngles.y, engineAngles.z);
-                }
-            }
-        }
+					Game::logMsg(
+						"[VR][VM][queue] tid=%u qmode=%d seq=%u dpos=%.2f eyeO=(%.2f %.2f %.2f) eyeA=(%.2f %.2f %.2f) tgtO=(%.2f %.2f %.2f) tgtA=(%.2f %.2f %.2f) engO=(%.2f %.2f %.2f) engA=(%.2f %.2f %.2f)",
+						tid, queueMode, seq, dpos,
+						eyePosition.x, eyePosition.y, eyePosition.z,
+						eyeAngles.x, eyeAngles.y, eyeAngles.z,
+						targetOrigin.x, targetOrigin.y, targetOrigin.z,
+						targetAngles.x, targetAngles.y, targetAngles.z,
+						engineOrigin.x, engineOrigin.y, engineOrigin.z,
+						engineAngles.x, engineAngles.y, engineAngles.z);
+				}
+			}
+		}
 
-        return; // we already called original
-    }
+		return; // we already called original
+	}
 
-    return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+	return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
 }
-
 int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7)
 {
 	Vector vecNewOrigin = vecOrigin;
@@ -226,7 +236,7 @@ int Hooks::dClientFireTerrorBullets(
 				if (enabled)
 					VR::t_UseRenderFrameSnapshot = prev;
 			}
-		} tlsGuard(queueMode != 0);
+		} tlsGuard(queueMode == 2);
 
 
 		if (!m_VR->m_ForceNonVRServerMovement)
