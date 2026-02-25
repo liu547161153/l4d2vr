@@ -1,3 +1,29 @@
+namespace
+{
+    // Render-thread safety: entity pointers/netvar memory can be transient when we run from Present().
+    // Use SEH-guarded reads to avoid rare AVs when entities are freed/repurposed mid-frame.
+    static inline bool VR_TryReadU8(const unsigned char* base, int off, unsigned char& out)
+    {
+        __try { out = *reinterpret_cast<const unsigned char*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    }
+    static inline bool VR_TryReadI32(const unsigned char* base, int off, int& out)
+    {
+        __try { out = *reinterpret_cast<const int*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+    }
+    static inline bool VR_TryReadU32(const unsigned char* base, int off, uint32_t& out)
+    {
+        __try { out = *reinterpret_cast<const uint32_t*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0u; return false; }
+    }
+    static inline bool VR_TryReadF32(const unsigned char* base, int off, float& out)
+    {
+        __try { out = *reinterpret_cast<const float*>(base + off); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
+    }
+}
+
 bool VR::IsUsingMountedGun(const C_BasePlayer* localPlayer) const
 {
     if (!localPlayer)
@@ -7,8 +33,10 @@ bool VR::IsUsingMountedGun(const C_BasePlayer* localPlayer) const
     // - m_usingMountedGun: typically .50cal
     // - m_usingMountedWeapon: typically minigun/gatling
     const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
-    const unsigned char usingGun = *reinterpret_cast<const unsigned char*>(base + kUsingMountedGunOffset);
-    const unsigned char usingWeapon = *reinterpret_cast<const unsigned char*>(base + kUsingMountedWeaponOffset);
+    unsigned char usingGun = 0;
+    unsigned char usingWeapon = 0;
+    VR_TryReadU8(base, kUsingMountedGunOffset, usingGun);
+    VR_TryReadU8(base, kUsingMountedWeaponOffset, usingWeapon);
     return (usingGun | usingWeapon) != 0;
 }
 
@@ -18,7 +46,9 @@ C_BaseEntity* VR::GetMountedGunUseEntity(C_BasePlayer* localPlayer) const
         return nullptr;
 
     const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
-    const uint32_t hUse = *reinterpret_cast<const uint32_t*>(base + kUseEntityHandleOffset);
+    uint32_t hUse = 0u;
+    if (!VR_TryReadU32(base, kUseEntityHandleOffset, hUse))
+        return nullptr;
 
     // EHANDLE / CBaseHandle is invalid when 0 or 0xFFFFFFFF (common patterns across Source builds).
     if (hUse == 0u || hUse == 0xFFFFFFFFu)
@@ -104,10 +134,10 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
 
     VectorNormalize(direction);
 
-	// In queued render + view smoothing, the rendered controller pose may differ from the
-	// update-thread controller pose. Always use the same source as the aiming laser so
-	// the non-VR server aim solution stays consistent with what the player sees.
-	const Vector controllerPosAbs = GetRightControllerAbsPos();
+    // In queued render + view smoothing, the rendered controller pose may differ from the
+    // update-thread controller pose. Always use the same source as the aiming laser so
+    // the non-VR server aim solution stays consistent with what the player sees.
+    const Vector controllerPosAbs = GetRightControllerAbsPos();
 
     Vector originBase = controllerPosAbs;
     // Keep non-3P codepath identical to legacy behavior; only use the new render-center delta in 3P.
@@ -263,11 +293,11 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
                 return h;
 
             const unsigned char* base = reinterpret_cast<const unsigned char*>(ent);
-            h.tongueOwner = *reinterpret_cast<const uint32_t*>(base + kTongueOwnerOffset);
-            h.pummelAttacker = *reinterpret_cast<const uint32_t*>(base + kPummelAttackerOffset);
-            h.carryAttacker = *reinterpret_cast<const uint32_t*>(base + kCarryAttackerOffset);
-            h.pounceAttacker = *reinterpret_cast<const uint32_t*>(base + kPounceAttackerOffset);
-            h.jockeyAttacker = *reinterpret_cast<const uint32_t*>(base + kJockeyAttackerOffset);
+            VR_TryReadU32(base, kTongueOwnerOffset, h.tongueOwner);
+            VR_TryReadU32(base, kPummelAttackerOffset, h.pummelAttacker);
+            VR_TryReadU32(base, kCarryAttackerOffset, h.carryAttacker);
+            VR_TryReadU32(base, kPounceAttackerOffset, h.pounceAttacker);
+            VR_TryReadU32(base, kJockeyAttackerOffset, h.jockeyAttacker);
             return h;
         };
 
@@ -280,8 +310,10 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
             const unsigned char* aBase = reinterpret_cast<const unsigned char*>(a);
             const unsigned char* bBase = reinterpret_cast<const unsigned char*>(b);
-            const int aTeam = *reinterpret_cast<const int*>(aBase + kTeamNumOffset);
-            const int bTeam = *reinterpret_cast<const int*>(bBase + kTeamNumOffset);
+            int aTeam = 0;
+            int bTeam = 0;
+            if (!VR_TryReadI32(aBase, kTeamNumOffset, aTeam) || !VR_TryReadI32(bBase, kTeamNumOffset, bTeam))
+                return false;
             return (aTeam != 0 && aTeam == bTeam && IsEntityAlive(b));
         };
 
@@ -700,8 +732,10 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
         if (hitEnt && hitEnt != localPlayer)
         {
             const unsigned char* eb = reinterpret_cast<const unsigned char*>(hitEnt);
-            const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(eb + kLifeStateOffset);
-            const int team = *reinterpret_cast<const int*>(eb + kTeamNumOffset);
+            unsigned char lifeState = 0;
+            int team = 0;
+            if (!VR_TryReadU8(eb, kLifeStateOffset, lifeState) || !VR_TryReadI32(eb, kTeamNumOffset, team))
+                lifeState = 1;
 
             if (lifeState == 0 && team == 2)
             {
@@ -777,20 +811,20 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
     const unsigned char* pb = reinterpret_cast<const unsigned char*>(p);
 
     auto TryReadU8 = [](const unsigned char* base, int off, unsigned char& out) -> bool
-    {
-        __try { out = *reinterpret_cast<const unsigned char*>(base + off); return true; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
-    };
+        {
+            __try { out = *reinterpret_cast<const unsigned char*>(base + off); return true; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+        };
     auto TryReadInt = [](const unsigned char* base, int off, int& out) -> bool
-    {
-        __try { out = *reinterpret_cast<const int*>(base + off); return true; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
-    };
+        {
+            __try { out = *reinterpret_cast<const int*>(base + off); return true; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { out = 0; return false; }
+        };
     auto TryReadFloat = [](const unsigned char* base, int off, float& out) -> bool
-    {
-        __try { out = *reinterpret_cast<const float*>(base + off); return true; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
-    };
+        {
+            __try { out = *reinterpret_cast<const float*>(base + off); return true; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
+        };
 
     unsigned char lifeState = 0;
     int team = 0;
@@ -862,7 +896,9 @@ bool VR::IsWeaponLaserSightActive(C_WeaponCSBase* weapon) const
     constexpr int kUpgradeBitVecOffset = 0xCF0;
     constexpr int kLaserSightBit = (1 << 2);
 
-    const int bitVec = *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(weapon) + kUpgradeBitVecOffset);
+    int bitVec = 0;
+    if (!VR_TryReadI32(reinterpret_cast<const unsigned char*>(weapon), kUpgradeBitVecOffset, bitVec))
+        return false;
     return (bitVec & kLaserSightBit) != 0;
 }
 
@@ -1213,8 +1249,10 @@ bool VR::IsEntityAlive(const C_BaseEntity* entity) const
     if (!entity)
         return false;
 
-    const auto base = reinterpret_cast<const std::uint8_t*>(entity);
-    const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+    const auto base = reinterpret_cast<const unsigned char*>(entity);
+    unsigned char lifeState = 1;
+    if (!VR_TryReadU8(base, kLifeStateOffset, lifeState))
+        return false;
 
     return lifeState == 0;
 }
