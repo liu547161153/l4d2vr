@@ -647,9 +647,16 @@ public:
 	// Serialize all IVROverlay calls. OpenVR overlay APIs are not guaranteed thread-safe,
 	// and concurrent access can lead to persistent EVROverlayError_RequestFailed.
 	std::mutex m_VROverlayMutex{};
+		// Prevent UpdateHandHudOverlays from being re-entered concurrently (present thread + game thread).
+		std::mutex m_HandHudMutex{};
+
 	// Hand HUD overlay recovery state (for SetOverlayRaw failures).
 	uint32_t m_HandHudLeftConsecutiveRawFails = 0;
 	uint32_t m_HandHudRightConsecutiveRawFails = 0;
+	// If the overlays get hidden by the compositor (dashboard fade, focus loss, etc.) without errors,
+	// we may stop seeing them even though ShowOverlay returns None. Watch visibility and recover if needed.
+	uint32_t m_HandHudLeftConsecutiveInvisible = 0;
+	uint32_t m_HandHudRightConsecutiveInvisible = 0;
 	std::chrono::steady_clock::time_point m_HandHudLastOverlayRecover{};
 	uint32_t m_HandHudOverlayRecoverCount = 0;
 

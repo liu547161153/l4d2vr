@@ -923,6 +923,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
+
 	// ------------------------------
 	// Third-person shake damping:
 	// Tank stomps / explosions can apply strong screen-shake to the engine camera.
@@ -1109,6 +1110,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	leftEyeView.origin = leftOrigin;
 	leftEyeView.angles = viewAngles;
+
+	// Queued render: draw aim line from the render-thread snapshot so it stays glued to the hand/gun.
+	// IMPORTANT: must run after we compute m_SetupOrigin / m_ThirdPersonRenderCenter for this frame.
+	if (m_VR->m_IsVREnabled && queueMode != 0)
+		m_VR->RenderDrawAimLineQueued(localPlayer);
 
 	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
 	// Do NOT permanently overwrite engine viewangles. Only set them during our stereo renders,

@@ -495,6 +495,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         }
     } tlsGuard(queueMode != 0);
 
+    const bool queued = (queueMode != 0);
+
     const bool canDraw = (m_Game->m_DebugOverlay != nullptr);
 
 
@@ -582,8 +584,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             }
 
 
-            if (allowAimLineDraw)
-                DrawAimLine(m_AimLineStart, m_AimLineEnd);
+            if (!queued && allowAimLineDraw)
+                DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
             return;
         }
 
@@ -682,7 +684,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     m_HasAimLine = true;
     m_HasThrowArc = false;
 
-    if (canDraw && allowAimLineDraw)
+    if (!queued && canDraw && allowAimLineDraw)
         DrawAimLine(origin, target);
 }
 
@@ -1096,31 +1098,147 @@ float VR::CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMa
 
 void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
-    if (!m_AimLineEnabled)
+    if (!m_AimLineEnabled || !m_Game || !m_Game->m_DebugOverlay)
         return;
 
+    // Draw every frame with ~single-frame lifetime. DebugOverlay primitives persist for "duration" seconds;
+    // if duration spans multiple frames while we also draw every frame, you get visible "ghost" trails.
+    // Keeping duration close to the current frame interval avoids both ghosting and flicker.
+    float dt = std::clamp(m_LastFrameDuration, 1.0f / 240.0f, 1.0f / 20.0f);
 
-    // NOTE: IVDebugOverlay primitives persist for "duration" seconds.
-    // If duration is longer than the time between draws, you will see multiple historical
-    // aim lines at once (classic VR "ghosts").
-    //
-    // To keep it BOTH readable and stable: draw every frame, but clamp lifetime to
-    // about one frame.
-    float frameDt = std::clamp(m_LastFrameDuration, 0.0f, 0.25f);
-    if (frameDt <= 0.0001f)
-        frameDt = 1.0f / 90.0f;
-
-    const float desired = std::max(m_AimLinePersistence, frameDt * m_AimLineFrameDurationMultiplier);
-
-    // Keep it alive for roughly one frame: long enough to avoid blinking, short enough
-    // to avoid trails.
-    const float duration = std::clamp(desired, frameDt * 0.95f, frameDt);
-
-    if (!m_Game->m_DebugOverlay)
-        return;
+    float duration = dt * 0.99f;
+    duration = std::clamp(duration, 0.001f, 0.050f);
 
     DrawLineWithThickness(start, end, duration);
 }
+
+
+
+void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
+{
+    // Render-thread aim line drawing for mat_queue_mode!=0.
+    //
+    // Why: In queued rendering, the viewmodel/hands are driven by a render-thread snapshot (predicted pose +
+    // queued-view smoothing). If we add debug-overlay geometry from the update thread, it will often be 1+ frames
+    // behind (especially during stick locomotion/turning), making the aim line feel like it "doesn't follow" the hand.
+    //
+    // This render-thread path recomputes the visual ray from the current render-frame snapshot and draws a
+    // single-frame-duration overlay so it stays crisp without accumulating ghosts.
+
+    if (!m_AimLineEnabled || !m_Game || !m_Game->m_DebugOverlay)
+        return;
+
+    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+    if (queueMode == 0)
+        return;
+
+
+    // Ensure render-thread getters pull from the render-frame snapshot.
+    struct RenderSnapshotTLSGuard
+    {
+        bool prev = false;
+        RenderSnapshotTLSGuard()
+        {
+            prev = VR::t_UseRenderFrameSnapshot;
+            VR::t_UseRenderFrameSnapshot = true;
+        }
+        ~RenderSnapshotTLSGuard()
+        {
+            VR::t_UseRenderFrameSnapshot = prev;
+        }
+    } tlsGuard;
+
+    // Throwables are handled by the throw-arc code (which is trace-heavy and stays on the update path).
+    if (m_HasThrowArc)
+        return;
+
+    C_WeaponCSBase* activeWeapon = nullptr;
+    if (localPlayer)
+        activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
+
+    const bool allowAimLineDraw = ShouldDrawAimLine(activeWeapon);
+    if (!allowAimLineDraw || !ShouldShowAimLine(activeWeapon))
+        return;
+
+    // If update-side aiming has no valid ray this frame, don't guess here.
+    if (!m_HasAimLine && m_LastAimDirection.IsZero())
+        return;
+
+    Vector start{};
+    Vector end{};
+
+    const bool useMouse = m_MouseModeEnabled;
+
+    if (useMouse)
+    {
+        // Mouse mode uses an HMD-anchored origin. Keep the update-side solution (it already handles convergence).
+        if (!m_HasAimLine)
+            return;
+
+        start = m_AimLineStart;
+        end = m_AimLineEnd;
+    }
+    else
+    {
+        // Use the *render-frame* controller pose so the line stays glued to the hand/gun.
+        Vector originBase = GetRightControllerAbsPos();
+		if (m_IsThirdPersonCamera)
+		{
+			// In third-person, the VR render camera is moved away from the player eye.
+			// The local VR hand/viewmodel visuals are shifted by the same delta; apply it so the aim line stays on the hand.
+			const Vector camDelta = (m_ThirdPersonRenderCenter - m_SetupOrigin);
+			if (camDelta.LengthSqr() > (5.0f * 5.0f))
+				originBase += camDelta;
+		}
+
+		const QAngle angAbs = GetRightControllerAbsAngle();
+
+		Vector f{}, r{}, u{};
+		QAngle::AngleVectors(angAbs, &f, &r, &u);
+
+		Vector dir = f;
+
+        if (dir.IsZero())
+            dir = m_LastAimDirection.IsZero() ? m_LastUnforcedAimDirection : m_LastAimDirection;
+
+        if (dir.IsZero())
+            return;
+
+        VectorNormalize(dir);
+
+        start = originBase + dir * 2.0f;
+
+        const float maxDistance = 8192.0f;
+        if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+        {
+            end = m_NonVRAimHitPoint;
+        }
+        else
+        {
+            // In third-person, avoid using the update-thread converge point here (it may be in a different phase);
+            // draw a pure controller ray so the line always stays attached to the hand.
+            end = start + dir * maxDistance;
+        }
+    }
+
+    // Duration: keep it alive for ~one render interval so we don't accumulate multiple historical lines.
+    using namespace std::chrono;
+    static thread_local steady_clock::time_point s_last{};
+    const auto now = steady_clock::now();
+
+    float dt = 1.0f / 90.0f;
+    if (s_last.time_since_epoch().count() != 0)
+        dt = duration<float>(now - s_last).count();
+    s_last = now;
+
+    dt = std::clamp(dt, 1.0f / 240.0f, 1.0f / 20.0f);
+
+    float durationSec = dt * 0.99f;
+    durationSec = std::clamp(durationSec, 0.001f, 0.050f);
+
+    DrawLineWithThickness(start, end, durationSec);
+}
+
 
 void VR::DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource)
 {
