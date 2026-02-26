@@ -41,10 +41,10 @@ namespace
     {
         if (!s.pixels || w <= 0 || h <= 0)
             return;
-        const int x0 = std::max(0, x);
-        const int y0 = std::max(0, y);
-        const int x1 = std::min(s.w, x + w);
-        const int y1 = std::min(s.h, y + h);
+        const int x0 = (std::max)(0, x);
+        const int y0 = (std::max)(0, y);
+        const int x1 = (std::min)(s.w, x + w);
+        const int y1 = (std::min)(s.h, y + h);
         for (int yy = y0; yy < y1; ++yy)
         {
             unsigned char* row = s.pixels + yy * s.stride;
@@ -160,7 +160,7 @@ namespace
         // Works well for thin 5x7 glyphs on bright/complex backgrounds.
         if (!text)
             return;
-        const int off = std::max(1, scale / 2);
+        const int off = (std::max)(1, scale / 2);
         const Rgba o{ 0, 0, 0, (unsigned char)std::min<int>(255, (int)c.a) };
         DrawText5x7(s, x - off, y, text, o, scale);
         DrawText5x7(s, x + off, y, text, o, scale);
@@ -245,8 +245,8 @@ namespace
             if (W <= w && H <= h && hdc && bmp && bits)
                 return;
 
-            W = std::max(W, w);
-            H = std::max(H, h);
+            W = (std::max)(W, w);
+            H = (std::max)(H, h);
             if (W <= 0) W = 1;
             if (H <= 0) H = 1;
 
@@ -330,7 +330,7 @@ namespace
                 dp[0] = (uint8_t)((col.r * a + dp[0] * inv) / 255);
                 dp[1] = (uint8_t)((col.g * a + dp[1] * inv) / 255);
                 dp[2] = (uint8_t)((col.b * a + dp[2] * inv) / 255);
-                dp[3] = (uint8_t)std::min(255, (int)dp[3] + a);
+                dp[3] = (uint8_t)(std::min)(255, (int)dp[3] + a);
             }
         }
     }
@@ -346,8 +346,8 @@ namespace
             return;
 
         const int pad = 6;
-        const int surfW = std::max(16, maxW + pad);
-        const int surfH = std::max(16, fontPx + pad);
+        const int surfW = (std::max)(16, maxW + pad);
+        const int surfH = (std::max)(16, fontPx + pad);
         g.ensure(surfW, surfH);
         g.ensureFont(fontPx, true, L"Microsoft YaHei UI");
         g.clear();
@@ -366,8 +366,8 @@ namespace
         SetTextColor(g.hdc, RGB(255, 255, 255));
         DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &rc, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
-        const int blendW = std::min(maxW, g.w);
-        const int blendH = std::min(surfH, g.h);
+        const int blendW = (std::min)(maxW, g.w);
+        const int blendH = (std::min)(surfH, g.h);
         BlendMaskToHud(dst, x, y, g, blendW, blendH, col);
     }
 
@@ -385,12 +385,12 @@ namespace
     inline void DrawInfinity(const HudSurface& s, int x, int y, int w, int h, const Rgba& c)
     {
         // Minimal ∞ icon: two loops with a crossing.
-        const int t = std::max(1, h / 4);
+        const int t = (std::max)(1, h / 4);
         const int midY = y + h / 2;
         const int leftCx = x + w / 4;
         const int rightCx = x + (3 * w) / 4;
-        const int rX = std::max(2, w / 6);
-        const int rY = std::max(2, h / 3);
+        const int rX = (std::max)(2, w / 6);
+        const int rY = (std::max)(2, h / 3);
 
         auto ring = [&](int cx)
         {
@@ -403,7 +403,7 @@ namespace
 
     inline void DrawIconCross(const HudSurface& s, int x, int y, int size, const Rgba& c)
     {
-        const int t = std::max(1, size / 5);
+        const int t = (std::max)(1, size / 5);
         const int mid = size / 2;
         FillRect(s, x + mid - t, y + t, t * 2, size - t * 2, c);
         FillRect(s, x + t, y + mid - t, size - t * 2, t * 2, c);
@@ -421,7 +421,7 @@ namespace
     {
         const int w = size;
         const int h = size;
-        const int bodyH = std::max(2, h / 4);
+        const int bodyH = (std::max)(2, h / 4);
         FillRect(s, x + w / 4, y + h / 2 - bodyH / 2, w / 2, bodyH, c);
         FillRect(s, x + w / 4 - 2, y + h / 2 - bodyH / 2, 2, bodyH, c);
         FillRect(s, x + 3 * w / 4, y + h / 2 - 1, w / 4, 2, c);
@@ -548,7 +548,7 @@ namespace
 
     inline void Draw7SegPlus(const HudSurface& s, int x, int y, int size, const Rgba& c)
     {
-        const int t = std::max(2, size / 5);
+        const int t = (std::max)(2, size / 5);
         FillRect(s, x + size / 2 - t, y + t, t * 2, size - t * 2, c);
         FillRect(s, x + t, y + size / 2 - t, size - t * 2, t * 2, c);
     }
@@ -557,11 +557,11 @@ namespace
     {
         if (percent < 0)
             return;
-        percent = std::max(0, std::min(100, percent));
+        percent = (std::max)(0, (std::min)(100, percent));
         const Rgba frame{ 80, 120, 140, 220 };
         const Rgba fill{ 60, 220, 255, 220 };
         const Rgba warn{ 255, 120, 60, 220 };
-        const int capW = std::max(2, w / 10);
+        const int capW = (std::max)(2, w / 10);
         DrawRect(s, x, y, w, h, frame, 1);
         FillRect(s, x + w, y + h / 3, capW, h / 3, frame);
 
@@ -655,8 +655,8 @@ VR::VR(Game* game)
 
     float tanHalfFov[2];
 
-    tanHalfFov[0] = std::max({ -l_left, l_right, -r_left, r_right });
-    tanHalfFov[1] = std::max({ -l_top, l_bottom, -r_top, r_bottom });
+    tanHalfFov[0] = (std::max)({ -l_left, l_right, -r_left, r_right });
+    tanHalfFov[1] = (std::max)({ -l_top, l_bottom, -r_top, r_bottom });
     // For some headsets, the driver provided texture size doesn't match the geometric aspect ratio of the lenses.
     // In this case, we need to adjust the vertical tangent while still rendering to the recommended RT size.
     m_TextureBounds[0].uMin = 0.5f + 0.5f * l_left / tanHalfFov[0];
@@ -969,7 +969,7 @@ void VR::Update()
             {
                 m_AutoResetPositionPending = true;
                 const auto now = std::chrono::steady_clock::now();
-                const int ms = (int)std::max(0.0f, m_AutoResetPositionAfterLoadSeconds * 1000.0f);
+                const int ms = (int)(std::max)(0.0f, m_AutoResetPositionAfterLoadSeconds * 1000.0f);
                 m_AutoResetPositionDueTime = now + std::chrono::milliseconds(ms);
             }
 
@@ -1448,7 +1448,7 @@ void VR::SubmitVRTextures()
                 VectorNormalize(axisY);
                 VectorNormalize(axisZ);
 
-                float mirrorWidthMeters = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+                float mirrorWidthMeters = (std::max)(0.01f, m_RearMirrorOverlayWidthMeters);
                 if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
                     mirrorWidthMeters *= 2.0f;
 
@@ -1650,7 +1650,7 @@ void VR::UpdateRearMirrorOverlayTransform()
 
     const vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
     vr::VROverlay()->SetOverlayTransformAbsolute(m_RearMirrorHandle, trackingOrigin, &mirrorAbs);
-    float mirrorWidth = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+    float mirrorWidth = (std::max)(0.01f, m_RearMirrorOverlayWidthMeters);
     if (m_RearMirrorSpecialWarningDistance > 0.0f && m_RearMirrorSpecialEnlargeActive)
         mirrorWidth *= 2.0f;
     vr::VROverlay()->SetOverlayWidthInMeters(m_RearMirrorHandle, mirrorWidth);
@@ -1666,7 +1666,7 @@ void VR::UpdateScopeOverlayTransform()
     if (!m_MouseModeEnabled || m_ScopeHandle == vr::k_ulOverlayHandleInvalid)
         return;
 
-    const float scopeWidth = std::max(0.01f, m_ScopeOverlayWidthMeters);
+    const float scopeWidth = (std::max)(0.01f, m_ScopeOverlayWidthMeters);
 
     // IMPORTANT:
     // - OpenVR absolute overlay transforms are in tracking-space *meters*.
@@ -1936,7 +1936,7 @@ void VR::RepositionOverlays()
             };
 
             vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_ScopeHandle, gunControllerIndex, &scopeRelative);
-            vr::VROverlay()->SetOverlayWidthInMeters(m_ScopeHandle, std::max(0.01f, m_ScopeOverlayWidthMeters));
+            vr::VROverlay()->SetOverlayWidthInMeters(m_ScopeHandle, (std::max)(0.01f, m_ScopeOverlayWidthMeters));
         }
     }
 
@@ -2253,8 +2253,6 @@ void VR::ProcessMenuInput()
 
 void VR::UpdateHandHudOverlays()
 {
-    std::lock_guard<std::mutex> _hudLock(m_HandHudMutex);
-
     // Debug: hand HUD update diagnostics (rate-limited).
     const auto dbgNow = std::chrono::steady_clock::now();
     m_HandHudDebugLastCall = dbgNow;
@@ -2305,81 +2303,12 @@ void VR::UpdateHandHudOverlays()
         m_RightAmmoHudLastCrc = 0;
     };
 
-    // Overlay handle keep-alive:
-    // - When SteamVR/compositor restarts, our overlay handles can become invalid.
-    // - If we end up with invalid handles, the old logic would get stuck because SetOverlayRaw never runs.
-    // This helper periodically (rate-limited) FindOverlay/CreateOverlay to re-acquire valid handles.
-    auto EnsureHandHudOverlayHandles = [&](bool forceLog)
-    {
-        if (!m_LeftWristHudEnabled && !m_RightAmmoHudEnabled)
-            return;
-
-        const float since = secsSince(m_HandHudLastOverlayEnsure);
-        if (!forceLog && since >= 0.0f && since < 1.0f)
-            return;
-
-        m_HandHudLastOverlayEnsure = dbgNow;
-
-        vr::EVROverlayError eLeft = vr::VROverlayError_None;
-        vr::EVROverlayError eRight = vr::VROverlayError_None;
-
-        {
-            std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-            vr::IVROverlay* ov = vr::VROverlay();
-            if (!ov) ov = m_Overlay;
-            if (ov) m_Overlay = ov;
-
-            if (ov)
-            {
-                auto ensureOne = [&](const char* key, const char* name, vr::VROverlayHandle_t& h, vr::EVROverlayError& eOut)
-                {
-                    // Prefer FindOverlay to re-acquire an existing overlay (handles may become stale).
-                    vr::VROverlayHandle_t found = vr::k_ulOverlayHandleInvalid;
-                    if (ov->FindOverlay(key, &found) == vr::VROverlayError_None && found != vr::k_ulOverlayHandleInvalid)
-                    {
-                        h = found;
-                        eOut = vr::VROverlayError_None;
-                    }
-                    else if (h == vr::k_ulOverlayHandleInvalid)
-                    {
-                        eOut = ov->CreateOverlay(key, name, &h);
-                        if (eOut == vr::VROverlayError_KeyInUse)
-                        {
-                            if (ov->FindOverlay(key, &found) == vr::VROverlayError_None && found != vr::k_ulOverlayHandleInvalid)
-                            {
-                                h = found;
-                                eOut = vr::VROverlayError_None;
-                            }
-                        }
-                    }
-
-                    if (h != vr::k_ulOverlayHandleInvalid)
-                        ov->SetOverlayInputMethod(h, vr::VROverlayInputMethod_None);
-                };
-
-                if (m_LeftWristHudEnabled)
-                    ensureOne("LeftWristHudOverlayKey", "LeftWristHUD", m_LeftWristHudHandle, eLeft);
-                if (m_RightAmmoHudEnabled)
-                    ensureOne("RightAmmoHudOverlayKey", "RightAmmoHUD", m_RightAmmoHudHandle, eRight);
-            }
-        }
-
-        if (dbgTick && forceLog)
-        {
-            Game::logMsg("[VR][HandHUD] ensure overlays: eL=%d eR=%d handles L=%llu R=%llu",
-                (int)eLeft, (int)eRight,
-                (unsigned long long)m_LeftWristHudHandle, (unsigned long long)m_RightAmmoHudHandle);
-        }
-    };
-
 
     // If SetOverlayRaw starts returning RequestFailed persistently, the overlay system can end up
     // "stuck" and the HUD freezes on the last successfully-uploaded frame. We recover by recreating
     // the hand HUD overlays after N consecutive failures.
     const uint32_t kHandHudRecoverFailThreshold = 5;     // consecutive SetOverlayRaw failures
-    const float    kHandHudRecoverMinIntervalSec = 5.0f; // avoid thrashing recover attempts
-    const float    kHandHudKeepAliveSec = 2.0f;          // force periodic re-upload even when unchanged
-    const uint32_t kHandHudInvisibleThreshold = 90;   // consecutive IsOverlayVisible==false before forced recover (~3s at 30Hz)
+    const float    kHandHudRecoverMinIntervalSec = 1.0f; // avoid thrashing
     bool needHandHudOverlayRecover = false;
 
     bool leftVisible = false;
@@ -2392,9 +2321,9 @@ void VR::UpdateHandHudOverlays()
         resetHandHudCache();
         m_HandHudLeftConsecutiveRawFails = 0;
         m_HandHudRightConsecutiveRawFails = 0;
-        m_Overlay->HideOverlay(m_LeftWristHudHandle);
+        vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
-        m_Overlay->HideOverlay(m_RightAmmoHudHandle);
+        vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         rightVisible = false;
         return;
     }
@@ -2406,9 +2335,9 @@ void VR::UpdateHandHudOverlays()
         if (dbgTick)
             Game::logMsg("[VR][HandHUD] tick: localPlayer null (idx=%d) -> hide overlays", playerIndex);
         resetHandHudCache();
-        m_Overlay->HideOverlay(m_LeftWristHudHandle);
+        vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
-        m_Overlay->HideOverlay(m_RightAmmoHudHandle);
+        vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         rightVisible = false;
         return;
     }
@@ -2422,16 +2351,12 @@ void VR::UpdateHandHudOverlays()
         if (dbgTick)
             Game::logMsg("[VR][HandHUD] tick: localPlayer dead lifeState=%u -> hide overlays", (unsigned)lifeState);
         resetHandHudCache();
-        m_Overlay->HideOverlay(m_LeftWristHudHandle);
+        vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
-        m_Overlay->HideOverlay(m_RightAmmoHudHandle);
+        vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         rightVisible = false;
         return;
     }
-
-
-    // Ensure overlay handles are valid (compositor/runtime restarts can invalidate handles).
-    EnsureHandHudOverlayHandles(false);
 
     vr::TrackedDeviceIndex_t leftControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
     vr::TrackedDeviceIndex_t rightControllerIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
@@ -2478,13 +2403,13 @@ void VR::UpdateHandHudOverlays()
         {
             if (!m_HandHudTempHealthStates.empty())
             {
-                const int slot = std::max(0, std::min((int)m_HandHudTempHealthStates.size() - 1, entIndex));
+                const int slot = (std::max)(0, (std::min)((int)m_HandHudTempHealthStates.size() - 1, entIndex));
                 m_HandHudTempHealthStates[(size_t)slot].initialized = false;
             }
             return 0;
         }
 
-        const float raw = std::max(0.0f, hb);
+        const float raw = (std::max)(0.0f, hb);
         const float rawTime = hbTime;
         if (raw <= 0.0f)
             return 0;
@@ -2492,7 +2417,7 @@ void VR::UpdateHandHudOverlays()
         if (m_HandHudTempHealthStates.empty())
             return (int)std::round(raw);
 
-        const int slot = std::max(0, std::min((int)m_HandHudTempHealthStates.size() - 1, entIndex));
+        const int slot = (std::max)(0, (std::min)((int)m_HandHudTempHealthStates.size() - 1, entIndex));
         TempHealthDecayState& st = m_HandHudTempHealthStates[(size_t)slot];
 
         const auto now = std::chrono::steady_clock::now();
@@ -2515,12 +2440,12 @@ void VR::UpdateHandHudOverlays()
         if (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsPaused())
         {
             st.wallStart = now;
-            return (int)std::round(std::max(0.0f, st.lastRemaining));
+            return (int)std::round((std::max)(0.0f, st.lastRemaining));
         }
 
         const float elapsed = std::chrono::duration<float>(now - st.wallStart).count();
-        const float decayRate = std::max(0.0f, m_HandHudTempHealthDecayRate);
-        const float remaining = std::max(0.0f, st.rawBuffer - decayRate * elapsed);
+        const float decayRate = (std::max)(0.0f, m_HandHudTempHealthDecayRate);
+        const float remaining = (std::max)(0.0f, st.rawBuffer - decayRate * elapsed);
         st.lastRemaining = remaining;
         return (int)std::round(remaining);
     };
@@ -2599,33 +2524,20 @@ void VR::UpdateHandHudOverlays()
     const bool canShowLeft = m_LeftWristHudEnabled && m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid && (m_MouseModeEnabled || offHandIndex != vr::k_unTrackedDeviceIndexInvalid);
     if (canShowLeft)
     {
-        const unsigned char bgA = (unsigned char)std::round(std::max(0.0f, std::min(1.0f, m_LeftWristHudBgAlpha)) * 255.0f);
+        const unsigned char bgA = (unsigned char)std::round((std::max)(0.0f, (std::min)(1.0f, m_LeftWristHudBgAlpha)) * 255.0f);
 
-        
+        if (!m_MouseModeEnabled && offHandIndex != vr::k_unTrackedDeviceIndexInvalid)
         {
-            std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-            vr::IVROverlay* ov = vr::VROverlay();
-            if (!ov) ov = m_Overlay;
-            if (ov)
-            {
-                if (!m_MouseModeEnabled && offHandIndex != vr::k_unTrackedDeviceIndexInvalid)
-                {
-                    vr::HmdMatrix34_t rel = buildRel(m_LeftWristHudXOffset, m_LeftWristHudYOffset, m_LeftWristHudZOffset, m_LeftWristHudAngleOffset);
-                    ov->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
-                }
-                ov->SetOverlayWidthInMeters(m_LeftWristHudHandle, std::max(0.01f, m_LeftWristHudWidthMeters));
-                // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
-                ov->SetOverlayTexelAspect(m_LeftWristHudHandle, 1.0f);
-                ov->SetOverlayCurvature(m_LeftWristHudHandle, std::max(0.0f, m_LeftWristHudCurvature));
-                ov->SetOverlayAlpha(m_LeftWristHudHandle, std::max(0.0f, std::min(1.0f, m_LeftWristHudAlpha)));
-            }
-            else
-            {
-                needHandHudOverlayRecover = true;
-            }
+            vr::HmdMatrix34_t rel = buildRel(m_LeftWristHudXOffset, m_LeftWristHudYOffset, m_LeftWristHudZOffset, m_LeftWristHudAngleOffset);
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, offHandIndex, &rel);
         }
+        vr::VROverlay()->SetOverlayWidthInMeters(m_LeftWristHudHandle, (std::max)(0.01f, m_LeftWristHudWidthMeters));
+        // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
+        vr::VROverlay()->SetOverlayTexelAspect(m_LeftWristHudHandle, 1.0f);
+        vr::VROverlay()->SetOverlayCurvature(m_LeftWristHudHandle, (std::max)(0.0f, m_LeftWristHudCurvature));
+        vr::VROverlay()->SetOverlayAlpha(m_LeftWristHudHandle, (std::max)(0.0f, (std::min)(1.0f, m_LeftWristHudAlpha)));
 
-int hp = 0;
+        int hp = 0;
         TryReadInt(pBase, kHealthOffset, hp);
         const int tempHP = computeDecayedTempHP(playerIndex, pBase);
 
@@ -2664,7 +2576,7 @@ int hp = 0;
 
         if (m_LeftWristHudShowTeammates && m_Game->m_ClientEntityList)
         {
-            const int hi = std::min(64, m_Game->m_ClientEntityList->GetHighestEntityIndex());
+            const int hi = (std::min)(64, m_Game->m_ClientEntityList->GetHighestEntityIndex());
             for (int i = 1; i <= hi && mateCount < 3; ++i)
             {
                 if (i == playerIndex)
@@ -2740,10 +2652,7 @@ int hp = 0;
                 changed ? 1 : 0, hasAimTarget ? 1 : 0, aimTargetIdx, aimTargetPct, aimChanged ? 1 : 0);
         }
 
-        const float sinceLeftUpload = secsSince(m_HandHudDebugLastLeftUpload);
-        const bool keepAliveLeft = (sinceLeftUpload < 0.0f) || (sinceLeftUpload >= kHandHudKeepAliveSec);
-
-        if ((!throttle && (changed || aimChanged)) || keepAliveLeft)
+        if (!throttle && (changed || aimChanged))
         {
             m_LastHudHealth = hp;
             m_LastHudTempHealth = tempHP;
@@ -2786,7 +2695,7 @@ int hp = 0;
 
             const Rgba hpCol = healthColorFor(hp, 255);
             const SevenSegStyle hpSt{ 12, 3, 2, 4 };
-            const int hpW = Draw7SegInt(s, 18, 18, std::max(0, hp), hpSt, hpCol);
+            const int hpW = Draw7SegInt(s, 18, 18, (std::max)(0, hp), hpSt, hpCol);
             if (tempHP > 0)
             {
                 // Temp HP: keep it tight to the main HP number (readability + less eye travel).
@@ -2850,14 +2759,14 @@ int hp = 0;
                     const int innerW = barW - 2;
                     const int innerH = barH - 2;
 
-                    const int perm = std::max(0, std::min(100, tr.hp));
+                    const int perm = (std::max)(0, (std::min)(100, tr.hp));
                     const int permW = (innerW * perm) / 100;
                     FillRect(s, barX + 1, y0 + 1, permW, innerH, { 60, 220, 255, 230 });
 
-                    const int extra = std::max(0, std::min(100, tr.temp));
+                    const int extra = (std::max)(0, (std::min)(100, tr.temp));
                     const int extraW = (innerW * extra) / 100;
-                    const int remW = std::max(0, innerW - permW);
-                    const int tempFillW = std::max(0, std::min(remW, extraW));
+                    const int remW = (std::max)(0, innerW - permW);
+                    const int tempFillW = (std::max)(0, (std::min)(remW, extraW));
                     FillRect(s, barX + 1 + permW, y0 + 1, tempFillW, innerH, { 255, 220, 120, 210 });
                 }
             }
@@ -2896,75 +2805,45 @@ int hp = 0;
 
             // Avoid redundant uploads (helps with perceived flicker when SteamVR is busy)
             const CRC32_t crc = CRC32_ProcessSingleBuffer(pixels.data(), (int)((size_t)w * (size_t)h * 4));
-            const bool needUpload = keepAliveLeft || (crc != (CRC32_t)m_LeftWristHudLastCrc);
-            if (needUpload)
+            if (crc != (CRC32_t)m_LeftWristHudLastCrc)
             {
-                vr::EVROverlayError err = vr::VROverlayError_None;
+                m_LeftWristHudLastCrc = (uint32_t)crc;
                 {
-                    std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-                    vr::IVROverlay* ov = vr::VROverlay();
-                    if (!ov) ov = m_Overlay;
-                    err = ov ? ov->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4) : vr::VROverlayError_RequestFailed;
+                    vr::EVROverlayError err = vr::VROverlayError_None;
+                    {
+                        std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
+                        vr::IVROverlay* ov = vr::VROverlay();
+                        if (!ov) ov = m_Overlay;
+                        err = ov ? ov->SetOverlayRaw(m_LeftWristHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4) : vr::VROverlayError_RequestFailed;
+                    }
+                    m_HandHudDebugLastLeftSetRawErr = (int)err;
+                    if (err == vr::VROverlayError_None)
+                    {
+                        m_HandHudDebugLastLeftUpload = dbgNow;
+                        ++m_HandHudDebugLeftUploadCount;
+                        m_HandHudLeftConsecutiveRawFails = 0;
+                    }
+                    else
+                    {
+                        ++m_HandHudLeftConsecutiveRawFails;
+                        if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudLeftConsecutiveRawFails >= kHandHudRecoverFailThreshold))
+                            needHandHudOverlayRecover = true;
+                        if (dbgTick)
+                            Game::logMsg("[VR][HandHUD] left SetOverlayRaw failed err=%d", (int)err);
+                        // Important: raw upload failures (often transient when SteamVR is busy) must not
+                        // commit cached state/CRC, otherwise the hand HUD can freeze forever.
+                        resetHandHudCache();
+                    }
                 }
-
-                m_HandHudDebugLastLeftSetRawErr = (int)err;
-                if (err == vr::VROverlayError_None)
-                {
-                    m_LeftWristHudLastCrc = (uint32_t)crc;
-                    m_HandHudDebugLastLeftUpload = dbgNow;
-                    ++m_HandHudDebugLeftUploadCount;
-                    m_HandHudLeftConsecutiveRawFails = 0;
-                    m_LeftWristHudPixelsFront = backIdx;
-                }
-                else
-                {
-                    ++m_HandHudLeftConsecutiveRawFails;
-                    if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudLeftConsecutiveRawFails >= kHandHudRecoverFailThreshold))
-                        needHandHudOverlayRecover = true;
-                    if (dbgTick)
-                        Game::logMsg("[VR][HandHUD] left SetOverlayRaw failed err=%d", (int)err);
-                    // Important: raw upload failures must not commit cached state/CRC, otherwise the hand HUD can freeze forever.
-                    resetHandHudCache();
-                }
+                m_LeftWristHudPixelsFront = backIdx;
             }
-}
+        }
 
         {
-            vr::EVROverlayError err = vr::VROverlayError_None;
-            bool vis = true;
-            {
-                std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-                vr::IVROverlay* ov = vr::VROverlay();
-                if (!ov) ov = m_Overlay;
-                if (ov)
-                {
-                    err = ov->ShowOverlay(m_LeftWristHudHandle);
-                    vis = ov->IsOverlayVisible(m_LeftWristHudHandle);
-                }
-                else
-                {
-                    err = vr::VROverlayError_RequestFailed;
-                    vis = false;
-                }
-            }
-
+            const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
             m_HandHudDebugLastLeftShowErr = (int)err;
             if (err != vr::VROverlayError_None && dbgTick)
                 Game::logMsg("[VR][HandHUD] left ShowOverlay failed err=%d", (int)err);
-
-            // Visibility watchdog: SteamVR can occasionally drop an overlay's texture/state when it stays unchanged.
-            // If that happens, force a refresh upload and eventually recover by recreating the overlay.
-            if (!vis)
-            {
-                ++m_HandHudLeftConsecutiveInvisible;
-                m_LeftWristHudLastCrc = 0;
-                if (m_HandHudLeftConsecutiveInvisible >= kHandHudInvisibleThreshold)
-                    needHandHudOverlayRecover = true;
-            }
-            else
-            {
-                m_HandHudLeftConsecutiveInvisible = 0;
-            }
         }
 
         leftVisible = true;
@@ -2986,44 +2865,26 @@ int hp = 0;
         m_LastHudAimTargetNameHash = 0;
         m_LastHudTeammatesHash = 0;
         m_LeftWristHudLastCrc = 0;
-        m_HandHudLeftConsecutiveInvisible = 0;
-        {
-            std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-            vr::IVROverlay* ov = vr::VROverlay();
-            if (!ov) ov = m_Overlay;
-            if (ov) ov->HideOverlay(m_LeftWristHudHandle);
-        }
+        vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
     }
 
     const bool canShowRight = m_RightAmmoHudEnabled && m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid && (m_MouseModeEnabled || gunHandIndex != vr::k_unTrackedDeviceIndexInvalid);
     if (canShowRight)
     {
-        const unsigned char bgA = (unsigned char)std::round(std::max(0.0f, std::min(1.0f, m_RightAmmoHudBgAlpha)) * 255.0f);
+        const unsigned char bgA = (unsigned char)std::round((std::max)(0.0f, (std::min)(1.0f, m_RightAmmoHudBgAlpha)) * 255.0f);
 
-        
+        if (!m_MouseModeEnabled && gunHandIndex != vr::k_unTrackedDeviceIndexInvalid)
         {
-            std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-            vr::IVROverlay* ov = vr::VROverlay();
-            if (!ov) ov = m_Overlay;
-            if (ov)
-            {
-                if (!m_MouseModeEnabled && gunHandIndex != vr::k_unTrackedDeviceIndexInvalid)
-                {
-                    vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
-                    ov->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
-                }
-                ov->SetOverlayAlpha(m_RightAmmoHudHandle, std::max(0.0f, std::min(1.0f, m_RightAmmoHudAlpha)));
-
-                // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
-                ov->SetOverlayTexelAspect(m_RightAmmoHudHandle, 1.0f);
-            }
-            else
-            {
-                needHandHudOverlayRecover = true;
-            }
+            vr::HmdMatrix34_t rel = buildRel(m_RightAmmoHudXOffset, m_RightAmmoHudYOffset, m_RightAmmoHudZOffset, m_RightAmmoHudAngleOffset);
+            vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, gunHandIndex, &rel);
         }
-int clip = 0;
+        vr::VROverlay()->SetOverlayAlpha(m_RightAmmoHudHandle, (std::max)(0.0f, (std::min)(1.0f, m_RightAmmoHudAlpha)));
+
+        // Texel aspect is per-texel pixel aspect, not texture aspect ratio. Our pixels are square.
+        vr::VROverlay()->SetOverlayTexelAspect(m_RightAmmoHudHandle, 1.0f);
+
+        int clip = 0;
         int reserve = 0;
         int upg = 0;
         int upgBits = 0;
@@ -3080,7 +2941,7 @@ int clip = 0;
             m_LastHudUpgBits = 0;
             m_RightAmmoHudLastCrc = 0;
 
-            m_Overlay->HideOverlay(m_RightAmmoHudHandle);
+            vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
             rightVisible = false;
             goto after_right;
         }
@@ -3088,13 +2949,13 @@ int clip = 0;
         if (weaponId != m_LastHudWeaponId)
         {
             m_LastHudWeaponId = weaponId;
-            m_HudMaxClipObserved = std::max(0, clip);
-            m_HudMaxReserveObserved = std::max(0, reserve);
+            m_HudMaxClipObserved = (std::max)(0, clip);
+            m_HudMaxReserveObserved = (std::max)(0, reserve);
         }
         else
         {
-            m_HudMaxClipObserved = std::max(m_HudMaxClipObserved, std::max(0, clip));
-            m_HudMaxReserveObserved = std::max(m_HudMaxReserveObserved, std::max(0, reserve));
+            m_HudMaxClipObserved = (std::max)(m_HudMaxClipObserved, (std::max)(0, clip));
+            m_HudMaxReserveObserved = (std::max)(m_HudMaxReserveObserved, (std::max)(0, reserve));
         }
         // Auto-fit the visible overlay width so the panel tightly frames the ammo string.
         // IMPORTANT: OpenVR texture bounds (uMax) *stretch* the sampled region to fill the overlay quad.
@@ -3120,39 +2981,36 @@ int clip = 0;
         };
 
         const int slashW = 16;
-        const int clipWMax = sevenSegWidthAuto(digitCountAuto(std::max(0, m_HudMaxClipObserved)), clipStAuto);
-        const int resWMax = pistolInfinite ? 24 : sevenSegWidthAuto(digitCountAuto(std::max(0, m_HudMaxReserveObserved)), resStAuto);
+        const int clipWMax = sevenSegWidthAuto(digitCountAuto((std::max)(0, m_HudMaxClipObserved)), clipStAuto);
+        const int resWMax = pistolInfinite ? 24 : sevenSegWidthAuto(digitCountAuto((std::max)(0, m_HudMaxReserveObserved)), resStAuto);
         const int totalWMax = clipWMax + slashW + resWMax;
         const bool willDrawUpg = (upg > 0) && (((upgBits & 1) != 0) || ((upgBits & 2) != 0));
 
         // Padding chosen to match existing bracket/inner-box margins.
-        int cropW = std::max(96, totalWMax + 28);
+        int cropW = (std::max)(96, totalWMax + 28);
         if (willDrawUpg)
-            cropW = std::max(cropW, totalWMax + 28 + 90);
-        cropW = std::min(texW, cropW);
+            cropW = (std::max)(cropW, totalWMax + 28 + 90);
+        cropW = (std::min)(texW, cropW);
 
         const float uMaxAuto = (texW > 0) ? ((float)cropW / (float)texW) : 1.0f;
-        const float uMaxCfg = std::max(0.05f, std::min(1.0f, m_RightAmmoHudUVMaxU));
-        const float uMax = std::max(0.05f, std::min(uMaxAuto, uMaxCfg));
-        const int visW = std::max(64, std::min(texW, (int)std::round((float)texW * uMax)));
+        const float uMaxCfg = (std::max)(0.05f, (std::min)(1.0f, m_RightAmmoHudUVMaxU));
+        const float uMax = (std::max)(0.05f, (std::min)(uMaxAuto, uMaxCfg));
+        const int visW = (std::max)(64, (std::min)(texW, (int)std::round((float)texW * uMax)));
 
         vr::VRTextureBounds_t bounds{};
         bounds.uMin = 0.0f;
         bounds.vMin = 0.0f;
         bounds.uMax = uMax;
         bounds.vMax = 1.0f;
-        m_Overlay->SetOverlayTextureBounds(m_RightAmmoHudHandle, &bounds);
-        m_Overlay->SetOverlayWidthInMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters) * uMax);
+        vr::VROverlay()->SetOverlayTextureBounds(m_RightAmmoHudHandle, &bounds);
+        vr::VROverlay()->SetOverlayWidthInMeters(m_RightAmmoHudHandle, (std::max)(0.01f, m_RightAmmoHudWidthMeters) * uMax);
         const bool changed = (clip != m_LastHudClip) || (reserve != m_LastHudReserve) || (upg != m_LastHudUpg) || (upgBits != m_LastHudUpgBits);
         if (dbgTick)
         {
             Game::logMsg("[VR][HandHUD] right: wid=%d clip=%d res=%d upg=%d bits=0x%X pistolInf=%d changed=%d",
                 weaponId, clip, reserve, upg, upgBits, pistolInfinite ? 1 : 0, changed ? 1 : 0);
         }
-        const float sinceRightUpload = secsSince(m_HandHudDebugLastRightUpload);
-        const bool keepAliveRight = (sinceRightUpload < 0.0f) || (sinceRightUpload >= kHandHudKeepAliveSec);
-
-        if ((!throttle && changed) || keepAliveRight)
+        if (!throttle && changed)
         {
             m_LastHudClip = clip;
             m_LastHudReserve = reserve;
@@ -3185,8 +3043,8 @@ int clip = 0;
             // Start from cached background
             memcpy(s.pixels, m_RightAmmoHudBgCache.data(), m_RightAmmoHudBgCache.size());
 
-            const int clipLowTh = std::max(1, (m_HudMaxClipObserved + 2) / 3);
-            const int resLowTh = std::max(1, (m_HudMaxReserveObserved + 4) / 5);
+            const int clipLowTh = (std::max)(1, (m_HudMaxClipObserved + 2) / 3);
+            const int resLowTh = (std::max)(1, (m_HudMaxReserveObserved + 4) / 5);
             const bool clipLow = (clip > 0 && clip <= clipLowTh);
             const bool resLow = (!pistolInfinite && reserve >= 0 && reserve <= resLowTh);
 
@@ -3210,21 +3068,21 @@ int clip = 0;
                 return digits * digitW + (digits - 1) * st.digitGap;
             };
 
-            const int clipW = sevenSegWidth(digitCount(std::max(0, clip)), clipSt);
-            const int resW = pistolInfinite ? 24 : sevenSegWidth(digitCount(std::max(0, reserve)), resSt);
+            const int clipW = sevenSegWidth(digitCount((std::max)(0, clip)), clipSt);
+            const int resW = pistolInfinite ? 24 : sevenSegWidth(digitCount((std::max)(0, reserve)), resSt);
             const int slashW = 16;
             const int totalW = clipW + slashW + resW;
             const int yBase = 46;
-            int x = std::max(6, (visW - totalW) / 2);
+            int x = (std::max)(6, (visW - totalW) / 2);
 
-            Draw7SegInt(s, x, yBase, std::max(0, clip), clipSt, clipColor);
+            Draw7SegInt(s, x, yBase, (std::max)(0, clip), clipSt, clipColor);
             x += clipW + 2;
             DrawText5x7(s, x, yBase + 4, "/", { 200, 200, 200, 220 }, 2);
             x += slashW;
             if (pistolInfinite)
                 DrawInfinity(s, x, yBase + 4, 24, 10, { 240, 240, 240, 230 });
             else
-                Draw7SegInt(s, x, yBase + 2, std::max(0, reserve), resSt, resColor);
+                Draw7SegInt(s, x, yBase + 2, (std::max)(0, reserve), resSt, resColor);
 
             const bool hasInc = (upgBits & 1) != 0;
             const bool hasExp = (upgBits & 2) != 0;
@@ -3239,72 +3097,44 @@ int clip = 0;
             }
             // Avoid redundant uploads
             const CRC32_t crc = CRC32_ProcessSingleBuffer(pixels.data(), (int)((size_t)w * (size_t)h * 4));
-            const bool needUpload = keepAliveRight || (crc != (CRC32_t)m_RightAmmoHudLastCrc);
-            if (needUpload)
+            if (crc != (CRC32_t)m_RightAmmoHudLastCrc)
             {
-                vr::EVROverlayError err = vr::VROverlayError_None;
+                m_RightAmmoHudLastCrc = (uint32_t)crc;
                 {
-                    std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-                    vr::IVROverlay* ov = vr::VROverlay();
-                    if (!ov) ov = m_Overlay;
-                    err = ov ? ov->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4) : vr::VROverlayError_RequestFailed;
+                    vr::EVROverlayError err = vr::VROverlayError_None;
+                    {
+                        std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
+                        vr::IVROverlay* ov = vr::VROverlay();
+                        if (!ov) ov = m_Overlay;
+                        err = ov ? ov->SetOverlayRaw(m_RightAmmoHudHandle, pixels.data(), (uint32_t)w, (uint32_t)h, 4) : vr::VROverlayError_RequestFailed;
+                    }
+                    m_HandHudDebugLastRightSetRawErr = (int)err;
+                    if (err == vr::VROverlayError_None)
+                    {
+                        m_HandHudDebugLastRightUpload = dbgNow;
+                        ++m_HandHudDebugRightUploadCount;
+                        m_HandHudRightConsecutiveRawFails = 0;
+                    }
+                    else
+                    {
+                        ++m_HandHudRightConsecutiveRawFails;
+                        if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudRightConsecutiveRawFails >= kHandHudRecoverFailThreshold))
+                            needHandHudOverlayRecover = true;
+                        if (dbgTick)
+                            Game::logMsg("[VR][HandHUD] right SetOverlayRaw failed err=%d", (int)err);
+                        // Same as left: force retry next tick so it can't get stuck.
+                        resetHandHudCache();
+                    }
                 }
-
-                m_HandHudDebugLastRightSetRawErr = (int)err;
-                if (err == vr::VROverlayError_None)
-                {
-                    m_RightAmmoHudLastCrc = (uint32_t)crc;
-                    m_HandHudDebugLastRightUpload = dbgNow;
-                    ++m_HandHudDebugRightUploadCount;
-                    m_HandHudRightConsecutiveRawFails = 0;
-                    m_RightAmmoHudPixelsFront = backIdx;
-                }
-                else
-                {
-                    ++m_HandHudRightConsecutiveRawFails;
-                    if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudRightConsecutiveRawFails >= kHandHudRecoverFailThreshold))
-                        needHandHudOverlayRecover = true;
-                    if (dbgTick)
-                        Game::logMsg("[VR][HandHUD] right SetOverlayRaw failed err=%d", (int)err);
-                    resetHandHudCache();
-                }
+                m_RightAmmoHudPixelsFront = backIdx;
             }
         }
 
         {
-            vr::EVROverlayError err = vr::VROverlayError_None;
-            bool vis = true;
-            {
-                std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-                vr::IVROverlay* ov = vr::VROverlay();
-                if (!ov) ov = m_Overlay;
-                if (ov)
-                {
-                    err = ov->ShowOverlay(m_RightAmmoHudHandle);
-                    vis = ov->IsOverlayVisible(m_RightAmmoHudHandle);
-                }
-                else
-                {
-                    err = vr::VROverlayError_RequestFailed;
-                    vis = false;
-                }
-            }
-
+            const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
             m_HandHudDebugLastRightShowErr = (int)err;
             if (err != vr::VROverlayError_None && dbgTick)
                 Game::logMsg("[VR][HandHUD] right ShowOverlay failed err=%d", (int)err);
-
-            if (!vis)
-            {
-                ++m_HandHudRightConsecutiveInvisible;
-                m_RightAmmoHudLastCrc = 0;
-                if (m_HandHudRightConsecutiveInvisible >= kHandHudInvisibleThreshold)
-                    needHandHudOverlayRecover = true;
-            }
-            else
-            {
-                m_HandHudRightConsecutiveInvisible = 0;
-            }
         }
 
         rightVisible = true;
@@ -3317,13 +3147,7 @@ int clip = 0;
         m_LastHudUpg = -9999;
         m_LastHudUpgBits = 0;
         m_RightAmmoHudLastCrc = 0;
-        m_HandHudRightConsecutiveInvisible = 0;
-        {
-            std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
-            vr::IVROverlay* ov = vr::VROverlay();
-            if (!ov) ov = m_Overlay;
-            if (ov) ov->HideOverlay(m_RightAmmoHudHandle);
-        }
+        vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         rightVisible = false;
     }
 
@@ -3344,31 +3168,49 @@ after_right:
                 vr::IVROverlay* ov = vr::VROverlay();
                 if (!ov) ov = m_Overlay;
                 if (ov) m_Overlay = ov;
+
                 if (ov)
                 {
-                    // Hide any previous overlays (if the handles are still valid), then drop the handles.
-                    // We'll re-acquire handles via EnsureHandHudOverlayHandles (which is retry/rate-limited).
-                    if (m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid)
-                        ov->HideOverlay(m_LeftWristHudHandle);
-                    if (m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid)
-                        ov->HideOverlay(m_RightAmmoHudHandle);
+                    auto destroyIfValid = [&](vr::VROverlayHandle_t& h)
+                    {
+                        if (h != vr::k_ulOverlayHandleInvalid)
+                        {
+                            ov->HideOverlay(h);
+                            ov->DestroyOverlay(h);
+                            h = vr::k_ulOverlayHandleInvalid;
+                        }
+                    };
 
-                    m_LeftWristHudHandle = vr::k_ulOverlayHandleInvalid;
-                    m_RightAmmoHudHandle = vr::k_ulOverlayHandleInvalid;
+                    destroyIfValid(m_LeftWristHudHandle);
+                    destroyIfValid(m_RightAmmoHudHandle);
+
+                    eLeft = ov->CreateOverlay("LeftWristHudOverlayKey", "LeftWristHUD", &m_LeftWristHudHandle);
+                    if (eLeft != vr::VROverlayError_None)
+                    {
+                        vr::VROverlayHandle_t found = vr::k_ulOverlayHandleInvalid;
+                        if (ov->FindOverlay("LeftWristHudOverlayKey", &found) == vr::VROverlayError_None)
+                            m_LeftWristHudHandle = found;
+                    }
+
+                    eRight = ov->CreateOverlay("RightAmmoHudOverlayKey", "RightAmmoHUD", &m_RightAmmoHudHandle);
+                    if (eRight != vr::VROverlayError_None)
+                    {
+                        vr::VROverlayHandle_t found = vr::k_ulOverlayHandleInvalid;
+                        if (ov->FindOverlay("RightAmmoHudOverlayKey", &found) == vr::VROverlayError_None)
+                            m_RightAmmoHudHandle = found;
+                    }
+
+                    if (m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid)
+                        ov->SetOverlayInputMethod(m_LeftWristHudHandle, vr::VROverlayInputMethod_None);
+                    if (m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid)
+                        ov->SetOverlayInputMethod(m_RightAmmoHudHandle, vr::VROverlayInputMethod_None);
                 }
             }
-
-            // Try an immediate re-acquire (still rate-limited inside the helper).
-            EnsureHandHudOverlayHandles(true);
 
             m_HandHudLastOverlayRecover = dbgNow;
             ++m_HandHudOverlayRecoverCount;
             m_HandHudLeftConsecutiveRawFails = 0;
             m_HandHudRightConsecutiveRawFails = 0;
-            m_HandHudLeftConsecutiveInvisible = 0;
-            m_HandHudRightConsecutiveInvisible = 0;
-            m_HandHudDebugLastLeftUpload = {};
-            m_HandHudDebugLastRightUpload = {};
 
             resetHandHudCache();
 
@@ -3431,10 +3273,10 @@ after_right:
 
         float mirrorW = 0.0f;
         if (vr::VROverlay()->GetOverlayWidthInMeters(m_RearMirrorHandle, &mirrorW) != vr::VROverlayError_None || mirrorW <= 0.001f)
-            mirrorW = std::max(0.01f, m_RearMirrorOverlayWidthMeters);
+            mirrorW = (std::max)(0.01f, m_RearMirrorOverlayWidthMeters);
 
-        const float wL = leftVisible ? getWidthMeters(m_LeftWristHudHandle, std::max(0.01f, m_LeftWristHudWidthMeters)) : 0.0f;
-        const float wR = rightVisible ? getWidthMeters(m_RightAmmoHudHandle, std::max(0.01f, m_RightAmmoHudWidthMeters)) : 0.0f;
+        const float wL = leftVisible ? getWidthMeters(m_LeftWristHudHandle, (std::max)(0.01f, m_LeftWristHudWidthMeters)) : 0.0f;
+        const float wR = rightVisible ? getWidthMeters(m_RightAmmoHudHandle, (std::max)(0.01f, m_RightAmmoHudWidthMeters)) : 0.0f;
 
         const float gapX = 0.01f;
         float xL = 0.0f;
@@ -3450,7 +3292,7 @@ after_right:
         const float rAspect = (m_RightAmmoHudTexW > 0) ? ((float)m_RightAmmoHudTexH / (float)m_RightAmmoHudTexW) : 0.5f;
         const float hL = wL * lAspect;
         const float hR = wR * rAspect;
-        const float rowH = std::max(hL, hR);
+        const float rowH = (std::max)(hL, hR);
         const float gapY = 0.01f;
         const float yRow = -(mirrorW * 0.5f + rowH * 0.5f + gapY);
 
@@ -3467,12 +3309,12 @@ after_right:
                 if (leftVisible)
                 {
                     const vr::HmdMatrix34_t mat = mul34(originToMirror, translate34(xL, yRow, 0.0f));
-                    m_Overlay->SetOverlayTransformAbsolute(m_LeftWristHudHandle, origin, &mat);
+                    vr::VROverlay()->SetOverlayTransformAbsolute(m_LeftWristHudHandle, origin, &mat);
                 }
                 if (rightVisible)
                 {
                     const vr::HmdMatrix34_t mat = mul34(originToMirror, translate34(xR, yRow, 0.0f));
-                    m_Overlay->SetOverlayTransformAbsolute(m_RightAmmoHudHandle, origin, &mat);
+                    vr::VROverlay()->SetOverlayTransformAbsolute(m_RightAmmoHudHandle, origin, &mat);
                 }
             }
         }
@@ -3486,12 +3328,12 @@ after_right:
                 if (leftVisible)
                 {
                     const vr::HmdMatrix34_t mat = mul34(devToMirror, translate34(xL, yRow, 0.0f));
-                    m_Overlay->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, parentDev, &mat);
+                    vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_LeftWristHudHandle, parentDev, &mat);
                 }
                 if (rightVisible)
                 {
                     const vr::HmdMatrix34_t mat = mul34(devToMirror, translate34(xR, yRow, 0.0f));
-                    m_Overlay->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, parentDev, &mat);
+                    vr::VROverlay()->SetOverlayTransformTrackedDeviceRelative(m_RightAmmoHudHandle, parentDev, &mat);
                 }
             }
         }
