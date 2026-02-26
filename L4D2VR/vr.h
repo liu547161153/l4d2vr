@@ -637,8 +637,10 @@ public:
 
 
 
-	float m_HandHudMaxHz = 30.0f;
+	float m_HandHudMaxHz = 1.0f;
 	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
+	// Cached eligibility for right-hand ammo HUD to avoid per-frame weapon reads when throttled.
+	bool  m_HandHudRightEligibleCached = false;
 	// Debug logging for hand HUD update stalls (UpdateHandHudOverlays).
 	bool  m_HandHudDebugLog = false;
 	float m_HandHudDebugLogHz = 1.0f; // max prints per second; 0 disables throttling
