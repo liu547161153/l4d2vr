@@ -294,7 +294,9 @@ inline QAngle OneEuroFilterAngles(
     return xHat;
 }
 
-#include "vr/vr_lifecycle.inl"
+#include "vr/vr_lifecycle_init.inl"
+#include "vr/vr_lifecycle_update.inl"
+#include "vr/vr_lifecycle_pose_hud.inl"
 #include "vr/vr_process_input.inl"
 #include "vr/vr_roomscale_prediction.inl"
 #include "vr/vr_tracking.inl"

@@ -1261,7 +1261,13 @@
     <None Include="vr\vr_aiming.inl">
       <Filter>Source Files\vr</Filter>
     </None>
-    <None Include="vr\vr_lifecycle.inl">
+    <None Include="vr\vr_lifecycle_init.inl">
+      <Filter>Source Files\vr</Filter>
+    </None>
+    <None Include="vr\vr_lifecycle_update.inl">
+      <Filter>Source Files\vr</Filter>
+    </None>
+    <None Include="vr\vr_lifecycle_pose_hud.inl">
       <Filter>Source Files\vr</Filter>
     </None>
     <None Include="vr\vr_process_input.inl">

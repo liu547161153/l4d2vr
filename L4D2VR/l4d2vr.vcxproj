@@ -602,7 +602,9 @@
     <None Include="hooks\hooks_misc.inl" />
     <None Include="hooks\hooks_render.inl" />
     <None Include="vr\vr_aiming.inl" />
-    <None Include="vr\vr_lifecycle.inl" />
+    <None Include="vr\vr_lifecycle_init.inl" />
+    <None Include="vr\vr_lifecycle_update.inl" />
+    <None Include="vr\vr_lifecycle_pose_hud.inl" />
     <None Include="vr\vr_process_input.inl" />
     <None Include="vr\vr_roomscale_prediction.inl" />
     <None Include="vr\vr_tracking.inl" />
