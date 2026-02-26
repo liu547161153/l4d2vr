@@ -3346,12 +3346,31 @@ after_right:
                 if (ov) m_Overlay = ov;
                 if (ov)
                 {
-                    // Hide any previous overlays (if the handles are still valid), then drop the handles.
-                    // We'll re-acquire handles via EnsureHandHudOverlayHandles (which is retry/rate-limited).
-                    if (m_LeftWristHudHandle != vr::k_ulOverlayHandleInvalid)
-                        ov->HideOverlay(m_LeftWristHudHandle);
-                    if (m_RightAmmoHudHandle != vr::k_ulOverlayHandleInvalid)
-                        ov->HideOverlay(m_RightAmmoHudHandle);
+                    // Hide and destroy any previous overlays before dropping the handles.
+                    // Some runtimes keep returning stale handles that continue to fail SetOverlayRaw(RequestFailed),
+                    // so a true destroy is required to force a clean recreation.
+                    auto hideDestroyByHandle = [&](vr::VROverlayHandle_t h)
+                    {
+                        if (h == vr::k_ulOverlayHandleInvalid)
+                            return;
+                        ov->HideOverlay(h);
+                        ov->DestroyOverlay(h);
+                    };
+
+                    auto hideDestroyByKey = [&](const char* key)
+                    {
+                        vr::VROverlayHandle_t found = vr::k_ulOverlayHandleInvalid;
+                        if (ov->FindOverlay(key, &found) == vr::VROverlayError_None && found != vr::k_ulOverlayHandleInvalid)
+                        {
+                            ov->HideOverlay(found);
+                            ov->DestroyOverlay(found);
+                        }
+                    };
+
+                    hideDestroyByHandle(m_LeftWristHudHandle);
+                    hideDestroyByHandle(m_RightAmmoHudHandle);
+                    hideDestroyByKey("LeftWristHudOverlayKey");
+                    hideDestroyByKey("RightAmmoHudOverlayKey");
 
                     m_LeftWristHudHandle = vr::k_ulOverlayHandleInvalid;
                     m_RightAmmoHudHandle = vr::k_ulOverlayHandleInvalid;
