@@ -202,11 +202,11 @@ namespace
     // UTF-8 text rendering fallback (GDI -> alpha mask -> blend into HudSurface)
     // Only used for non-ASCII names so we can support Chinese/JP/KR/etc.
     // ----------------------------
-    inline std::wstring Utf8ToWideFallback(const char* s)
+        inline std::wstring Utf8ToWideFallback(const char* s)
     {
         if (!s || !*s) return L"";
-        int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
         UINT cp = CP_UTF8;
+        int len = MultiByteToWideChar(cp, 0, s, -1, nullptr, 0);
         if (len <= 0)
         {
             cp = CP_ACP;
@@ -217,7 +217,120 @@ namespace
         MultiByteToWideChar(cp, 0, s, -1, out.data(), len);
         return out;
     }
+inline const wchar_t* PickHudFontFaceForText(const std::wstring& ws)
+    {
+        // Best-effort font picking for broad Unicode coverage on Windows.
+        // We still rely on GDI font linking/fallback if a glyph isn't in the chosen face.
+        bool hasCJK = false;
+        bool hasKana = false;
+        bool hasHangul = false;
+        bool hasThai = false;
+        bool hasDevanagari = false;
 
+        for (wchar_t ch : ws)
+        {
+            const unsigned int c = (unsigned int)ch;
+            if (c >= 0x4E00 && c <= 0x9FFF) hasCJK = true;            // CJK Unified Ideographs
+            else if (c >= 0x3040 && c <= 0x30FF) hasKana = true;       // Hiragana/Katakana
+            else if (c >= 0xAC00 && c <= 0xD7AF) hasHangul = true;     // Hangul syllables
+            else if (c >= 0x0E00 && c <= 0x0E7F) hasThai = true;       // Thai
+            else if (c >= 0x0900 && c <= 0x097F) hasDevanagari = true; // Devanagari
+        }
+
+        if (hasHangul) return L"Malgun Gothic";
+        if (hasKana) return L"Meiryo UI";
+        if (hasCJK) return L"Microsoft YaHei UI";
+        if (hasThai) return L"Leelawadee UI";
+        if (hasDevanagari) return L"Nirmala UI";
+        return L"Segoe UI";
+    }
+
+    // Name fitting policy for HUD:
+    // - Budget is 12 "units" (≈ 12 ASCII chars or 6 CJK chars).
+    // - For every extra 2 units, shrink by 10%.
+    // - Cap shrink at 40% (min scale 60%).
+    // - If still longer, hard-truncate.
+    inline int Utf8HudUnits(const char* s)
+    {
+        if (!s) return 0;
+        int units = 0;
+        const unsigned char* p = (const unsigned char*)s;
+        while (*p)
+        {
+            if (*p < 0x80)
+            {
+                units += 1;
+                ++p;
+                continue;
+            }
+
+            // Skip a UTF-8 sequence (best-effort; treat invalid bytes as 1 codepoint).
+            unsigned char lead = *p;
+            int n = 1;
+            if ((lead & 0xE0) == 0xC0) n = 2;
+            else if ((lead & 0xF0) == 0xE0) n = 3;
+            else if ((lead & 0xF8) == 0xF0) n = 4;
+
+            int avail = 0;
+            while (avail < n && p[avail])
+                ++avail;
+            if (avail <= 0)
+                break;
+            p += avail;
+            units += 2;
+        }
+        return units;
+    }
+
+    inline std::string Utf8TruncateHudUnits(const char* s, int maxUnits)
+    {
+        if (!s || maxUnits <= 0) return std::string();
+        std::string out;
+        out.reserve(strlen(s));
+
+        int units = 0;
+        const unsigned char* p = (const unsigned char*)s;
+        while (*p)
+        {
+            if (*p < 0x80)
+            {
+                if (units + 1 > maxUnits) break;
+                out.push_back((char)*p);
+                units += 1;
+                ++p;
+                continue;
+            }
+
+            unsigned char lead = *p;
+            int n = 1;
+            if ((lead & 0xE0) == 0xC0) n = 2;
+            else if ((lead & 0xF0) == 0xE0) n = 3;
+            else if ((lead & 0xF8) == 0xF0) n = 4;
+
+            if (units + 2 > maxUnits) break;
+
+            int avail = 0;
+            while (avail < n && p[avail])
+                ++avail;
+            if (avail <= 0)
+                break;
+            for (int i = 0; i < avail; ++i)
+                out.push_back((char)p[i]);
+            p += avail;
+            units += 2;
+        }
+
+        return out;
+    }
+
+    inline float HudNameScaleForUnits(int units, int baseUnits = 12)
+    {
+        if (units <= baseUnits) return 1.0f;
+        const int over = units - baseUnits;
+        const int steps = (over + 1) / 2; // ceil(over/2)
+        const float shrink = (std::min)(0.4f, 0.1f * (float)steps);
+        return 1.0f - shrink;
+    }
     struct GdiTextMask
     {
         HDC hdc = nullptr;
@@ -228,7 +341,7 @@ namespace
         HFONT font = nullptr;
         int fontPx = 0;
         bool bold = false;
-        wchar_t face[64] = L"Microsoft YaHei UI";
+        wchar_t face[64] = L"Segoe UI";
 
         ~GdiTextMask() { destroy(); }
 
@@ -272,7 +385,7 @@ namespace
         void ensureFont(int px, bool isBold, const wchar_t* fontFace)
         {
             if (px <= 0) px = 12;
-            if (!fontFace || !*fontFace) fontFace = L"Microsoft YaHei UI";
+            if (!fontFace || !*fontFace) fontFace = L"Segoe UI";
 
             if (font && fontPx == px && bold == isBold && wcscmp(face, fontFace) == 0)
                 return;
@@ -335,7 +448,7 @@ namespace
         }
     }
 
-    inline void DrawTextUtf8OutlinedGdiClipped(const HudSurface& dst, int x, int y, int maxW, const char* utf8, int fontPx, const Rgba& col)
+    inline void DrawTextUtf8OutlinedGdiClippedEx(const HudSurface& dst, int x, int y, int maxW, const char* utf8, int fontPx, const Rgba& col, bool ellipsis)
     {
         if (!utf8 || !*utf8 || !dst.pixels || maxW <= 0)
             return;
@@ -349,26 +462,32 @@ namespace
         const int surfW = (std::max)(16, maxW + pad);
         const int surfH = (std::max)(16, fontPx + pad);
         g.ensure(surfW, surfH);
-        g.ensureFont(fontPx, true, L"Microsoft YaHei UI");
+        g.ensureFont(fontPx, true, PickHudFontFaceForText(ws));
         g.clear();
 
         SelectObject(g.hdc, g.font);
         SetBkMode(g.hdc, TRANSPARENT);
 
         RECT rc{ 0, 0, maxW, surfH };
+        const UINT flags = DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | (ellipsis ? DT_END_ELLIPSIS : 0);
 
         SetTextColor(g.hdc, RGB(0, 0, 0));
-        RECT r1 = rc; OffsetRect(&r1, -1, 0); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r1, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        RECT r2 = rc; OffsetRect(&r2, +1, 0); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r2, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        RECT r3 = rc; OffsetRect(&r3, 0, -1); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r3, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-        RECT r4 = rc; OffsetRect(&r4, 0, +1); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r4, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        RECT r1 = rc; OffsetRect(&r1, -1, 0); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r1, flags);
+        RECT r2 = rc; OffsetRect(&r2, +1, 0); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r2, flags);
+        RECT r3 = rc; OffsetRect(&r3, 0, -1); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r3, flags);
+        RECT r4 = rc; OffsetRect(&r4, 0, +1); DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &r4, flags);
 
         SetTextColor(g.hdc, RGB(255, 255, 255));
-        DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &rc, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        DrawTextW(g.hdc, ws.c_str(), (int)ws.size(), &rc, flags);
 
         const int blendW = (std::min)(maxW, g.w);
         const int blendH = (std::min)(surfH, g.h);
         BlendMaskToHud(dst, x, y, g, blendW, blendH, col);
+    }
+
+    inline void DrawTextUtf8OutlinedGdiClipped(const HudSurface& dst, int x, int y, int maxW, const char* utf8, int fontPx, const Rgba& col)
+    {
+        DrawTextUtf8OutlinedGdiClippedEx(dst, x, y, maxW, utf8, fontPx, col, true);
     }
 
     inline void DrawHudTextAuto(const HudSurface& s, int x, int y, int maxW, const char* text, const Rgba& c, int scaleFor5x7 = 1, int gdiFontPx = 14)

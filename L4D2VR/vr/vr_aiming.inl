@@ -843,46 +843,44 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
     const int tempHP = (int)std::max(0.0f, std::round(tempHPf));
     const int eff = std::max(0, std::min(100, hp + tempHP));
 
-    // Name: keep ASCII glyphs (5x7 font-safe) and when truncating, keep the tail (drop front).
+    // Name: prefer the actual player name (UTF-8). We render via GDI in the HUD when needed.
     if (m_Game->m_EngineClient)
     {
         player_info_t info{};
-        if (m_Game->m_EngineClient->GetPlayerInfo(m_AimTeammateDisplayIndex, &info))
+        if (m_Game->m_EngineClient->GetPlayerInfo(m_AimTeammateDisplayIndex, &info) && info.name[0])
         {
-            char asciiName[sizeof(info.name)] = { 0 };
-            size_t asciiLen = 0;
-            bool hadNonAscii = false;
-            for (size_t i = 0; info.name[i] && asciiLen + 1 < sizeof(asciiName); ++i)
-            {
-                const unsigned char ch = static_cast<unsigned char>(info.name[i]);
-                if (ch >= 32 && ch <= 126)
-                    asciiName[asciiLen++] = static_cast<char>(ch);
-                else
-                    hadNonAscii = true;
-            }
-            asciiName[asciiLen] = 0;
+            std::snprintf(outName, outNameSize, "%s", info.name);
+        }
+    }
 
-            if (asciiLen > 0)
+    // Fallback: survivor character label (offline / bots / name unavailable).
+    if (!outName[0])
+    {
+        int survivorChar = -1;
+        if (TryReadInt(pb, kSurvivorCharacterOffset, survivorChar))
+        {
+            const char* sname = nullptr;
+            switch (survivorChar)
             {
-                const size_t maxCopy = outNameSize - 1;
-                const size_t start = (asciiLen > maxCopy) ? (asciiLen - maxCopy) : 0;
-                size_t n = 0;
-                for (size_t i = start; i < asciiLen && n + 1 < outNameSize; ++i)
-                    outName[n++] = asciiName[i];
-                outName[n] = 0;
+            case 0: sname = "NICK"; break;
+            case 1: sname = "ROCHELLE"; break;
+            case 2: sname = "COACH"; break;
+            case 3: sname = "ELLIS"; break;
+            case 4: sname = "BILL"; break;
+            case 5: sname = "ZOEY"; break;
+            case 6: sname = "FRANCIS"; break;
+            case 7: sname = "LOUIS"; break;
+            default: break;
             }
-            else if (hadNonAscii)
-            {
-                // Font can't draw non-ASCII reliably; avoid a screen full of '?' boxes.
-                std::snprintf(outName, outNameSize, "P%d", m_AimTeammateDisplayIndex);
-            }
+            if (sname && sname[0])
+                std::snprintf(outName, outNameSize, "%s", sname);
         }
     }
 
     if (!outName[0])
         std::snprintf(outName, outNameSize, "P%d", m_AimTeammateDisplayIndex);
 
-    outPlayerIndex = m_AimTeammateDisplayIndex;
+outPlayerIndex = m_AimTeammateDisplayIndex;
     outPercent = eff;
     return true;
 }

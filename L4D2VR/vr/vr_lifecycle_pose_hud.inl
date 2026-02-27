@@ -892,7 +892,7 @@ void VR::UpdateHandHudOverlays()
                 changed ? 1 : 0, hasAimTarget ? 1 : 0, aimTargetIdx, aimTargetPct, aimChanged ? 1 : 0);
         }
 
-        if (!throttle && (changed || aimChanged))
+        if (!throttle)
         {
             m_LastHudHealth = hp;
             m_LastHudTempHealth = tempHP;
@@ -946,9 +946,21 @@ void VR::UpdateHandHudOverlays()
             }
             if (hasAimTarget)
             {
-                char tgtBuf[64];
-                std::snprintf(tgtBuf, sizeof(tgtBuf), "%s:%d%%", aimTargetName, aimTargetPct);
-                DrawHudTextAuto(s, 18, 64, 220, tgtBuf, { 240, 240, 240, 255 }, 2, 16);
+                // Name fitting policy: 12 ASCII chars or 6 CJK chars at full size.
+                // Beyond that: shrink 10% per +2 chars, cap at 40% shrink, then hard-truncate.
+                const int units = Utf8HudUnits(aimTargetName);
+                const float scale = HudNameScaleForUnits(units, 12);
+                const std::string nameFit = (units > 20) ? Utf8TruncateHudUnits(aimTargetName, 20) : std::string(aimTargetName);
+
+                char tgtBuf[128];
+                std::snprintf(tgtBuf, sizeof(tgtBuf), "%s:%d%%", nameFit.c_str(), aimTargetPct);
+
+                const int basePx = 16;
+                int fontPx = (int)std::round((float)basePx * scale);
+                fontPx = (std::max)(10, (std::min)(basePx, fontPx));
+
+                // Always use the GDI path here so ASCII and Unicode names both obey the shrink/truncate policy.
+                DrawTextUtf8OutlinedGdiClippedEx(s, 18, 64, 220, tgtBuf, fontPx, { 240, 240, 240, 255 }, false);
             }
 
             int dotX = w - 62;
@@ -1276,7 +1288,7 @@ void VR::UpdateHandHudOverlays()
             Game::logMsg("[VR][HandHUD] right: wid=%d clip=%d res=%d upg=%d bits=0x%X pistolInf=%d changed=%d",
                 weaponId, clip, reserve, upg, upgBits, pistolInfinite ? 1 : 0, changed ? 1 : 0);
         }
-        if (!throttle && changed)
+        if (!throttle)
         {
             m_LastHudClip = clip;
             m_LastHudReserve = reserve;
