@@ -603,7 +603,9 @@ public:
 	// 1.0 = no clamp (recommended).
 	float m_RightAmmoHudUVMaxU = 1.0f;
 
-	// Hand HUD overall overlay alpha (0..1). Applied via IVROverlay::SetOverlayAlpha.
+	// Hand HUD alpha (legacy, 0..1): treated as an extra BACKGROUND opacity multiplier.
+	// We intentionally do NOT apply IVROverlay::SetOverlayAlpha to the whole overlay,
+	// because it makes text/bars fade too.
 	float m_LeftWristHudAlpha = 1.0f;
 	float m_RightAmmoHudAlpha = 1.0f;
 
@@ -635,12 +637,43 @@ public:
 	bool  m_LeftWristHudShowBattery = true;
 	bool  m_LeftWristHudShowTeammates = true;
 
+	// ----------------------------
+	// Hand HUD: world-quad mode (HMD-relative overlays using GPU textures)
+	//
+	// This mode keeps the existing hand HUD drawing code, but uploads the pixels into
+	// a dynamic D3D9 texture and presents it as a standard overlay texture (Vulkan)
+	// placed relative to the HMD as a quad HUD.
+	// ----------------------------
+	bool  m_HandHudWorldQuadEnabled = false;
+	// If true, keep the HUD attached to left/right controllers (tracked-device-relative),
+	// but still use the GPU texture upload path.
+	bool  m_HandHudWorldQuadAttachToControllers = false;
+	// Distance in meters in front of the HMD (positive). Internally applied as -Z.
+	float m_HandHudWorldQuadDistanceMeters = 0.55f;
+	// Vertical offset in meters (positive up). Negative moves down.
+	float m_HandHudWorldQuadYOffsetMeters = -0.18f;
+	// Horizontal gap between left/right panels when both are visible.
+	float m_HandHudWorldQuadXGapMeters = 0.01f;
+	// Additional rotation applied to both panels (pitch,yaw,roll in degrees).
+	QAngle m_HandHudWorldQuadAngleOffset = { -15.0f, 0.0f, 0.0f };
+
+	// Backing textures for world-quad hand HUD (dynamic D3D9 textures mirrored to Vulkan).
+	IDirect3DTexture9* m_D9LeftWristHudDynTex = nullptr;
+	IDirect3DSurface9* m_D9LeftWristHudDynSurface = nullptr;
+	SharedTextureHolder m_VKLeftWristHudDyn{};
+	int m_D9LeftWristHudDynW = 0;
+	int m_D9LeftWristHudDynH = 0;
+
+	IDirect3DTexture9* m_D9RightAmmoHudDynTex = nullptr;
+	IDirect3DSurface9* m_D9RightAmmoHudDynSurface = nullptr;
+	SharedTextureHolder m_VKRightAmmoHudDyn{};
+	int m_D9RightAmmoHudDynW = 0;
+	int m_D9RightAmmoHudDynH = 0;
 
 
-	float m_HandHudMaxHz = 1.0f;
+
+	float m_HandHudMaxHz = 30.0f;
 	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
-	// Cached eligibility for right-hand ammo HUD to avoid per-frame weapon reads when throttled.
-	bool  m_HandHudRightEligibleCached = false;
 	// Debug logging for hand HUD update stalls (UpdateHandHudOverlays).
 	bool  m_HandHudDebugLog = false;
 	float m_HandHudDebugLogHz = 1.0f; // max prints per second; 0 disables throttling

@@ -888,9 +888,14 @@ void VR::ParseConfigFile()
     // Right ammo HUD: crop ratio (U max). Removes unused blank area on the right.
     m_RightAmmoHudUVMaxU = std::clamp(getFloat("RightAmmoHudUVMaxU", m_RightAmmoHudUVMaxU), 0.05f, 1.0f);
 
-    // Hand HUD overall overlay alpha (0..1)
-    m_LeftWristHudAlpha = std::clamp(getFloat("LeftWristHudAlpha", m_LeftWristHudAlpha), 0.0f, 1.0f);
-    m_RightAmmoHudAlpha = std::clamp(getFloat("RightAmmoHudAlpha", m_RightAmmoHudAlpha), 0.0f, 1.0f);
+    // Hand HUD alpha (legacy): used as an extra BACKGROUND opacity multiplier (0..1).
+    // We no longer apply IVROverlay::SetOverlayAlpha to the whole overlay because it makes text/bars fade too.
+    const float leftBgMul  = std::clamp(getFloat("LeftWristHudAlpha", m_LeftWristHudAlpha), 0.0f, 1.0f);
+    const float rightBgMul = std::clamp(getFloat("RightAmmoHudAlpha", m_RightAmmoHudAlpha), 0.0f, 1.0f);
+    m_LeftWristHudBgAlpha  = std::clamp(m_LeftWristHudBgAlpha * leftBgMul, 0.0f, 1.0f);
+    m_RightAmmoHudBgAlpha  = std::clamp(m_RightAmmoHudBgAlpha * rightBgMul, 0.0f, 1.0f);
+    m_LeftWristHudAlpha  = 1.0f;
+    m_RightAmmoHudAlpha = 1.0f;
 
     // Left wrist HUD: battery label font scale (1..4)
     m_LeftWristHudBatteryTextScale = std::clamp(getInt("LeftWristHudBatteryTextScale", m_LeftWristHudBatteryTextScale), 1, 4);
@@ -926,6 +931,18 @@ void VR::ParseConfigFile()
     }
 
     m_HandHudMaxHz = std::clamp(getFloat("HandHudMaxHz", m_HandHudMaxHz), 0.0f, 240.0f);
+
+    // Hand HUD: world-quad mode (HMD-relative overlays using GPU textures)
+    m_HandHudWorldQuadEnabled = getBool("HandHudWorldQuadEnabled", m_HandHudWorldQuadEnabled);
+    m_HandHudWorldQuadAttachToControllers = getBool("HandHudWorldQuadAttachToControllers", m_HandHudWorldQuadAttachToControllers);
+    m_HandHudWorldQuadDistanceMeters = std::clamp(getFloat("HandHudWorldQuadDistanceMeters", m_HandHudWorldQuadDistanceMeters), 0.05f, 5.0f);
+    m_HandHudWorldQuadYOffsetMeters = std::clamp(getFloat("HandHudWorldQuadYOffsetMeters", m_HandHudWorldQuadYOffsetMeters), -2.0f, 2.0f);
+    m_HandHudWorldQuadXGapMeters = std::clamp(getFloat("HandHudWorldQuadXGapMeters", m_HandHudWorldQuadXGapMeters), 0.0f, 0.5f);
+    {
+        const Vector def = { m_HandHudWorldQuadAngleOffset.x, m_HandHudWorldQuadAngleOffset.y, m_HandHudWorldQuadAngleOffset.z };
+        const Vector ang = getVector3("HandHudWorldQuadAngleOffset", def);
+        m_HandHudWorldQuadAngleOffset = { ang.x, ang.y, ang.z };
+    }
 
     // Debug: hand HUD update diagnostics (prints periodic state + overlay errors).
     m_HandHudDebugLog = getBool("HandHudDebugLog", m_HandHudDebugLog);
