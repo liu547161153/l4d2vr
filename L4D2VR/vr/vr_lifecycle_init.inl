@@ -1,4 +1,3 @@
-#include "checksum_crc.h"
 
 namespace
 {

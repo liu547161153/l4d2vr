@@ -350,8 +350,6 @@ void VR::UpdateHandHudOverlays()
         m_LastHudReserve = -9999;
         m_LastHudUpg = -9999;
         m_LastHudUpgBits = 0;
-        m_LeftWristHudLastCrc = 0;
-        m_RightAmmoHudLastCrc = 0;
     };
 
     const bool worldQuad = m_HandHudWorldQuadEnabled;
@@ -592,16 +590,12 @@ void VR::UpdateHandHudOverlays()
 
     const vr::TrackedDeviceIndex_t leftRoleIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
     const vr::TrackedDeviceIndex_t rightRoleIndex = m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
-
-    const bool throttle = ShouldThrottle(m_LastHandHudUpdateTime, m_HandHudMaxHz);
-
     if (dbgTick)
     {
         const bool paused = m_Game->m_EngineClient ? m_Game->m_EngineClient->IsPaused() : false;
         Game::logMsg(
-            "[VR][HandHUD] tick: inGame=1 paused=%d pidx=%d lp=%p life=%u maxHz=%.1f throttle=%d offDev=%u gunDev=%u Lrole=%u Rrole=%u",
-            paused ? 1 : 0, playerIndex, (void*)localPlayer, (unsigned)lifeState, m_HandHudMaxHz, throttle ? 1 : 0,
-            (unsigned)offHandIndex, (unsigned)gunHandIndex, (unsigned)leftRoleIndex, (unsigned)rightRoleIndex);
+            "[VR][HandHUD] tick: inGame=1 paused=%d pidx=%d lp=%p life=%u offDev=%u gunDev=%u Lrole=%u Rrole=%u",
+            paused ? 1 : 0, playerIndex, (void*)localPlayer, (unsigned)lifeState, (unsigned)offHandIndex, (unsigned)gunHandIndex, (unsigned)leftRoleIndex, (unsigned)rightRoleIndex);
     }
 
     // Safe memory reads: UpdateHandHudOverlays can run on the present/render thread while the game
@@ -696,6 +690,14 @@ void VR::UpdateHandHudOverlays()
         if (hp < 15) return Rgba{ 255, 60, 60, a };
         if (hp < 40) return Rgba{ 255, 220, 60, a };
         return Rgba{ 60, 220, 255, a };
+    };
+
+    // Incapacitated (倒地/挂边) health coloring: yellow by default, red when <=30%.
+    // We treat "30%" as hp<=30 since this HUD uses a 0-100 style scale for survivor health.
+    auto downHealthColorFor = [&](int hp, unsigned char a = 255) -> Rgba
+    {
+        if (hp <= 30) return Rgba{ 255, 60, 60, a };
+        return Rgba{ 255, 220, 60, a };
     };
 
     auto buildRel = [&](float xOff, float yOff, float zOff, const QAngle& ang) -> vr::HmdMatrix34_t
@@ -809,6 +811,8 @@ void VR::UpdateHandHudOverlays()
             int temp = 0;
             char name[64] = { 0 };
             bool nonAscii = false;
+            bool incap = false;
+            bool ledge = false;
         };
         TeammateRow mates[3]{};
         int mateCount = 0;
@@ -835,6 +839,11 @@ void VR::UpdateHandHudOverlays()
                 row.hp = 0;
                 if (!TryReadInt(pb, kHealthOffset, row.hp)) continue;
                 row.temp = computeDecayedTempHP(i, pb);
+
+                row.incap = false;
+                row.ledge = false;
+                if (TryReadU8(pb, kIsIncapacitatedOffset, ls)) row.incap = (ls != 0);
+                if (TryReadU8(pb, kIsHangingFromLedgeOffset, ls)) row.ledge = (ls != 0);
 
                 player_info_t info{};
                 if (m_Game->m_EngineClient->GetPlayerInfo(i, &info) && info.name[0])
@@ -867,6 +876,8 @@ void VR::UpdateHandHudOverlays()
                 matesHash = Fnv1a32(&row.entIndex, sizeof(row.entIndex), matesHash);
                 matesHash = Fnv1a32(&row.hp, sizeof(row.hp), matesHash);
                 matesHash = Fnv1a32(&row.temp, sizeof(row.temp), matesHash);
+                matesHash = Fnv1a32(&row.incap, sizeof(row.incap), matesHash);
+                matesHash = Fnv1a32(&row.ledge, sizeof(row.ledge), matesHash);
                 matesHash = Fnv1aStr32(row.name, matesHash);
 
                 ++mateCount;
@@ -891,9 +902,6 @@ void VR::UpdateHandHudOverlays()
                 hp, tempHP, incap ? 1 : 0, ledge ? 1 : 0, third ? 1 : 0, throwable, medItem, pillItem, mateCount, matesHash,
                 changed ? 1 : 0, hasAimTarget ? 1 : 0, aimTargetIdx, aimTargetPct, aimChanged ? 1 : 0);
         }
-
-        if (!throttle)
-        {
             m_LastHudHealth = hp;
             m_LastHudTempHealth = tempHP;
             m_LastHudThrowable = throwable;
@@ -933,7 +941,8 @@ void VR::UpdateHandHudOverlays()
             // Start from cached background
             memcpy(s.pixels, m_LeftWristHudBgCache.data(), m_LeftWristHudBgCache.size());
 
-            const Rgba hpCol = healthColorFor(hp, 255);
+            const bool down = (incap || ledge);
+            const Rgba hpCol = down ? downHealthColorFor(hp, 255) : healthColorFor(hp, 255);
             const SevenSegStyle hpSt{ 12, 3, 2, 4 };
             const int hpW = Draw7SegInt(s, 18, 18, (std::max)(0, hp), hpSt, hpCol);
             if (tempHP > 0)
@@ -972,7 +981,7 @@ void VR::UpdateHandHudOverlays()
                     FillRect(s, dotX + 3, dotY + 3, 8, 8, c);
                 dotX += 18;
             };
-            dot(incap, { 255, 60, 60, 255 });
+            dot(incap, { 255, 220, 60, 255 });
             dot(ledge, { 255, 200, 60, 255 });
             dot(third, { 220, 220, 220, 255 });
 
@@ -1013,7 +1022,8 @@ void VR::UpdateHandHudOverlays()
 
                     const int perm = (std::max)(0, (std::min)(100, tr.hp));
                     const int permW = (innerW * perm) / 100;
-                    const Rgba permCol = healthColorFor(perm, 230);
+                    const bool trDown = (tr.incap || tr.ledge);
+                    const Rgba permCol = trDown ? downHealthColorFor(perm, 230) : healthColorFor(perm, 230);
                     FillRect(s, barX + 1, y0 + 1, permW, innerH, permCol);
 
                     const int extra = (std::max)(0, (std::min)(100, tr.temp));
@@ -1055,13 +1065,8 @@ void VR::UpdateHandHudOverlays()
             drawItem(throwable);
             drawItem(medItem);
             drawItem(pillItem);
-
-            // Avoid redundant uploads (helps with perceived flicker when SteamVR is busy)
-            const CRC32_t crc = CRC32_ProcessSingleBuffer(pixels.data(), (int)((size_t)w * (size_t)h * 4));
-            if (crc != (CRC32_t)m_LeftWristHudLastCrc || (worldQuad && !m_D9LeftWristHudDynTex))
+            // Upload every tick (no throttling/no CRC gating).
             {
-                m_LeftWristHudLastCrc = (uint32_t)crc;
-                {
                     vr::EVROverlayError err = vr::VROverlayError_None;
                     {
                         std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
@@ -1107,14 +1112,11 @@ void VR::UpdateHandHudOverlays()
                         if (dbgTick)
                             Game::logMsg("[VR][HandHUD] left upload failed err=%d mode=%s", (int)err, worldQuad ? "world" : "raw");
                         // Important: raw upload failures (often transient when SteamVR is busy) must not
-                        // commit cached state/CRC, otherwise the hand HUD can freeze forever.
+                        // commit cached state, otherwise the hand HUD can freeze forever.
                         resetHandHudCache();
                     }
                 }
                 m_LeftWristHudPixelsFront = backIdx;
-            }
-        }
-
         {
             const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
             m_HandHudDebugLastLeftShowErr = (int)err;
@@ -1140,7 +1142,6 @@ void VR::UpdateHandHudOverlays()
         m_LastHudAimTargetPct = -1;
         m_LastHudAimTargetNameHash = 0;
         m_LastHudTeammatesHash = 0;
-        m_LeftWristHudLastCrc = 0;
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         leftVisible = false;
     }
@@ -1216,8 +1217,6 @@ void VR::UpdateHandHudOverlays()
             m_LastHudReserve = -9999;
             m_LastHudUpg = -9999;
             m_LastHudUpgBits = 0;
-            m_RightAmmoHudLastCrc = 0;
-
             vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
             rightVisible = false;
             goto after_right;
@@ -1288,8 +1287,6 @@ void VR::UpdateHandHudOverlays()
             Game::logMsg("[VR][HandHUD] right: wid=%d clip=%d res=%d upg=%d bits=0x%X pistolInf=%d changed=%d",
                 weaponId, clip, reserve, upg, upgBits, pistolInfinite ? 1 : 0, changed ? 1 : 0);
         }
-        if (!throttle)
-        {
             m_LastHudClip = clip;
             m_LastHudReserve = reserve;
             m_LastHudUpg = upg;
@@ -1373,12 +1370,8 @@ void VR::UpdateHandHudOverlays()
                 std::snprintf(upgBuf, sizeof(upgBuf), "%d", upg);
                 DrawText5x7(s, visW - 52, 22, upgBuf, { 240, 240, 240, 255 }, 2);
             }
-            // Avoid redundant uploads
-            const CRC32_t crc = CRC32_ProcessSingleBuffer(pixels.data(), (int)((size_t)w * (size_t)h * 4));
-            if (crc != (CRC32_t)m_RightAmmoHudLastCrc || (worldQuad && !m_D9RightAmmoHudDynTex))
+            // Upload every tick (no throttling/no CRC gating).
             {
-                m_RightAmmoHudLastCrc = (uint32_t)crc;
-                {
                     vr::EVROverlayError err = vr::VROverlayError_None;
                     {
                         std::lock_guard<std::mutex> _lk(m_VROverlayMutex);
@@ -1425,9 +1418,6 @@ void VR::UpdateHandHudOverlays()
                     }
                 }
                 m_RightAmmoHudPixelsFront = backIdx;
-            }
-        }
-
         {
             const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
             m_HandHudDebugLastRightShowErr = (int)err;
@@ -1444,7 +1434,6 @@ void VR::UpdateHandHudOverlays()
         m_LastHudReserve = -9999;
         m_LastHudUpg = -9999;
         m_LastHudUpgBits = 0;
-        m_RightAmmoHudLastCrc = 0;
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
         rightVisible = false;
     }

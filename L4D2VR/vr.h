@@ -669,11 +669,6 @@ public:
 	SharedTextureHolder m_VKRightAmmoHudDyn{};
 	int m_D9RightAmmoHudDynW = 0;
 	int m_D9RightAmmoHudDynH = 0;
-
-
-
-	float m_HandHudMaxHz = 30.0f;
-	std::chrono::steady_clock::time_point m_LastHandHudUpdateTime{};
 	// Debug logging for hand HUD update stalls (UpdateHandHudOverlays).
 	bool  m_HandHudDebugLog = false;
 	float m_HandHudDebugLogHz = 1.0f; // max prints per second; 0 disables throttling
@@ -738,12 +733,11 @@ public:
 	int  m_LastHudUpgBits = 0;
 	int  m_LastHudWeaponId = -1;
 
-	// Hand HUD rendering caches (avoid re-rendering static background + avoid redundant uploads)
+	// Hand HUD rendering caches (avoid re-rendering static background)
 	std::vector<uint8_t> m_LeftWristHudBgCache{};
 	int m_LeftWristHudBgCacheW = 0;
 	int m_LeftWristHudBgCacheH = 0;
 	uint8_t m_LeftWristHudBgCacheA = 0;
-	uint32_t m_LeftWristHudLastCrc = 0;
 	uint32_t m_LastHudTeammatesHash = 0;
 	uint32_t m_LastHudAimTargetNameHash = 0;
 
@@ -752,9 +746,6 @@ public:
 	int m_RightAmmoHudBgCacheH = 0;
 	int m_RightAmmoHudBgCacheVisW = 0;
 	uint8_t m_RightAmmoHudBgCacheA = 0;
-	uint32_t m_RightAmmoHudLastCrc = 0;
-
-
 	// Dynamic maxima for percentage thresholds (works even if weapon scripts change clip/reserve sizes)
 	int  m_HudMaxClipObserved = 0;
 	int  m_HudMaxReserveObserved = 0;

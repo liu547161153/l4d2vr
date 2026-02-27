@@ -930,7 +930,6 @@ void VR::ParseConfigFile()
         m_RightAmmoHudAngleOffset = { ang.x, ang.y, ang.z };
     }
 
-    m_HandHudMaxHz = std::clamp(getFloat("HandHudMaxHz", m_HandHudMaxHz), 0.0f, 240.0f);
 
     // Hand HUD: world-quad mode (HMD-relative overlays using GPU textures)
     m_HandHudWorldQuadEnabled = getBool("HandHudWorldQuadEnabled", m_HandHudWorldQuadEnabled);
