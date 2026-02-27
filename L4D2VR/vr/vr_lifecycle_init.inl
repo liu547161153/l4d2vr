@@ -216,6 +216,58 @@ namespace
         MultiByteToWideChar(cp, 0, s, -1, out.data(), len);
         return out;
     }
+
+    inline size_t Utf8SafePrefixBytes(const char* s, size_t maxBytes)
+    {
+        if (!s) return 0;
+        size_t i = 0;
+        const unsigned char* p = (const unsigned char*)s;
+        while (i < maxBytes && p[i])
+        {
+            unsigned char c = p[i];
+            size_t clen = 1;
+            if (c < 0x80) clen = 1;
+            else if ((c & 0xE0) == 0xC0) clen = 2;
+            else if ((c & 0xF0) == 0xE0) clen = 3;
+            else if ((c & 0xF8) == 0xF0) clen = 4;
+            else clen = 1; // invalid lead byte, treat as single
+
+            if (i + clen > maxBytes)
+                break;
+
+            // Basic continuation validation (avoid copying broken sequences when the src itself is truncated)
+            if (clen > 1)
+            {
+                bool ok = true;
+                for (size_t j = 1; j < clen; ++j)
+                {
+                    unsigned char cc = p[i + j];
+                    if ((cc & 0xC0) != 0x80) { ok = false; break; }
+                }
+                if (!ok)
+                {
+                    // Broken UTF-8 sequence in the source; stop here to avoid feeding invalid UTF-8 to the renderer.
+                    break;
+                }
+            }
+            i += clen;
+        }
+        return i;
+    }
+
+    inline void Utf8SafeCopy(char* dst, size_t dstSize, const char* src)
+    {
+        if (!dst || dstSize == 0) return;
+        dst[0] = 0;
+        if (!src) return;
+
+        const size_t maxCopy = dstSize - 1;
+        const size_t n = Utf8SafePrefixBytes(src, maxCopy);
+        if (n > 0)
+            memcpy(dst, src, n);
+        dst[n] = 0;
+    }
+
 inline const wchar_t* PickHudFontFaceForText(const std::wstring& ws)
     {
         // Best-effort font picking for broad Unicode coverage on Windows.

@@ -848,7 +848,7 @@ void VR::UpdateHandHudOverlays()
                 player_info_t info{};
                 if (m_Game->m_EngineClient->GetPlayerInfo(i, &info) && info.name[0])
                 {
-                    std::snprintf(row.name, sizeof(row.name), "%s", info.name);
+                    Utf8SafeCopy(row.name, sizeof(row.name), info.name);
                 }
                 else
                 {
@@ -858,7 +858,7 @@ void VR::UpdateHandHudOverlays()
                         const char* sname = survivorNameFromCharacter(survivorChar);
                         if (sname && sname[0])
                         {
-                            std::snprintf(row.name, sizeof(row.name), "%s", sname);
+                            Utf8SafeCopy(row.name, sizeof(row.name), sname);
                         }
                         else
                         {
@@ -990,32 +990,46 @@ void VR::UpdateHandHudOverlays()
                 for (int row = 0; row < mateCount; ++row)
                 {
                     const TeammateRow& tr = mates[row];
-                    const int y0 = 18 + row * 18;
 
-                    // Name: ASCII uses 5x7 (uppercase), Unicode uses GDI fallback.
-                    char nameAscii[16] = { 0 };
+                    // Layout: name ABOVE the bar so it can be wider (fix: CJK names were clipped to 1-2 chars).
+                    const int rowStride = 24;
+                    const int barY = 18 + row * rowStride;
+
+                    const int barX = 170;
+                    const int barW = 78;
+                    const int barH = 10;
+
+                    const int nameX = 124;
+                    const int nameW = (std::max)(16, w - nameX - 10);
+
                     if (!tr.nonAscii)
                     {
+                        char nameAscii[32] = { 0 };
                         int n = 0;
-                        for (; n < 7 && tr.name[n]; ++n)
+                        for (; n < 12 && tr.name[n]; ++n)
                         {
                             char ch = tr.name[n];
                             if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
                             nameAscii[n] = ch;
                         }
                         nameAscii[n] = 0;
-                        DrawText5x7Outlined(s, 124, y0, nameAscii, { 240, 240, 240, 255 }, 1);
+                        DrawText5x7Outlined(s, nameX, barY - 10, nameAscii, { 240, 240, 240, 255 }, 1);
                     }
                     else
                     {
-                        // Tight name area; ellipsis if too long.
-                        DrawHudTextAuto(s, 124, y0 - 2, 42, tr.name, { 240, 240, 240, 255 }, 1, 14);
+                        // Use the same "HUD units" policy (12 ASCII / 6 CJK). If longer: shrink, then hard-truncate.
+                        const int units = Utf8HudUnits(tr.name);
+                        const float scale = HudNameScaleForUnits(units, 12);
+                        const std::string nameFit = (units > 20) ? Utf8TruncateHudUnits(tr.name, 20) : std::string(tr.name);
+
+                        const int basePx = 14;
+                        int fontPx = (int)std::round((float)basePx * scale);
+                        fontPx = (std::max)(10, (std::min)(basePx, fontPx));
+
+                        DrawTextUtf8OutlinedGdiClipped(s, nameX, barY - fontPx, nameW, nameFit.c_str(), fontPx, { 240, 240, 240, 255 });
                     }
 
-                    const int barX = 170;
-                    const int barW = 78;
-                    const int barH = 10;
-                    DrawRect(s, barX, y0, barW, barH, { 60, 60, 60, 190 }, 1);
+                    DrawRect(s, barX, barY, barW, barH, { 60, 60, 60, 190 }, 1);
 
                     const int innerW = barW - 2;
                     const int innerH = barH - 2;
@@ -1024,13 +1038,13 @@ void VR::UpdateHandHudOverlays()
                     const int permW = (innerW * perm) / 100;
                     const bool trDown = (tr.incap || tr.ledge);
                     const Rgba permCol = trDown ? downHealthColorFor(perm, 230) : healthColorFor(perm, 230);
-                    FillRect(s, barX + 1, y0 + 1, permW, innerH, permCol);
+                    FillRect(s, barX + 1, barY + 1, permW, innerH, permCol);
 
                     const int extra = (std::max)(0, (std::min)(100, tr.temp));
                     const int extraW = (innerW * extra) / 100;
                     const int remW = (std::max)(0, innerW - permW);
                     const int tempFillW = (std::max)(0, (std::min)(remW, extraW));
-                    FillRect(s, barX + 1 + permW, y0 + 1, tempFillW, innerH, { 60, 255, 120, 210 });
+                    FillRect(s, barX + 1 + permW, barY + 1, tempFillW, innerH, { 60, 255, 120, 210 });
                 }
             }
 
@@ -1345,7 +1359,6 @@ void VR::UpdateHandHudOverlays()
 
             const int clipW = sevenSegWidth(digitCount((std::max)(0, clip)), clipSt);
             const int resW = pistolInfinite ? 24 : sevenSegWidth(digitCount((std::max)(0, reserve)), resSt);
-            const int slashW = 16;
             const int totalW = clipW + slashW + resW;
             const int yBase = 46;
             int x = (std::max)(6, (visW - totalW) / 2);

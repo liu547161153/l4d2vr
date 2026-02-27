@@ -849,7 +849,7 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
         player_info_t info{};
         if (m_Game->m_EngineClient->GetPlayerInfo(m_AimTeammateDisplayIndex, &info) && info.name[0])
         {
-            std::snprintf(outName, outNameSize, "%s", info.name);
+            Utf8SafeCopy(outName, outNameSize, info.name);
         }
     }
 
@@ -873,7 +873,7 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
             default: break;
             }
             if (sname && sname[0])
-                std::snprintf(outName, outNameSize, "%s", sname);
+                Utf8SafeCopy(outName, outNameSize, sname);
         }
     }
 
