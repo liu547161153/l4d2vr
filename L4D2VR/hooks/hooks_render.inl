@@ -680,16 +680,79 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		revivingOther = HandleValid(reviveTarget);
 	}
 
-	bool engineThirdPersonNow = (localPlayer && (camDistXY > kThirdPersonXY || camDist3D > kThirdPerson3D));
+		// Heuristic (smoothed): in true third-person, the engine camera origin is noticeably away from eye position.
+		// In mat_queue_mode 2, setup.origin can include view-shake / bob while EyePosition() is relatively stable,
+		// and render-thread reads can also be noisier. A raw threshold compare can therefore thrash FP<->TP.
+		// Fix: low-pass filter the *delta vector* + apply hysteresis before deciding "engine third-person".
+		static bool s_engineTpDetectInit = false;
+		static Vector s_engineTpDeltaEmaXY{ 0,0,0 };
+		static float s_engineTpDistEma3D = 0.0f;
+		static bool s_engineTpLatched = false;
+
+		auto ResetEngineTpDetect = [&]()
+			{
+				s_engineTpDetectInit = false;
+				s_engineTpDeltaEmaXY = { 0,0,0 };
+				s_engineTpDistEma3D = 0.0f;
+				s_engineTpLatched = false;
+			};
+
+		if (!localPlayer)
+		{
+			ResetEngineTpDetect();
+		}
+		else
+		{
+			// 0=no smoothing (instant), 0.9=heavy smoothing.
+			constexpr float kDetectSmooth = 0.70f;
+			const float alpha = 1.0f - kDetectSmooth;
+
+			if (!s_engineTpDetectInit)
+			{
+				s_engineTpDeltaEmaXY = camDelta; // camDelta is XY-only
+				s_engineTpDistEma3D = camDist3D;
+				s_engineTpDetectInit = true;
+			}
+			else
+			{
+				s_engineTpDeltaEmaXY.x += (camDelta.x - s_engineTpDeltaEmaXY.x) * alpha;
+				s_engineTpDeltaEmaXY.y += (camDelta.y - s_engineTpDeltaEmaXY.y) * alpha;
+				s_engineTpDeltaEmaXY.z = 0.0f;
+				s_engineTpDistEma3D += (camDist3D - s_engineTpDistEma3D) * alpha;
+			}
+
+			const float emaDistXY = s_engineTpDeltaEmaXY.Length();
+			// Hysteresis: use a lower threshold to exit to prevent oscillation.
+			constexpr float kThirdPersonXY_On = kThirdPersonXY;
+			constexpr float kThirdPersonXY_Off = kThirdPersonXY * 0.75f;
+			constexpr float kThirdPerson3D_On = kThirdPerson3D;
+			constexpr float kThirdPerson3D_Off = kThirdPerson3D * 0.78f;
+
+			if (!s_engineTpLatched)
+			{
+				if (emaDistXY > kThirdPersonXY_On || s_engineTpDistEma3D > kThirdPerson3D_On)
+					s_engineTpLatched = true;
+			}
+			else
+			{
+				if (emaDistXY < kThirdPersonXY_Off && s_engineTpDistEma3D < kThirdPerson3D_Off)
+					s_engineTpLatched = false;
+			}
+		}
+
+		bool engineThirdPersonNow = (localPlayer && s_engineTpLatched);
 
 	// Only force TP when reviving others. Being revived keeps current FP/TP decision.
 	if (revivingOther)
 		engineThirdPersonNow = true;
 
 	// Mounted gun (.50cal/minigun): always force first-person rendering.
-	const bool usingMountedGun = m_VR->IsUsingMountedGun(localPlayer);
-	if (usingMountedGun)
-		engineThirdPersonNow = false;
+		const bool usingMountedGun = m_VR->IsUsingMountedGun(localPlayer);
+		if (usingMountedGun)
+		{
+			engineThirdPersonNow = false;
+			ResetEngineTpDetect();
+		}
 
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
 
@@ -702,8 +765,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (hasViewEntityOverride && !customWalkThirdPersonNow)
 	{
 		const bool unstableViewEntity = playerIncap;
-		if (unstableViewEntity)
-			engineThirdPersonNow = false;
+			if (unstableViewEntity)
+			{
+				engineThirdPersonNow = false;
+				ResetEngineTpDetect();
+			}
 	}
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
 	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
