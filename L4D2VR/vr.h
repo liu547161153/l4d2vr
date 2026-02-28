@@ -1301,6 +1301,7 @@ public:
 	bool UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer);
 	void UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& start, const Vector& end, bool aimLineActive);
 	bool GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outName, size_t outNameSize);
+	int GetIncapMaxHealth() const;
 	// Mounted gun helper: returns the entity the player is currently "using" (turret/mounted gun) if any.
 	// Used to skip that entity in aim-related traces so the aim line doesn't collide with the gun platform.
 	bool IsUsingMountedGun(const C_BasePlayer* localPlayer) const;

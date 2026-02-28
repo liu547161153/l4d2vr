@@ -991,29 +991,31 @@ void VR::UpdateHandHudOverlays()
                 {
                     const TeammateRow& tr = mates[row];
 
-                    // Layout: name ABOVE the bar so it can be wider (fix: CJK names were clipped to 1-2 chars).
+                    // Layout: name + bar on the same row (fix: name/bar looked misaligned).
                     const int rowStride = 24;
                     const int barY = 18 + row * rowStride;
 
-                    const int barX = 170;
-                    const int barW = 78;
+                    const int barW = 62;
                     const int barH = 10;
+                    const int barX = w - 10 - barW;
 
                     const int nameX = 124;
-                    const int nameW = (std::max)(16, w - nameX - 10);
+                    const int nameW = (std::max)(16, barX - nameX - 6);
 
                     if (!tr.nonAscii)
                     {
                         char nameAscii[32] = { 0 };
+                        const int maxChars = (std::max)(1, (std::min)(12, nameW / 6));
                         int n = 0;
-                        for (; n < 12 && tr.name[n]; ++n)
+                        for (; n < maxChars && tr.name[n]; ++n)
                         {
                             char ch = tr.name[n];
                             if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
                             nameAscii[n] = ch;
                         }
                         nameAscii[n] = 0;
-                        DrawText5x7Outlined(s, nameX, barY - 10, nameAscii, { 240, 240, 240, 255 }, 1);
+                        const int nameY = barY + (barH - 7) / 2;
+                        DrawText5x7Outlined(s, nameX, nameY, nameAscii, { 240, 240, 240, 255 }, 1);
                     }
                     else
                     {
@@ -1022,11 +1024,12 @@ void VR::UpdateHandHudOverlays()
                         const float scale = HudNameScaleForUnits(units, 12);
                         const std::string nameFit = (units > 20) ? Utf8TruncateHudUnits(tr.name, 20) : std::string(tr.name);
 
-                        const int basePx = 14;
+                        const int basePx = 10;
                         int fontPx = (int)std::round((float)basePx * scale);
-                        fontPx = (std::max)(10, (std::min)(basePx, fontPx));
+                        fontPx = (std::max)(8, (std::min)(basePx, fontPx));
 
-                        DrawTextUtf8OutlinedGdiClipped(s, nameX, barY - fontPx, nameW, nameFit.c_str(), fontPx, { 240, 240, 240, 255 });
+                        const int nameY = barY + (barH - fontPx) / 2;
+                        DrawTextUtf8OutlinedGdiClipped(s, nameX, nameY, nameW, nameFit.c_str(), fontPx, { 240, 240, 240, 255 });
                     }
 
                     DrawRect(s, barX, barY, barW, barH, { 60, 60, 60, 190 }, 1);
@@ -1034,13 +1037,26 @@ void VR::UpdateHandHudOverlays()
                     const int innerW = barW - 2;
                     const int innerH = barH - 2;
 
-                    const int perm = (std::max)(0, (std::min)(100, tr.hp));
-                    const int permW = (innerW * perm) / 100;
                     const bool trDown = (tr.incap || tr.ledge);
-                    const Rgba permCol = trDown ? downHealthColorFor(perm, 230) : healthColorFor(perm, 230);
+
+                    int permPct = 0;
+                    if (trDown)
+                    {
+                        const int maxDown = GetIncapMaxHealth();
+                        if (maxDown > 0)
+                            permPct = (int)((int64_t)tr.hp * 100 / maxDown);
+                    }
+                    else
+                    {
+                        permPct = tr.hp;
+                    }
+                    permPct = (std::max)(0, (std::min)(100, permPct));
+
+                    const int permW = (innerW * permPct) / 100;
+                    const Rgba permCol = trDown ? downHealthColorFor(permPct, 230) : healthColorFor(permPct, 230);
                     FillRect(s, barX + 1, barY + 1, permW, innerH, permCol);
 
-                    const int extra = (std::max)(0, (std::min)(100, tr.temp));
+                    const int extra = trDown ? 0 : (std::max)(0, (std::min)(100, tr.temp));
                     const int extraW = (innerW * extra) / 100;
                     const int remW = (std::max)(0, innerW - permW);
                     const int tempFillW = (std::max)(0, (std::min)(remW, extraW));

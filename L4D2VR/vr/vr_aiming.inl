@@ -785,6 +785,11 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
     m_AimTeammateDisplayUntil = now + duration_cast<steady_clock::duration>(duration<float>(kLingerSeconds));
 }
 
+int VR::GetIncapMaxHealth() const
+{
+    return 300;
+}
+
 bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outName, size_t outNameSize)
 {
     if (!outName || outNameSize == 0)
@@ -841,7 +846,24 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
         return false;
 
     const int tempHP = (int)std::max(0.0f, std::round(tempHPf));
-    const int eff = std::max(0, std::min(100, hp + tempHP));
+
+    unsigned char downFlag = 0;
+    const bool incap = TryReadU8(pb, kIsIncapacitatedOffset, downFlag) ? (downFlag != 0) : false;
+    const bool ledge = TryReadU8(pb, kIsHangingFromLedgeOffset, downFlag) ? (downFlag != 0) : false;
+    const bool down = incap || ledge;
+
+    int pct = 0;
+    if (down)
+    {
+        const int maxDown = GetIncapMaxHealth();
+        if (maxDown > 0)
+            pct = (int)((int64_t)hp * 100 / maxDown);
+        pct = std::max(0, std::min(100, pct));
+    }
+    else
+    {
+        pct = std::max(0, std::min(100, hp + tempHP));
+    }
 
     // Name: prefer the actual player name (UTF-8). We render via GDI in the HUD when needed.
     if (m_Game->m_EngineClient)
@@ -880,8 +902,8 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
     if (!outName[0])
         std::snprintf(outName, outNameSize, "P%d", m_AimTeammateDisplayIndex);
 
-outPlayerIndex = m_AimTeammateDisplayIndex;
-    outPercent = eff;
+    outPlayerIndex = m_AimTeammateDisplayIndex;
+    outPercent = pct;
     return true;
 }
 
