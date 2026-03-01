@@ -875,6 +875,7 @@ void VR::ParseConfigFile()
     m_ThirdPersonCameraSmoothing = std::clamp(getFloat("ThirdPersonCameraSmoothing", m_ThirdPersonCameraSmoothing), 0.0f, 0.99f);
     m_ThirdPersonMapLoadCooldownMs = std::max(0, getInt("ThirdPersonMapLoadCooldownMs", m_ThirdPersonMapLoadCooldownMs));
     m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
+    m_ThirdPersonDefault = getBool("ThirdPersonDefault", m_ThirdPersonDefault);
     m_HideArms = getBool("HideArms", m_HideArms);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
@@ -977,6 +978,7 @@ void VR::ParseConfigFile()
     m_AimLineOnlyWhenLaserSight = getBool("AimLineOnlyWhenLaserSight", m_AimLineOnlyWhenLaserSight);
     m_AimLineConfigEnabled = m_AimLineEnabled;
     m_BlockFireOnFriendlyAimEnabled = getBool("BlockFireOnFriendlyAimEnabled", m_BlockFireOnFriendlyAimEnabled);
+    m_BlockFireOnFriendlyAimRadiusMeters = std::clamp(getFloat("BlockFireOnFriendlyAimRadiusMeters", m_BlockFireOnFriendlyAimRadiusMeters), 0.0f, 0.5f);
     m_AutoRepeatSemiAutoFire = getBool("AutoRepeatSemiAutoFire", m_AutoRepeatSemiAutoFire);
     m_AutoRepeatSemiAutoFireHz = std::max(0.0f, getFloat("AutoRepeatSemiAutoFireHz", m_AutoRepeatSemiAutoFireHz));
     m_MeleeAimLineEnabled = getBool("MeleeAimLineEnabled", m_MeleeAimLineEnabled);

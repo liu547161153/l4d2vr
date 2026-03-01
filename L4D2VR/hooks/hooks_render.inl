@@ -933,7 +933,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	else if (localPlayer && !allowStateThirdPerson && !tpStateDbg.selfMedkit && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
-	bool renderThirdPerson = customWalkThirdPersonNow || engineThirdPersonNow || tpStateDbg.selfMedkit || (m_VR->m_ThirdPersonHoldFrames > 0);
+	const bool defaultThirdPersonNow = m_VR->m_ThirdPersonDefault && !stateIsDeadOrObserver && !hasViewEntityOverride;
+	bool renderThirdPerson = defaultThirdPersonNow || customWalkThirdPersonNow || engineThirdPersonNow || tpStateDbg.selfMedkit || (m_VR->m_ThirdPersonHoldFrames > 0);
 	if (usingMountedGun)
 	{
 		// Hard override: mounted guns should never be third-person in VR.
@@ -1109,6 +1110,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		}
 	}
 
+
+	// ------------------------------
+	// Third-person wall collision (camera push-in):
+	// When we synthesize/offset a 3P camera (especially state-forced 3P),
+	// the desired camera center can end up behind world geometry.
+	// Trace a small hull from the anchor to the desired camera and clamp the distance
+	// so the camera never passes through walls.
+	// We snap *in* immediately on collision, and ease *out* to avoid popping.
+	// Disabled for scripted view-entity cameras (point_viewcontrol_survivor) to preserve choreography.
+	// ------------------------------
+	static bool s_tpWallCollInit = false;
+	static float s_tpWallCollDist = 0.0f;
+	auto ResetTpWallColl = [&]() { s_tpWallCollInit = false; s_tpWallCollDist = 0.0f; };
+	if (!renderThirdPerson || hasViewEntityOverride || !m_Game || !m_Game->m_EngineTrace)
+		ResetTpWallColl();
 	if (renderThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
@@ -1142,6 +1158,54 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
 		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
+		// Camera collision: clamp camera distance when something blocks the line from the anchor to the desired camera.
+		// This prevents the third-person render camera from going through walls (common when using ThirdPersonVRCameraOffset).
+		if (m_Game && m_Game->m_EngineTrace && !hasViewEntityOverride)
+		{
+			const Vector desiredCamCenter = camCenter;
+			Vector delta = desiredCamCenter - baseCenter;
+			const float desiredDist = delta.Length();
+			if (desiredDist > 0.01f)
+			{
+				Vector dir = delta;
+				VectorNormalize(dir);
+
+				constexpr unsigned int kThirdPersonCamMask = (CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_WINDOW | CONTENTS_GRATE | CONTENTS_PLAYERCLIP);
+				const Vector hullMins(-4.0f, -4.0f, -4.0f);
+				const Vector hullMaxs( 4.0f,  4.0f,  4.0f);
+				Ray_t ray;
+				ray.Init(baseCenter, desiredCamCenter, hullMins, hullMaxs);
+				CTraceFilterSkipNPCsAndPlayers filter((IHandleEntity*)localPlayer, 0);
+				trace_t tr;
+				m_Game->m_EngineTrace->TraceRay(ray, kThirdPersonCamMask, &filter, &tr);
+
+				float targetDist = desiredDist;
+				if (tr.fraction < 1.0f && !tr.allsolid && !tr.startsolid)
+					targetDist = (tr.endpos - baseCenter).Length();
+				else if (tr.allsolid || tr.startsolid)
+					targetDist = 0.0f;
+
+				if (!s_tpWallCollInit)
+				{
+					s_tpWallCollDist = targetDist;
+					s_tpWallCollInit = true;
+				}
+				else
+				{
+					// Snap in instantly when blocked, ease out when unblocked to avoid popping.
+					if (targetDist < s_tpWallCollDist)
+						s_tpWallCollDist = targetDist;
+					else
+						s_tpWallCollDist += (targetDist - s_tpWallCollDist) * 0.18f;
+				}
+
+				camCenter = baseCenter + (dir * s_tpWallCollDist);
+			}
+			else
+			{
+				ResetTpWallColl();
+			}
+		}
 		// Expose the actual VR render camera center used for third-person this frame.
 		// This includes HMD-aim yaw and any VR camera offsets, and is used to keep aim line and overlays aligned.
 		m_VR->m_ThirdPersonRenderCenter = camCenter;

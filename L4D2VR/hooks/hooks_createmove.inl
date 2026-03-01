@@ -22,6 +22,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	static Vector s_nonvrMeleePrevCtrlPos = { 0,0,0 };
 	static Vector s_nonvrMeleePrevHmdPos = { 0,0,0 };
 
+	// Third-person melee: lock cmd->viewangles toward rendered reticle convergence (VR-aware servers)
+	static bool s_tpMeleePrevAttackDown = false;
+	static std::chrono::steady_clock::time_point s_tpMeleeLockUntil{};
+	static QAngle s_tpMeleeLockedAngles = { 0,0,0 };
+
 	if (!cmd)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
@@ -290,6 +295,22 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			cmd->viewangles.y = aim.y;   // yaw
 			cmd->viewangles.z = 0.f;     // roll 一般不用
 
+			// Third-person melee: when holding a melee weapon, steer the server-facing viewangles
+			// toward the rendered reticle convergence point so swings land where the crosshair points.
+			if (m_Game->m_IsMeleeWeaponActive && m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint && !m_VR->m_AdjustingViewmodel)
+			{
+				Vector eyePos = (m_VR->GetViewOriginLeft() + m_VR->GetViewOriginRight()) * 0.5f;
+				Vector dir = m_VR->m_AimConvergePoint - eyePos;
+				if (VectorLength(dir) > 0.001f)
+				{
+					VectorNormalize(dir);
+					QAngle tpAng;
+					QAngle::VectorAngles(dir, tpAng);
+					NormalizeAndClampViewAngles(tpAng);
+					tpAng.z = 0.f;
+					cmd->viewangles = tpAng;
+				}
+			}
 
 			// Non-VR server melee feel: translate a controller swing into a normal melee attack (IN_ATTACK)
 			// This only affects local *input* / presentation. The server still does normal melee resolution.
@@ -499,6 +520,62 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			while (view.y < -180.f) view.y += 360.f;
 			view.z = 0.f;
 			cmd->viewangles = view;
+
+			// Third-person melee: on VR-aware servers, melee swing direction is resolved from cmd->viewangles.
+			// In third-person camera, the rendered reticle ray (m_AimConvergePoint) may not match HMD yaw,
+			// causing "crosshair on target but swing misses". We lock viewangles toward the converge point
+			// for a short window when a melee swing starts, and re-base movement so locomotion doesn't snap.
+			{
+				using clock = std::chrono::steady_clock;
+				const auto now = clock::now();
+				const bool tpMeleeEligible = m_Game->m_IsMeleeWeaponActive && m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint && !m_VR->m_AdjustingViewmodel;
+				if (!tpMeleeEligible)
+				{
+					s_tpMeleePrevAttackDown = false;
+					s_tpMeleeLockUntil = {};
+				}
+				else
+				{
+					Vector eyePos = (m_VR->GetViewOriginLeft() + m_VR->GetViewOriginRight()) * 0.5f;
+					Vector dir = m_VR->m_AimConvergePoint - eyePos;
+					if (VectorLength(dir) > 0.001f)
+					{
+						VectorNormalize(dir);
+						QAngle tpAng;
+						QAngle::VectorAngles(dir, tpAng);
+						NormalizeAndClampViewAngles(tpAng);
+						tpAng.z = 0.f;
+
+						const bool attackDown = (cmd->buttons & (1 << 0)) != 0; // IN_ATTACK
+						if (attackDown && !s_tpMeleePrevAttackDown)
+						{
+							s_tpMeleeLockedAngles = tpAng;
+							const float lockT = std::max(0.0f, m_VR->m_NonVRMeleeAimLockTime);
+							s_tpMeleeLockUntil = now + std::chrono::duration_cast<clock::duration>(std::chrono::duration<float>(lockT));
+						}
+						s_tpMeleePrevAttackDown = attackDown;
+
+						if (now < s_tpMeleeLockUntil)
+						{
+							// Preserve movement direction: convert current cmd movement into world space (old yaw),
+							// then project back into the locked yaw basis.
+							QAngle oldYawOnly(0.f, cmd->viewangles.y, 0.f);
+							Vector oldForward, oldRight, oldUp;
+							QAngle::AngleVectors(oldYawOnly, &oldForward, &oldRight, &oldUp);
+							Vector worldMove = oldForward * cmd->forwardmove + oldRight * cmd->sidemove;
+
+							cmd->viewangles = s_tpMeleeLockedAngles;
+
+							QAngle newYawOnly(0.f, cmd->viewangles.y, 0.f);
+							Vector newForward, newRight, newUp;
+							QAngle::AngleVectors(newYawOnly, &newForward, &newRight, &newUp);
+							cmd->forwardmove = DotProduct(worldMove, newForward);
+							cmd->sidemove = DotProduct(worldMove, newRight);
+						}
+					}
+				}
+			}
+
 		}
 	}
 

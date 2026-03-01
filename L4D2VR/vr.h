@@ -945,6 +945,10 @@ public:
 	vr::VRActionHandle_t m_ActionFriendlyFireBlockToggle;
 	bool m_BlockFireOnFriendlyAimEnabled = false; // toggled by SteamVR binding
 	bool m_AimLineHitsFriendly = false;           // updated from a ray trace (aim ray)
+	// Extra radius (meters) for the friendly-fire aim guard trace.
+	// 0 = legacy thin ray; >0 uses a swept hull (fat ray) to reduce misses from spread/latency.
+	float m_BlockFireOnFriendlyAimRadiusMeters = 0.0f;
+
 
 	// Aim-line teammate HUD hint (left wrist HUD):
 	// - When the aim line stays on a teammate for >= 2 seconds, show "Name:XX%".

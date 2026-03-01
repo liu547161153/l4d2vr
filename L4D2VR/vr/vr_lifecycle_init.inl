@@ -1029,7 +1029,37 @@ void VR::UpdateAutoMatQueueMode()
     }
 
     if (!m_AutoMatQueueMode)
+    {
+        // AutoMatQueueMode=false: do NOT auto-manage multicore, but keep main menu safe.
+        // (Some configs / autoexec.cfg can accidentally leave mat_queue_mode at 2.)
+        if (!m_IsVREnabled)
+            return;
+
+        if (!m_Game || !m_Game->m_EngineClient)
+            return;
+
+        const bool inGame = m_Game->m_EngineClient->IsInGame();
+        if (!inGame)
+        {
+            const int currentMode = m_Game->GetMatQueueMode();
+            if (currentMode != 0)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                const float secondsSinceCmd = (m_AutoMatQueueModeLastCmdTime.time_since_epoch().count() == 0)
+                    ? 9999.0f
+                    : std::chrono::duration<float>(now - m_AutoMatQueueModeLastCmdTime).count();
+
+                // Throttle retries to avoid spamming at menu.
+                if (m_AutoMatQueueModeLastRequested == 0 && secondsSinceCmd < 0.5f)
+                    return;
+
+                m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
+                m_AutoMatQueueModeLastRequested = 0;
+                m_AutoMatQueueModeLastCmdTime = now;
+            }
+        }
         return;
+    }
 
     // Avoid changing engine threading mode when VR rendering is not active.
     if (!m_IsVREnabled)

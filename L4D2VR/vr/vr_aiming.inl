@@ -259,10 +259,45 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     Vector gunStart = gunOriginBase + gunDir * 2.0f;
     Vector gunEnd = gunStart + gunDir * 8192.0f;
 
+    // Friendly-fire guard: optional hull radius around the aim rays (meters -> Source units via VRScale).
+    // This makes the check more conservative, helping with bullet spread, latency, and near-misses.
+    const float hullRadiusUnits = (m_BlockFireOnFriendlyAimRadiusMeters > 0.0f)
+        ? (m_BlockFireOnFriendlyAimRadiusMeters * m_VRScale)
+        : 0.0f;
+    const bool useHull = (hullRadiusUnits > 0.01f);
+    const Vector hullMins = { -hullRadiusUnits, -hullRadiusUnits, -hullRadiusUnits };
+    const Vector hullMaxs = {  hullRadiusUnits,  hullRadiusUnits,  hullRadiusUnits };
+
+	// IMPORTANT: Some Source builds are unstable/crashy if you request CONTENTS_HITBOX in a *hull* trace.
+	// For hull traces we therefore switch to MASK_SHOT_HULL (no CONTENTS_HITBOX).
+	const unsigned int traceMask = useHull ? (unsigned int)MASK_SHOT_HULL : (unsigned int)STANDARD_TRACE_MASK;
+
     // Filters (shared across traces): Skip self + mounted gun use entity + active weapon.
     // This prevents the aim ray from being blocked by your own weapon and flickering on/off.
     CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
     CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
+
+	auto SafeTraceRay = [&](Ray_t& ray, unsigned int mask, CTraceFilter* filter, CGameTrace& out) -> bool
+		{
+			if (!m_Game || !m_Game->m_EngineTrace)
+			{
+				out.fraction = 1.0f;
+				out.m_pEnt = nullptr;
+				return false;
+			}
+			__try
+			{
+				m_Game->m_EngineTrace->TraceRay(ray, mask, filter, &out);
+				return true;
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER)
+			{
+				// Fail closed (no hit) rather than crash the game.
+				out.fraction = 1.0f;
+				out.m_pEnt = nullptr;
+				return false;
+			}
+		};
 
     auto hasValidHandle = [](uint32_t h) -> bool
         {
@@ -387,8 +422,11 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     // 1) Gun/hand ray (aim line)
     CGameTrace traceGun;
     Ray_t rayGun;
-    rayGun.Init(gunStart, gunEnd);
-    m_Game->m_EngineTrace->TraceRay(rayGun, STANDARD_TRACE_MASK, pTraceFilter, &traceGun);
+    if (useHull)
+        rayGun.Init(gunStart, gunEnd, hullMins, hullMaxs);
+    else
+        rayGun.Init(gunStart, gunEnd);
+	SafeTraceRay(rayGun, traceMask, pTraceFilter, traceGun);
     const bool friendlyGun = evalFriendlyHitForTrace(traceGun, gunStart, gunEnd);
 
     // 2) Eye ray (closer to authoritative server bullets, esp. with lag compensation)
@@ -422,8 +460,11 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
         CGameTrace traceEye;
         Ray_t rayEye;
-        rayEye.Init(eyeStart, eyeEnd);
-        m_Game->m_EngineTrace->TraceRay(rayEye, STANDARD_TRACE_MASK, pTraceFilter, &traceEye);
+        if (useHull)
+            rayEye.Init(eyeStart, eyeEnd, hullMins, hullMaxs);
+        else
+            rayEye.Init(eyeStart, eyeEnd);
+		SafeTraceRay(rayEye, traceMask, pTraceFilter, traceEye);
 
         const bool friendlyEye = evalFriendlyHitForTrace(traceEye, eyeStart, eyeEnd);
 
