@@ -258,11 +258,29 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
     Vector gunStart = gunOriginBase + gunDir * 2.0f;
     Vector gunEnd = gunStart + gunDir * 8192.0f;
-
     // Friendly-fire guard: optional hull radius around the aim rays (meters -> Source units via VRScale).
     // This makes the check more conservative, helping with bullet spread, latency, and near-misses.
-    const float hullRadiusUnits = (m_BlockFireOnFriendlyAimRadiusMeters > 0.0f)
-        ? (m_BlockFireOnFriendlyAimRadiusMeters * m_VRScale)
+    //
+    // IMPORTANT: weapon spread increases while moving. If the base radius is 0,
+    // a strict line-trace can miss near-teammate shots that deviate due to movement inaccuracy.
+    // To address this, we automatically add a small, speed-scaled radius while the player is moving.
+    float friendlyGuardRadiusMeters = m_BlockFireOnFriendlyAimRadiusMeters;
+    if (localPlayer && m_VRScale > 1.0f)
+    {
+        // Speed in meters/sec (Source units/sec divided by units-per-meter).
+        const float speed2D_mps = localPlayer->m_vecVelocity.Length2D() / m_VRScale;
+        // Ramp extra radius from ~0 when almost-still to max when running.
+        const float startMps = 0.2f;
+        const float fullMps  = 3.0f;
+        float t = (speed2D_mps - startMps) / (fullMps - startMps);
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+        const float autoExtraMeters = 0.06f * t; // up to +6cm
+        friendlyGuardRadiusMeters = std::clamp(friendlyGuardRadiusMeters + autoExtraMeters, 0.0f, 0.5f);
+    }
+
+    const float hullRadiusUnits = (friendlyGuardRadiusMeters > 0.0f)
+        ? (friendlyGuardRadiusMeters * m_VRScale)
         : 0.0f;
     const bool useHull = (hullRadiusUnits > 0.01f);
     const Vector hullMins = { -hullRadiusUnits, -hullRadiusUnits, -hullRadiusUnits };
