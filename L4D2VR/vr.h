@@ -733,6 +733,11 @@ public:
 	int  m_LastHudUpgBits = 0;
 	int  m_LastHudWeaponId = -1;
 
+	// Right ammo HUD: last drawn hit-target state (for change detection).
+	bool m_LastHudHitVisible = false;
+	int  m_LastHudHitPct = -1;
+	std::uintptr_t m_LastHudHitTag = 0;
+
 	// Hand HUD rendering caches (avoid re-rendering static background)
 	std::vector<uint8_t> m_LeftWristHudBgCache{};
 	int m_LeftWristHudBgCacheW = 0;
@@ -922,6 +927,7 @@ public:
 
 	// Common netvars (from offsets.txt) used by hand HUD overlays
 	static constexpr int kHealthOffset = 0xEC;               // DT_BasePlayer::m_iHealth
+    static constexpr int kMaxHealthOffset = 0x1FDC;           // DT_TerrorPlayer::m_iMaxHealth (also used by special infected players)
 	static constexpr int kAmmoArrayOffset = 0xF24;            // DT_BasePlayer::m_iAmmo (int array)
 	static constexpr int kHealthBufferOffset = 0x1FAC;        // DT_TerrorPlayer::m_healthBuffer (temporary HP)
 	static constexpr int kHealthBufferTimeOffset = 0x1FB0;    // DT_TerrorPlayer::m_healthBufferTime
@@ -949,6 +955,66 @@ public:
 	std::chrono::steady_clock::time_point m_AimTeammateDisplayUntil{};
 	int m_AimTeammateLastRawIndex = -1;
 	std::chrono::steady_clock::time_point m_AimTeammateLastRawTime{};
+
+	// Right ammo HUD: show *aimed* special-infected (and Witch) HP%% (client-side, visual-only).
+	// - Updated from the aim-ray trace (same trace used for the teammate aim hint).
+	// - Hidden immediately when the aim ray leaves the target.
+	std::atomic<long long> m_HudAimTargetTimeTicks{ 0 }; // optional: for debugging/telemetry
+	std::atomic<std::uintptr_t> m_HudAimTargetTag{ 0 };
+	std::atomic<int> m_HudAimTargetMaxHealth{ 0 };
+	std::atomic<int> m_HudAimTargetPct{ 0 };
+
+	inline void ClearAmmoHudAimTarget()
+	{
+		m_HudAimTargetTimeTicks.store(0, std::memory_order_relaxed);
+		m_HudAimTargetTag.store(0, std::memory_order_relaxed);
+		m_HudAimTargetMaxHealth.store(0, std::memory_order_relaxed);
+		m_HudAimTargetPct.store(0, std::memory_order_relaxed);
+	}
+
+	inline void NotifyAmmoHudAimTarget(std::uintptr_t tag, int hp, int maxHealthCandidate)
+	{
+		if (tag == 0 || hp <= 0)
+		{
+			ClearAmmoHudAimTarget();
+			return;
+		}
+
+		// Store timestamp (steady_clock ticks)
+		const auto now = std::chrono::steady_clock::now();
+		m_HudAimTargetTimeTicks.store((long long)now.time_since_epoch().count(), std::memory_order_relaxed);
+
+		const std::uintptr_t prevTag = m_HudAimTargetTag.load(std::memory_order_relaxed);
+		int storedMax = (prevTag == tag) ? m_HudAimTargetMaxHealth.load(std::memory_order_relaxed) : 0;
+
+		int maxHp = maxHealthCandidate;
+		// Sanity clamp: avoid bogus reads for non-player NPCs.
+		if (maxHp <= 0 || maxHp > 20000)
+			maxHp = 0;
+		if (storedMax > 0)
+			maxHp = (maxHp > 0) ? std::max(maxHp, storedMax) : storedMax;
+		if (maxHp <= 0)
+			maxHp = std::max(1, hp);
+		else
+			maxHp = std::max(maxHp, hp);
+
+		m_HudAimTargetTag.store(tag, std::memory_order_relaxed);
+		m_HudAimTargetMaxHealth.store(maxHp, std::memory_order_relaxed);
+
+		const long long num = (long long)hp * 100LL + (long long)maxHp / 2LL;
+		int pct = (int)(num / (long long)maxHp);
+		if (pct < 0) pct = 0;
+		if (pct > 100) pct = 100;
+		if (hp > 0 && pct == 0) pct = 1;
+		m_HudAimTargetPct.store(pct, std::memory_order_relaxed);
+	}
+
+	// Back-compat: old name used by previous hit-based implementation.
+	inline void NotifyAmmoHudHitTarget(std::uintptr_t tag, int hp, int maxHealthCandidate)
+	{
+		NotifyAmmoHudAimTarget(tag, hp, maxHealthCandidate);
+	}
+
 
 	std::chrono::steady_clock::time_point m_LastFriendlyFireGuardLogTime{};
 	// Latch suppression while attack is held (prevents flicker causing intermittent firing).

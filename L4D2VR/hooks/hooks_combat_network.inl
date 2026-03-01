@@ -416,6 +416,11 @@ int Hooks::dClientFireTerrorBullets(
         }
     }
 
+
+
+    // RightAmmoHUD: hit-based target HP bar has been removed.
+// The ammo HUD now shows HP%% for the *aimed* special infected (and Witch) and hides instantly on leave.
+
     return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
 }
 }

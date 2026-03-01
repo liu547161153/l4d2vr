@@ -99,9 +99,10 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
         Vector endEye = eye + eyeDir * maxDistance;
         CGameTrace traceH;
         Ray_t rayH;
-        CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
-        CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-        CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
+        // Skip self + mounted gun use entity + active weapon so the ray doesn't collide with your own gun/turret.
+        C_BaseCombatWeapon* activeWeapon = localPlayer->GetActiveWeapon();
+        CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
+        CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
         rayH.Init(eye, endEye);
         m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, pTraceFilter, &traceH);
 
@@ -155,9 +156,10 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
     // 1) Controller ray -> P
     CGameTrace traceP;
     Ray_t rayP;
-    CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
-    CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-    CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
+    // Skip self + mounted gun use entity + active weapon so the ray doesn't collide with your own gun/turret.
+    C_BaseCombatWeapon* activeWeapon = localPlayer->GetActiveWeapon();
+    CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
+    CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
     rayP.Init(origin, target);
     m_Game->m_EngineTrace->TraceRay(rayP, STANDARD_TRACE_MASK, pTraceFilter, &traceP);
 
@@ -257,10 +259,10 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     Vector gunStart = gunOriginBase + gunDir * 2.0f;
     Vector gunEnd = gunStart + gunDir * 8192.0f;
 
-    // Filters (shared across traces).
-    CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
-    CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-    CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
+    // Filters (shared across traces): Skip self + mounted gun use entity + active weapon.
+    // This prevents the aim ray from being blocked by your own weapon and flickering on/off.
+    CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
+    CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
 
     auto hasValidHandle = [](uint32_t h) -> bool
         {
@@ -655,9 +657,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             CGameTrace trace;
             Ray_t ray;
             C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
-            CTraceFilterSkipSelf tracefilterSelf((IHandleEntity*)localPlayer, 0);
-            CTraceFilterSkipTwoEntities tracefilterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-            CTraceFilter* pTraceFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&tracefilterTwo) : static_cast<CTraceFilter*>(&tracefilterSelf);
+            C_BaseCombatWeapon* activeWeapon = localPlayer->GetActiveWeapon();
+            CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
+            CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
 
             ray.Init(origin, target);
             m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pTraceFilter, &trace);
@@ -704,6 +706,7 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
         m_AimTeammateLastRawIndex = -1;
         if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
             m_AimTeammateDisplayIndex = -1;
+        ClearAmmoHudAimTarget();
         return;
     }
 
@@ -713,24 +716,26 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
         m_AimTeammateLastRawIndex = -1;
         if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
             m_AimTeammateDisplayIndex = -1;
+        ClearAmmoHudAimTarget();
         return;
     }
 
+    C_BaseEntity* hitEnt = nullptr;
     int hitIdx = -1;
     {
         CGameTrace tr;
         Ray_t ray;
 
-        // Skip self and the mounted-gun use entity (if any) so the ray doesn't collide with the turret base.
+        // Skip self + mounted gun use entity + active weapon so the ray doesn't collide with your own gun/turret.
         C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
-        CTraceFilterSkipSelf filterSelf((IHandleEntity*)localPlayer, 0);
-        CTraceFilterSkipTwoEntities filterTwo((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, 0);
-        CTraceFilter* pFilter = mountedUseEnt ? static_cast<CTraceFilter*>(&filterTwo) : static_cast<CTraceFilter*>(&filterSelf);
+        C_BaseCombatWeapon* activeWeapon = localPlayer->GetActiveWeapon();
+        CTraceFilterSkipThreeEntities filterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
+        CTraceFilter* pFilter = static_cast<CTraceFilter*>(&filterThree);
 
         ray.Init(start, end);
         m_Game->m_EngineTrace->TraceRay(ray, STANDARD_TRACE_MASK, pFilter, &tr);
 
-        C_BaseEntity* hitEnt = reinterpret_cast<C_BaseEntity*>(tr.m_pEnt);
+        hitEnt = reinterpret_cast<C_BaseEntity*>(tr.m_pEnt);
         if (hitEnt && hitEnt != localPlayer)
         {
             const unsigned char* eb = reinterpret_cast<const unsigned char*>(hitEnt);
@@ -753,6 +758,73 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
                 }
             }
         }
+
+    // RightAmmoHUD: show HP%% for the *aimed* special infected (and Witch).
+    // Add a tiny sticky window on "target lost" so hitbox-edge jitter / transient netvar reads
+    // don't cause the HUD to flash.
+    constexpr float kAimTargetStickySeconds = 0.08f; // 80ms
+    const long long nowTicks = (long long)now.time_since_epoch().count();
+
+    // NOTE: use a function-static atomic so we don't require adding new members to VR (avoids header mismatch).
+    static std::atomic<long long> s_AimTargetStickyUntilTicks{ 0 };
+
+    auto clearAimTargetWithSticky = [&]()
+    {
+        const long long untilTicks = s_AimTargetStickyUntilTicks.load(std::memory_order_relaxed);
+        if (untilTicks != 0 && nowTicks <= untilTicks)
+            return;
+
+        s_AimTargetStickyUntilTicks.store(0, std::memory_order_relaxed);
+        ClearAmmoHudAimTarget();
+    };
+    auto refreshAimTargetSticky = [&]()
+    {
+        const auto until = now + duration_cast<steady_clock::duration>(duration<float>(kAimTargetStickySeconds));
+        s_AimTargetStickyUntilTicks.store((long long)until.time_since_epoch().count(), std::memory_order_relaxed);
+    };
+    auto updateAimTarget = [&](C_BaseEntity* ent)
+    {
+        if (!ent || !m_Game)
+        {
+            clearAimTargetWithSticky();
+            return;
+        }
+
+        const unsigned char* eb = reinterpret_cast<const unsigned char*>(ent);
+
+        int hp = 0;
+        if (!VR_TryReadI32(eb, kHealthOffset, hp) || hp <= 0)
+        {
+            clearAimTargetWithSticky();
+            return;
+        }
+
+        // L4D2 special infected are usually network-class "CTerrorPlayer" (team 3) with m_zombieClass set.
+        // Witch also reports a special zombieClass value (see GetSpecialInfectedType).
+        const SpecialInfectedType siType = GetSpecialInfectedType(ent);
+        if (siType == SpecialInfectedType::None)
+        {
+            // Ignore common infected (and everything else).
+            clearAimTargetWithSticky();
+            return;
+        }
+
+        // Extra safety: never show for survivors even if zombieClass read glitches.
+        int team = 0;
+        if (VR_TryReadI32(eb, kTeamNumOffset, team) && team == 2)
+        {
+            clearAimTargetWithSticky();
+            return;
+        }
+
+        int maxHp = 0;
+        VR_TryReadI32(eb, kMaxHealthOffset, maxHp);
+        NotifyAmmoHudAimTarget((std::uintptr_t)ent, hp, maxHp);
+        refreshAimTargetSticky();
+    };
+
+    updateAimTarget(hitEnt);
+
     }
 
     if (hitIdx > 0)

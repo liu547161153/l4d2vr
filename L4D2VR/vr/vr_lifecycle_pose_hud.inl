@@ -1270,7 +1270,7 @@ void VR::UpdateHandHudOverlays()
         const int texW = m_RightAmmoHudTexW;
         const int texH = m_RightAmmoHudTexH;
         const SevenSegStyle clipStAuto{ 12, 3, 2, 4 };
-        const SevenSegStyle resStAuto{ 8, 2, 2, 3 };
+        const SevenSegStyle resStAuto{ 12, 3, 2, 4 };
 
         auto digitCountAuto = [](int v) -> int
         {
@@ -1357,7 +1357,7 @@ void VR::UpdateHandHudOverlays()
             const Rgba resColor = resLow ? Rgba{ 255, 80, 80, 230 } : Rgba{ 200, 200, 200, 230 };
 
             const SevenSegStyle clipSt{ 12, 3, 2, 4 };
-            const SevenSegStyle resSt{ 8, 2, 2, 3 };
+            const SevenSegStyle resSt{ 12, 3, 2, 4 };
 
             auto digitCount = [](int v) -> int
             {
@@ -1386,7 +1386,7 @@ void VR::UpdateHandHudOverlays()
             if (pistolInfinite)
                 DrawInfinity(s, x, yBase + 4, 24, 10, { 240, 240, 240, 230 });
             else
-                Draw7SegInt(s, x, yBase + 2, (std::max)(0, reserve), resSt, resColor);
+                Draw7SegInt(s, x, yBase, (std::max)(0, reserve), resSt, resColor);
 
             const bool hasInc = (upgBits & 1) != 0;
             const bool hasExp = (upgBits & 2) != 0;
@@ -1399,6 +1399,34 @@ void VR::UpdateHandHudOverlays()
                 std::snprintf(upgBuf, sizeof(upgBuf), "%d", upg);
                 DrawText5x7(s, visW - 52, 22, upgBuf, { 240, 240, 240, 255 }, 2);
             }
+
+
+            // RightAmmoHUD: show HP%% for the *aimed* special infected (and Witch) (visual-only).
+            // Visible only while the aim ray is on the target.
+            {
+                const std::uintptr_t aimTag = (std::uintptr_t)m_HudAimTargetTag.load(std::memory_order_relaxed);
+                const int aimPct = (std::max)(0, (std::min)(100, m_HudAimTargetPct.load(std::memory_order_relaxed)));
+                if (aimTag != 0 && aimPct > 0)
+                {
+                    const int barX = 16;
+                    const int barW = (std::max)(64, visW - 32);
+                    const int barH = 10;
+                    const int barY = 86;
+
+                    DrawRect(s, barX, barY, barW, barH, { 60, 60, 60, 190 }, 1);
+
+                    const int innerW = barW - 2;
+                    const int fillW = (innerW * aimPct) / 100;
+                    const Rgba fillCol = healthColorFor(aimPct, 230);
+                    FillRect(s, barX + 1, barY + 1, fillW, barH - 2, fillCol);
+
+                    char pctBuf[16];
+                    std::snprintf(pctBuf, sizeof(pctBuf), "%d%%", aimPct);
+                    const Rgba pctCol = healthColorFor(aimPct, 255);
+                    DrawText5x7Outlined(s, barX, barY + 14, pctBuf, pctCol, 2);
+                }
+            }
+
             // Upload every tick (no throttling/no CRC gating).
             {
                     vr::EVROverlayError err = vr::VROverlayError_None;
