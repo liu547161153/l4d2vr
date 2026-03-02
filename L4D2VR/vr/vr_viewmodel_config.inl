@@ -1011,6 +1011,17 @@ void VR::ParseConfigFile()
     // 0 = no wait, 1~3 = balanced, 5+ = prioritize stability, -1 = strong sync (wait up to ~50ms).
     m_QueuedRenderPoseWaitMs = std::clamp(getInt("QueuedRenderPoseWaitMs", m_QueuedRenderPoseWaitMs), -1, 20);
 
+    // Queued rendering: optional render-thread FPS cap (0 = unlimited).
+    m_QueuedRenderMaxFps = std::clamp(getInt("QueuedRenderMaxFps", m_QueuedRenderMaxFps), 0, 240);
+
+
+    // Queued rendering: smart FPS cap engagement. When enabled, the FPS cap is only applied when
+    // the render thread is detected to be outrunning pose updates during motion.
+    m_QueuedRenderMaxFpsSmart = getBool("QueuedRenderMaxFpsSmart", m_QueuedRenderMaxFpsSmart);
+    // Queued rendering: limit how many extra render frames may reuse the same WaitGetPoses() snapshot.
+    // -1 = disabled, 0 = never reuse (most stable), 1 = allow 1 reuse (2 frames per pose), etc.
+    m_QueuedRenderMaxFramesAhead = std::clamp(getInt("QueuedRenderMaxFramesAhead", m_QueuedRenderMaxFramesAhead), -1, 6);
+
     // Queued rendering: render-thread smoothing time constant (ms) for cameraAnchor/rotationOffset.
     // 0 = off, 20~80 typical, higher = smoother but more latency.
     m_QueuedRenderViewSmoothMs = std::clamp(getInt("QueuedRenderViewSmoothMs", m_QueuedRenderViewSmoothMs), 0, 250);

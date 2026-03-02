@@ -254,6 +254,20 @@ public:
 	// In queued (mat_queue_mode!=0) rendering, optionally wait for a fresh pose snapshot on the render thread.
 	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
 	int m_QueuedRenderPoseWaitMs = 1;
+
+	// Queued rendering: optional FPS cap for render thread pacing in queued mode.
+	// 0 = unlimited. Helps avoid flicker when queued mode runs above the stable range.
+	int m_QueuedRenderMaxFps = 0;
+
+
+	// Queued rendering: when true, the Max FPS cap is only applied when instability is detected
+	// (e.g. pose snapshot reuse during locomotion/head turns). This avoids needlessly capping FPS
+	// in already-stable scenes. When false, the cap is always enforced when QueuedRenderMaxFps>0.
+	bool m_QueuedRenderMaxFpsSmart = true;
+	// Queued rendering: limit how many extra render frames may reuse the same WaitGetPoses() snapshot.
+	// -1 = disabled, 0 = never reuse (most stable), 1 = allow 1 reuse (2 frames per pose), etc.
+	int m_QueuedRenderMaxFramesAhead = -1;
+
 	// Queued rendering: render-thread smoothing time constant (ms) for cameraAnchor/rotationOffset.
 	// 0 = off (follow snapshot exactly), 20~80 = typical. Higher = smoother but more latency.
 	int m_QueuedRenderViewSmoothMs = 35;

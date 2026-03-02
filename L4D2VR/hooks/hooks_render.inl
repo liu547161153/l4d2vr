@@ -47,6 +47,55 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Remember which thread is producing render snapshots (used by other render-time hooks).
 		m_VR->m_RenderThreadId.store(static_cast<uint32_t>(GetCurrentThreadId()), std::memory_order_relaxed);
 
+
+		static thread_local bool s_paceInit = false;
+		static thread_local std::chrono::steady_clock::time_point s_nextPace{};
+		static thread_local std::chrono::steady_clock::time_point s_smartPaceUntil{};
+
+		// Optional FPS cap: pace the render thread in queued mode to reduce flicker when FPS runs too high.
+		// Smart mode: only engage the cap when instability is detected (pose reuse during motion),
+		// so stable scenes can run uncapped even if QueuedRenderMaxFps is set.
+		const int maxFpsCfg = std::max(0, m_VR->m_QueuedRenderMaxFps);
+		const bool smartCap = m_VR->m_QueuedRenderMaxFpsSmart;
+		const auto nowP = std::chrono::steady_clock::now();
+		const bool smartActive = (s_smartPaceUntil.time_since_epoch().count() != 0) && (nowP < s_smartPaceUntil);
+		const bool doCapNow = (maxFpsCfg > 0) && (!smartCap || smartActive);
+		if (doCapNow)
+		{
+			const double targetSec = 1.0 / (double)maxFpsCfg;
+			const auto targetDur = std::chrono::duration<double>(targetSec);
+
+			if (!s_paceInit)
+			{
+				s_nextPace = nowP;
+				s_paceInit = true;
+			}
+
+			if (nowP < s_nextPace)
+			{
+				auto rem = s_nextPace - nowP;
+				const auto remUs = std::chrono::duration_cast<std::chrono::microseconds>(rem).count();
+				if (remUs > 1500)
+					Sleep((DWORD)((remUs - 1000) / 1000));
+				while (std::chrono::steady_clock::now() < s_nextPace)
+					SwitchToThread();
+			}
+			else
+			{
+				// If we're far behind (alt-tab/breakpoint), resync.
+				const double late = std::chrono::duration<double>(nowP - s_nextPace).count();
+				if (late > 0.25)
+					s_nextPace = nowP;
+			}
+
+			s_nextPace += std::chrono::duration_cast<std::chrono::steady_clock::duration>(targetDur);
+		}
+		else
+		{
+			// Not currently capping: reset pacing timeline so we don't apply stale delays when re-enabled.
+			s_paceInit = false;
+		}
+
 		// Track per-render-call view-origin deltas to reduce model/camera stepping.
 		// In queued rendering, the engine camera can update at tick-rate (30/60Hz) while we still
 		// render at HMD rate (90Hz+). That can feel like micro-stutter during stick locomotion/turning
@@ -341,73 +390,151 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			const int waitMsCfg = m_VR->m_QueuedRenderPoseWaitMs;
 			int waitMs = waitMsCfg;
 
+			const int maxAheadCfg = std::clamp(m_VR->m_QueuedRenderMaxFramesAhead, -1, 6);
+
+			// Pose snapshot reuse tracking (render-thread local). Used by MaxFramesAhead and smart FPS pacing.
+			static thread_local uint32_t s_lastPoseSeq = 0;
+			static thread_local uint32_t s_lastWaitAttemptSeq = 0;
+			static thread_local int s_poseReuseCount = 0;
+
 			const bool motionNow = (locomotionNow || headTurningNow);
+
+			// Update pose snapshot reuse count early (before optional waiting), so smart pacing can react
+			// even when QueuedRenderPoseWaitMs==0 and MaxFramesAhead is disabled.
+			if (havePoses && poseSeq != 0)
+			{
+				if (poseSeq != s_lastPoseSeq)
+					s_poseReuseCount = 0;
+				else
+					++s_poseReuseCount;
+			}
+
+			// Smart FPS pacing pre-trigger: if we're moving/turning and reusing the same pose snapshot,
+			// engage the FPS cap for a short window (hysteresis).
+			if (m_VR->m_QueuedRenderMaxFps > 0 && m_VR->m_QueuedRenderMaxFpsSmart)
+			{
+				if (motionNow && havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && s_poseReuseCount >= 1)
+				{
+					const int holdMs = (s_poseReuseCount >= 2) ? 500 : 250;
+					auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(holdMs);
+					if (s_smartPaceUntil.time_since_epoch().count() == 0 || until > s_smartPaceUntil)
+						s_smartPaceUntil = until;
+				}
+			}
 
 			// Auto-stabilize: in queued mode, if we're locomoting/turning but the render thread keeps reusing
 			// the same pose snapshot, it feels like "stutter + ghosting". A tiny wait here encourages a fresh pose.
 			if (waitMs == 0 && queueMode == 2 && motionNow)
 				waitMs = 2;
 
-			if (waitMs != 0 && m_VR->m_PoseWaiterEvent)
+			// Enforced frames-ahead limiter: if enabled, we may need to wait even when waitMs==0.
+			if ((waitMs != 0 || maxAheadCfg >= 0) && m_VR->m_PoseWaiterEvent)
 			{
-				static thread_local uint32_t s_lastPoseSeq = 0;
-				static thread_local uint32_t s_lastWaitAttemptSeq = 0;
 
-				const DWORD timeoutMs = (waitMs < 0) ? 50u : (DWORD)std::clamp(waitMs, 0, 200);
+				const int maxFpsCfg = std::max(0, m_VR->m_QueuedRenderMaxFps);
+				DWORD timeoutMs = (waitMs < 0) ? 50u : (DWORD)std::clamp(waitMs, 0, 200);
+
+				DWORD aheadTimeoutMs = 0;
+				if (maxAheadCfg >= 0)
+				{
+					if (maxFpsCfg > 0)
+					{
+						const double intervalMs = (1000.0 / (double)maxFpsCfg);
+						aheadTimeoutMs = (DWORD)std::clamp((int)std::ceil(intervalMs) + 3, 2, 50);
+					}
+					else
+					{
+						aheadTimeoutMs = 15u;
+					}
+				}
+
+				DWORD effectiveTimeoutMs = timeoutMs;
+				if (effectiveTimeoutMs == 0 && maxAheadCfg >= 0)
+					effectiveTimeoutMs = aheadTimeoutMs;
 
 				// Early-frame assist: if we have no snapshot yet, wait briefly for the first one.
-				if (!havePoses && timeoutMs > 0)
+				if (!havePoses && effectiveTimeoutMs > 0)
 				{
-					const DWORD firstWait = (timeoutMs < 5u) ? timeoutMs : 5u;
+					const DWORD firstWait = (effectiveTimeoutMs < 5u) ? effectiveTimeoutMs : 5u;
 					if (WaitForSingleObject(m_VR->m_PoseWaiterEvent, firstWait) == WAIT_OBJECT_0)
 						havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq);
 				}
 
-				// If we already consumed this snapshot, optionally wait for the next one (only once per pose seq).
-				if (havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && poseSeq != s_lastWaitAttemptSeq && timeoutMs > 0)
+
+				const bool exceededAhead =
+					(maxAheadCfg >= 0) &&
+					havePoses && poseSeq != 0 &&
+					poseSeq == s_lastPoseSeq &&
+					(s_poseReuseCount > maxAheadCfg);
+
+				// Smart FPS pacing trigger (strong): if MaxFramesAhead is exceeded during motion, extend the
+				// pacing window so the render thread settles into a stable cadence.
+				if (m_VR->m_QueuedRenderMaxFps > 0 && m_VR->m_QueuedRenderMaxFpsSmart)
 				{
-					// If the user didn't opt into waiting but we're moving/turning and reusing the same pose,
-					// do a tiny auto-wait to avoid "stutter + ghosting" during thumbstick locomotion / head turns.
-					if (waitMsCfg == 0 && waitMs > 0)
+					if (motionNow && exceededAhead)
 					{
-						static thread_local std::chrono::steady_clock::time_point s_lastAutoWaitLog{};
-						const auto nowLog = std::chrono::steady_clock::now();
-						if (s_lastAutoWaitLog.time_since_epoch().count() == 0 ||
-							std::chrono::duration<float>(nowLog - s_lastAutoWaitLog).count() > 1.0f)
-						{
-							Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d headturn=%d) poseSeq=%u",
-										(unsigned)timeoutMs, motionNow ? 1 : 0, headTurningNow ? 1 : 0, (unsigned)poseSeq);
-							s_lastAutoWaitLog = nowLog;
-						}
+						const int holdMs = 600;
+						auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(holdMs);
+						if (s_smartPaceUntil.time_since_epoch().count() == 0 || until > s_smartPaceUntil)
+							s_smartPaceUntil = until;
 					}
+				}
 
-					const uint32_t wantSeq = poseSeq;
-					s_lastWaitAttemptSeq = wantSeq;
-					DWORD startTicks = GetTickCount();
-					DWORD remaining = timeoutMs;
-					while (remaining > 0)
+
+				// If we already consumed this snapshot, optionally wait for the next one.
+				if (havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && effectiveTimeoutMs > 0)
+				{
+					const bool shouldWaitNext = exceededAhead || (timeoutMs > 0 && poseSeq != s_lastWaitAttemptSeq);
+					if (shouldWaitNext)
 					{
-						const DWORD wr = WaitForSingleObject(m_VR->m_PoseWaiterEvent, remaining);
-						if (wr != WAIT_OBJECT_0)
-							break;
-
-						uint32_t poseSeq2 = 0;
-						if (m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq2) && poseSeq2 != 0 && poseSeq2 != wantSeq)
+						// If the user didn't opt into waiting but we're moving/turning and reusing the same pose,
+						// do a tiny auto-wait to avoid "stutter + ghosting" during thumbstick locomotion / head turns.
+						if (!exceededAhead && waitMsCfg == 0 && waitMs > 0)
 						{
-							poseSeq = poseSeq2;
-							break;
+							static thread_local std::chrono::steady_clock::time_point s_lastAutoWaitLog{};
+							const auto nowLog = std::chrono::steady_clock::now();
+							if (s_lastAutoWaitLog.time_since_epoch().count() == 0 ||
+								std::chrono::duration<float>(nowLog - s_lastAutoWaitLog).count() > 1.0f)
+							{
+								Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d headturn=%d) poseSeq=%u",
+									(unsigned)timeoutMs, motionNow ? 1 : 0, headTurningNow ? 1 : 0, (unsigned)poseSeq);
+								s_lastAutoWaitLog = nowLog;
+							}
 						}
 
-						const DWORD elapsed = GetTickCount() - startTicks;
-						if (elapsed >= timeoutMs)
-							break;
-						remaining = timeoutMs - elapsed;
+						const uint32_t wantSeq = poseSeq;
+						s_lastWaitAttemptSeq = wantSeq;
+						DWORD startTicks = GetTickCount();
+						DWORD remaining = effectiveTimeoutMs;
+						while (remaining > 0)
+						{
+							const DWORD wr = WaitForSingleObject(m_VR->m_PoseWaiterEvent, remaining);
+							if (wr != WAIT_OBJECT_0)
+								break;
+
+							uint32_t poseSeq2 = 0;
+							if (m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq2) && poseSeq2 != 0 && poseSeq2 != wantSeq)
+							{
+								poseSeq = poseSeq2;
+								// New pose -> reset reuse counter.
+								s_poseReuseCount = 0;
+								break;
+							}
+
+							const DWORD elapsed = GetTickCount() - startTicks;
+							if (elapsed >= effectiveTimeoutMs)
+								break;
+							remaining = effectiveTimeoutMs - elapsed;
+						}
 					}
 				}
 
 				if (havePoses)
 					s_lastPoseSeq = poseSeq;
 			}
+			// Update last poseSeq even when we didn't enter the wait block.
+			if (havePoses && poseSeq != 0)
+				s_lastPoseSeq = poseSeq;
 
 			// Periodic diagnostics (piggyback on QueuedViewmodelStabilizeDebugLog).
 			if (m_VR->m_QueuedViewmodelStabilizeDebugLog)
