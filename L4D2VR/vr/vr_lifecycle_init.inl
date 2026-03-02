@@ -204,17 +204,66 @@ namespace
         inline std::wstring Utf8ToWideFallback(const char* s)
     {
         if (!s || !*s) return L"";
-        UINT cp = CP_UTF8;
-        int len = MultiByteToWideChar(cp, 0, s, -1, nullptr, 0);
-        if (len <= 0)
+
+        auto decode = [&](UINT cp, DWORD flags) -> std::wstring
         {
-            cp = CP_ACP;
-            len = MultiByteToWideChar(cp, 0, s, -1, nullptr, 0);
+            int len = MultiByteToWideChar(cp, flags, s, -1, nullptr, 0);
+            if (len <= 0) return L"";
+            std::wstring out((size_t)len - 1, L'\0');
+            MultiByteToWideChar(cp, flags, s, -1, out.data(), len);
+            return out;
+        };
+
+        // 1) Strict UTF-8 first (reject invalid sequences).
+        std::wstring w = decode(CP_UTF8, MB_ERR_INVALID_CHARS);
+        if (!w.empty())
+            return w;
+
+        // 2) Score candidates from a few likely encodings.
+        auto score = [&](const std::wstring& ws) -> int
+        {
+            int sc = 0;
+            for (wchar_t ch : ws)
+            {
+                const unsigned int c = (unsigned int)ch;
+                if (c == 0xFFFD) { sc -= 20; continue; } // replacement char
+                if (c < 0x20 && ch != L' ' && ch != L'\t') { sc -= 10; continue; } // control
+                if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF)) sc += 10; // CJK
+                else if (c >= 0x3040 && c <= 0x30FF) sc += 10; // Kana
+                else if (c >= 0xAC00 && c <= 0xD7AF) sc += 10; // Hangul
+                else if (c < 0x80) sc += 2;
+                else sc += 3;
+            }
+            return sc;
+        };
+
+        struct Cand { UINT cp; DWORD flags; int bonus; };
+        const Cand cands[] =
+        {
+            { CP_UTF8, 0, 0 },      // permissive UTF-8
+            { CP_ACP,  0, 2 },      // system ANSI codepage
+            { 936u,    0, 6 },      // GBK
+            { 950u,    0, 6 },      // Big5
+            { 932u,    0, 6 },      // Shift-JIS
+            { 949u,    0, 6 },      // Korean (EUC-KR)
+        };
+
+        int bestScore = -1000000000;
+        std::wstring best;
+        for (const auto& c : cands)
+        {
+            std::wstring cand = decode(c.cp, c.flags);
+            if (cand.empty())
+                continue;
+
+            const int sc = score(cand) + c.bonus;
+            if (sc > bestScore)
+            {
+                bestScore = sc;
+                best.swap(cand);
+            }
         }
-        if (len <= 0) return L"";
-        std::wstring out((size_t)len - 1, L'\0');
-        MultiByteToWideChar(cp, 0, s, -1, out.data(), len);
-        return out;
+        return best;
     }
 
     inline size_t Utf8SafePrefixBytes(const char* s, size_t maxBytes)
@@ -263,6 +312,20 @@ namespace
 
         const size_t maxCopy = dstSize - 1;
         const size_t n = Utf8SafePrefixBytes(src, maxCopy);
+        if (n > 0)
+            memcpy(dst, src, n);
+        dst[n] = 0;
+    }
+
+    inline void ByteSafeCopy(char* dst, size_t dstSize, const char* src)
+    {
+        if (!dst || dstSize == 0) return;
+        dst[0] = 0;
+        if (!src) return;
+
+        const size_t maxCopy = dstSize - 1;
+        size_t n = 0;
+        for (; n < maxCopy && src[n]; ++n) {}
         if (n > 0)
             memcpy(dst, src, n);
         dst[n] = 0;
@@ -1003,35 +1066,31 @@ void VR::UpdateAutoMatQueueMode()
             return;
 
         const bool inGame = m_Game->m_EngineClient->IsInGame();
-        if (!inGame)
+        if (inGame)
         {
-            const int currentMode = m_Game->GetMatQueueMode();
-            // Accept 0 or 1; if it's anything else (e.g. 2), force 0.
-            if (currentMode != 0 && currentMode != 1)
-            {
-                const auto now = std::chrono::steady_clock::now();
-                const float secondsSinceCmd = (m_AutoMatQueueModeLastCmdTime.time_since_epoch().count() == 0)
-                    ? 9999.0f
-                    : std::chrono::duration<float>(now - m_AutoMatQueueModeLastCmdTime).count();
-
-                // Throttle retries to avoid spamming at menu.
-                if (m_AutoMatQueueModeLastRequested == 0 && secondsSinceCmd < 0.5f)
-                    return;
-
-                m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
-                m_AutoMatQueueModeLastRequested = 0;
-                m_AutoMatQueueModeLastCmdTime = now;
-
-                Game::logMsg("[VR] MouseMode menu: mat_queue_mode -> 0 (was %d)", currentMode);
-            }
+            // Reset so the next trip back to the main menu re-applies the safety clamp.
+            if (m_AutoMatQueueModeLastRequested == 0)
+                m_AutoMatQueueModeLastRequested = -999;
+            return;
         }
+
+        // Main menu: force once per menu entry (no spam).
+        if (m_AutoMatQueueModeLastRequested == 0)
+            return;
+
+        m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
+        m_AutoMatQueueModeLastRequested = 0;
+        m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
+
+        Game::logMsg("[VR] MouseMode menu: mat_queue_mode -> 0");
         return;
     }
 
+
     if (!m_AutoMatQueueMode)
     {
-        // AutoMatQueueMode=false: do NOT auto-manage multicore, but keep main menu safe.
-        // (Some configs / autoexec.cfg can accidentally leave mat_queue_mode at 2.)
+        // AutoMatQueueMode=false: do NOT auto-manage multicore, but keep the main menu safe.
+        // We force mat_queue_mode 0 once each time we are in the main menu (i.e. not in-game).
         if (!m_IsVREnabled)
             return;
 
@@ -1039,27 +1098,26 @@ void VR::UpdateAutoMatQueueMode()
             return;
 
         const bool inGame = m_Game->m_EngineClient->IsInGame();
-        if (!inGame)
+        if (inGame)
         {
-            const int currentMode = m_Game->GetMatQueueMode();
-            if (currentMode != 0)
-            {
-                const auto now = std::chrono::steady_clock::now();
-                const float secondsSinceCmd = (m_AutoMatQueueModeLastCmdTime.time_since_epoch().count() == 0)
-                    ? 9999.0f
-                    : std::chrono::duration<float>(now - m_AutoMatQueueModeLastCmdTime).count();
-
-                // Throttle retries to avoid spamming at menu.
-                if (m_AutoMatQueueModeLastRequested == 0 && secondsSinceCmd < 0.5f)
-                    return;
-
-                m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
-                m_AutoMatQueueModeLastRequested = 0;
-                m_AutoMatQueueModeLastCmdTime = now;
-            }
+            // Reset so the next trip back to the main menu re-applies the safety clamp.
+            if (m_AutoMatQueueModeLastRequested == 0)
+                m_AutoMatQueueModeLastRequested = -999;
+            return;
         }
+
+        // Main menu: force once per menu entry (no spam).
+        if (m_AutoMatQueueModeLastRequested == 0)
+            return;
+
+        m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
+        m_AutoMatQueueModeLastRequested = 0;
+        m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
+
+        Game::logMsg("[VR] Menu safety: mat_queue_mode -> 0 (AutoMatQueueMode=false)");
         return;
     }
+
 
     // Avoid changing engine threading mode when VR rendering is not active.
     if (!m_IsVREnabled)

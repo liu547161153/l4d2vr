@@ -997,14 +997,8 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
     }
 
     // Name: prefer the actual player name (UTF-8). We render via GDI in the HUD when needed.
-    if (m_Game->m_EngineClient)
-    {
-        player_info_t info{};
-        if (m_Game->m_EngineClient->GetPlayerInfo(m_AimTeammateDisplayIndex, &info) && info.name[0])
-        {
-            Utf8SafeCopy(outName, outNameSize, info.name);
-        }
-    }
+    // NOTE: GetPlayerInfo() struct layouts vary across Source branches; use a robust extractor.
+    GetPlayerNameUtf8Safe(m_Game ? m_Game->m_EngineClient : nullptr, m_AimTeammateDisplayIndex, outName, outNameSize);
 
     // Fallback: survivor character label (offline / bots / name unavailable).
     if (!outName[0])
@@ -1026,7 +1020,7 @@ bool VR::GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outNa
             default: break;
             }
             if (sname && sname[0])
-                Utf8SafeCopy(outName, outNameSize, sname);
+                ByteSafeCopy(outName, outNameSize, sname);
         }
     }
 

@@ -804,28 +804,62 @@ void VR::UpdateHandHudOverlays()
         const int medItem   = getItemSlotWeaponId(3);
         const int pillItem  = getItemSlotWeaponId(4);
 
-        // 本关击杀数（普通/特感）：使用 DT_TerrorPlayer::m_missionZombieKills。
+        // 本关击杀数（普通/特感）：优先使用 DT_TerrorPlayer::m_missionZombieKills（章/关统计）。
+        // 某些服务器/状态下 mission 不更新或为 0，此时回退到 DT_TerrorPlayer::m_checkpointZombieKills。
         // [0] 普通僵尸；[1..kZombieKillsMaxIndex] 视为特感类别并求和。
         int commonKills = 0;
         int specialKills = 0;
+        int commonKillsM = 0, specialKillsM = 0;
+        int commonKillsC = 0, specialKillsC = 0;
+        char killSrc = 'M';
 
         int localTeam = 0;
         TryReadInt(pBase, kTeamNumOffset, localTeam);
         if (localTeam == 2)
         {
-            int v = 0;
-            if (TryReadInt(pBase, kMissionZombieKillsOffset + 0 * 4, v))
-                commonKills = (std::max)(0, v);
-
-            int sum = 0;
-            for (int i = 1; i <= kZombieKillsMaxIndex; ++i)
+            auto readKillsArray = [&](int baseOff, int& outCommon, int& outSpecial) -> bool
             {
-                if (TryReadInt(pBase, kMissionZombieKillsOffset + i * 4, v))
-                    sum += (std::max)(0, v);
-            }
-            specialKills = sum;
-        }
+                int v = 0;
+                bool okAny = false;
 
+                if (TryReadInt(pBase, baseOff + 0 * 4, v))
+                {
+                    outCommon = (std::max)(0, v);
+                    okAny = true;
+                }
+
+                int sum = 0;
+                for (int i = 1; i <= kZombieKillsMaxIndex; ++i)
+                {
+                    if (TryReadInt(pBase, baseOff + i * 4, v))
+                    {
+                        sum += (std::max)(0, v);
+                        okAny = true;
+                    }
+                }
+                outSpecial = sum;
+                return okAny;
+            };
+
+            const bool okM = readKillsArray(kMissionZombieKillsOffset, commonKillsM, specialKillsM);
+            const bool okC = readKillsArray(kCheckpointZombieKillsOffset, commonKillsC, specialKillsC);
+
+            const int sumM = commonKillsM + specialKillsM;
+            const int sumC = commonKillsC + specialKillsC;
+
+            if ((!okM || sumM == 0) && (okC && sumC > 0))
+            {
+                commonKills = commonKillsC;
+                specialKills = specialKillsC;
+                killSrc = 'C';
+            }
+            else
+            {
+                commonKills = commonKillsM;
+                specialKills = specialKillsM;
+                killSrc = 'M';
+            }
+        }
 
 
         // Snapshot teammates so changes in THEIR HP/name also trigger redraw (fix: teammates only updated when local changed).
@@ -895,7 +929,7 @@ void VR::UpdateHandHudOverlays()
                 player_info_t info{};
                 if (m_Game->m_EngineClient->GetPlayerInfo(i, &info) && info.name[0])
                 {
-                    Utf8SafeCopy(row.name, sizeof(row.name), info.name);
+                    ByteSafeCopy(row.name, sizeof(row.name), info.name);
                 }
                 else
                 {
@@ -905,7 +939,7 @@ void VR::UpdateHandHudOverlays()
                         const char* sname = survivorNameFromCharacter(survivorChar);
                         if (sname && sname[0])
                         {
-                            Utf8SafeCopy(row.name, sizeof(row.name), sname);
+                            ByteSafeCopy(row.name, sizeof(row.name), sname);
                         }
                         else
                         {
@@ -948,8 +982,8 @@ void VR::UpdateHandHudOverlays()
 
         if (dbgTick)
         {
-            Game::logMsg("[VR][HandHUD] left: hp=%d temp=%d incap=%d ledge=%d third=%d items=%d,%d,%d kills=%d/%d mates=%d hash=0x%08X changed=%d aim=%d idx=%d pct=%d aimChanged=%d",
-                hp, tempHP, incap ? 1 : 0, ledge ? 1 : 0, third ? 1 : 0, throwable, medItem, pillItem, commonKills, specialKills, mateCount, matesHash,
+            Game::logMsg("[VR][HandHUD] left: hp=%d temp=%d incap=%d ledge=%d third=%d items=%d,%d,%d kills=%d/%d(src=%c) mates=%d hash=0x%08X changed=%d aim=%d idx=%d pct=%d aimChanged=%d",
+                hp, tempHP, incap ? 1 : 0, ledge ? 1 : 0, third ? 1 : 0, throwable, medItem, pillItem, commonKills, specialKills, killSrc, mateCount, matesHash,
                 changed ? 1 : 0, hasAimTarget ? 1 : 0, aimTargetIdx, aimTargetPct, aimChanged ? 1 : 0);
         }
             m_LastHudHealth = hp;

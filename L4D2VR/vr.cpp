@@ -294,6 +294,125 @@ inline QAngle OneEuroFilterAngles(
     return xHat;
 }
 
+// ----------------------------
+// Player name extraction (robust across engine struct variants)
+// ----------------------------
+
+static inline size_t BoundedStrLen(const char* s, size_t maxLen)
+{
+    if (!s) return 0;
+    size_t n = 0;
+    for (; n < maxLen; ++n)
+    {
+        if (s[n] == '\0')
+            break;
+    }
+    return n;
+}
+
+static inline bool LooksLikeSteamGuidOrJunk(const char* s)
+{
+    if (!s || !*s) return true;
+    // Reject obvious non-name payloads that could be misread if the struct layout is off.
+    // (Examples: STEAM_*, BOT, GUID-like tokens)
+    if (std::strncmp(s, "STEAM_", 6) == 0) return true;
+    if (std::strncmp(s, "BOT", 3) == 0) return true;
+    if (std::strncmp(s, "STEAM_ID_", 9) == 0) return true;
+    return false;
+}
+
+static inline bool CopyNormalizedNameCandidate(const char* src, size_t srcMax, char* dst, size_t dstSize)
+{
+    if (!dst || dstSize == 0) return false;
+    dst[0] = 0;
+    if (!src) return false;
+
+    // Require a terminating NUL within srcMax.
+    const size_t rawLen = BoundedStrLen(src, srcMax);
+    if (rawLen == 0 || rawLen >= srcMax)
+        return false;
+
+    // Trim leading ASCII whitespace/control chars.
+    size_t b = 0;
+    while (b < rawLen)
+    {
+        const unsigned char c = (unsigned char)src[b];
+        if (c > 0x20) break;
+        ++b;
+    }
+    if (b >= rawLen)
+        return false;
+
+    // Trim trailing ASCII whitespace.
+    size_t e = rawLen;
+    while (e > b)
+    {
+        const unsigned char c = (unsigned char)src[e - 1];
+        if (c > 0x20) break;
+        --e;
+    }
+    if (e <= b)
+        return false;
+
+    // Heuristic: reject payloads that are clearly not player names.
+    if (LooksLikeSteamGuidOrJunk(src + b))
+        return false;
+
+    // Heuristic: reject strings with control chars in the trimmed region.
+    int printable = 0;
+    int controls = 0;
+    for (size_t i = b; i < e; ++i)
+    {
+        const unsigned char c = (unsigned char)src[i];
+        if (c == 0) break;
+        if (c < 0x20) ++controls;
+        else ++printable;
+    }
+    if (printable <= 0 || controls > 0)
+        return false;
+
+    const size_t want = e - b;
+    const size_t ncopy = (want < (dstSize - 1)) ? want : (dstSize - 1);
+    std::memcpy(dst, src + b, ncopy);
+    dst[ncopy] = 0;
+    return dst[0] != 0;
+}
+
+// Best-effort UTF-8 player name. Works even if our player_info_t struct is slightly mismatched
+// by probing multiple plausible locations for the name string.
+static inline bool GetPlayerNameUtf8Safe(IEngineClient* engine, int entIndex, char* outName, size_t outNameSize)
+{
+    if (!outName || outNameSize == 0)
+        return false;
+    outName[0] = 0;
+    if (!engine || entIndex <= 0)
+        return false;
+
+    player_info_t info{};
+    if (!engine->GetPlayerInfo(entIndex, &info))
+        return false;
+
+    // 1) Our declared field (common case).
+    if (CopyNormalizedNameCandidate(info.name, sizeof(info.name), outName, outNameSize))
+        return true;
+
+    // 2) Some builds place name at the beginning or after an 8-byte XUID.
+    // Probe a few common offsets so short names don't become "empty" due to offset mismatch.
+    const char* blob = reinterpret_cast<const char*>(&info);
+    if (CopyNormalizedNameCandidate(blob + 0, 128, outName, outNameSize))
+        return true;
+    if (CopyNormalizedNameCandidate(blob + 8, 128, outName, outNameSize))
+        return true;
+    if (CopyNormalizedNameCandidate(blob + 16, 128, outName, outNameSize))
+        return true;
+
+    // 3) Some builds may provide a usable friends/display name.
+    if (CopyNormalizedNameCandidate(info.friendsName, sizeof(info.friendsName), outName, outNameSize))
+        return true;
+
+    return false;
+}
+
 #include "vr/vr_lifecycle_init.inl"
 #include "vr/vr_lifecycle_update.inl"
 #include "vr/vr_lifecycle_pose_hud.inl"
