@@ -778,6 +778,8 @@ public:
 	int  m_LastHudThrowable = -1;
 	int  m_LastHudMedItem = -1;
 	int  m_LastHudPillItem = -1;
+		int  m_LastHudCommonKills = -9999;
+		int  m_LastHudSpecialKills = -9999;
 	bool m_LastHudIncap = false;
 	bool m_LastHudLedge = false;
 	bool m_LastHudThirdStrike = false;
@@ -995,6 +997,8 @@ public:
 	static constexpr int kSurvivorCharacterOffset = 0x1C8C;  // DT_TerrorPlayer::m_survivorCharacter
 	static constexpr int kIsOnThirdStrikeOffset = 0x1EC0;     // DT_TerrorPlayer::m_bIsOnThirdStrike
 	static constexpr int kIsHangingFromLedgeOffset = 0x25EC;  // DT_TerrorPlayer::m_isHangingFromLedge
+	static constexpr int kMissionZombieKillsOffset = 0x24AC;   // DT_TerrorPlayer::m_missionZombieKills[0] (current chapter)
+	static constexpr int kZombieKillsMaxIndex = 8;             // 0=common, 1..8=special categories (smoker..tank/witch)
 	// Weapon netvars (from offsets.txt)
 	static constexpr int kClip1Offset = 0x984;                // DT_BaseCombatWeapon::m_iClip1
 	static constexpr int kPrimaryAmmoTypeOffset = 0x97C;       // DT_BaseCombatWeapon::m_iPrimaryAmmoType

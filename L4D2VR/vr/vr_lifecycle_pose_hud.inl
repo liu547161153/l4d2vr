@@ -338,6 +338,8 @@ void VR::UpdateHandHudOverlays()
         m_LastHudThrowable = -1;
         m_LastHudMedItem = -1;
         m_LastHudPillItem = -1;
+        m_LastHudCommonKills = -9999;
+        m_LastHudSpecialKills = -9999;
         m_LastHudIncap = false;
         m_LastHudLedge = false;
         m_LastHudThirdStrike = false;
@@ -802,6 +804,29 @@ void VR::UpdateHandHudOverlays()
         const int medItem   = getItemSlotWeaponId(3);
         const int pillItem  = getItemSlotWeaponId(4);
 
+        // 本关击杀数（普通/特感）：使用 DT_TerrorPlayer::m_missionZombieKills。
+        // [0] 普通僵尸；[1..kZombieKillsMaxIndex] 视为特感类别并求和。
+        int commonKills = 0;
+        int specialKills = 0;
+
+        int localTeam = 0;
+        TryReadInt(pBase, kTeamNumOffset, localTeam);
+        if (localTeam == 2)
+        {
+            int v = 0;
+            if (TryReadInt(pBase, kMissionZombieKillsOffset + 0 * 4, v))
+                commonKills = (std::max)(0, v);
+
+            int sum = 0;
+            for (int i = 1; i <= kZombieKillsMaxIndex; ++i)
+            {
+                if (TryReadInt(pBase, kMissionZombieKillsOffset + i * 4, v))
+                    sum += (std::max)(0, v);
+            }
+            specialKills = sum;
+        }
+
+
 
         // Snapshot teammates so changes in THEIR HP/name also trigger redraw (fix: teammates only updated when local changed).
         struct TeammateRow
@@ -813,6 +838,14 @@ void VR::UpdateHandHudOverlays()
             bool nonAscii = false;
             bool incap = false;
             bool ledge = false;
+            bool third = false;
+            bool controlled = false;
+        };
+
+        auto IsValidHandle = [](uint32_t h) -> bool
+        {
+            // EHANDLE / CBaseHandle is invalid when 0 or 0xFFFFFFFF (common patterns across Source builds).
+            return h != 0u && h != 0xFFFFFFFFu;
         };
         TeammateRow mates[3]{};
         int mateCount = 0;
@@ -842,8 +875,22 @@ void VR::UpdateHandHudOverlays()
 
                 row.incap = false;
                 row.ledge = false;
+                row.third = false;
+                row.controlled = false;
                 if (TryReadU8(pb, kIsIncapacitatedOffset, ls)) row.incap = (ls != 0);
                 if (TryReadU8(pb, kIsHangingFromLedgeOffset, ls)) row.ledge = (ls != 0);
+                if (TryReadU8(pb, kIsOnThirdStrikeOffset, ls)) row.third = (ls != 0);
+
+                // Teammate control state (被控): smoker tongue / charger pummel/carry / hunter pounce / jockey ride.
+                // We color the teammate HP bar when any of these attacker handles are valid.
+                int hTmp = 0;
+                uint32_t hTongue = 0u, hPummel = 0u, hCarry = 0u, hPounce = 0u, hJockey = 0u;
+                if (TryReadInt(pb, kTongueOwnerOffset, hTmp)) hTongue = (uint32_t)hTmp;
+                if (TryReadInt(pb, kPummelAttackerOffset, hTmp)) hPummel = (uint32_t)hTmp;
+                if (TryReadInt(pb, kCarryAttackerOffset, hTmp)) hCarry = (uint32_t)hTmp;
+                if (TryReadInt(pb, kPounceAttackerOffset, hTmp)) hPounce = (uint32_t)hTmp;
+                if (TryReadInt(pb, kJockeyAttackerOffset, hTmp)) hJockey = (uint32_t)hTmp;
+                row.controlled = IsValidHandle(hTongue) || IsValidHandle(hPummel) || IsValidHandle(hCarry) || IsValidHandle(hPounce) || IsValidHandle(hJockey);
 
                 player_info_t info{};
                 if (m_Game->m_EngineClient->GetPlayerInfo(i, &info) && info.name[0])
@@ -878,6 +925,8 @@ void VR::UpdateHandHudOverlays()
                 matesHash = Fnv1a32(&row.temp, sizeof(row.temp), matesHash);
                 matesHash = Fnv1a32(&row.incap, sizeof(row.incap), matesHash);
                 matesHash = Fnv1a32(&row.ledge, sizeof(row.ledge), matesHash);
+                matesHash = Fnv1a32(&row.third, sizeof(row.third), matesHash);
+                matesHash = Fnv1a32(&row.controlled, sizeof(row.controlled), matesHash);
                 matesHash = Fnv1aStr32(row.name, matesHash);
 
                 ++mateCount;
@@ -888,6 +937,7 @@ void VR::UpdateHandHudOverlays()
 
         const bool changed = (hp != m_LastHudHealth) || (tempHP != m_LastHudTempHealth)
             || (throwable != m_LastHudThrowable) || (medItem != m_LastHudMedItem) || (pillItem != m_LastHudPillItem)
+            || (commonKills != m_LastHudCommonKills) || (specialKills != m_LastHudSpecialKills)
             || (incap != m_LastHudIncap) || (ledge != m_LastHudLedge) || (third != m_LastHudThirdStrike)
             || (matesHash != m_LastHudTeammatesHash);
 
@@ -898,8 +948,8 @@ void VR::UpdateHandHudOverlays()
 
         if (dbgTick)
         {
-            Game::logMsg("[VR][HandHUD] left: hp=%d temp=%d incap=%d ledge=%d third=%d items=%d,%d,%d mates=%d hash=0x%08X changed=%d aim=%d idx=%d pct=%d aimChanged=%d",
-                hp, tempHP, incap ? 1 : 0, ledge ? 1 : 0, third ? 1 : 0, throwable, medItem, pillItem, mateCount, matesHash,
+            Game::logMsg("[VR][HandHUD] left: hp=%d temp=%d incap=%d ledge=%d third=%d items=%d,%d,%d kills=%d/%d mates=%d hash=0x%08X changed=%d aim=%d idx=%d pct=%d aimChanged=%d",
+                hp, tempHP, incap ? 1 : 0, ledge ? 1 : 0, third ? 1 : 0, throwable, medItem, pillItem, commonKills, specialKills, mateCount, matesHash,
                 changed ? 1 : 0, hasAimTarget ? 1 : 0, aimTargetIdx, aimTargetPct, aimChanged ? 1 : 0);
         }
             m_LastHudHealth = hp;
@@ -907,6 +957,8 @@ void VR::UpdateHandHudOverlays()
             m_LastHudThrowable = throwable;
             m_LastHudMedItem = medItem;
             m_LastHudPillItem = pillItem;
+            m_LastHudCommonKills = commonKills;
+            m_LastHudSpecialKills = specialKills;
             m_LastHudIncap = incap;
             m_LastHudLedge = ledge;
             m_LastHudThirdStrike = third;
@@ -951,7 +1003,9 @@ void VR::UpdateHandHudOverlays()
                 char hpBuf[16];
                 std::snprintf(hpBuf, sizeof(hpBuf), "+%d", tempHP);
                 const int tempX = 18 + hpW + 8;
-                DrawText5x7Outlined(s, tempX, 24, hpBuf, { 60, 255, 120, 255 }, 2);
+                const int maxW = (std::max)(16, (std::min)(120, w - tempX - 12));
+                // Match the same GDI font style used by the aim-teammate HUD line (clearer than the 5x7 bitmap font).
+                DrawTextUtf8OutlinedGdiClippedEx(s, tempX, 20, maxW, hpBuf, 16, { 60, 255, 120, 255 }, false);
             }
             if (hasAimTarget)
             {
@@ -972,19 +1026,6 @@ void VR::UpdateHandHudOverlays()
                 DrawTextUtf8OutlinedGdiClippedEx(s, 18, 64, 220, tgtBuf, fontPx, { 240, 240, 240, 255 }, false);
             }
 
-            int dotX = w - 62;
-            int dotY = 18;
-            auto dot = [&](bool on, const Rgba& c)
-            {
-                DrawRect(s, dotX, dotY, 14, 14, { 80, 80, 80, 200 }, 1);
-                if (on)
-                    FillRect(s, dotX + 3, dotY + 3, 8, 8, c);
-                dotX += 18;
-            };
-            dot(incap, { 255, 220, 60, 255 });
-            dot(ledge, { 255, 200, 60, 255 });
-            dot(third, { 220, 220, 220, 255 });
-
             if (m_LeftWristHudShowTeammates && mateCount > 0)
             {
                 for (int row = 0; row < mateCount; ++row)
@@ -1001,36 +1042,30 @@ void VR::UpdateHandHudOverlays()
 
                     const int nameX = 124;
                     const int nameW = (std::max)(16, barX - nameX - 6);
+					{
+						// Teammate names: always use outlined GDI text (clearer than the 5x7 bitmap font).
+						// Policy: 12 ASCII chars or 6 CJK chars at full size; longer shrinks then truncates.
+						std::string asciiUpper;
+						const char* nameUtf8 = tr.name;
+						if (!tr.nonAscii)
+						{
+							asciiUpper.assign(tr.name);
+							for (char& ch : asciiUpper)
+								if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
+							nameUtf8 = asciiUpper.c_str();
+						}
 
-                    if (!tr.nonAscii)
-                    {
-                        char nameAscii[32] = { 0 };
-                        const int maxChars = (std::max)(1, (std::min)(12, nameW / 6));
-                        int n = 0;
-                        for (; n < maxChars && tr.name[n]; ++n)
-                        {
-                            char ch = tr.name[n];
-                            if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
-                            nameAscii[n] = ch;
-                        }
-                        nameAscii[n] = 0;
-                        const int nameY = barY + (barH - 7) / 2;
-                        DrawText5x7Outlined(s, nameX, nameY, nameAscii, { 240, 240, 240, 255 }, 1);
-                    }
-                    else
-                    {
-                        // Use the same "HUD units" policy (12 ASCII / 6 CJK). If longer: shrink, then hard-truncate.
-                        const int units = Utf8HudUnits(tr.name);
-                        const float scale = HudNameScaleForUnits(units, 12);
-                        const std::string nameFit = (units > 20) ? Utf8TruncateHudUnits(tr.name, 20) : std::string(tr.name);
+						const int units = Utf8HudUnits(nameUtf8);
+						const float scale = HudNameScaleForUnits(units, 12);
+						const std::string nameFit = (units > 20) ? Utf8TruncateHudUnits(nameUtf8, 20) : std::string(nameUtf8);
 
-                        const int basePx = 10;
-                        int fontPx = (int)std::round((float)basePx * scale);
-                        fontPx = (std::max)(8, (std::min)(basePx, fontPx));
+						const int basePx = 12;
+						int fontPx = (int)std::round((float)basePx * scale);
+						fontPx = (std::max)(9, (std::min)(basePx, fontPx));
 
-                        const int nameY = barY + (barH - fontPx) / 2;
-                        DrawTextUtf8OutlinedGdiClipped(s, nameX, nameY, nameW, nameFit.c_str(), fontPx, { 240, 240, 240, 255 });
-                    }
+						const int nameY = barY + (barH - fontPx) / 2;
+						DrawTextUtf8OutlinedGdiClipped(s, nameX, nameY, nameW, nameFit.c_str(), fontPx, { 240, 240, 240, 255 });
+					}
 
                     DrawRect(s, barX, barY, barW, barH, { 60, 60, 60, 190 }, 1);
 
@@ -1053,7 +1088,22 @@ void VR::UpdateHandHudOverlays()
                     permPct = (std::max)(0, (std::min)(100, permPct));
 
                     const int permW = (innerW * permPct) / 100;
-                    const Rgba permCol = trDown ? downHealthColorFor(permPct, 230) : healthColorFor(permPct, 230);
+
+                    // Status-driven teammate bar colors (no extra indicators):
+                    // - Incap (倒地): keep existing downHealthColorFor() (yellow -> red as it drains)
+                    // - Ledge hang (挂边): SandyBrown #F4A460
+                    // - Third strike / B&W (黑白): GhostWhite #F8F8FF
+                    // - Controlled (被控): Purple #A020F0
+                    Rgba permCol = trDown ? downHealthColorFor(permPct, 230) : healthColorFor(permPct, 230);
+                    if (tr.ledge)
+                        permCol = { 244, 164, 96, 230 };
+                    else if (tr.incap)
+                        permCol = downHealthColorFor(permPct, 230);
+                    else if (tr.controlled)
+                        permCol = { 160, 32, 240, 230 };
+                    else if (tr.third)
+                        permCol = { 248, 248, 255, 230 };
+
                     FillRect(s, barX + 1, barY + 1, permW, innerH, permCol);
 
                     const int extra = trDown ? 0 : (std::max)(0, (std::min)(100, tr.temp));
@@ -1095,6 +1145,18 @@ void VR::UpdateHandHudOverlays()
             drawItem(throwable);
             drawItem(medItem);
             drawItem(pillItem);
+            // Bottom-right: chapter kill counts (common/special).
+            {
+                char killsBuf[32];
+                std::snprintf(killsBuf, sizeof(killsBuf), "%d/%d", (std::max)(0, commonKills), (std::max)(0, specialKills));
+                const int len = (int)std::strlen(killsBuf);
+                const int fontPx = 16;
+                // Right-align with a cheap width estimate (avoids adding a full GDI-measure pass).
+                const int estW = (int)std::round((float)len * (float)fontPx * 0.60f) + 6;
+                int x = w - 18 - estW;
+                x = (std::max)(x, itemsX + 10);
+                DrawTextUtf8OutlinedGdiClippedEx(s, x, itemsY - 4, w - x - 12, killsBuf, fontPx, { 240, 240, 240, 255 }, false);
+            }
             // Upload every tick (no throttling/no CRC gating).
             {
                     vr::EVROverlayError err = vr::VROverlayError_None;
@@ -1164,6 +1226,8 @@ void VR::UpdateHandHudOverlays()
         m_LastHudThrowable = -1;
         m_LastHudMedItem = -1;
         m_LastHudPillItem = -1;
+        m_LastHudCommonKills = -9999;
+        m_LastHudSpecialKills = -9999;
         m_LastHudIncap = false;
         m_LastHudLedge = false;
         m_LastHudThirdStrike = false;
@@ -1423,7 +1487,7 @@ void VR::UpdateHandHudOverlays()
                     char pctBuf[16];
                     std::snprintf(pctBuf, sizeof(pctBuf), "%d%%", aimPct);
                     const Rgba pctCol = healthColorFor(aimPct, 255);
-                    DrawText5x7Outlined(s, barX, barY + 14, pctBuf, pctCol, 2);
+                    DrawTextUtf8OutlinedGdiClippedEx(s, barX, barY + 12, barW, pctBuf, 16, pctCol, false);
                 }
             }
 
