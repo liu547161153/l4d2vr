@@ -55,14 +55,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Optional FPS cap: pace the render thread in queued mode to reduce flicker when FPS runs too high.
 		// Smart mode: only engage the cap when instability is detected (pose reuse during motion),
 		// so stable scenes can run uncapped even if QueuedRenderMaxFps is set.
-		const int maxFpsCfg = std::max(0, m_VR->m_QueuedRenderMaxFps);
+		const int maxFpsEff = m_VR->GetQueuedRenderMaxFpsEffective();
 		const bool smartCap = m_VR->m_QueuedRenderMaxFpsSmart;
 		const auto nowP = std::chrono::steady_clock::now();
 		const bool smartActive = (s_smartPaceUntil.time_since_epoch().count() != 0) && (nowP < s_smartPaceUntil);
-		const bool doCapNow = (maxFpsCfg > 0) && (!smartCap || smartActive);
+		const bool doCapNow = (maxFpsEff > 0) && (!smartCap || smartActive);
 		if (doCapNow)
 		{
-			const double targetSec = 1.0 / (double)maxFpsCfg;
+			const double targetSec = 1.0 / (double)maxFpsEff;
 			const auto targetDur = std::chrono::duration<double>(targetSec);
 
 			if (!s_paceInit)
@@ -411,7 +411,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 			// Smart FPS pacing pre-trigger: if we're moving/turning and reusing the same pose snapshot,
 			// engage the FPS cap for a short window (hysteresis).
-			if (m_VR->m_QueuedRenderMaxFps > 0 && m_VR->m_QueuedRenderMaxFpsSmart)
+			if (m_VR->GetQueuedRenderMaxFpsEffective() > 0 && m_VR->m_QueuedRenderMaxFpsSmart)
 			{
 				if (motionNow && havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && s_poseReuseCount >= 1)
 				{
@@ -431,15 +431,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			if ((waitMs != 0 || maxAheadCfg >= 0) && m_VR->m_PoseWaiterEvent)
 			{
 
-				const int maxFpsCfg = std::max(0, m_VR->m_QueuedRenderMaxFps);
+				const int maxFpsEff = m_VR->GetQueuedRenderMaxFpsEffective();
 				DWORD timeoutMs = (waitMs < 0) ? 50u : (DWORD)std::clamp(waitMs, 0, 200);
 
 				DWORD aheadTimeoutMs = 0;
 				if (maxAheadCfg >= 0)
 				{
-					if (maxFpsCfg > 0)
+					if (maxFpsEff > 0)
 					{
-						const double intervalMs = (1000.0 / (double)maxFpsCfg);
+						const double intervalMs = (1000.0 / (double)maxFpsEff);
 						aheadTimeoutMs = (DWORD)std::clamp((int)std::ceil(intervalMs) + 3, 2, 50);
 					}
 					else
@@ -469,7 +469,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 				// Smart FPS pacing trigger (strong): if MaxFramesAhead is exceeded during motion, extend the
 				// pacing window so the render thread settles into a stable cadence.
-				if (m_VR->m_QueuedRenderMaxFps > 0 && m_VR->m_QueuedRenderMaxFpsSmart)
+				if (m_VR->GetQueuedRenderMaxFpsEffective() > 0 && m_VR->m_QueuedRenderMaxFpsSmart)
 				{
 					if (motionNow && exceededAhead)
 					{

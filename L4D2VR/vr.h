@@ -15,6 +15,7 @@
 #include <array>
 #include <chrono>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <string>
@@ -255,9 +256,51 @@ public:
 	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
 	int m_QueuedRenderPoseWaitMs = 1;
 
-	// Queued rendering: optional FPS cap for render thread pacing in queued mode.
-	// 0 = unlimited. Helps avoid flicker when queued mode runs above the stable range.
+	// Queued rendering: optional render-thread FPS cap, expressed as a percentage of the HMD refresh rate.
+	// 0 = unlimited, 100 = match HMD refresh, 80 = 80% of HMD refresh, etc.
 	int m_QueuedRenderMaxFps = 0;
+
+	// Cached HMD refresh rate (Hz) used for FPS caps, etc. Updated on demand (thread-safe).
+	std::atomic<float> m_HmdDisplayFrequencyHz{ 0.0f };
+	std::atomic<uint32_t> m_HmdDisplayFrequencyHzLastUpdateMs{ 0 };
+
+	inline float GetHmdDisplayFrequencyHz(bool forceRefresh = false)
+	{
+	    float hz = m_HmdDisplayFrequencyHz.load(std::memory_order_relaxed);
+	    const uint32_t nowMs = static_cast<uint32_t>(::GetTickCount());
+	    const uint32_t lastMs = m_HmdDisplayFrequencyHzLastUpdateMs.load(std::memory_order_relaxed);
+
+	    const bool stale = (hz <= 1.0f) || (lastMs == 0) || ((nowMs - lastMs) > 2000u);
+	    if ((forceRefresh || stale) && m_System)
+	    {
+	        vr::ETrackedPropertyError err = vr::TrackedProp_Success;
+	        const float v = m_System->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &err);
+	        if (err == vr::TrackedProp_Success && std::isfinite(v) && v > 1.0f && v < 1000.0f)
+	        {
+	            hz = v;
+	            m_HmdDisplayFrequencyHz.store(hz, std::memory_order_relaxed);
+	        }
+	        // Always mark an update attempt so we don't spam the runtime if it fails.
+	        m_HmdDisplayFrequencyHzLastUpdateMs.store(nowMs, std::memory_order_relaxed);
+	    }
+	    return hz;
+	}
+
+	inline int GetQueuedRenderMaxFpsEffective(bool forceRefreshHz = false)
+	{
+	    const int pct = std::max(0, m_QueuedRenderMaxFps);
+	    if (pct <= 0)
+	        return 0;
+
+	    float hz = GetHmdDisplayFrequencyHz(forceRefreshHz);
+	    if (!(hz > 1.0f))
+	        hz = 90.0f; // safe fallback
+
+	    const double cap = (double)hz * ((double)pct / 100.0);
+	    int capI = (int)std::lround(cap);
+	    capI = std::clamp(capI, 1, 360);
+	    return capI;
+	}
 
 
 	// Queued rendering: when true, the Max FPS cap is only applied when instability is detected
@@ -839,6 +882,10 @@ public:
 	bool m_AutoMatQueueMode = false;
 	int  m_AutoMatQueueModeLastRequested = -999;
 	std::chrono::steady_clock::time_point m_AutoMatQueueModeLastCmdTime{};
+
+	// Auto fps_max in main menu: set fps_max to match HMD refresh rate (when AutoMatQueueMode is enabled).
+	bool m_MenuFpsMaxSent = false;
+	int  m_MenuFpsMaxLastHz = 0;
 
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;

@@ -1069,6 +1069,39 @@ void VR::UpdateAutoMatQueueMode()
         return;
 
     const bool inGame = m_Game->m_EngineClient->IsInGame();
+
+    // AutoMatQueueMode=true: in the main menu, set fps_max once to match the HMD refresh rate.
+    // This helps avoid "menu stuck at 60 FPS" when the headset runs at 90/100/120+.
+    if (!inGame)
+    {
+        if (!m_MenuFpsMaxSent)
+        {
+            float hmdHz = GetHmdDisplayFrequencyHz(true);
+            int targetHz = (hmdHz > 1.0f) ? (int)(hmdHz + 0.5f) : 0;
+            if (targetHz > 0)
+            {
+                targetHz = std::clamp(targetHz, 30, 360);
+
+                // Only issue the command if the target changed. fps_max persists across map loads.
+                if (m_MenuFpsMaxLastHz != targetHz)
+                {
+                    std::string cmd = std::string("fps_max ") + std::to_string(targetHz);
+                    m_Game->ClientCmd_Unrestricted(cmd.c_str());
+                    m_MenuFpsMaxLastHz = targetHz;
+
+                    Game::logMsg("[VR] Menu: fps_max -> %d (HMD %.1fHz)", targetHz, hmdHz);
+                }
+
+                m_MenuFpsMaxSent = true;
+            }
+        }
+    }
+    else
+    {
+        // Reset when leaving the menu so we can re-check next time we return (e.g., refresh rate changed).
+        m_MenuFpsMaxSent = false;
+    }
+
     const bool paused = m_Game->m_EngineClient->IsPaused();
     const bool cursorVisible = (m_Game->m_VguiSurface) ? m_Game->m_VguiSurface->IsCursorVisible() : false;
     const bool scoreboardHeld = PressedDigitalAction(m_Scoreboard, false);

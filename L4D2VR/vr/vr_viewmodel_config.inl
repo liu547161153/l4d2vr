@@ -1005,16 +1005,17 @@ void VR::ParseConfigFile()
    {
        m_AutoMatQueueModeLastRequested = -999;
        m_AutoMatQueueModeLastCmdTime = {};
+       m_MenuFpsMaxSent = false;
+       m_MenuFpsMaxLastHz = 0;
    }
 
     // Multicore rendering: render-thread wait time (ms) for a fresh WaitGetPoses() snapshot in queued mode.
     // 0 = no wait, 1~3 = balanced, 5+ = prioritize stability, -1 = strong sync (wait up to ~50ms).
     m_QueuedRenderPoseWaitMs = std::clamp(getInt("QueuedRenderPoseWaitMs", m_QueuedRenderPoseWaitMs), -1, 20);
 
-    // Queued rendering: optional render-thread FPS cap (0 = unlimited).
+    // Queued rendering: optional render-thread FPS cap as % of HMD refresh.
+    // 0 = unlimited, 100 = match HMD refresh.
     m_QueuedRenderMaxFps = std::clamp(getInt("QueuedRenderMaxFps", m_QueuedRenderMaxFps), 0, 240);
-
-
     // Queued rendering: smart FPS cap engagement. When enabled, the FPS cap is only applied when
     // the render thread is detected to be outrunning pose updates during motion.
     m_QueuedRenderMaxFpsSmart = getBool("QueuedRenderMaxFpsSmart", m_QueuedRenderMaxFpsSmart);
