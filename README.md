@@ -45,7 +45,7 @@ If the game is crashing, try:
 * Re-installing the game
 
 ## Build instructions
-1. ```git clone --recurse-submodules https://github.com/liu547161153/l4d2vr.git ```
+1. ```git clone https://github.com/liu547161153/l4d2vr.git ```
 2. Open l4d2vr.sln
 3. Set to x86 Debug or Release
 4. Build -> Build Solution
@@ -55,5 +55,5 @@ Note: After building, it will attempt to copy the new d3d9.dll to your L4D2 dire
 ## Utilizes code from
 * [VirtualFortress2](https://github.com/PinkMilkProductions/VirtualFortress2)
 * [gmcl_openvr](https://github.com/Planimeter/gmcl_openvr/)
-* [dxvk](https://github.com/TheIronWolfModding/dxvk/tree/vr-dx9-rel)
+* [DXVK](https://github.com/doitsujin/dxvk)
 * [source-sdk-2013](https://github.com/ValveSoftware/source-sdk-2013/)

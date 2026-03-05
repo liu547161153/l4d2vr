@@ -504,7 +504,6 @@ public:
     std::atomic<uint32_t> m_SubmitPoseToken{ 0 };
     std::atomic<uint32_t> m_LastSubmittedPoseToken{ 0 };
     std::atomic<bool> m_SubmitInFlight{ false };
-    std::atomic<uint32_t> m_LastSubmittedCompositorFrameIndex{ 0 };
 	// Render-thread -> submit-thread frame handoff (queued/multicore mode).
 	// dRenderView increments m_RenderCompletedFrameId and signals m_RenderFrameReadyEvent
 	// when a full stereo frame is rendered into eye textures.

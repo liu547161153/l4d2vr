@@ -169,7 +169,6 @@ void VR::CreateVRTextures()
     m_RenderCompletedFrameId.store(0, std::memory_order_release);
     m_LastSubmittedFrameId.store(0, std::memory_order_release);
     m_LastSubmittedPoseToken.store(0, std::memory_order_release);
-    m_LastSubmittedCompositorFrameIndex.store(0, std::memory_order_release);
 
     m_CreatedVRTextures.store(true, std::memory_order_release);
 
@@ -245,36 +244,16 @@ void VR::SubmitVRTextures()
     if (poseToken == 0 || poseToken == lastSubmittedToken)
         return;
 
-    vr::Compositor_FrameTiming frameTiming{};
-    frameTiming.m_nSize = sizeof(frameTiming);
-    uint32_t compositorFrameIndex = 0;
-    if (m_Compositor->GetFrameTiming(&frameTiming, 0))
-        compositorFrameIndex = frameTiming.m_nFrameIndex;
-
-    if (compositorFrameIndex != 0)
-    {
-        const uint32_t lastSubmittedFrameIndex = m_LastSubmittedCompositorFrameIndex.load(std::memory_order_acquire);
-        if (compositorFrameIndex == lastSubmittedFrameIndex)
-            return;
-    }
-
     bool successfulSubmit = false;
-    bool alreadySubmitted = false;
     bool timingDataSubmitted = false;
     auto finalizeSubmitState = [&]()
         {
-            if (!successfulSubmit && !alreadySubmitted)
+            if (!successfulSubmit)
                 return;
 
-            if (successfulSubmit)
-            {
-                const uint32_t renderedFrameId = m_RenderCompletedFrameId.load(std::memory_order_acquire);
-                if (renderedFrameId != 0)
-                    m_LastSubmittedFrameId.store(renderedFrameId, std::memory_order_release);
-            }
-
-            if (compositorFrameIndex != 0)
-                m_LastSubmittedCompositorFrameIndex.store(compositorFrameIndex, std::memory_order_release);
+            const uint32_t renderedFrameId = m_RenderCompletedFrameId.load(std::memory_order_acquire);
+            if (renderedFrameId != 0)
+                m_LastSubmittedFrameId.store(renderedFrameId, std::memory_order_release);
 
             m_LastSubmittedPoseToken.store(poseToken, std::memory_order_release);
         };
@@ -300,24 +279,12 @@ void VR::SubmitVRTextures()
             vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
             if (submitError != vr::VRCompositorError_None)
             {
-                if (submitError == vr::VRCompositorError_AlreadySubmitted)
-                {
-                    alreadySubmitted = true;
-                    return false;
-                }
                 LogCompositorError("Submit", submitError);
                 return false;
             }
 
             successfulSubmit = true;
             return true;
-        };
-
-    auto submitStereo = [&](vr::Texture_t* leftTex, const vr::VRTextureBounds_t* leftBounds, vr::Texture_t* rightTex, const vr::VRTextureBounds_t* rightBounds)
-        {
-            if (!submitEye(vr::Eye_Left, leftTex, leftBounds))
-                return false;
-            return submitEye(vr::Eye_Right, rightTex, rightBounds);
         };
 
     auto hideHudOverlays = [&]()
@@ -367,13 +334,15 @@ void VR::SubmitVRTextures()
             const bool texturesReady = m_CreatedVRTextures.load(std::memory_order_acquire);
             if (texturesReady)
             {
-                submitStereo(&m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0], &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+                submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+                submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
             }
             else
             {
                 if (!m_BlankTexture)
                     CreateVRTextures();
-                submitStereo(&m_VKBlankTexture.m_VRTexture, nullptr, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
             }
 
             if (successfulSubmit && m_CompositorExplicitTiming)
@@ -402,7 +371,8 @@ void VR::SubmitVRTextures()
 
         if (!inGame)
         {
-            submitStereo(&m_VKBlankTexture.m_VRTexture, nullptr, &m_VKBlankTexture.m_VRTexture, nullptr);
+            submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
+            submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
         }
 
         if (successfulSubmit && m_CompositorExplicitTiming)
@@ -636,7 +606,8 @@ void VR::SubmitVRTextures()
 
     UpdateHandHudOverlays();
 
-    submitStereo(&m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0], &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
+    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
 
     if (successfulSubmit && m_CompositorExplicitTiming)
     {

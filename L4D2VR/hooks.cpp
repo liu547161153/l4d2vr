@@ -77,6 +77,56 @@ static inline bool ShouldThrottleLog(std::chrono::steady_clock::time_point& last
 	last = now;
 	return false;
 }
+
+static inline bool IsReadableProtection(DWORD protect)
+{
+	if (protect & PAGE_GUARD)
+		return false;
+
+	switch (protect & 0xff)
+	{
+	case PAGE_READONLY:
+	case PAGE_READWRITE:
+	case PAGE_WRITECOPY:
+	case PAGE_EXECUTE_READ:
+	case PAGE_EXECUTE_READWRITE:
+	case PAGE_EXECUTE_WRITECOPY:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static inline bool IsReadableMemoryRange(const void* ptr, size_t bytes)
+{
+	if (!ptr || bytes == 0)
+		return false;
+
+	const uint8_t* p = reinterpret_cast<const uint8_t*>(ptr);
+	size_t remaining = bytes;
+
+	while (remaining > 0)
+	{
+		MEMORY_BASIC_INFORMATION mbi{};
+		if (!VirtualQuery(p, &mbi, sizeof(mbi)))
+			return false;
+		if (mbi.State != MEM_COMMIT)
+			return false;
+		if (!IsReadableProtection(mbi.Protect))
+			return false;
+
+		const uintptr_t cur = reinterpret_cast<uintptr_t>(p);
+		const uintptr_t regionEnd = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+		if (regionEnd <= cur)
+			return false;
+
+		const size_t chunk = std::min<size_t>(remaining, size_t(regionEnd - cur));
+		p += chunk;
+		remaining -= chunk;
+	}
+
+	return true;
+}
 static inline float SmoothStep01(float t)
 {
 	t = std::clamp(t, 0.0f, 1.0f);

@@ -223,11 +223,37 @@ int Hooks::dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo)
 
 void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper)
 {
-	if (!cmd)
+	static thread_local uint32_t s_badCmdStreak = 0;
+	static thread_local bool s_disableRunCommandVRLogic = false;
+	static thread_local std::chrono::steady_clock::time_point s_badCmdLogTs{};
+
+	if (s_disableRunCommandVRLogic)
 	{
 		hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
 		return;
 	}
+
+	// Guard against bad hook arguments (wrong slot / transient bad call path):
+	// if cmd isn't a readable CUserCmd, skip VR-side processing and just forward.
+	const bool cmdReadable = cmd && IsReadableMemoryRange(cmd, sizeof(CUserCmd));
+	if (!cmdReadable)
+	{
+		if (!ShouldThrottleLog(s_badCmdLogTs, 1.0f))
+			Game::logMsg("[VR][RunCommand] invalid cmd ptr, bypassing VR logic (this=%p player=%p cmd=%p move=%p streak=%u)",
+				ecx, player, cmd, moveHelper, s_badCmdStreak + 1u);
+
+		s_badCmdStreak++;
+		if (s_badCmdStreak >= 16u)
+		{
+			s_disableRunCommandVRLogic = true;
+			Game::logMsg("[VR][RunCommand] disabled VR RunCommand detour logic after repeated invalid cmd pointers");
+		}
+
+		hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
+		return;
+	}
+
+	s_badCmdStreak = 0;
 
 	// Keep the active command available to PrimaryAttackServer/Fire path hooks.
 	m_RunCommandCurrentCmd = cmd;
