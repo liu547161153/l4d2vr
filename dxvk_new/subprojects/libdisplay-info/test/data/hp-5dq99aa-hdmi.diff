@@ -1,0 +1,75 @@
+--- ref
++++ di
+@@ -24,7 +24,7 @@
+     DMT 0x10:  1024x768    60.003840 Hz   4:3     48.363 kHz     65.000000 MHz
+   Standard Timings:
+     DMT 0x52:  1920x1080   60.000000 Hz  16:9     67.500 kHz    148.500000 MHz
+-    DMT 0x53:  1600x900    60.000000 Hz  16:9     60.000 kHz    108.000000 MHz (RB)
++    DMT 0x53:  1600x900    60.000000 Hz  16:9     60.000 kHz    108.000000 MHz
+     DMT 0x55:  1280x720    60.000000 Hz  16:9     45.000 kHz     74.250000 MHz
+     DMT 0x45:  1920x1200   59.884600 Hz  16:10    74.556 kHz    193.250000 MHz
+     DMT 0x3a:  1680x1050   59.954250 Hz  16:10    65.290 kHz    146.250000 MHz
+@@ -51,32 +51,21 @@
+   Supports YCbCr 4:2:2
+   Native detailed modes: 1
+   Video Data Block:
+-    VIC  16:  1920x1080   60.000000 Hz  16:9     67.500 kHz    148.500000 MHz
+-    VIC   4:  1280x720    60.000000 Hz  16:9     45.000 kHz     74.250000 MHz
+-    VIC   3:   720x480    59.940060 Hz  16:9     31.469 kHz     27.000000 MHz
+-    VIC   2:   720x480    59.940060 Hz   4:3     31.469 kHz     27.000000 MHz
+-    VIC  31:  1920x1080   50.000000 Hz  16:9     56.250 kHz    148.500000 MHz
+-    VIC  19:  1280x720    50.000000 Hz  16:9     37.500 kHz     74.250000 MHz
+-    VIC  18:   720x576    50.000000 Hz  16:9     31.250 kHz     27.000000 MHz
+-    VIC  17:   720x576    50.000000 Hz   4:3     31.250 kHz     27.000000 MHz
+-    VIC   1:   640x480    59.940476 Hz   4:3     31.469 kHz     25.175000 MHz
+-  Vendor-Specific Data Block (HDMI), OUI 00-0C-03:
+-    Source physical address: 1.0.0.0
+-    DC_36bit
+-    DC_30bit
+-    DC_Y444
+-    Maximum TMDS clock: 310 MHz
++    VIC  16
++    VIC   4
++    VIC   3
++    VIC   2
++    VIC  31
++    VIC  19
++    VIC  18
++    VIC  17
++    VIC   1
+   Video Capability Data Block:
+     YCbCr quantization: No Data
+     RGB quantization: No Data
+     PT scan behavior: Always Underscanned
+     IT scan behavior: Always Underscanned
+     CE scan behavior: Supports both over- and underscan
+-  Vendor-Specific Data Block (AMD), OUI 00-00-1A:
+-    Version: 1.1
+-    Minimum Refresh Rate: 46 Hz
+-    Maximum Refresh Rate: 75 Hz
+-    Flags 1.x: 0xed (MCCS)
+   Colorimetry Data Block:
+     BT2020cYCC
+     BT2020YCC
+@@ -104,20 +93,12 @@
+     DTD 5:  1920x1080   74.972503 Hz  16:9     83.894 kHz    174.500000 MHz (597 mm x 339 mm)
+                  Hfront   48 Hsync  32 Hback   80 Hpol P
+                  Vfront    3 Vsync   5 Vback   31 Vpol N
+-Checksum: 0xa3  Unused space in Extension Block: 10 bytes
++Checksum: 0xa3
+ 
+ ----------------
+ 
+-Warnings:
+-
+-Block 1, CTA-861 Extension Block:
+-  Video Capability Data Block: Set Selectable YCbCr Quantization to avoid interop issues.
+-  Colorimetry Data Block: Set the sRGB colorimetry bit to avoid interop issues.
+-  Display Product Serial Number is set, so the Serial Number in the Base EDID should be 0.
+-
+ Failures:
+ 
+ Block 1, CTA-861 Extension Block:
+   Video Capability Data Block: Set Selectable RGB Quantization to avoid interop issues.
+-
+ EDID conformity: FAIL

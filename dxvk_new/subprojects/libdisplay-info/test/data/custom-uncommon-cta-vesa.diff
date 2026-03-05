@@ -1,0 +1,73 @@
+--- ref
++++ di
+@@ -58,12 +58,8 @@
+   Supports YCbCr 4:2:2
+   Native detailed modes: 0
+   Video Data Block:
+-    VIC  97:  3840x2160   60.000000 Hz  16:9    135.000 kHz    594.000000 MHz
++    VIC  97
+   Audio Data Block:
+-    Linear PCM:
+-      Max channels: 2
+-      Supported sample rates (kHz): 48 44.1 32
+-      Supported sample sizes (bits): 24 20 16
+   Video Capability Data Block:
+     YCbCr quantization: Selectable (via AVI YQ)
+     RGB quantization: Selectable (via AVI Q)
+@@ -73,54 +69,12 @@
+   VESA Display Transfer Characteristics Data Block:
+     White transfer characteristics: 6 33 77 129 192 252 348 415 490 598 666 796 873 932 998 1023
+   VESA Video Display Device Data Block:
+-    Interface Type: DisplayPort 2 channels
+-    Interface Standard Version: 1.1
+-    Content Protection Support: DPCP
+-    Minimum Clock Frequency: 0 MHz
+-    Maximum Clock Frequency: 0 MHz
+-    Device Native Pixel Format: 2560x1600
+-    Aspect Ratio: 1.60
+-    Default Orientation: Landscape
+-    Rotation Capability: Can rotate 90 degrees clockwise
+-    Zero Pixel Location: Upper Left
+-    Scan Direction: Fast Scan is on the Major (Long) Axis and Slow Scan is on the Minor Axis
+-    Subpixel Information: Five sub-pixels, RGB + 2 additional colors
+-    Horizontal and vertical dot/pixel pitch: 0.24 x 0.24 mm
+-    Dithering: Spatial and Temporal
+-    Direct Drive: No
+-    Overdrive not recommended
+-    Deinterlacing: No
+-    Audio Support: Yes
+-    Separate Audio Inputs Provided: No
+-    Audio Input Override: No
+-    Audio Delay: 6 ms
+-    Frame Rate/Mode Conversion: Double Buffering
+-    Frame Rate Range: 60 fps +/- 15 fps
+-    Color Bit Depth: 8 @ interface, 8 @ display
+-    Additional Primary Chromaticities:
+-      Primary 4:   0.1455, 0.2890
+-      Primary 5:   0.4921, 0.4658
+-    Response Time White -> Black: 12 ms
+-    Overscan: 5% x 7%
+   Detailed Timing Descriptors:
+     DTD 2:  3840x2160   59.996625 Hz  16:9    133.312 kHz    533.250000 MHz (960 mm x 652 mm)
+                  Hfront   48 Hsync  32 Hback   80 Hpol P
+                  Vfront    3 Vsync   5 Vback   54 Vpol P
+-Checksum: 0x78  Unused space in Extension Block: 48 bytes
++Checksum: 0x78
+ 
+ ----------------
+ 
+-Warnings:
+-
+-Block 1, CTA-861 Extension Block:
+-  Video Data Block: For improved preferred timing interoperability, set 'Native detailed modes' to 1.
+-  Video Capability Data Block: S_PT is equal to S_IT and S_CE, so should be set to 0 instead.
+-
+-Failures:
+-
+-Block 1, CTA-861 Extension Block:
+-  Detailed Timing Descriptor #2: Mismatch of image size 960x652 mm vs display size 960x540 mm.
+-EDID:
+-  Base EDID: The DTD max image size is 960x652mm, which is larger than the display size 960.0x540.0mm.
+-
+-EDID conformity: FAIL
++EDID conformity: PASS
