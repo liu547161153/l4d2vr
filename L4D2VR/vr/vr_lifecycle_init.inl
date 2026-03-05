@@ -968,6 +968,9 @@ VR::VR(Game* game)
     const vr::HmdVector2_t mouseScaleMenu = { m_RenderWidth, m_RenderHeight };
     m_Overlay->SetOverlayMouseScale(m_MainMenuHandle, &mouseScaleMenu);
 
+    if (!m_RenderFrameReadyEvent)
+        m_RenderFrameReadyEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+
     UpdatePosesAndActions();
     FinishFrame();
 

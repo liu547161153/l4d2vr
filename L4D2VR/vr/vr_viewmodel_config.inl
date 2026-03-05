@@ -1012,6 +1012,9 @@ void VR::ParseConfigFile()
     // Multicore rendering: render-thread wait time (ms) for a fresh WaitGetPoses() snapshot in queued mode.
     // 0 = no wait, 1~3 = balanced, 5+ = prioritize stability, -1 = strong sync (wait up to ~50ms).
     m_QueuedRenderPoseWaitMs = std::clamp(getInt("QueuedRenderPoseWaitMs", m_QueuedRenderPoseWaitMs), -1, 20);
+    // Multicore rendering: present-side wait budget (ms) for a fresh dRenderView frame before submit.
+    // 0 = no wait (max FPS, can increase stale-frame submits), 1~3 = usually best balance.
+    m_QueuedSubmitWaitMs = std::clamp(getInt("QueuedSubmitWaitMs", m_QueuedSubmitWaitMs), 0, 20);
 
     // Queued rendering: optional render-thread FPS cap as % of HMD refresh.
     // 0 = unlimited, 100 = match HMD refresh.

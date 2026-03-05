@@ -73,6 +73,8 @@ bool VR::UpdatePosesAndActions()
     if (!m_Compositor)
         return false;
     const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+    uint32_t submitToken = 0;
+    static std::atomic<uint32_t> s_fallbackSubmitToken{ 0 };
 
 	// Pose waiter publishes WaitGetPoses() snapshots on a dedicated thread in queued mode.
 	// Optional render-thread pacing uses this event to wait for a fresh snapshot.
@@ -92,7 +94,7 @@ bool VR::UpdatePosesAndActions()
     {
         // In mat_queue_mode!=0, keep the main thread non-blocking.
         // Read the latest WaitGetPoses() snapshot produced by the pose waiter thread.
-        if (ReadPoseWaiterSnapshot(m_Poses))
+        if (ReadPoseWaiterSnapshot(m_Poses, &submitToken))
         {
             posesValid = m_Poses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid;
         }
@@ -105,13 +107,20 @@ bool VR::UpdatePosesAndActions()
                 predicted = 0.0f;
             m_System->GetDeviceToAbsoluteTrackingPose(trackingOrigin, predicted, m_Poses, vr::k_unMaxTrackedDeviceCount);
             posesValid = m_Poses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid;
+            submitToken = m_PoseWaiterSeq.load(std::memory_order_acquire);
         }
     }
     else
     {
         vr::EVRCompositorError result = m_Compositor->WaitGetPoses(m_Poses, vr::k_unMaxTrackedDeviceCount, NULL, 0);
         posesValid = (result == vr::VRCompositorError_None);
+        if (posesValid)
+            submitToken = s_fallbackSubmitToken.fetch_add(1, std::memory_order_acq_rel) + 1;
     }
+    if (posesValid && submitToken == 0)
+        submitToken = s_fallbackSubmitToken.fetch_add(1, std::memory_order_acq_rel) + 1;
+    if (submitToken != 0)
+        m_SubmitPoseToken.store(submitToken, std::memory_order_release);
     if (!posesValid && m_CompositorExplicitTiming)
         m_CompositorNeedsHandoff = false;
 

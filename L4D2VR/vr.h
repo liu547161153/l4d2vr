@@ -499,6 +499,21 @@ public:
 	bool m_IsInitialized = false;
 	std::atomic<bool> m_RenderedNewFrame{ false };
 	std::atomic<bool> m_RenderedHud{ false };
+    // Guard against duplicate compositor submits in the same pose frame.
+    // Updated by UpdatePosesAndActions(), consumed by SubmitVRTextures().
+    std::atomic<uint32_t> m_SubmitPoseToken{ 0 };
+    std::atomic<uint32_t> m_LastSubmittedPoseToken{ 0 };
+    std::atomic<bool> m_SubmitInFlight{ false };
+    std::atomic<uint32_t> m_LastSubmittedCompositorFrameIndex{ 0 };
+	// Render-thread -> submit-thread frame handoff (queued/multicore mode).
+	// dRenderView increments m_RenderCompletedFrameId and signals m_RenderFrameReadyEvent
+	// when a full stereo frame is rendered into eye textures.
+	std::atomic<uint32_t> m_RenderCompletedFrameId{ 0 };
+	std::atomic<uint32_t> m_LastSubmittedFrameId{ 0 };
+	HANDLE m_RenderFrameReadyEvent = NULL;
+	// Present-side wait budget (ms) for a fresh rendered frame in mat_queue_mode!=0.
+	// 0 disables waiting. Small values (1-3) reduce stale-frame submits.
+	int m_QueuedSubmitWaitMs = 2;
 	// True once VGui_Paint has been redirected into m_HUDTexture for the current VR frame.
 	std::atomic<bool> m_HudPaintedThisFrame{ false };
 	std::atomic<bool> m_CreatedVRTextures{ false };
