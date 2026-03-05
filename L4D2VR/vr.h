@@ -212,6 +212,39 @@ public:
 	std::atomic<float> m_RenderViewmodelAngOffsetY{ 0.0f };
 	std::atomic<float> m_RenderViewmodelAngOffsetZ{ 0.0f };
 
+		// Local-player & camera state snapshot for the render thread (mat_queue_mode!=0).
+		// NOTE: These are written under the same seqlock as m_RenderViewParamsSeq.
+		std::atomic<uint32_t> m_RenderHasLocalPlayer{ 0 };
+		std::atomic<float> m_RenderLocalEyePosX{ 0.0f };
+		std::atomic<float> m_RenderLocalEyePosY{ 0.0f };
+		std::atomic<float> m_RenderLocalEyePosZ{ 0.0f };
+		std::atomic<uint32_t> m_RenderHasViewEntityOverride{ 0 };
+		std::atomic<int> m_RenderViewEntityHandle{ 0 };
+		std::atomic<uint32_t> m_RenderBeingRevived{ 0 };
+		std::atomic<uint32_t> m_RenderRevivingOther{ 0 };
+		std::atomic<uint32_t> m_RenderUsingMountedGun{ 0 };
+		std::atomic<uint32_t> m_RenderPlayerIncap{ 0 };
+		std::atomic<uint32_t> m_RenderPlayerControlledBySI{ 0 };
+		std::atomic<uint32_t> m_RenderInThirdPersonMapLoadCooldown{ 0 };
+
+		// Third-person state debug snapshot (subset used by the render hook).
+		std::atomic<uint32_t> m_RenderTpWantsThirdPerson{ 0 };
+		std::atomic<uint32_t> m_RenderTpObserver{ 0 };
+		std::atomic<uint32_t> m_RenderTpDead{ 0 };
+		std::atomic<int> m_RenderTpLifeState{ 0 };
+		std::atomic<int> m_RenderTpObserverMode{ 0 };
+		std::atomic<int> m_RenderTpObserverTarget{ 0 };
+		std::atomic<uint32_t> m_RenderTpIncap{ 0 };
+		std::atomic<uint32_t> m_RenderTpLedge{ 0 };
+		std::atomic<uint32_t> m_RenderTpTongue{ 0 };
+		std::atomic<uint32_t> m_RenderTpPinned{ 0 };
+		std::atomic<uint32_t> m_RenderTpSelfMedkit{ 0 };
+
+		// Aim-line gating computed on the update thread; render thread only consumes.
+		std::atomic<uint32_t> m_RenderAimLineAllowed{ 0 };
+		std::atomic<uint32_t> m_RenderAimLineShow{ 0 };
+
+
 	// Render-thread computed snapshot (updated once per dRenderView call).
 	std::atomic<uint32_t> m_RenderFrameSeq{ 0 };
 	std::atomic<float> m_RenderViewAngX{ 0.0f };

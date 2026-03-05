@@ -27,6 +27,39 @@ void VR::UpdateTracking()
         m_HadLocalPlayerPrev = false;
         m_ThirdPersonMapLoadCooldownPending = true;
         m_ThirdPersonMapLoadCooldownEnd = {};
+
+        // Publish a safe "no local player" snapshot for the render thread.
+        {
+            uint32_t seq = m_RenderViewParamsSeq.load(std::memory_order_relaxed);
+            m_RenderViewParamsSeq.store(seq + 1, std::memory_order_release);
+
+            m_RenderHasLocalPlayer.store(0, std::memory_order_relaxed);
+            m_RenderHasViewEntityOverride.store(0, std::memory_order_relaxed);
+            m_RenderViewEntityHandle.store(0, std::memory_order_relaxed);
+            m_RenderBeingRevived.store(0, std::memory_order_relaxed);
+            m_RenderRevivingOther.store(0, std::memory_order_relaxed);
+            m_RenderUsingMountedGun.store(0, std::memory_order_relaxed);
+            m_RenderPlayerIncap.store(0, std::memory_order_relaxed);
+            m_RenderPlayerControlledBySI.store(0, std::memory_order_relaxed);
+            m_RenderInThirdPersonMapLoadCooldown.store(0, std::memory_order_relaxed);
+
+            m_RenderTpWantsThirdPerson.store(0, std::memory_order_relaxed);
+            m_RenderTpObserver.store(0, std::memory_order_relaxed);
+            m_RenderTpDead.store(0, std::memory_order_relaxed);
+            m_RenderTpLifeState.store(0, std::memory_order_relaxed);
+            m_RenderTpObserverMode.store(0, std::memory_order_relaxed);
+            m_RenderTpObserverTarget.store(0, std::memory_order_relaxed);
+            m_RenderTpIncap.store(0, std::memory_order_relaxed);
+            m_RenderTpLedge.store(0, std::memory_order_relaxed);
+            m_RenderTpTongue.store(0, std::memory_order_relaxed);
+            m_RenderTpPinned.store(0, std::memory_order_relaxed);
+            m_RenderTpSelfMedkit.store(0, std::memory_order_relaxed);
+
+            m_RenderAimLineAllowed.store(0, std::memory_order_relaxed);
+            m_RenderAimLineShow.store(0, std::memory_order_relaxed);
+
+            m_RenderViewParamsSeq.store(seq + 2, std::memory_order_release);
+        }
         return;
     }
     if (m_ServerHookFallbackPending)
@@ -1043,6 +1076,60 @@ void VR::UpdateTracking()
     m_ViewmodelRight = VectorRotate(m_ViewmodelRight, m_ViewmodelForward, m_ViewmodelAngOffset.z);
     m_ViewmodelUp = VectorRotate(m_ViewmodelUp, m_ViewmodelForward, m_ViewmodelAngOffset.z);
 
+    // Extra render-thread state (local player / third-person / aim line) captured on the update thread.
+    Vector __rtLocalEye = localPlayer->EyePosition();
+    const unsigned char* __lp = reinterpret_cast<const unsigned char*>(localPlayer);
+    const int __viewEnt = *reinterpret_cast<const int*>(__lp + 0x142c); // m_hViewEntity
+    const int __reviveOwner = *reinterpret_cast<const int*>(__lp + 0x1f88); // m_reviveOwner
+    const int __reviveTarget = *reinterpret_cast<const int*>(__lp + 0x1f8c); // m_reviveTarget
+    const bool __beingRevived = handleValid(__reviveOwner);
+    const bool __revivingOther = handleValid(__reviveTarget);
+    const bool __usingMountedGun = usingMountedGunNow;
+    const bool __playerIncap = (*reinterpret_cast<const unsigned char*>(__lp + 0x1ea9) != 0); // m_isIncapacitated
+
+    // Third-person state debug (mirrors hooks.cpp::ShouldForceThirdPersonByState).
+    const int __tpLifeState = (int)(*reinterpret_cast<const unsigned char*>(__lp + 0x147)); // m_lifeState
+    const int __tpObserverMode = *reinterpret_cast<const int*>(__lp + 0x1450); // m_iObserverMode
+    const int __tpObserverTarget = *reinterpret_cast<const int*>(__lp + 0x1454); // m_hObserverTarget
+    const bool __tpIncap = __playerIncap;
+    const bool __tpLedge = (*reinterpret_cast<const unsigned char*>(__lp + 0x25ec) != 0); // m_isHangingFromLedge
+    const int __tongueOwner = *reinterpret_cast<const int*>(__lp + 0x1f6c); // m_tongueOwner
+    const bool __hangingTongue = (*reinterpret_cast<const unsigned char*>(__lp + 0x1f84) != 0); // m_isHangingFromTongue
+    const bool __tpTongue = __hangingTongue || handleValid(__tongueOwner);
+
+    const int __carryAttacker = *reinterpret_cast<const int*>(__lp + 0x2714); // m_carryAttacker
+    const int __pummelAttacker = *reinterpret_cast<const int*>(__lp + 0x2720); // m_pummelAttacker
+    const int __pounceAttacker = *reinterpret_cast<const int*>(__lp + 0x272c); // m_pounceAttacker
+    const int __jockeyAttacker = *reinterpret_cast<const int*>(__lp + 0x274c); // m_jockeyAttacker
+    const bool __tpPinned = handleValid(__carryAttacker) || handleValid(__pummelAttacker) || handleValid(__pounceAttacker) || handleValid(__jockeyAttacker);
+
+    const int __useAction = *reinterpret_cast<const int*>(__lp + 0x1ba8); // m_iCurrentUseAction
+    const int __useActionOwner = *reinterpret_cast<const int*>(__lp + 0x1ba4); // m_useActionOwner
+    const int __useActionTarget = *reinterpret_cast<const int*>(__lp + 0x1ba0); // m_useActionTarget
+    bool __tpSelfMedkit = false;
+    if (__useAction == 1 && m_Game && m_Game->m_ClientEntityList && handleValid(__useActionOwner) && handleValid(__useActionTarget))
+    {
+        auto* ownerEnt = (C_BaseEntity*)m_Game->m_ClientEntityList->GetClientEntityFromHandle(__useActionOwner);
+        auto* targetEnt = (C_BaseEntity*)m_Game->m_ClientEntityList->GetClientEntityFromHandle(__useActionTarget);
+        __tpSelfMedkit = (ownerEnt == localPlayer) && (targetEnt == localPlayer);
+    }
+
+    const bool __tpDead = (__tpLifeState == 2) || ((__tpLifeState == 1) && !__tpIncap);
+    const bool __tpObserver = (__tpObserverMode != 0) && (__tpDead || handleValid(__tpObserverTarget));
+    const bool __tpWantsThirdPerson = __tpDead || __tpObserver || __tpLedge || __tpTongue || __tpPinned || __tpSelfMedkit;
+
+    // Update main-thread controlled-by-SI flag (used by aiming logic).
+    m_PlayerControlledBySI = (__tpTongue || __tpPinned);
+
+    // Aim line gating computed on update thread (render thread only consumes).
+    C_WeaponCSBase* __activeWeapon = nullptr;
+    if (C_BaseCombatWeapon* aw = localPlayer->GetActiveWeapon())
+        __activeWeapon = (C_WeaponCSBase*)aw;
+    const bool __aimAllowed = ShouldDrawAimLine(__activeWeapon);
+    const bool __aimShow = __aimAllowed && ShouldShowAimLine(__activeWeapon);
+
+    const bool __inMapLoadCooldown = IsThirdPersonMapLoadCooldownActive();
+
     // Publish a stable snapshot of view/tracking parameters for the render thread (mat_queue_mode!=0).
     // The render hook will consume these with a seqlock and combine them with a render-thread WaitGetPoses() sample
     // to avoid screen/viewmodel jitter and head-turn ghosting under queued rendering.
@@ -1073,6 +1160,35 @@ void VR::UpdateTracking()
         m_RenderViewmodelAngOffsetX.store(m_ViewmodelAngOffset.x, std::memory_order_relaxed);
         m_RenderViewmodelAngOffsetY.store(m_ViewmodelAngOffset.y, std::memory_order_relaxed);
         m_RenderViewmodelAngOffsetZ.store(m_ViewmodelAngOffset.z, std::memory_order_relaxed);
+
+        // Local player / third-person / aim line state for the render thread.
+        m_RenderHasLocalPlayer.store(1, std::memory_order_relaxed);
+        m_RenderLocalEyePosX.store(__rtLocalEye.x, std::memory_order_relaxed);
+        m_RenderLocalEyePosY.store(__rtLocalEye.y, std::memory_order_relaxed);
+        m_RenderLocalEyePosZ.store(__rtLocalEye.z, std::memory_order_relaxed);
+        m_RenderHasViewEntityOverride.store(handleValid(__viewEnt) ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderViewEntityHandle.store(__viewEnt, std::memory_order_relaxed);
+        m_RenderBeingRevived.store(__beingRevived ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderRevivingOther.store(__revivingOther ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderUsingMountedGun.store(__usingMountedGun ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderPlayerIncap.store(__playerIncap ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderPlayerControlledBySI.store((__tpTongue || __tpPinned) ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderInThirdPersonMapLoadCooldown.store(__inMapLoadCooldown ? 1u : 0u, std::memory_order_relaxed);
+
+        m_RenderTpWantsThirdPerson.store(__tpWantsThirdPerson ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderTpObserver.store(__tpObserver ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderTpDead.store(__tpDead ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderTpLifeState.store(__tpLifeState, std::memory_order_relaxed);
+        m_RenderTpObserverMode.store(__tpObserverMode, std::memory_order_relaxed);
+        m_RenderTpObserverTarget.store(__tpObserverTarget, std::memory_order_relaxed);
+        m_RenderTpIncap.store(__tpIncap ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderTpLedge.store(__tpLedge ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderTpTongue.store(__tpTongue ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderTpPinned.store(__tpPinned ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderTpSelfMedkit.store(__tpSelfMedkit ? 1u : 0u, std::memory_order_relaxed);
+
+        m_RenderAimLineAllowed.store(__aimAllowed ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderAimLineShow.store(__aimShow ? 1u : 0u, std::memory_order_relaxed);
 
         // Mark write complete (even).
         m_RenderViewParamsSeq.store(seq + 2, std::memory_order_release);

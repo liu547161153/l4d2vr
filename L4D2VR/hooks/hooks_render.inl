@@ -135,6 +135,31 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			Vector hmdPosCorrectedPrev{};
 			Vector viewmodelPosOffset{};
 			QAngle viewmodelAngOffset{};
+
+			// Extra render-thread state (written by VR::UpdateTracking under the same seqlock).
+			bool hasLocalPlayer = false;
+			Vector localEyePos{};
+			bool hasViewEntityOverride = false;
+			int viewEntityHandle = 0;
+			bool beingRevived = false;
+			bool revivingOther = false;
+			bool usingMountedGun = false;
+			bool playerIncap = false;
+			bool playerControlledBySI = false;
+			bool inThirdPersonMapLoadCooldown = false;
+
+			// Subset of ThirdPersonStateDebug for render-thread consumption.
+			bool tpWantsThirdPerson = false;
+			bool tpObserver = false;
+			bool tpDead = false;
+			int tpLifeState = 0;
+			int tpObserverMode = 0;
+			int tpObserverTarget = 0;
+			bool tpIncap = false;
+			bool tpLedge = false;
+			bool tpTongue = false;
+			bool tpPinned = false;
+			bool tpSelfMedkit = false;
 		};
 
 		ViewParams vp{};
@@ -172,6 +197,30 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			vp.viewmodelAngOffset.x = m_VR->m_RenderViewmodelAngOffsetX.load(std::memory_order_relaxed);
 			vp.viewmodelAngOffset.y = m_VR->m_RenderViewmodelAngOffsetY.load(std::memory_order_relaxed);
 			vp.viewmodelAngOffset.z = m_VR->m_RenderViewmodelAngOffsetZ.load(std::memory_order_relaxed);
+			vp.hasLocalPlayer = (m_VR->m_RenderHasLocalPlayer.load(std::memory_order_relaxed) != 0);
+			vp.localEyePos.x = m_VR->m_RenderLocalEyePosX.load(std::memory_order_relaxed);
+			vp.localEyePos.y = m_VR->m_RenderLocalEyePosY.load(std::memory_order_relaxed);
+			vp.localEyePos.z = m_VR->m_RenderLocalEyePosZ.load(std::memory_order_relaxed);
+			vp.hasViewEntityOverride = (m_VR->m_RenderHasViewEntityOverride.load(std::memory_order_relaxed) != 0);
+			vp.viewEntityHandle = m_VR->m_RenderViewEntityHandle.load(std::memory_order_relaxed);
+			vp.beingRevived = (m_VR->m_RenderBeingRevived.load(std::memory_order_relaxed) != 0);
+			vp.revivingOther = (m_VR->m_RenderRevivingOther.load(std::memory_order_relaxed) != 0);
+			vp.usingMountedGun = (m_VR->m_RenderUsingMountedGun.load(std::memory_order_relaxed) != 0);
+			vp.playerIncap = (m_VR->m_RenderPlayerIncap.load(std::memory_order_relaxed) != 0);
+			vp.playerControlledBySI = (m_VR->m_RenderPlayerControlledBySI.load(std::memory_order_relaxed) != 0);
+			vp.inThirdPersonMapLoadCooldown = (m_VR->m_RenderInThirdPersonMapLoadCooldown.load(std::memory_order_relaxed) != 0);
+
+			vp.tpWantsThirdPerson = (m_VR->m_RenderTpWantsThirdPerson.load(std::memory_order_relaxed) != 0);
+			vp.tpObserver = (m_VR->m_RenderTpObserver.load(std::memory_order_relaxed) != 0);
+			vp.tpDead = (m_VR->m_RenderTpDead.load(std::memory_order_relaxed) != 0);
+			vp.tpLifeState = m_VR->m_RenderTpLifeState.load(std::memory_order_relaxed);
+			vp.tpObserverMode = m_VR->m_RenderTpObserverMode.load(std::memory_order_relaxed);
+			vp.tpObserverTarget = m_VR->m_RenderTpObserverTarget.load(std::memory_order_relaxed);
+			vp.tpIncap = (m_VR->m_RenderTpIncap.load(std::memory_order_relaxed) != 0);
+			vp.tpLedge = (m_VR->m_RenderTpLedge.load(std::memory_order_relaxed) != 0);
+			vp.tpTongue = (m_VR->m_RenderTpTongue.load(std::memory_order_relaxed) != 0);
+			vp.tpPinned = (m_VR->m_RenderTpPinned.load(std::memory_order_relaxed) != 0);
+			vp.tpSelfMedkit = (m_VR->m_RenderTpSelfMedkit.load(std::memory_order_relaxed) != 0);
 
 			const uint32_t s2 = m_VR->m_RenderViewParamsSeq.load(std::memory_order_acquire);
 			if (s1 == s2 && !(s2 & 1u))
@@ -215,6 +264,30 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				vp.viewmodelAngOffset.x = m_VR->m_RenderViewmodelAngOffsetX.load(std::memory_order_relaxed);
 				vp.viewmodelAngOffset.y = m_VR->m_RenderViewmodelAngOffsetY.load(std::memory_order_relaxed);
 				vp.viewmodelAngOffset.z = m_VR->m_RenderViewmodelAngOffsetZ.load(std::memory_order_relaxed);
+			vp.hasLocalPlayer = (m_VR->m_RenderHasLocalPlayer.load(std::memory_order_relaxed) != 0);
+			vp.localEyePos.x = m_VR->m_RenderLocalEyePosX.load(std::memory_order_relaxed);
+			vp.localEyePos.y = m_VR->m_RenderLocalEyePosY.load(std::memory_order_relaxed);
+			vp.localEyePos.z = m_VR->m_RenderLocalEyePosZ.load(std::memory_order_relaxed);
+			vp.hasViewEntityOverride = (m_VR->m_RenderHasViewEntityOverride.load(std::memory_order_relaxed) != 0);
+			vp.viewEntityHandle = m_VR->m_RenderViewEntityHandle.load(std::memory_order_relaxed);
+			vp.beingRevived = (m_VR->m_RenderBeingRevived.load(std::memory_order_relaxed) != 0);
+			vp.revivingOther = (m_VR->m_RenderRevivingOther.load(std::memory_order_relaxed) != 0);
+			vp.usingMountedGun = (m_VR->m_RenderUsingMountedGun.load(std::memory_order_relaxed) != 0);
+			vp.playerIncap = (m_VR->m_RenderPlayerIncap.load(std::memory_order_relaxed) != 0);
+			vp.playerControlledBySI = (m_VR->m_RenderPlayerControlledBySI.load(std::memory_order_relaxed) != 0);
+			vp.inThirdPersonMapLoadCooldown = (m_VR->m_RenderInThirdPersonMapLoadCooldown.load(std::memory_order_relaxed) != 0);
+
+			vp.tpWantsThirdPerson = (m_VR->m_RenderTpWantsThirdPerson.load(std::memory_order_relaxed) != 0);
+			vp.tpObserver = (m_VR->m_RenderTpObserver.load(std::memory_order_relaxed) != 0);
+			vp.tpDead = (m_VR->m_RenderTpDead.load(std::memory_order_relaxed) != 0);
+			vp.tpLifeState = m_VR->m_RenderTpLifeState.load(std::memory_order_relaxed);
+			vp.tpObserverMode = m_VR->m_RenderTpObserverMode.load(std::memory_order_relaxed);
+			vp.tpObserverTarget = m_VR->m_RenderTpObserverTarget.load(std::memory_order_relaxed);
+			vp.tpIncap = (m_VR->m_RenderTpIncap.load(std::memory_order_relaxed) != 0);
+			vp.tpLedge = (m_VR->m_RenderTpLedge.load(std::memory_order_relaxed) != 0);
+			vp.tpTongue = (m_VR->m_RenderTpTongue.load(std::memory_order_relaxed) != 0);
+			vp.tpPinned = (m_VR->m_RenderTpPinned.load(std::memory_order_relaxed) != 0);
+			vp.tpSelfMedkit = (m_VR->m_RenderTpSelfMedkit.load(std::memory_order_relaxed) != 0);
 			};
 
 		if (vpOk)
@@ -769,21 +842,95 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// If engine is in third-person, setup.origin is a shoulder camera,
 	// but our VR hook normally overwrites it with HMD first-person.
 	// That makes the local player model show up "in your face" and looks like ghosting/double image.
+	//
+	// IMPORTANT (thread-safety):
+	// In mat_queue_mode!=0, this hook runs on the render thread. Do NOT touch engine/client entity state
+	// (GetLocalPlayer/GetClientEntity/ReadNetvar/GetActiveWeapon/TraceRay/etc) here.
+	// Instead, consume the update-thread seqlock snapshot (vp.*) published by VR::UpdateTracking.
 	// ------------------------------
-	int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
-	C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
-	const bool hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
-
+	C_BasePlayer* localPlayer = nullptr;
+	bool localPlayerValid = false;
+	bool hasViewEntityOverride = false;
 	Vector eyeOrigin = setup.origin;
-	if (localPlayer)
-		eyeOrigin = localPlayer->EyePosition();
+
+	bool revivingOther = false;
+	bool beingRevived = false;
+	bool usingMountedGun = false;
+	bool playerIncap = false;
+	bool inMapLoadCooldown = false;
+
+	ThirdPersonStateDebug tpStateDbg{};
+	bool rawStateWantsThirdPerson = false;
+	bool rawStateObserver = false;
+
+	if (queueMode == 0)
+	{
+		if (m_Game && m_Game->m_EngineClient)
+		{
+			int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+			localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+		}
+		localPlayerValid = (localPlayer != nullptr);
+		hasViewEntityOverride = (localPlayer && HandleValid(ReadNetvar<int>(localPlayer, 0x142c))); // m_hViewEntity
+
+		if (localPlayer)
+			eyeOrigin = localPlayer->EyePosition();
+
+		// Revive state
+		if (localPlayer)
+		{
+			const int reviveOwner = ReadNetvar<int>(localPlayer, 0x1f88);   // m_reviveOwner (someone reviving you)
+			const int reviveTarget = ReadNetvar<int>(localPlayer, 0x1f8c);  // m_reviveTarget (you reviving someone)
+			beingRevived = HandleValid(reviveOwner);
+			revivingOther = HandleValid(reviveTarget);
+		}
+
+		usingMountedGun = m_VR->IsUsingMountedGun(localPlayer);
+		if (localPlayer)
+			playerIncap = (ReadNetvar<int>(localPlayer, 0x1ea9) != 0); // m_isIncapacitated
+
+		// Also expose a simple "player is pinned/controlled" flag so VR can disable jittery aim line.
+		m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
+
+		rawStateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, m_Game->m_ClientEntityList, localPlayer, &tpStateDbg);
+		rawStateObserver = (tpStateDbg.observerMode != 0) && (tpStateDbg.dead || HandleValid(tpStateDbg.observerTarget));
+		inMapLoadCooldown = m_VR->IsThirdPersonMapLoadCooldownActive();
+	}
+	else
+	{
+		// Render thread (queued rendering): consume update-thread snapshot only.
+			// NOTE: This scope is outside the earlier "ViewParams vp" snapshot reader.
+			// Read the same atomic snapshot directly.
+			localPlayerValid = (m_VR->m_RenderHasLocalPlayer.load(std::memory_order_relaxed) != 0);
+			hasViewEntityOverride = (m_VR->m_RenderHasViewEntityOverride.load(std::memory_order_relaxed) != 0);
+			eyeOrigin.x = m_VR->m_RenderLocalEyePosX.load(std::memory_order_relaxed);
+			eyeOrigin.y = m_VR->m_RenderLocalEyePosY.load(std::memory_order_relaxed);
+			eyeOrigin.z = m_VR->m_RenderLocalEyePosZ.load(std::memory_order_relaxed);
+			beingRevived = (m_VR->m_RenderBeingRevived.load(std::memory_order_relaxed) != 0);
+			revivingOther = (m_VR->m_RenderRevivingOther.load(std::memory_order_relaxed) != 0);
+			usingMountedGun = (m_VR->m_RenderUsingMountedGun.load(std::memory_order_relaxed) != 0);
+			playerIncap = (m_VR->m_RenderPlayerIncap.load(std::memory_order_relaxed) != 0);
+			inMapLoadCooldown = (m_VR->m_RenderInThirdPersonMapLoadCooldown.load(std::memory_order_relaxed) != 0);
+
+			tpStateDbg.dead = (m_VR->m_RenderTpDead.load(std::memory_order_relaxed) != 0);
+			tpStateDbg.lifeState = m_VR->m_RenderTpLifeState.load(std::memory_order_relaxed);
+			tpStateDbg.observerMode = m_VR->m_RenderTpObserverMode.load(std::memory_order_relaxed);
+			tpStateDbg.observerTarget = m_VR->m_RenderTpObserverTarget.load(std::memory_order_relaxed);
+			tpStateDbg.incap = (m_VR->m_RenderTpIncap.load(std::memory_order_relaxed) != 0);
+			tpStateDbg.ledge = (m_VR->m_RenderTpLedge.load(std::memory_order_relaxed) != 0);
+			tpStateDbg.tongue = (m_VR->m_RenderTpTongue.load(std::memory_order_relaxed) != 0);
+			tpStateDbg.pinned = (m_VR->m_RenderTpPinned.load(std::memory_order_relaxed) != 0);
+			tpStateDbg.selfMedkit = (m_VR->m_RenderTpSelfMedkit.load(std::memory_order_relaxed) != 0);
+
+			rawStateWantsThirdPerson = (m_VR->m_RenderTpWantsThirdPerson.load(std::memory_order_relaxed) != 0);
+			rawStateObserver = (m_VR->m_RenderTpObserver.load(std::memory_order_relaxed) != 0);
+	}
 
 	// Heuristic: in true third-person, the engine camera origin is noticeably away from eye position.
 	// IMPORTANT: stairs/step-smoothing can create large Z deltas between setup.origin and EyePosition().
 	// So prefer XY distance for "real" third-person detection.
 	Vector camDelta = (setup.origin - eyeOrigin);
 	const float camDist3D = camDelta.Length();
-	const float camDz = camDelta.z;
 	camDelta.z = 0.0f;
 	const float camDistXY = camDelta.Length();
 
@@ -792,112 +939,91 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// - 3D is a fallback for edge cases.
 	constexpr float kThirdPersonXY = 20.0f;
 	constexpr float kThirdPerson3D = 90.0f;
-	// Revive (being helped / helping someone) can temporarily offset setup.origin away from EyePosition().
-	// Rule:
-	//  - If YOU are reviving someone else: force third-person rendering (stable anchor, less weirdness).
-	//  - If YOU are being revived: do NOT force third-person; keep whatever the engine heuristic says,
-	//    so we won't flip a true first-person view into third-person.
-	bool revivingOther = false;
-	bool beingRevived = false;
-	if (localPlayer)
-	{
-		const int reviveOwner = ReadNetvar<int>(localPlayer, 0x1f88);   // m_reviveOwner (someone reviving you)
-		const int reviveTarget = ReadNetvar<int>(localPlayer, 0x1f8c);   // m_reviveTarget (you reviving someone)
-		beingRevived = HandleValid(reviveOwner);
-		revivingOther = HandleValid(reviveTarget);
-	}
 
-		// Heuristic (smoothed): in true third-person, the engine camera origin is noticeably away from eye position.
-		// In mat_queue_mode 2, setup.origin can include view-shake / bob while EyePosition() is relatively stable,
-		// and render-thread reads can also be noisier. A raw threshold compare can therefore thrash FP<->TP.
-		// Fix: low-pass filter the *delta vector* + apply hysteresis before deciding "engine third-person".
-		static bool s_engineTpDetectInit = false;
-		static Vector s_engineTpDeltaEmaXY{ 0,0,0 };
-		static float s_engineTpDistEma3D = 0.0f;
-		static bool s_engineTpLatched = false;
+	// Heuristic (smoothed): low-pass filter the delta + apply hysteresis before deciding "engine third-person".
+	static bool s_engineTpDetectInit = false;
+	static Vector s_engineTpDeltaEmaXY{ 0,0,0 };
+	static float s_engineTpDistEma3D = 0.0f;
+	static bool s_engineTpLatched = false;
 
-		auto ResetEngineTpDetect = [&]()
-			{
-				s_engineTpDetectInit = false;
-				s_engineTpDeltaEmaXY = { 0,0,0 };
-				s_engineTpDistEma3D = 0.0f;
-				s_engineTpLatched = false;
-			};
-
-		if (!localPlayer)
+	auto ResetEngineTpDetect = [&]()
 		{
-			ResetEngineTpDetect();
+			s_engineTpDetectInit = false;
+			s_engineTpDeltaEmaXY = { 0,0,0 };
+			s_engineTpDistEma3D = 0.0f;
+			s_engineTpLatched = false;
+		};
+
+	if (!localPlayerValid)
+	{
+		ResetEngineTpDetect();
+	}
+	else
+	{
+		// 0=no smoothing (instant), 0.9=heavy smoothing.
+		constexpr float kDetectSmooth = 0.70f;
+		const float alpha = 1.0f - kDetectSmooth;
+
+		if (!s_engineTpDetectInit)
+		{
+			s_engineTpDeltaEmaXY = camDelta; // camDelta is XY-only
+			s_engineTpDistEma3D = camDist3D;
+			s_engineTpDetectInit = true;
 		}
 		else
 		{
-			// 0=no smoothing (instant), 0.9=heavy smoothing.
-			constexpr float kDetectSmooth = 0.70f;
-			const float alpha = 1.0f - kDetectSmooth;
-
-			if (!s_engineTpDetectInit)
-			{
-				s_engineTpDeltaEmaXY = camDelta; // camDelta is XY-only
-				s_engineTpDistEma3D = camDist3D;
-				s_engineTpDetectInit = true;
-			}
-			else
-			{
-				s_engineTpDeltaEmaXY.x += (camDelta.x - s_engineTpDeltaEmaXY.x) * alpha;
-				s_engineTpDeltaEmaXY.y += (camDelta.y - s_engineTpDeltaEmaXY.y) * alpha;
-				s_engineTpDeltaEmaXY.z = 0.0f;
-				s_engineTpDistEma3D += (camDist3D - s_engineTpDistEma3D) * alpha;
-			}
-
-			const float emaDistXY = s_engineTpDeltaEmaXY.Length();
-			// Hysteresis: use a lower threshold to exit to prevent oscillation.
-			constexpr float kThirdPersonXY_On = kThirdPersonXY;
-			constexpr float kThirdPersonXY_Off = kThirdPersonXY * 0.75f;
-			constexpr float kThirdPerson3D_On = kThirdPerson3D;
-			constexpr float kThirdPerson3D_Off = kThirdPerson3D * 0.78f;
-
-			if (!s_engineTpLatched)
-			{
-				if (emaDistXY > kThirdPersonXY_On || s_engineTpDistEma3D > kThirdPerson3D_On)
-					s_engineTpLatched = true;
-			}
-			else
-			{
-				if (emaDistXY < kThirdPersonXY_Off && s_engineTpDistEma3D < kThirdPerson3D_Off)
-					s_engineTpLatched = false;
-			}
+			s_engineTpDeltaEmaXY.x += (camDelta.x - s_engineTpDeltaEmaXY.x) * alpha;
+			s_engineTpDeltaEmaXY.y += (camDelta.y - s_engineTpDeltaEmaXY.y) * alpha;
+			s_engineTpDeltaEmaXY.z = 0.0f;
+			s_engineTpDistEma3D += (camDist3D - s_engineTpDistEma3D) * alpha;
 		}
 
-		bool engineThirdPersonNow = (localPlayer && s_engineTpLatched);
+		const float emaDistXY = s_engineTpDeltaEmaXY.Length();
+		// Hysteresis: use a lower threshold to exit to prevent oscillation.
+		constexpr float kThirdPersonXY_On = kThirdPersonXY;
+		constexpr float kThirdPersonXY_Off = kThirdPersonXY * 0.75f;
+		constexpr float kThirdPerson3D_On = kThirdPerson3D;
+		constexpr float kThirdPerson3D_Off = kThirdPerson3D * 0.78f;
+
+		if (!s_engineTpLatched)
+		{
+			if (emaDistXY > kThirdPersonXY_On || s_engineTpDistEma3D > kThirdPerson3D_On)
+				s_engineTpLatched = true;
+		}
+		else
+		{
+			if (emaDistXY < kThirdPersonXY_Off && s_engineTpDistEma3D < kThirdPerson3D_Off)
+				s_engineTpLatched = false;
+		}
+	}
+
+	bool engineThirdPersonNow = (localPlayerValid && s_engineTpLatched);
 
 	// Only force TP when reviving others. Being revived keeps current FP/TP decision.
 	if (revivingOther)
 		engineThirdPersonNow = true;
 
 	// Mounted gun (.50cal/minigun): always force first-person rendering.
-		const bool usingMountedGun = m_VR->IsUsingMountedGun(localPlayer);
-		if (usingMountedGun)
-		{
-			engineThirdPersonNow = false;
-			ResetEngineTpDetect();
-		}
+	if (usingMountedGun)
+	{
+		engineThirdPersonNow = false;
+		ResetEngineTpDetect();
+	}
 
 	const bool customWalkThirdPersonNow = m_VR->m_ThirdPersonRenderOnCustomWalk && m_VR->m_CustomWalkHeld;
 
 	// Some scripts/mods use point_viewcontrol_survivor via m_hViewEntity.
 	// Only ignore view-entity overrides during unstable INCAP windows.
-	bool playerIncap = false;
-	if (localPlayer)
-		playerIncap = (ReadNetvar<int>(localPlayer, 0x1ea9) != 0); // m_isIncapacitated
-
 	if (hasViewEntityOverride && !customWalkThirdPersonNow)
 	{
 		const bool unstableViewEntity = playerIncap;
-			if (unstableViewEntity)
-			{
-				engineThirdPersonNow = false;
-				ResetEngineTpDetect();
-			}
+		if (unstableViewEntity)
+		{
+			engineThirdPersonNow = false;
+			ResetEngineTpDetect();
+		}
 	}
+
 	QAngle rawSetupAngles(setup.angles.x, setup.angles.y, setup.angles.z);
 	// Capture and optionally smooth the engine camera (tick-rate 3P -> HMD-rate continuous).
 	if (engineThirdPersonNow)
@@ -910,26 +1036,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (s_engineTpCam.ShouldSmooth())
 		s_engineTpCam.GetSmoothed(engineCamOrigin, engineCamAngles);
 
-	// Detect third-person by comparing rendered camera origin to the real eye origin
-	// Use a small threshold + hysteresis to avoid flicker.
-	// Also expose a simple "player is pinned/controlled" flag so VR can disable jittery aim line.
-	m_VR->m_PlayerControlledBySI = IsPlayerControlledBySI(localPlayer);
-	ThirdPersonStateDebug tpStateDbg;
-	const bool rawStateWantsThirdPerson = ShouldForceThirdPersonByState(localPlayer, m_Game->m_ClientEntityList, localPlayer, &tpStateDbg);
-	const bool rawStateObserver = (tpStateDbg.observerMode != 0) && (tpStateDbg.dead || HandleValid(tpStateDbg.observerTarget));
+	// State-based third-person (dead/observer/ledge/tongue/pinned/self-heal)
 	bool stateWantsThirdPerson = rawStateWantsThirdPerson;
 	bool stateObserver = rawStateObserver;
 
 	// Map-load / reconnect stabilization:
-	// Right after joining/changing maps, the client can briefly report observer-like netvars even though
-	// the player is alive. If we treat that as true observer mode, we latch third-person for ~1-2s then snap back.
-	// Suppress *observer-driven* third-person in that window; other state reasons (ledge/tongue/pinned/self-heal) still apply.
-	const bool inMapLoadCooldown = m_VR->IsThirdPersonMapLoadCooldownActive();
+	// Suppress *observer-driven* third-person in that window; other state reasons still apply.
 	if (inMapLoadCooldown && tpStateDbg.lifeState == 0 && rawStateObserver && !tpStateDbg.dead)
 	{
 		stateObserver = false;
 		stateWantsThirdPerson = tpStateDbg.dead || tpStateDbg.ledge || tpStateDbg.tongue || tpStateDbg.pinned || tpStateDbg.selfMedkit;
 	}
+
 	// Observer render lock based on m_iObserverMode (prevents 1P/3P oscillation -> flash while spectating).
 	enum class ObserverRenderPref : int { None = 0, InEye = 1, Third = 2 };
 	static ObserverRenderPref s_obsPref = ObserverRenderPref::None;
@@ -958,18 +1076,22 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		if (s_obsPref == ObserverRenderPref::None && desired == ObserverRenderPref::None)
 			s_obsPref = ObserverRenderPref::Third;
 
-		if (desired != ObserverRenderPref::None && desired != s_obsPref)
+		if (desired != ObserverRenderPref::None)
 		{
 			if (desired != s_obsCandidate)
 			{
 				s_obsCandidate = desired;
-				s_obsCandidateFrames = 1;
-			}
-			else if (++s_obsCandidateFrames >= kObserverPrefLatchFrames)
-			{
-				s_obsPref = s_obsCandidate;
-				s_obsCandidate = ObserverRenderPref::None;
 				s_obsCandidateFrames = 0;
+			}
+			else
+			{
+				++s_obsCandidateFrames;
+				if (s_obsCandidateFrames >= kObserverPrefLatchFrames)
+				{
+					s_obsPref = s_obsCandidate;
+					s_obsCandidate = ObserverRenderPref::None;
+					s_obsCandidateFrames = 0;
+				}
 			}
 		}
 		else
@@ -987,18 +1109,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		stateWantsThirdPerson = tpStateDbg.dead || tpStateDbg.ledge || tpStateDbg.tongue || tpStateDbg.pinned || tpStateDbg.selfMedkit;
 
 	const bool stateIsDeadOrObserver = tpStateDbg.dead || (stateObserver && !observerForceInEye);
-	// Death transition anti-flicker: the engine can oscillate between 1P/3P while dying -> observer.
-	// To avoid nauseating camera swaps in VR, lock to first-person for a short window right after death is detected.
+
+	// Death transition anti-flicker: lock to first-person for a short window right after death.
 	static std::chrono::steady_clock::time_point s_deathFpLockUntil{};
 	static bool s_prevDead = false;
 	const bool nowDead = tpStateDbg.dead;
 	const bool nowObserver = stateObserver;
 	const auto nowTp = std::chrono::steady_clock::now();
-	// Revive recovery: getting up from incapacitated can leave the engine in a transient camera mode
-	// (observer/view-entity/shoulder cam). If we latch third-person during that window, it may never decay.
-	// Detect the incap -> standing edge and (optionally) force a short first-person recovery window.
-	// NOTE: if the player was already in third-person before getting incapacitated, don't force first-person
-	// after the revive; restore third-person immediately to match player expectation.
+
+	// Revive recovery: getting up from incapacitated can leave the engine in a transient camera mode.
 	static bool s_prevIncap = false;
 	static bool s_incapEnteredThirdPerson = false;
 	static bool s_reviveForceFirstPerson = true;
@@ -1006,16 +1125,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	const bool nowIncap = tpStateDbg.incap;
 	if (!s_prevIncap && nowIncap)
 	{
-		// Capture the *previous* third-person intent/state so we can restore it after revive.
-		// m_IsThirdPersonCamera / HoldFrames reflect the last frame's decision.
 		const bool prevHadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
 		s_incapEnteredThirdPerson = prevHadThirdPerson || customWalkThirdPersonNow || engineThirdPersonNow;
 	}
 	if (s_prevIncap && !nowIncap)
 	{
 		s_reviveForceFirstPerson = !s_incapEnteredThirdPerson;
-		// Keep this window short; it's only meant to let transient camera state settle.
-		// If we entered incap in third-person, don't force first-person after revive.
 		if (s_reviveForceFirstPerson)
 			s_reviveRecoverUntil = nowTp + std::chrono::milliseconds(400);
 		else
@@ -1023,7 +1138,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_VR->m_ThirdPersonHoldFrames = 0;
 		m_VR->m_IsThirdPersonCamera = false;
 		s_engineTpCam.Reset();
-		m_VR->ResetPosition();
+		if (queueMode == 0)
+			m_VR->ResetPosition();
 	}
 	s_prevIncap = nowIncap;
 	const bool inReviveRecover = (s_reviveRecoverUntil.time_since_epoch().count() != 0) && (nowTp < s_reviveRecoverUntil);
@@ -1031,60 +1147,51 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (nowDead && !s_prevDead)
 		s_deathFpLockUntil = nowTp + std::chrono::seconds(10);
 	s_prevDead = nowDead;
-	const bool forceFirstPersonAfterDeath =
-		(!nowObserver && (s_deathFpLockUntil.time_since_epoch().count() != 0) && (nowTp < s_deathFpLockUntil));
+	const bool forceFirstPersonAfterDeath = (!nowObserver && (s_deathFpLockUntil.time_since_epoch().count() != 0) && (nowTp < s_deathFpLockUntil));
+
 	constexpr int kEngineThirdPersonHoldFrames = 2;
 	constexpr int kStateThirdPersonHoldFrames = 2;
-	constexpr int kSelfMedkitHoldFrames = 6; // stronger lock while self-healing
-	constexpr int kDeadOrObserverHoldFrames = 30; // avoid flicker during death/observer transitions
+	constexpr int kSelfMedkitHoldFrames = 6;
+	constexpr int kDeadOrObserverHoldFrames = 30;
 	const bool hadThirdPerson = m_VR->m_IsThirdPersonCamera || (m_VR->m_ThirdPersonHoldFrames > 0);
-	// If dead, allow immediately (no dependency on engineThirdPersonNow/hysteresis).
 	bool allowStateThirdPerson = stateWantsThirdPerson && (stateIsDeadOrObserver || tpStateDbg.selfMedkit || engineThirdPersonNow || customWalkThirdPersonNow || hadThirdPerson);
 	if (forceFirstPersonAfterDeath)
 		allowStateThirdPerson = false;
-	// 先按“状态”锁定（优先级最高）
+
 	if (allowStateThirdPerson)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kStateThirdPersonHoldFrames);
 	if (tpStateDbg.selfMedkit)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kSelfMedkitHoldFrames);
 	if (stateIsDeadOrObserver)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kDeadOrObserverHoldFrames);
-	// 再按“+walk”辅助锁定（滑铲模组会用 +walk 切换第三人称摄像机，但摄像机偏移可能很小，我们的几何检测不一定能抓到）
+
 	constexpr int kWalkThirdPersonHoldFrames = 3;
 	if (customWalkThirdPersonNow)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kWalkThirdPersonHoldFrames);
 
-	// 再按“引擎第三人称”做短缓冲，但不要覆盖掉状态锁定
 	if (engineThirdPersonNow)
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kEngineThirdPersonHoldFrames);
-	else if (localPlayer && !allowStateThirdPerson && !tpStateDbg.selfMedkit && m_VR->m_ThirdPersonHoldFrames > 0)
+	else if (localPlayerValid && !allowStateThirdPerson && !tpStateDbg.selfMedkit && m_VR->m_ThirdPersonHoldFrames > 0)
 		m_VR->m_ThirdPersonHoldFrames--;
 
 	const bool defaultThirdPersonNow = m_VR->m_ThirdPersonDefault && !stateIsDeadOrObserver && !hasViewEntityOverride;
 	bool renderThirdPerson = defaultThirdPersonNow || customWalkThirdPersonNow || engineThirdPersonNow || tpStateDbg.selfMedkit || (m_VR->m_ThirdPersonHoldFrames > 0);
 	if (usingMountedGun)
 	{
-		// Hard override: mounted guns should never be third-person in VR.
 		renderThirdPerson = false;
 		m_VR->m_ThirdPersonHoldFrames = 0;
 	}
-	// Post-revive recovery override: force first-person for a short window after getting up.
 	if (inReviveRecover && s_reviveForceFirstPerson && !usingMountedGun && !customWalkThirdPersonNow && !stateIsDeadOrObserver && !tpStateDbg.selfMedkit)
 	{
 		renderThirdPerson = false;
 		m_VR->m_ThirdPersonHoldFrames = 0;
 		s_engineTpCam.Reset();
 	}
-	// Death anti-flicker override (must run after all other third-person decisions).
 	if (forceFirstPersonAfterDeath)
 	{
 		renderThirdPerson = false;
 		m_VR->m_ThirdPersonHoldFrames = 0;
 	}
-	// Observer render lock final override:
-	//  - obsMode 4   => force in-eye (1P) rendering.
-	//  - obsMode 5/6 => force third-person rendering.
-	// Runs late so nothing else can fight it and cause flicker.
 	if (observerForceInEye)
 	{
 		renderThirdPerson = false;
@@ -1096,25 +1203,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		renderThirdPerson = true;
 		m_VR->m_ThirdPersonHoldFrames = std::max(m_VR->m_ThirdPersonHoldFrames, kDeadOrObserverHoldFrames);
 	}
-	// Debug: log third-person state + relevant netvars (throttled)
-	{
-		static std::chrono::steady_clock::time_point s_lastTpDbg{};
-		static bool s_prevEngineTp = false;
-		static bool s_prevStateTp = false;
-		static bool s_prevRenderTp = false;
-		static int s_prevHold = -999;
 
-		const auto now = std::chrono::steady_clock::now();
-		const bool changed = (engineThirdPersonNow != s_prevEngineTp) || (stateWantsThirdPerson != s_prevStateTp) ||
-			(renderThirdPerson != s_prevRenderTp) || (m_VR->m_ThirdPersonHoldFrames != s_prevHold);
-		const bool timeUp = (s_lastTpDbg.time_since_epoch().count() == 0) ||
-			(std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastTpDbg).count() >= 1000);
-
-		s_prevEngineTp = engineThirdPersonNow;
-		s_prevStateTp = stateWantsThirdPerson;
-		s_prevRenderTp = renderThirdPerson;
-		s_prevHold = m_VR->m_ThirdPersonHoldFrames;
-	}
 	// Expose third-person camera to VR helpers (aim line, overlays, etc.)
 	m_VR->m_IsThirdPersonCamera = renderThirdPerson;
 
@@ -1287,7 +1376,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		// Camera collision: clamp camera distance when something blocks the line from the anchor to the desired camera.
 		// This prevents the third-person render camera from going through walls (common when using ThirdPersonVRCameraOffset).
-		if (m_Game && m_Game->m_EngineTrace && !hasViewEntityOverride)
+		if (queueMode == 0 && m_Game && m_Game->m_EngineTrace && !hasViewEntityOverride)
 		{
 			const Vector desiredCamCenter = camCenter;
 			Vector delta = desiredCamCenter - baseCenter;

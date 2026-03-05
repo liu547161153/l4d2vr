@@ -1296,15 +1296,12 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
     // Throwables are handled by the throw-arc code (which is trace-heavy and stays on the update path).
     if (m_HasThrowArc)
         return;
-
-    C_WeaponCSBase* activeWeapon = nullptr;
-    if (localPlayer)
-        activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
-
-    const bool allowAimLineDraw = ShouldDrawAimLine(activeWeapon);
-    if (!allowAimLineDraw || !ShouldShowAimLine(activeWeapon))
-        return;
-
+	// Gating is computed on the update thread (see VR::UpdateTracking) and exposed via atomics.
+	// IMPORTANT: do not touch entity/weapon state from the render thread in queued mode.
+	const bool allowAimLineDraw = (m_RenderAimLineAllowed.load(std::memory_order_relaxed) != 0);
+	const bool showAimLine = (m_RenderAimLineShow.load(std::memory_order_relaxed) != 0);
+	if (!allowAimLineDraw || !showAimLine)
+		return;
     // If update-side aiming has no valid ray this frame, don't guess here.
     if (!m_HasAimLine && m_LastAimDirection.IsZero())
         return;
