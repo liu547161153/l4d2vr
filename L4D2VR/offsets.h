@@ -27,8 +27,6 @@ struct Offset
         if (newOffset > 0)
         {
             this->offset = newOffset;
-            Game::logMsg("[Offsets] Signature resolved: module=%s offset=0x%X sigOffset=%d sig=\"%s\"",
-                moduleName.c_str(), this->offset, sigOffset, signature.c_str());
         }
         else if (newOffset == 0)
         {

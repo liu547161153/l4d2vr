@@ -31,7 +31,6 @@ static HMODULE GetModuleWithRetry(const char* dllname, std::chrono::milliseconds
             return handle;
 
         ++attempt;
-        Game::logMsg("Waiting for module to load: %s (attempt %d)", dllname, attempt);
         Sleep(delayMs);
 
         if (timeout.count() >= 0 && std::chrono::steady_clock::now() - start >= timeout)

@@ -318,6 +318,28 @@ static inline bool LooksLikeSteamGuidOrJunk(const char* s)
     if (std::strncmp(s, "STEAM_", 6) == 0) return true;
     if (std::strncmp(s, "BOT", 3) == 0) return true;
     if (std::strncmp(s, "STEAM_ID_", 9) == 0) return true;
+
+    // Reject GUID-like or machine-token payloads (mostly hex + separators).
+    const size_t n = std::strlen(s);
+    if (n >= 16)
+    {
+        size_t hexish = 0;
+        size_t separators = 0;
+        size_t other = 0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            const unsigned char c = (unsigned char)s[i];
+            if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+                ++hexish;
+            else if (c == '-' || c == '_' || c == ':' || c == '{' || c == '}')
+                ++separators;
+            else
+                ++other;
+        }
+        if (other == 0 && hexish >= 12)
+            return true;
+    }
+
     return false;
 }
 
@@ -378,6 +400,54 @@ static inline bool CopyNormalizedNameCandidate(const char* src, size_t srcMax, c
     return dst[0] != 0;
 }
 
+static inline int ScoreNameCandidate(const char* s)
+{
+    if (!s || !*s)
+        return (std::numeric_limits<int>::min)();
+
+    size_t len = 0;
+    int alnum = 0;
+    int printable = 0;
+    int punctuation = 0;
+    int highBytes = 0;
+
+    for (const unsigned char* p = (const unsigned char*)s; *p; ++p)
+    {
+        const unsigned char c = *p;
+        ++len;
+        if (c < 0x20 || c == 0x7F)
+            return (std::numeric_limits<int>::min)();
+        if (c < 0x80)
+        {
+            ++printable;
+            if (std::isalnum(c))
+                ++alnum;
+            else if (std::ispunct(c))
+                ++punctuation;
+        }
+        else
+        {
+            ++printable;
+            ++highBytes;
+        }
+    }
+
+    if (len == 0 || printable == 0)
+        return (std::numeric_limits<int>::min)();
+
+    int score = 0;
+    score += (int)len * 6;          // Prefer fuller names over accidental 1-2 byte junk.
+    score += alnum * 2;
+    score += highBytes;             // Keep non-ASCII names competitive.
+    score -= punctuation;
+
+    // Penalize very short payloads to avoid false positives from misaligned struct probes.
+    if (len <= 2) score -= 40;
+    else if (len <= 4) score -= 12;
+
+    return score;
+}
+
 // Best-effort UTF-8 player name. Works even if our player_info_t struct is slightly mismatched
 // by probing multiple plausible locations for the name string.
 static inline bool GetPlayerNameUtf8Safe(IEngineClient* engine, int entIndex, char* outName, size_t outNameSize)
@@ -392,25 +462,45 @@ static inline bool GetPlayerNameUtf8Safe(IEngineClient* engine, int entIndex, ch
     if (!engine->GetPlayerInfo(entIndex, &info))
         return false;
 
-    // 1) Our declared field (common case).
-    if (CopyNormalizedNameCandidate(info.name, sizeof(info.name), outName, outNameSize))
-        return true;
+    char bestName[128] = { 0 };
+    int bestScore = (std::numeric_limits<int>::min)();
+
+    auto consider = [&](const char* src, size_t srcMax)
+        {
+            char cand[128] = { 0 };
+            if (!CopyNormalizedNameCandidate(src, srcMax, cand, sizeof(cand)))
+                return;
+
+            const int score = ScoreNameCandidate(cand);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                const size_t n = (std::min)(std::strlen(cand), sizeof(bestName) - 1);
+                if (n > 0)
+                    std::memcpy(bestName, cand, n);
+                bestName[n] = 0;
+            }
+        };
+
+    // 1) Preferred fields.
+    consider(info.name, sizeof(info.name));
+    consider(info.friendsName, sizeof(info.friendsName));
 
     // 2) Some builds place name at the beginning or after an 8-byte XUID.
-    // Probe a few common offsets so short names don't become "empty" due to offset mismatch.
+    // Probe a few common offsets and pick the most plausible candidate.
     const char* blob = reinterpret_cast<const char*>(&info);
-    if (CopyNormalizedNameCandidate(blob + 0, 128, outName, outNameSize))
-        return true;
-    if (CopyNormalizedNameCandidate(blob + 8, 128, outName, outNameSize))
-        return true;
-    if (CopyNormalizedNameCandidate(blob + 16, 128, outName, outNameSize))
-        return true;
+    consider(blob + 16, 128);
+    consider(blob + 8, 128);
+    consider(blob + 0, 128);
 
-    // 3) Some builds may provide a usable friends/display name.
-    if (CopyNormalizedNameCandidate(info.friendsName, sizeof(info.friendsName), outName, outNameSize))
-        return true;
+    if (bestScore == (std::numeric_limits<int>::min)() || !bestName[0])
+        return false;
 
-    return false;
+    const size_t n = (std::min)(std::strlen(bestName), outNameSize - 1);
+    if (n > 0)
+        std::memcpy(outName, bestName, n);
+    outName[n] = 0;
+    return outName[0] != 0;
 }
 
 #include "vr/vr_lifecycle_init.inl"

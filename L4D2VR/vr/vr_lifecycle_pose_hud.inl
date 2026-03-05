@@ -935,12 +935,7 @@ void VR::UpdateHandHudOverlays()
                 if (TryReadInt(pb, kJockeyAttackerOffset, hTmp)) hJockey = (uint32_t)hTmp;
                 row.controlled = IsValidHandle(hTongue) || IsValidHandle(hPummel) || IsValidHandle(hCarry) || IsValidHandle(hPounce) || IsValidHandle(hJockey);
 
-                player_info_t info{};
-                if (m_Game->m_EngineClient->GetPlayerInfo(i, &info) && info.name[0])
-                {
-                    ByteSafeCopy(row.name, sizeof(row.name), info.name);
-                }
-                else
+                if (!GetPlayerNameUtf8Safe(m_Game ? m_Game->m_EngineClient : nullptr, i, row.name, sizeof(row.name)))
                 {
                     int survivorChar = -1;
                     if (TryReadInt(pb, kSurvivorCharacterOffset, survivorChar))
