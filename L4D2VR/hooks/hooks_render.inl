@@ -1674,8 +1674,5 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (touchedEngineAngles && m_Game && m_Game->m_EngineClient)
 		m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame.store(true, std::memory_order_release);
-	m_VR->m_RenderCompletedFrameId.fetch_add(1, std::memory_order_acq_rel);
-	if (m_VR->m_RenderFrameReadyEvent)
-		SetEvent(m_VR->m_RenderFrameReadyEvent);
 }
 

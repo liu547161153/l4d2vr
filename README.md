@@ -46,9 +46,15 @@ If the game is crashing, try:
 
 ## Build instructions
 1. ```git clone https://github.com/liu547161153/l4d2vr.git ```
-2. Open l4d2vr.sln
-3. Set to x86 Debug or Release
-4. Build -> Build Solution
+2. Run the fixed build script (locks target to `Release|x86`):
+   ```powershell
+   .\build_release_x86.ps1
+   ```
+   or:
+   ```cmd
+   build_release_x86.cmd
+   ```
+3. (Optional/manual) Open l4d2vr.sln and build `Release|x86`.
 
 Note: After building, it will attempt to copy the new d3d9.dll to your L4D2 directory.
 
