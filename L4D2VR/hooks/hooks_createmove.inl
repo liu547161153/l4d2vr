@@ -209,16 +209,21 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				};
 			const float nx = norm(ax);
 			const float ny = norm(ay);
+			float moveNx = nx;
+			float moveNy = ny;
+
+			// Third-person front-view mode: keep left/right as-is.
+			// Forward/back follows current camera-aligned basis (no extra sign flip).
 
 			// 最大移动速度：给一个安全常数；服务器会按自身规则再夹紧
 			const float maxSpeed = m_VR->m_AdjustingViewmodel ? 25.f : 250.f;
 			hadWalkAxis = true;
-			walkNx = nx;
-			walkNy = ny;
+			walkNx = moveNx;
+			walkNy = moveNy;
 			walkMaxSpeed = maxSpeed;
 
 			// Track thumbstick locomotion state (used to disable 1:1 roomscale when requested).
-			m_VR->m_PushingThumbstick = (fabsf(nx) > 0.0001f) || (fabsf(ny) > 0.0001f);
+			m_VR->m_PushingThumbstick = (fabsf(moveNx) > 0.0001f) || (fabsf(moveNy) > 0.0001f);
 
 			// VR-aware servers: we can apply movement directly in cmd space.
 			// Non-VR servers: we will re-base movement later after overriding cmd->viewangles.
@@ -234,7 +239,14 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 					// Wrap to [-180, 180]
 					viewYaw -= 360.0f * std::floor((viewYaw + 180.0f) / 360.0f);
 				}
-				const float moveYaw = m_VR->GetMovementYawDeg();
+				float moveYaw = m_VR->GetMovementYawDeg();
+				if (m_VR->m_ThirdPersonFrontViewEnabled && m_VR->m_IsThirdPersonCamera && m_VR->ShouldRenderScope())
+				{
+					// Front-view 3P: keep locomotion basis aligned with the main front camera yaw
+					// (render camera yaw = scope yaw + 180), so stick movement stays intuitive onscreen.
+					moveYaw = m_VR->GetScopeCameraAbsAngle().y + 180.0f;
+					moveYaw -= 360.0f * std::floor((moveYaw + 180.0f) / 360.0f);
+				}
 
 				QAngle viewYawOnly(0.f, viewYaw, 0.f);
 				QAngle moveYawOnly(0.f, moveYaw, 0.f);
@@ -243,17 +255,17 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				QAngle::AngleVectors(viewYawOnly, &viewForward, &viewRight, &viewUp);
 				QAngle::AngleVectors(moveYawOnly, &moveForward, &moveRight, &moveUp);
 
-				Vector worldMove = moveForward * (ny * maxSpeed) + moveRight * (nx * maxSpeed);
+				Vector worldMove = moveForward * (moveNy * maxSpeed) + moveRight * (moveNx * maxSpeed);
 				cmd->forwardmove += DotProduct(worldMove, viewForward);
 				cmd->sidemove += DotProduct(worldMove, viewRight);
 			}
 
 			// 可选：也把方向按钮位设置一下，增加兼容性
 			// IN_FORWARD=1<<3, IN_BACK=1<<4, IN_MOVELEFT=1<<9, IN_MOVERIGHT=1<<10
-			if (ny > 0.5f)      cmd->buttons |= (1 << 3);
-			else if (ny < -0.5f)cmd->buttons |= (1 << 4);
-			if (nx > 0.5f)      cmd->buttons |= (1 << 10);
-			else if (nx < -0.5f)cmd->buttons |= (1 << 9);
+			if (moveNy > 0.5f)      cmd->buttons |= (1 << 3);
+			else if (moveNy < -0.5f)cmd->buttons |= (1 << 4);
+			if (moveNx > 0.5f)      cmd->buttons |= (1 << 10);
+			else if (moveNx < -0.5f)cmd->buttons |= (1 << 9);
 
 		}
 		else
@@ -485,7 +497,12 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				// VR stick movement (movement basis = HMD yaw or controller yaw)
 				if (hadWalkAxis)
 				{
-					const float moveYaw = m_VR->GetMovementYawDeg();
+					float moveYaw = m_VR->GetMovementYawDeg();
+					if (m_VR->m_ThirdPersonFrontViewEnabled && m_VR->m_IsThirdPersonCamera && m_VR->ShouldRenderScope())
+					{
+						moveYaw = m_VR->GetScopeCameraAbsAngle().y + 180.0f;
+						moveYaw -= 360.0f * std::floor((moveYaw + 180.0f) / 360.0f);
+					}
 					QAngle bodyYawOnly(0.f, moveYaw, 0.f);
 					Vector bodyForward, bodyRight, bodyUp;
 					QAngle::AngleVectors(bodyYawOnly, &bodyForward, &bodyRight, &bodyUp);

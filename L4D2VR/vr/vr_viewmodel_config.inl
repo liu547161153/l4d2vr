@@ -20,6 +20,12 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
     }
 
     a = m_AimLineColorA;
+    if (m_ScopeAimLineOnlyInScope
+        && m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ScopeWeaponIsFirearm
+        && !m_ScopeRenderingPass)
+        a = 0;
 }
 
 
@@ -872,11 +878,31 @@ void VR::ParseConfigFile()
     m_VRScale = getFloat("VRScale", m_VRScale);
     m_IpdScale = getFloat("IPDScale", m_IpdScale);
     m_ThirdPersonVRCameraOffset = std::max(0.0f, getFloat("ThirdPersonVRCameraOffset", m_ThirdPersonVRCameraOffset));
+    {
+        // Backward-compatible parsing:
+        // - old form: ThirdPersonFrontVRCameraOffset=80
+        // - new form: ThirdPersonFrontVRCameraOffset=80,0,0
+        const float legacyForward = getFloat("ThirdPersonFrontVRCameraOffset", m_ThirdPersonVRCameraOffset);
+        const Vector frontDefault = { legacyForward, 0.0f, 0.0f };
+        m_ThirdPersonFrontVRCameraOffset = getVector3("ThirdPersonFrontVRCameraOffset", frontDefault);
+        // Optional per-axis overrides for easier live tuning.
+        m_ThirdPersonFrontVRCameraOffset.x = getFloat("ThirdPersonFrontVRCameraOffsetX", m_ThirdPersonFrontVRCameraOffset.x);
+        m_ThirdPersonFrontVRCameraOffset.y = getFloat("ThirdPersonFrontVRCameraOffsetY", m_ThirdPersonFrontVRCameraOffset.y);
+        m_ThirdPersonFrontVRCameraOffset.z = getFloat("ThirdPersonFrontVRCameraOffsetZ", m_ThirdPersonFrontVRCameraOffset.z);
+    }
     m_ThirdPersonCameraSmoothing = std::clamp(getFloat("ThirdPersonCameraSmoothing", m_ThirdPersonCameraSmoothing), 0.0f, 0.99f);
     m_ThirdPersonMapLoadCooldownMs = std::max(0, getInt("ThirdPersonMapLoadCooldownMs", m_ThirdPersonMapLoadCooldownMs));
     m_ThirdPersonRenderOnCustomWalk = getBool("ThirdPersonRenderOnCustomWalk", m_ThirdPersonRenderOnCustomWalk);
     m_ThirdPersonDefault = getBool("ThirdPersonDefault", m_ThirdPersonDefault);
+    m_ThirdPersonCameraFollowHmd = getBool("ThirdPersonCameraFollowHmd", m_ThirdPersonCameraFollowHmd);
+    m_ThirdPersonFrontViewEnabled = getBool("ThirdPersonFrontViewEnabled", m_ThirdPersonFrontViewEnabled);
+    m_ThirdPersonFrontScopeFromEye = getBool("ThirdPersonFrontScopeFromEye", m_ThirdPersonFrontScopeFromEye);
+    m_ThirdPersonScopeOverlayOffset = getVector3("ThirdPersonScopeOverlayOffset", m_ThirdPersonScopeOverlayOffset);
+    m_ThirdPersonScopeOverlayOffset.x = getFloat("ThirdPersonScopeOverlayOffsetX", m_ThirdPersonScopeOverlayOffset.x);
+    m_ThirdPersonScopeOverlayOffset.y = getFloat("ThirdPersonScopeOverlayOffsetY", m_ThirdPersonScopeOverlayOffset.y);
+    m_ThirdPersonScopeOverlayOffset.z = getFloat("ThirdPersonScopeOverlayOffsetZ", m_ThirdPersonScopeOverlayOffset.z);
     m_HideArms = getBool("HideArms", m_HideArms);
+    m_SplitArmsToControllers = getBool("SplitArmsToControllers", m_SplitArmsToControllers);
     m_HudDistance = getFloat("HudDistance", m_HudDistance);
     m_HudSize = getFloat("HudSize", m_HudSize);
     m_HudAlwaysVisible = getBool("HudAlwaysVisible", m_HudAlwaysVisible);
@@ -1113,8 +1139,9 @@ void VR::ParseConfigFile()
 
     // Scoped aim sensitivity scaling (mouse-style ADS / zoom sensitivity).
     // Accepts either:
-    //   ScopeAimSensitivityScale=80            (80% for all magnifications)
-    //   ScopeAimSensitivityScale=100,85,70,55  (per ScopeMagnification index)
+    //   ScopeAimSensitivityScale=80              (80% for all magnifications)
+    //   ScopeAimSensitivityScale=100,85,70,55    (per ScopeMagnification index)
+    //   ScopeAimSensitivityScale=120,140,160,180 (faster than base when magnified)
     {
         const auto scalesRaw = getFloatList("ScopeAimSensitivityScale");
         if (!scalesRaw.empty())
@@ -1129,7 +1156,7 @@ void VR::ParseConfigFile()
                 if (s > 1.5f)
                     s *= 0.01f;
 
-                m_ScopeAimSensitivityScales.push_back(std::clamp(s, 0.05f, 1.0f));
+                m_ScopeAimSensitivityScales.push_back(std::clamp(s, 0.05f, 4.0f));
             }
         }
 
@@ -1156,6 +1183,8 @@ void VR::ParseConfigFile()
     m_ScopeOverlayYOffset = getFloat("ScopeOverlayYOffset", m_ScopeOverlayYOffset);
     m_ScopeOverlayZOffset = getFloat("ScopeOverlayZOffset", m_ScopeOverlayZOffset);
     { Vector tmp = getVector3("ScopeOverlayAngleOffset", Vector{ m_ScopeOverlayAngleOffset.x, m_ScopeOverlayAngleOffset.y, m_ScopeOverlayAngleOffset.z }); m_ScopeOverlayAngleOffset = QAngle{ tmp.x, tmp.y, tmp.z }; }
+    m_ScopeAimLineOnlyInScope = getBool("ScopeAimLineOnlyInScope", m_ScopeAimLineOnlyInScope);
+    m_ScopeHideLocalPlayerModelInScope = getBool("ScopeHideLocalPlayerModelInScope", m_ScopeHideLocalPlayerModelInScope);
 
     m_ScopeOverlayAlwaysVisible = getBool("ScopeOverlayAlwaysVisible", m_ScopeOverlayAlwaysVisible);
     m_ScopeOverlayIdleAlpha = std::clamp(getFloat("ScopeOverlayIdleAlpha", m_ScopeOverlayIdleAlpha), 0.0f, 1.0f);

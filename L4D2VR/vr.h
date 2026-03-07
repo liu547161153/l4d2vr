@@ -160,6 +160,14 @@ public:
 	// If enabled, render in third-person by default to avoid camera mode flicker.
 	// Only a small whitelist of explicitly-handled cases will remain first-person.
 	bool m_ThirdPersonDefault = false;
+	// If false, third-person camera orientation follows game/body orientation instead of HMD head turns.
+	bool m_ThirdPersonCameraFollowHmd = false;
+	// Optional front-observer mode for third-person rendering.
+	// When enabled, 3P camera is placed in front of the player and looks back at the player.
+	bool m_ThirdPersonFrontViewEnabled = false;
+	// In third-person front view, if true use eye/HMD as the scope+aim source.
+	// If false, keep scope+aim driven by right controller (recommended).
+	bool m_ThirdPersonFrontScopeFromEye = false;
 	bool m_ObserverThirdPerson = false;
 	// Map-load / reconnect camera stabilization.
 	// Source can transiently report observer-like netvars right after joining/changing maps.
@@ -179,6 +187,12 @@ public:
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.85f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;
+	// Front-view third-person camera local offset in camera basis:
+	// x=front/back, y=left/right, z=up/down.
+	Vector m_ThirdPersonFrontVRCameraOffset = { 80.0f, 0.0f, 0.0f };
+	// Third-person scope overlay local offset in body basis (meters):
+	// x=front/back, y=left/right, z=up/down.
+	Vector m_ThirdPersonScopeOverlayOffset = { 0.35f, 0.18f, -0.04f };
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
 	Vector m_RightControllerPosAbs;
@@ -256,6 +270,12 @@ public:
 	std::atomic<float> m_RenderViewOriginRightX{ 0.0f };
 	std::atomic<float> m_RenderViewOriginRightY{ 0.0f };
 	std::atomic<float> m_RenderViewOriginRightZ{ 0.0f };
+	std::atomic<float> m_RenderLeftControllerPosAbsX{ 0.0f };
+	std::atomic<float> m_RenderLeftControllerPosAbsY{ 0.0f };
+	std::atomic<float> m_RenderLeftControllerPosAbsZ{ 0.0f };
+	std::atomic<float> m_RenderLeftControllerAngAbsX{ 0.0f };
+	std::atomic<float> m_RenderLeftControllerAngAbsY{ 0.0f };
+	std::atomic<float> m_RenderLeftControllerAngAbsZ{ 0.0f };
 	std::atomic<float> m_RenderRightControllerPosAbsX{ 0.0f };
 	std::atomic<float> m_RenderRightControllerPosAbsY{ 0.0f };
 	std::atomic<float> m_RenderRightControllerPosAbsZ{ 0.0f };
@@ -694,6 +714,7 @@ public:
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
+	bool m_SplitArmsToControllers = false;
 	float m_HudDistance = 1.3;
 	float m_FixedHudYOffset = 0.0f;
 	float m_FixedHudDistanceOffset = 0.0f;
@@ -1300,6 +1321,10 @@ public:
 	float  m_ScopeOverlayYOffset = 0.00f;
 	float  m_ScopeOverlayZOffset = 0.10f;
 	QAngle m_ScopeOverlayAngleOffset = { 0.0f, 0.0f, 0.0f };
+	// If true, when scoped-in the aim line is rendered only during the scope RTT pass.
+	bool  m_ScopeAimLineOnlyInScope = true;
+	// If true, hide the local player model while rendering scope RTT (prevents head/body obstruction).
+	bool  m_ScopeHideLocalPlayerModelInScope = true;
 
 	// Look-through activation (HMD -> scope camera)
 	bool  m_ScopeRequireLookThrough = true;
@@ -1352,7 +1377,13 @@ public:
 		return std::clamp(m_MouseModeScopeSensitivityScales[clamped] / 100.0f, 0.05f, 2.0f);
 	}
 	bool   IsScopeActive() const { return m_ScopeEnabled && (m_ScopeActive || IsMouseModeScopeActive()); }
-	bool   ShouldRenderScope() const { return m_ScopeEnabled && m_ScopeWeaponIsFirearm && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
+	bool   ShouldRenderScope() const
+	{
+		const bool forceScopeForThirdPersonFrontView = m_ThirdPersonFrontViewEnabled && m_IsThirdPersonCamera;
+		return m_ScopeEnabled
+			&& (m_ScopeWeaponIsFirearm || forceScopeForThirdPersonFrontView)
+			&& (m_ScopeOverlayAlwaysVisible || IsScopeActive() || forceScopeForThirdPersonFrontView);
+	}
 	bool   ShouldUpdateScopeRTT();
 	void   ToggleMouseModeScope();
 	void   CycleScopeMagnification();
@@ -1397,6 +1428,7 @@ public:
 	// Distance is in Source units (same as SpecialInfected* distances). <= 0 disables this hint.
 	float  m_RearMirrorSpecialWarningDistance = 180.0f;
 	float  m_RearMirrorSpecialEnlargeHoldSeconds = 0.35f;
+	bool   m_ScopeRenderingPass = false;
 	bool   m_RearMirrorRenderingPass = false;
 	bool   m_RearMirrorSawSpecialThisPass = false;	// set from DrawModelExecute during mirror RTT pass
 	bool   m_RearMirrorSpecialEnlargeActive = false;
@@ -1441,6 +1473,8 @@ public:
 	vr::HmdMatrix34_t GetControllerTipMatrix(vr::ETrackedControllerRole controllerRole);
 	vr::HmdMatrix34_t BuildThirdPersonSubmitPose() const;
 	bool CheckOverlayIntersectionForController(vr::VROverlayHandle_t overlayHandle, vr::ETrackedControllerRole controllerRole);
+	QAngle GetLeftControllerAbsAngle();
+	Vector GetLeftControllerAbsPos();
 	QAngle GetRightControllerAbsAngle();
 	Vector GetRightControllerAbsPos();
 	Vector GetRecommendedViewmodelAbsPos();

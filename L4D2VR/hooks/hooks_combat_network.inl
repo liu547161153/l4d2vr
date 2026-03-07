@@ -136,6 +136,7 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// Server host
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
+		const bool scopeActive = m_VR->IsScopeActive();
 		vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
 
 		// ForceNonVRServerMovement: aim the *visual* bullet line to the solved hit point (H)
@@ -155,6 +156,11 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			{
 				vecNewAngles = m_VR->m_NonVRAimAngles;
 			}
+		}
+		else if (scopeActive)
+		{
+			vecNewOrigin = m_VR->GetScopeCameraAbsPos();
+			vecNewAngles = m_VR->GetScopeCameraAbsAngle();
 		}
 		// Third-person convergence
 		else if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
