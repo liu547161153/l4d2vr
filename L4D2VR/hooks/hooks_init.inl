@@ -182,7 +182,7 @@ int Hooks::initSourceHooks()
 	{
 		void*** predictionPtr = reinterpret_cast<void***>(prediction);
 		void** predictionVTable = predictionPtr ? *predictionPtr : nullptr;
-		constexpr size_t kRunCommandIndex = 17;
+		constexpr size_t kRunCommandIndex = 18;
 		if (predictionVTable && predictionVTable[kRunCommandIndex])
 			hkRunCommand.createHook(predictionVTable[kRunCommandIndex], dRunCommand);
 		else

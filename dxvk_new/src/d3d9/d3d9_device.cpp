@@ -564,6 +564,23 @@ namespace dxvk {
     Flush();
     SynchronizeCsThread(DxvkCsThread::SynchronizeAll);
 
+    // App video-settings changes trigger D3D9 Reset. Our VR eye/HUD surfaces are tied to
+    // pre-reset resources, so force recreation on next render frame to avoid stale pointers.
+    if (g_Game && g_Game->m_VR) {
+      VR* vr = g_Game->m_VR;
+      std::lock_guard<std::mutex> lock(vr->m_TextureMutex);
+      vr->m_CreatedVRTextures.store(false, std::memory_order_release);
+      vr->m_RenderedNewFrame.store(false, std::memory_order_release);
+      vr->m_RenderedHud.store(false, std::memory_order_release);
+
+      if (vr->m_D9LeftEyeSurface) { vr->m_D9LeftEyeSurface->Release(); vr->m_D9LeftEyeSurface = nullptr; }
+      if (vr->m_D9RightEyeSurface) { vr->m_D9RightEyeSurface->Release(); vr->m_D9RightEyeSurface = nullptr; }
+      if (vr->m_D9HUDSurface) { vr->m_D9HUDSurface->Release(); vr->m_D9HUDSurface = nullptr; }
+      if (vr->m_D9ScopeSurface) { vr->m_D9ScopeSurface->Release(); vr->m_D9ScopeSurface = nullptr; }
+      if (vr->m_D9RearMirrorSurface) { vr->m_D9RearMirrorSurface->Release(); vr->m_D9RearMirrorSurface = nullptr; }
+      if (vr->m_D9BlankSurface) { vr->m_D9BlankSurface->Release(); vr->m_D9BlankSurface = nullptr; }
+    }
+
     if (m_d3d9Options.deferSurfaceCreation)
       m_resetCtr++;
 

@@ -1592,6 +1592,16 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
 		{
+			if (!target || texW <= 0 || texH <= 0)
+				return;
+
+			// Offscreen RTT passes (scope / rear mirror) are more fragile than the main stereo eyes.
+			// Reusing the engine-provided HUD view from the main scene can carry stale viewport/aspect
+			// state into the pass and crash inside engine RenderView, so always derive HUD from the
+			// offscreen world view itself.
+			(void)hud;
+			CViewSetup offscreenHud = view;
+
 			IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
 			if (!rc)
 			{
@@ -1613,7 +1623,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 					touchedAngles = true;
 				}
 
-				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+				hkRenderView.fOriginal(ecx, view, offscreenHud, nClearFlags, whatToDraw);
 
 				if (touchedAngles && m_Game && m_Game->m_EngineClient)
 					m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
@@ -1643,7 +1653,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				touchedAngles = true;
 			}
 
-			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
+			hkRenderView.fOriginal(ecx, view, offscreenHud, nClearFlags, whatToDraw);
 
 			if (touchedAngles && m_Game && m_Game->m_EngineClient)
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
@@ -1652,6 +1662,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
 
 			m_VR->m_SuppressHudCapture = prevSuppress;
+		};
+
+	auto offscreenViewIsFinite = [](const CViewSetup& v) -> bool
+		{
+			return IsFinite(v.origin.x) && IsFinite(v.origin.y) && IsFinite(v.origin.z)
+				&& IsFinite(v.angles.x) && IsFinite(v.angles.y) && IsFinite(v.angles.z)
+				&& std::isfinite(v.fov) && std::isfinite(v.zNear) && std::isfinite(v.m_flAspectRatio);
 		};
 
 	// ----------------------------
@@ -1680,11 +1697,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.angles.y = scopeAngles.y;
 		scopeView.angles.z = scopeAngles.z;
 
-		CViewSetup hudScope = hudViewSetup;
-		hudScope.origin = scopeView.origin;
-		hudScope.angles = scopeView.angles;
-
-		m_VR->m_ScopeRenderingPass = true;
+		CViewSetup hudScope = scopeView;
+		if (!offscreenViewIsFinite(scopeView))
+		{
+			LOG("[ScopeRTT] Skipping offscreen render due to non-finite view pose");
+		}
+		else
+		{
+			m_VR->m_ScopeRenderingPass = true;
 		// Scope-only aim line mode: draw the line only right before scope RTT rendering.
 		if (m_VR->m_ScopeAimLineOnlyInScope
 			&& m_VR->m_ThirdPersonFrontViewEnabled
@@ -1702,10 +1722,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			}
 		}
 
-		renderToTexture_SetRT(m_VR->m_ScopeTexture,
-			m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,
-			scopeAngles, scopeView, hudScope);
-		m_VR->m_ScopeRenderingPass = false;
+			renderToTexture_SetRT(m_VR->m_ScopeTexture,
+				m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,
+				scopeAngles, scopeView, hudScope);
+			m_VR->m_ScopeRenderingPass = false;
+		}
 	}
 
 	// ----------------------------
@@ -1734,19 +1755,23 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		mirrorView.angles.y = mirrorAngles.y;
 		mirrorView.angles.z = mirrorAngles.z;
 
-		CViewSetup hudMirror = hudViewSetup;
-		hudMirror.origin = mirrorView.origin;
-		hudMirror.angles = mirrorView.angles;
+		CViewSetup hudMirror = mirrorView;
+		if (!offscreenViewIsFinite(mirrorView))
+		{
+			LOG("[RearMirrorRTT] Skipping offscreen render due to non-finite view pose");
+		}
+		else
+		{
+			// Mark mirror RTT pass so DrawModelExecute can tag special-infected arrows seen in this pass.
+			m_VR->m_RearMirrorRenderingPass = true;
+			m_VR->m_RearMirrorSawSpecialThisPass = false;
 
-		// Mark mirror RTT pass so DrawModelExecute can tag special-infected arrows seen in this pass.
-		m_VR->m_RearMirrorRenderingPass = true;
-		m_VR->m_RearMirrorSawSpecialThisPass = false;
+			renderToTexture_SetRT(m_VR->m_RearMirrorTexture,
+				m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize,
+				mirrorAngles, mirrorView, hudMirror);
 
-		renderToTexture_SetRT(m_VR->m_RearMirrorTexture,
-			m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize,
-			mirrorAngles, mirrorView, hudMirror);
-
-		m_VR->m_RearMirrorRenderingPass = false;
+			m_VR->m_RearMirrorRenderingPass = false;
+		}
 		const auto rmNow = std::chrono::steady_clock::now();
 		if (m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
 		{
