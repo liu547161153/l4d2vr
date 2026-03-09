@@ -3,21 +3,6 @@ void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 	return hkEndFrame.fOriginal(ecx);
 }
 
-static inline bool IsExecutablePtr(void* p)
-{
-	if (!p)
-		return false;
-
-	MEMORY_BASIC_INFORMATION mbi{};
-	if (!VirtualQuery(p, &mbi, sizeof(mbi)))
-		return false;
-	if (mbi.State != MEM_COMMIT)
-		return false;
-
-	const DWORD prot = (mbi.Protect & 0xFF);
-	return prot == PAGE_EXECUTE || prot == PAGE_EXECUTE_READ || prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY;
-}
-
 static inline void CallCalcViewModelViewOriginal(void* ecx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
 {
 	if (!Hooks::m_VR || !Hooks::m_VR->m_IsVREnabled || !Hooks::m_VR->m_ViewmodelDisableMoveBob || !owner)
@@ -33,114 +18,8 @@ static inline void CallCalcViewModelViewOriginal(void* ecx, void* owner, const V
 	ownerPlayer->m_vecVelocity = savedVelocity;
 }
 
-void __fastcall Hooks::dViewModelAddViewModelBob(void* ecx, void* edx, void* player, Vector& origin, QAngle& angles)
-{
-	if (m_VR && m_VR->m_IsVREnabled && m_VR->m_ViewmodelDisableMoveBob)
-		return;
-
-	return hkViewModelAddViewModelBob.fOriginal(ecx, player, origin, angles);
-}
-
-void __fastcall Hooks::dWeaponAddViewmodelBob(void* ecx, void* edx, void* viewModel, Vector& origin, QAngle& angles)
-{
-	static int s_logCount = 0;
-	if (s_logCount < 3)
-	{
-		++s_logCount;
-		Game::logMsg("[VR][Bob] dWeaponAddViewmodelBob called (%d)", s_logCount);
-	}
-
-	if (m_VR && m_VR->m_IsVREnabled && m_VR->m_ViewmodelDisableMoveBob)
-		return;
-
-	return hkWeaponAddViewmodelBob.fOriginal(ecx, viewModel, origin, angles);
-}
-
-float __fastcall Hooks::dWeaponCalcViewmodelBob(void* ecx, void* edx)
-{
-	static int s_logCount = 0;
-	if (s_logCount < 3)
-	{
-		++s_logCount;
-		Game::logMsg("[VR][Bob] dWeaponCalcViewmodelBob called (%d)", s_logCount);
-	}
-
-	if (m_VR && m_VR->m_IsVREnabled && m_VR->m_ViewmodelDisableMoveBob)
-		return 0.0f;
-
-	return hkWeaponCalcViewmodelBob.fOriginal(ecx);
-}
-
-static inline void TryInstallViewmodelBobHooks(void* viewModelEnt, void* ownerEnt)
-{
-	if (!Hooks::m_VR || !Hooks::m_Game || !Hooks::m_VR->m_IsVREnabled)
-		return;
-
-	const int vmSlot = Hooks::m_VR->m_ViewmodelBobViewModelVtableIndex;
-	const int weaponSlot = Hooks::m_VR->m_ViewmodelBobWeaponVtableIndex;
-	const int weaponCalcSlot = Hooks::m_VR->m_ViewmodelBobWeaponCalcVtableIndex;
-
-	if (!Hooks::hkViewModelAddViewModelBob.pTarget && viewModelEnt && vmSlot >= 0)
-	{
-		void*** pVtable = reinterpret_cast<void***>(viewModelEnt);
-		void** vtable = (pVtable != nullptr) ? *pVtable : nullptr;
-		void* target = (vtable != nullptr) ? vtable[vmSlot] : nullptr;
-		if (IsExecutablePtr(target))
-		{
-			if (Hooks::hkViewModelAddViewModelBob.createHook(target, &Hooks::dViewModelAddViewModelBob) == 0
-				&& Hooks::hkViewModelAddViewModelBob.enableHook() == 0)
-			{
-				Game::logMsg("[VR][Bob] Hooked CBaseViewModel::AddViewModelBob via vtable slot %d @ %p", vmSlot, target);
-			}
-		}
-	}
-
-	if (!Hooks::hkWeaponAddViewmodelBob.pTarget && ownerEnt && weaponSlot >= 0)
-	{
-		C_BasePlayer* owner = reinterpret_cast<C_BasePlayer*>(ownerEnt);
-		C_BaseCombatWeapon* weapon = owner ? owner->GetActiveWeapon() : nullptr;
-		if (weapon)
-		{
-			void*** pVtable = reinterpret_cast<void***>(weapon);
-			void** vtable = (pVtable != nullptr) ? *pVtable : nullptr;
-			void* target = (vtable != nullptr) ? vtable[weaponSlot] : nullptr;
-			if (IsExecutablePtr(target))
-			{
-				if (Hooks::hkWeaponAddViewmodelBob.createHook(target, &Hooks::dWeaponAddViewmodelBob) == 0
-					&& Hooks::hkWeaponAddViewmodelBob.enableHook() == 0)
-				{
-					Game::logMsg("[VR][Bob] Hooked CBaseCombatWeapon/CWeaponCSBase::AddViewmodelBob via vtable slot %d @ %p", weaponSlot, target);
-				}
-			}
-		}
-	}
-
-	if (!Hooks::hkWeaponCalcViewmodelBob.pTarget && ownerEnt && weaponCalcSlot >= 0)
-	{
-		C_BasePlayer* owner = reinterpret_cast<C_BasePlayer*>(ownerEnt);
-		C_BaseCombatWeapon* weapon = owner ? owner->GetActiveWeapon() : nullptr;
-		if (weapon)
-		{
-			void*** pVtable = reinterpret_cast<void***>(weapon);
-			void** vtable = (pVtable != nullptr) ? *pVtable : nullptr;
-			void* target = (vtable != nullptr) ? vtable[weaponCalcSlot] : nullptr;
-			if (IsExecutablePtr(target))
-			{
-				if (Hooks::hkWeaponCalcViewmodelBob.createHook(target, &Hooks::dWeaponCalcViewmodelBob) == 0
-					&& Hooks::hkWeaponCalcViewmodelBob.enableHook() == 0)
-				{
-					Game::logMsg("[VR][Bob] Hooked CBaseCombatWeapon/CWeaponCSBase::CalcViewmodelBob via vtable slot %d @ %p", weaponCalcSlot, target);
-				}
-			}
-		}
-	}
-}
-
-
 void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
 {
-	TryInstallViewmodelBobHooks(ecx, owner);
-
 	Vector vecNewOrigin = eyePosition;
 	QAngle vecNewAngles = eyeAngles;
 

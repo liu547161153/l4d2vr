@@ -1058,70 +1058,6 @@ void VR::InstallApplicationManifest(const char* fileName)
 
 void VR::UpdateAutoMatQueueMode()
 {
-    // Mouse-mode (keyboard/mouse): do NOT auto-manage multicore.
-    // Only enforce a safe mat_queue_mode in the main menu.
-    if (m_MouseModeEnabled)
-    {
-        if (!m_IsVREnabled)
-            return;
-
-        if (!m_Game || !m_Game->m_EngineClient)
-            return;
-
-        const bool inGame = m_Game->m_EngineClient->IsInGame();
-        if (inGame)
-        {
-            // Reset so the next trip back to the main menu re-applies the safety clamp.
-            if (m_AutoMatQueueModeLastRequested == 0)
-                m_AutoMatQueueModeLastRequested = -999;
-            return;
-        }
-
-        // Main menu: force once per menu entry (no spam).
-        if (m_AutoMatQueueModeLastRequested == 0)
-            return;
-
-        m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
-        m_AutoMatQueueModeLastRequested = 0;
-        m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
-
-        Game::logMsg("[VR] MouseMode menu: mat_queue_mode -> 0");
-        return;
-    }
-
-
-    if (!m_AutoMatQueueMode)
-    {
-        // AutoMatQueueMode=false: do NOT auto-manage multicore, but keep the main menu safe.
-        // We force mat_queue_mode 0 once each time we are in the main menu (i.e. not in-game).
-        if (!m_IsVREnabled)
-            return;
-
-        if (!m_Game || !m_Game->m_EngineClient)
-            return;
-
-        const bool inGame = m_Game->m_EngineClient->IsInGame();
-        if (inGame)
-        {
-            // Reset so the next trip back to the main menu re-applies the safety clamp.
-            if (m_AutoMatQueueModeLastRequested == 0)
-                m_AutoMatQueueModeLastRequested = -999;
-            return;
-        }
-
-        // Main menu: force once per menu entry (no spam).
-        if (m_AutoMatQueueModeLastRequested == 0)
-            return;
-
-        m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
-        m_AutoMatQueueModeLastRequested = 0;
-        m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
-
-        Game::logMsg("[VR] Menu safety: mat_queue_mode -> 0 (AutoMatQueueMode=false)");
-        return;
-    }
-
-
     // Avoid changing engine threading mode when VR rendering is not active.
     if (!m_IsVREnabled)
         return;
@@ -1131,16 +1067,10 @@ void VR::UpdateAutoMatQueueMode()
 
     const bool inGame = m_Game->m_EngineClient->IsInGame();
 
-    // AutoMatQueueMode=true: in the main menu, set fps_max once to match the HMD refresh rate.
-    // This helps avoid "menu stuck at 60 FPS" when the headset runs at 90/100/120+.
+    // In the main menu, set fps_max once to match the HMD refresh rate.
+    // This is independent from AutoMatQueueMode and helps avoid "menu stuck at 60 FPS".
     if (!inGame)
     {
-        if (!m_MenuCrosshairZeroSent)
-        {
-            m_Game->ClientCmd_Unrestricted("crosshair 0");
-            m_MenuCrosshairZeroSent = true;
-        }
-
         if (!m_MenuFpsMaxSent)
         {
             float hmdHz = GetHmdDisplayFrequencyHz(true);
@@ -1166,8 +1096,71 @@ void VR::UpdateAutoMatQueueMode()
     else
     {
         // Reset when leaving the menu so we can re-check next time we return (e.g., refresh rate changed).
-        m_MenuCrosshairZeroSent = false;
         m_MenuFpsMaxSent = false;
+    }
+
+    // Mouse-mode (keyboard/mouse): do NOT auto-manage multicore.
+    // Only enforce a safe mat_queue_mode in the main menu.
+    if (m_MouseModeEnabled)
+    {
+        if (inGame)
+        {
+            // Reset so the next trip back to the main menu re-applies the safety clamp.
+            if (m_AutoMatQueueModeLastRequested == 0)
+                m_AutoMatQueueModeLastRequested = -999;
+            return;
+        }
+
+        // Main menu: force once per menu entry (no spam).
+        if (m_AutoMatQueueModeLastRequested == 0)
+            return;
+
+        m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
+        m_AutoMatQueueModeLastRequested = 0;
+        m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
+
+        Game::logMsg("[VR] MouseMode menu: mat_queue_mode -> 0");
+        return;
+    }
+
+
+    if (!m_AutoMatQueueMode)
+    {
+        // AutoMatQueueMode=false: do NOT auto-manage multicore, but keep the main menu safe.
+        // We force mat_queue_mode 0 once each time we are in the main menu (i.e. not in-game).
+        if (inGame)
+        {
+            // Reset so the next trip back to the main menu re-applies the safety clamp.
+            if (m_AutoMatQueueModeLastRequested == 0)
+                m_AutoMatQueueModeLastRequested = -999;
+            return;
+        }
+
+        // Main menu: force once per menu entry (no spam).
+        if (m_AutoMatQueueModeLastRequested == 0)
+            return;
+
+        m_Game->ClientCmd_Unrestricted("mat_queue_mode 0");
+        m_AutoMatQueueModeLastRequested = 0;
+        m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
+
+        Game::logMsg("[VR] Menu safety: mat_queue_mode -> 0 (AutoMatQueueMode=false)");
+        return;
+    }
+
+
+    // AutoMatQueueMode=true: optional menu-only helpers.
+    if (!inGame)
+    {
+        if (!m_MenuCrosshairZeroSent)
+        {
+            m_Game->ClientCmd_Unrestricted("crosshair 0");
+            m_MenuCrosshairZeroSent = true;
+        }
+    }
+    else
+    {
+        m_MenuCrosshairZeroSent = false;
     }
 
     const bool paused = m_Game->m_EngineClient->IsPaused();
