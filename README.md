@@ -58,6 +58,10 @@ If the game is crashing, try:
 
 Note: After building, it will attempt to copy the new d3d9.dll to your L4D2 directory.
 
+## Dev note: VTable lookup
+For quick vtable inspection, use [asherkin's VTable Dumper](https://asherkin.github.io/vtable/).
+It can be used for `server.dll`-side symbols and also for `engine.dll` targets (drop the binary and search symbol names like `bob`, `viewmodel`, etc.).
+
 ## Utilizes code from
 * [VirtualFortress2](https://github.com/PinkMilkProductions/VirtualFortress2)
 * [gmcl_openvr](https://github.com/Planimeter/gmcl_openvr/)

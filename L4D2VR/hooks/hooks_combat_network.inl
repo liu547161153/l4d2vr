@@ -3,9 +3,144 @@ void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 	return hkEndFrame.fOriginal(ecx);
 }
 
+static inline bool IsExecutablePtr(void* p)
+{
+	if (!p)
+		return false;
+
+	MEMORY_BASIC_INFORMATION mbi{};
+	if (!VirtualQuery(p, &mbi, sizeof(mbi)))
+		return false;
+	if (mbi.State != MEM_COMMIT)
+		return false;
+
+	const DWORD prot = (mbi.Protect & 0xFF);
+	return prot == PAGE_EXECUTE || prot == PAGE_EXECUTE_READ || prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY;
+}
+
+static inline void CallCalcViewModelViewOriginal(void* ecx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
+{
+	if (!Hooks::m_VR || !Hooks::m_VR->m_IsVREnabled || !Hooks::m_VR->m_ViewmodelDisableMoveBob || !owner)
+	{
+		Hooks::hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+		return;
+	}
+
+	C_BasePlayer* ownerPlayer = reinterpret_cast<C_BasePlayer*>(owner);
+	const Vector savedVelocity = ownerPlayer->m_vecVelocity;
+	ownerPlayer->m_vecVelocity = Vector{ 0.0f, 0.0f, 0.0f };
+	Hooks::hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+	ownerPlayer->m_vecVelocity = savedVelocity;
+}
+
+void __fastcall Hooks::dViewModelAddViewModelBob(void* ecx, void* edx, void* player, Vector& origin, QAngle& angles)
+{
+	if (m_VR && m_VR->m_IsVREnabled && m_VR->m_ViewmodelDisableMoveBob)
+		return;
+
+	return hkViewModelAddViewModelBob.fOriginal(ecx, player, origin, angles);
+}
+
+void __fastcall Hooks::dWeaponAddViewmodelBob(void* ecx, void* edx, void* viewModel, Vector& origin, QAngle& angles)
+{
+	static int s_logCount = 0;
+	if (s_logCount < 3)
+	{
+		++s_logCount;
+		Game::logMsg("[VR][Bob] dWeaponAddViewmodelBob called (%d)", s_logCount);
+	}
+
+	if (m_VR && m_VR->m_IsVREnabled && m_VR->m_ViewmodelDisableMoveBob)
+		return;
+
+	return hkWeaponAddViewmodelBob.fOriginal(ecx, viewModel, origin, angles);
+}
+
+float __fastcall Hooks::dWeaponCalcViewmodelBob(void* ecx, void* edx)
+{
+	static int s_logCount = 0;
+	if (s_logCount < 3)
+	{
+		++s_logCount;
+		Game::logMsg("[VR][Bob] dWeaponCalcViewmodelBob called (%d)", s_logCount);
+	}
+
+	if (m_VR && m_VR->m_IsVREnabled && m_VR->m_ViewmodelDisableMoveBob)
+		return 0.0f;
+
+	return hkWeaponCalcViewmodelBob.fOriginal(ecx);
+}
+
+static inline void TryInstallViewmodelBobHooks(void* viewModelEnt, void* ownerEnt)
+{
+	if (!Hooks::m_VR || !Hooks::m_Game || !Hooks::m_VR->m_IsVREnabled)
+		return;
+
+	const int vmSlot = Hooks::m_VR->m_ViewmodelBobViewModelVtableIndex;
+	const int weaponSlot = Hooks::m_VR->m_ViewmodelBobWeaponVtableIndex;
+	const int weaponCalcSlot = Hooks::m_VR->m_ViewmodelBobWeaponCalcVtableIndex;
+
+	if (!Hooks::hkViewModelAddViewModelBob.pTarget && viewModelEnt && vmSlot >= 0)
+	{
+		void*** pVtable = reinterpret_cast<void***>(viewModelEnt);
+		void** vtable = (pVtable != nullptr) ? *pVtable : nullptr;
+		void* target = (vtable != nullptr) ? vtable[vmSlot] : nullptr;
+		if (IsExecutablePtr(target))
+		{
+			if (Hooks::hkViewModelAddViewModelBob.createHook(target, &Hooks::dViewModelAddViewModelBob) == 0
+				&& Hooks::hkViewModelAddViewModelBob.enableHook() == 0)
+			{
+				Game::logMsg("[VR][Bob] Hooked CBaseViewModel::AddViewModelBob via vtable slot %d @ %p", vmSlot, target);
+			}
+		}
+	}
+
+	if (!Hooks::hkWeaponAddViewmodelBob.pTarget && ownerEnt && weaponSlot >= 0)
+	{
+		C_BasePlayer* owner = reinterpret_cast<C_BasePlayer*>(ownerEnt);
+		C_BaseCombatWeapon* weapon = owner ? owner->GetActiveWeapon() : nullptr;
+		if (weapon)
+		{
+			void*** pVtable = reinterpret_cast<void***>(weapon);
+			void** vtable = (pVtable != nullptr) ? *pVtable : nullptr;
+			void* target = (vtable != nullptr) ? vtable[weaponSlot] : nullptr;
+			if (IsExecutablePtr(target))
+			{
+				if (Hooks::hkWeaponAddViewmodelBob.createHook(target, &Hooks::dWeaponAddViewmodelBob) == 0
+					&& Hooks::hkWeaponAddViewmodelBob.enableHook() == 0)
+				{
+					Game::logMsg("[VR][Bob] Hooked CBaseCombatWeapon/CWeaponCSBase::AddViewmodelBob via vtable slot %d @ %p", weaponSlot, target);
+				}
+			}
+		}
+	}
+
+	if (!Hooks::hkWeaponCalcViewmodelBob.pTarget && ownerEnt && weaponCalcSlot >= 0)
+	{
+		C_BasePlayer* owner = reinterpret_cast<C_BasePlayer*>(ownerEnt);
+		C_BaseCombatWeapon* weapon = owner ? owner->GetActiveWeapon() : nullptr;
+		if (weapon)
+		{
+			void*** pVtable = reinterpret_cast<void***>(weapon);
+			void** vtable = (pVtable != nullptr) ? *pVtable : nullptr;
+			void* target = (vtable != nullptr) ? vtable[weaponCalcSlot] : nullptr;
+			if (IsExecutablePtr(target))
+			{
+				if (Hooks::hkWeaponCalcViewmodelBob.createHook(target, &Hooks::dWeaponCalcViewmodelBob) == 0
+					&& Hooks::hkWeaponCalcViewmodelBob.enableHook() == 0)
+				{
+					Game::logMsg("[VR][Bob] Hooked CBaseCombatWeapon/CWeaponCSBase::CalcViewmodelBob via vtable slot %d @ %p", weaponCalcSlot, target);
+				}
+			}
+		}
+	}
+}
+
 
 void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
 {
+	TryInstallViewmodelBobHooks(ecx, owner);
+
 	Vector vecNewOrigin = eyePosition;
 	QAngle vecNewAngles = eyeAngles;
 
@@ -13,6 +148,7 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 	{
 		const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
 		const bool multiCoreQueued = (queueMode == 2);
+		const bool forceDisableMoveBob = m_VR->m_ViewmodelDisableMoveBob;
 
 		// ------------------------------------------------------------
 		// Single-thread path (mat_queue_mode 0/1)
@@ -27,7 +163,19 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 		{
 			vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 			vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
-			return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+
+			if (!forceDisableMoveBob)
+				return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+
+			// Run engine logic, then hard-lock vm pose to remove movement bob/sway.
+			CallCalcViewModelViewOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+			if (ecx)
+			{
+				IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
+				ent->GetAbsOrigin() = vecNewOrigin;
+				ent->GetAbsAngles() = vecNewAngles;
+			}
+			return;
 		}
 
 		// ------------------------------------------------------------
@@ -60,9 +208,9 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 		} tlsGuard(true);
 
 		// Call engine logic (keeps internal viewmodel state up to date).
-		hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+		CallCalcViewModelViewOriginal(ecx, owner, eyePosition, eyeAngles);
 
-		if (m_VR->m_QueuedViewmodelStabilize)
+		if (m_VR->m_QueuedViewmodelStabilize || forceDisableMoveBob)
 		{
 			const Vector targetOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 			const QAngle targetAngles = m_VR->GetRecommendedViewmodelAbsAngle();

@@ -75,6 +75,9 @@ typedef void(__thiscall* tRenderView)(void* thisptr, CViewSetup& setup, CViewSet
 typedef bool(__thiscall* tCreateMove)(void* thisptr, float flInputSampleTime, CUserCmd* cmd);
 typedef void(__thiscall* tEndFrame)(PVOID);
 typedef void(__thiscall* tCalcViewModelView)(void* thisptr, void* owner, const Vector& eyePosition, const QAngle& eyeAngles);
+typedef void(__thiscall* tViewModelAddViewModelBob)(void* thisptr, void* player, Vector& origin, QAngle& angles);
+typedef void(__thiscall* tWeaponAddViewmodelBob)(void* thisptr, void* viewModel, Vector& origin, QAngle& angles);
+typedef float(__thiscall* tWeaponCalcViewmodelBob)(void* thisptr);
 typedef int(__cdecl* tFireTerrorBullets)(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7);
 typedef float(__thiscall* tProcessUsercmds)(void* thisptr, edict_t* player, void* buf, int numcmds, int totalcmds, int dropped_packets, bool ignore, bool paused);
 typedef int(__cdecl* tReadUsercmd)(void* buf, CUserCmd* move, CUserCmd* from);
@@ -110,6 +113,9 @@ public:
 	static inline Hook<tCreateMove> hkCreateMove;
 	static inline Hook<tEndFrame> hkEndFrame;
 	static inline Hook<tCalcViewModelView> hkCalcViewModelView;
+	static inline Hook<tViewModelAddViewModelBob> hkViewModelAddViewModelBob;
+	static inline Hook<tWeaponAddViewmodelBob> hkWeaponAddViewmodelBob;
+	static inline Hook<tWeaponCalcViewmodelBob> hkWeaponCalcViewmodelBob;
 	static inline Hook<tFireTerrorBullets> hkServerFireTerrorBullets;
 	static inline Hook<tFireTerrorBullets> hkClientFireTerrorBullets;
 	static inline Hook<tProcessUsercmds> hkProcessUsercmds;
@@ -149,6 +155,9 @@ public:
 	static bool __fastcall dCreateMove(void* ecx, void* edx, float flInputSampleTime, CUserCmd* cmd);
 	static void __fastcall dEndFrame(void* ecx, void* edx);
 	static void __fastcall dCalcViewModelView(void* ecx, void* edx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles);
+	static void __fastcall dViewModelAddViewModelBob(void* ecx, void* edx, void* player, Vector& origin, QAngle& angles);
+	static void __fastcall dWeaponAddViewmodelBob(void* ecx, void* edx, void* viewModel, Vector& origin, QAngle& angles);
+	static float __fastcall dWeaponCalcViewmodelBob(void* ecx, void* edx);
 	static int dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7);
 	static int dClientFireTerrorBullets(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7);
 	static float __fastcall dProcessUsercmds(void* ecx, void* edx, edict_t* player, void* buf, int numcmds, int totalcmds, int dropped_packets, bool ignore, bool paused);

@@ -376,6 +376,16 @@ public:
 	// Queued (mat_queue_mode!=0) viewmodel stabilization: prevents first-person viewmodel ghosting
 	// when engine viewmodel bob/lag runs on a decoupled thread. 
 	bool m_QueuedViewmodelStabilize = true;
+	// Global viewmodel stabilization: hard-lock first-person viewmodel pose after engine calc
+	// in all queue modes (mat_queue_mode 0/1/2), useful to disable movement bob/sway.
+	bool m_ViewmodelDisableMoveBob = false;
+	// Dynamic vtable hook slots for source-level bob functions:
+	//   CBaseViewModel::AddViewModelBob
+	//   CBaseCombatWeapon/CWeaponCSBase::AddViewmodelBob
+	//   CBaseCombatWeapon/CWeaponCSBase::CalcViewmodelBob
+	int m_ViewmodelBobViewModelVtableIndex = 239;
+	int m_ViewmodelBobWeaponVtableIndex = 316;
+	int m_ViewmodelBobWeaponCalcVtableIndex = 317;
 	// Debug logging for queued viewmodel stabilization (prints viewmodel pose + engine-produced pose).
 	bool  m_QueuedViewmodelStabilizeDebugLog = false;
 	float m_QueuedViewmodelStabilizeDebugLogHz = 4.0f; // max prints per second; 0 disables throttling

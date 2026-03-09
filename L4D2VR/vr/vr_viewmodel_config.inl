@@ -1062,6 +1062,14 @@ void VR::ParseConfigFile()
 
     // Queued rendering: stabilize first-person viewmodel (disable engine bob/lag in queued mode).
     m_QueuedViewmodelStabilize = getBool("QueuedViewmodelStabilize", m_QueuedViewmodelStabilize);
+    // Global: hard-lock first-person viewmodel pose after engine calc (all queue modes).
+    m_ViewmodelDisableMoveBob = getBool("ViewmodelDisableMoveBob", m_ViewmodelDisableMoveBob);
+    m_ViewmodelBobViewModelVtableIndex = std::clamp(getInt("ViewmodelBobViewModelVtableIndex", m_ViewmodelBobViewModelVtableIndex), 0, 2048);
+    m_ViewmodelBobWeaponVtableIndex = std::clamp(getInt("ViewmodelBobWeaponVtableIndex", m_ViewmodelBobWeaponVtableIndex), 0, 2048);
+    m_ViewmodelBobWeaponCalcVtableIndex = std::clamp(getInt("ViewmodelBobWeaponCalcVtableIndex", m_ViewmodelBobWeaponCalcVtableIndex), 0, 2048);
+    Game::logMsg("[VR][Config] ViewmodelDisableMoveBob=%s", m_ViewmodelDisableMoveBob ? "true" : "false");
+    Game::logMsg("[VR][Config] Viewmodel bob vtable slots: vm=%d weaponAdd=%d weaponCalc=%d",
+        m_ViewmodelBobViewModelVtableIndex, m_ViewmodelBobWeaponVtableIndex, m_ViewmodelBobWeaponCalcVtableIndex);
     m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);
     m_QueuedViewmodelStabilizeDebugLogHz = std::max(0.0f, getFloat("QueuedViewmodelStabilizeDebugLogHz", m_QueuedViewmodelStabilizeDebugLogHz));
 
