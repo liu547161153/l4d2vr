@@ -1135,6 +1135,12 @@ void VR::UpdateAutoMatQueueMode()
     // This helps avoid "menu stuck at 60 FPS" when the headset runs at 90/100/120+.
     if (!inGame)
     {
+        if (!m_MenuCrosshairZeroSent)
+        {
+            m_Game->ClientCmd_Unrestricted("crosshair 0");
+            m_MenuCrosshairZeroSent = true;
+        }
+
         if (!m_MenuFpsMaxSent)
         {
             float hmdHz = GetHmdDisplayFrequencyHz(true);
@@ -1160,6 +1166,7 @@ void VR::UpdateAutoMatQueueMode()
     else
     {
         // Reset when leaving the menu so we can re-check next time we return (e.g., refresh rate changed).
+        m_MenuCrosshairZeroSent = false;
         m_MenuFpsMaxSent = false;
     }
 

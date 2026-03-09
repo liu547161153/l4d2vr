@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <fstream>
 #include <vector>
+#include <sstream>
+#include <cwctype>
 #include "game.h"
 #include "hooks.h"
 #include "vr.h"
@@ -154,6 +156,19 @@ namespace
         return true;
     }
 
+    std::wstring TrimWhitespace(const std::wstring& value)
+    {
+        size_t start = 0;
+        while (start < value.size() && std::iswspace(value[start]))
+            ++start;
+
+        size_t end = value.size();
+        while (end > start && std::iswspace(value[end - 1]))
+            --end;
+
+        return value.substr(start, end - start);
+    }
+
     void EnsureVideoCfgSettings()
     {
         wchar_t exePath[MAX_PATH] = {};
@@ -178,6 +193,10 @@ namespace
         {
             changed |= ReplaceConfigValueInLine(line, L"\"setting.mat_antialias\"", L"1");
             changed |= ReplaceConfigValueInLine(line, L"\"setting.mat_vsync\"", L"0");
+            changed |= ReplaceConfigValueInLine(line, L"\"setting.defaultres\"", L"1280");
+            changed |= ReplaceConfigValueInLine(line, L"\"setting.defaultresheight\"", L"720");
+            changed |= ReplaceConfigValueInLine(line, L"\"setting.fullscreen\"", L"0");
+            changed |= ReplaceConfigValueInLine(line, L"\"setting.nowindowborder\"", L"1");
             lines.push_back(line);
         }
         input.close();
@@ -197,6 +216,165 @@ namespace
         }
         output.close();
 
+    }
+
+    std::string StripQuotes(std::string value)
+    {
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+            return value.substr(1, value.size() - 2);
+        return value;
+    }
+
+    bool AutoexecHasCrosshairOne(const std::filesystem::path& autoexecPath)
+    {
+        std::ifstream input(autoexecPath);
+        if (!input.is_open())
+            return false;
+
+        std::string line;
+        while (std::getline(input, line))
+        {
+            const size_t commentPos = line.find("//");
+            if (commentPos != std::string::npos)
+                line = line.substr(0, commentPos);
+
+            std::istringstream iss(line);
+            std::string cmd;
+            std::string value;
+            if (!(iss >> cmd >> value))
+                continue;
+
+            cmd = StripQuotes(cmd);
+            value = StripQuotes(value);
+            if (_stricmp(cmd.c_str(), "crosshair") == 0 && value == "1")
+                return true;
+        }
+
+        return false;
+    }
+
+    void EnsureNoHmdAutoexecCrosshair()
+    {
+        wchar_t exePath[MAX_PATH] = {};
+        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0)
+            return;
+
+        std::filesystem::path autoexecPath(exePath);
+        autoexecPath = autoexecPath.parent_path() / L"left4dead2" / L"cfg" / L"autoexec.cfg";
+
+        if (!std::filesystem::exists(autoexecPath))
+        {
+            std::ofstream createFile(autoexecPath, std::ios::trunc);
+            if (createFile.is_open())
+                createFile << "crosshair 1\n";
+            return;
+        }
+
+        if (AutoexecHasCrosshairOne(autoexecPath))
+            return;
+
+        std::ofstream appendFile(autoexecPath, std::ios::app);
+        if (!appendFile.is_open())
+            return;
+
+        appendFile << "\ncrosshair 1\n";
+    }
+
+    void EnsureNoHmdVideoCfgDesktopResolution()
+    {
+        wchar_t exePath[MAX_PATH] = {};
+        if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0)
+            return;
+
+        DEVMODEW dm = {};
+        dm.dmSize = sizeof(dm);
+        int width = 0;
+        int height = 0;
+        if (EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &dm))
+        {
+            width = static_cast<int>(dm.dmPelsWidth);
+            height = static_cast<int>(dm.dmPelsHeight);
+        }
+        else
+        {
+            width = GetSystemMetrics(SM_CXSCREEN);
+            height = GetSystemMetrics(SM_CYSCREEN);
+        }
+
+        if (width <= 0 || height <= 0)
+            return;
+
+        const std::wstring widthValue = std::to_wstring(width);
+        const std::wstring heightValue = std::to_wstring(height);
+
+        std::filesystem::path videoCfgPath(exePath);
+        videoCfgPath = videoCfgPath.parent_path() / L"left4dead2" / L"cfg" / L"video.txt";
+        if (!std::filesystem::exists(videoCfgPath))
+            return;
+
+        std::wifstream input(videoCfgPath);
+        if (!input.is_open())
+            return;
+
+        std::vector<std::wstring> lines;
+        lines.reserve(64);
+
+        std::wstring line;
+        bool changed = false;
+        bool foundRes = false;
+        bool foundHeight = false;
+
+        while (std::getline(input, line))
+        {
+            if (line.find(L"\"setting.defaultres\"") != std::wstring::npos)
+                foundRes = true;
+            if (line.find(L"\"setting.defaultresheight\"") != std::wstring::npos)
+                foundHeight = true;
+
+            changed |= ReplaceConfigValueInLine(line, L"\"setting.defaultres\"", widthValue.c_str());
+            changed |= ReplaceConfigValueInLine(line, L"\"setting.defaultresheight\"", heightValue.c_str());
+            lines.push_back(line);
+        }
+        input.close();
+
+        auto insertLineBeforeClosingBrace = [&lines](const std::wstring& text)
+        {
+            for (auto it = lines.begin(); it != lines.end(); ++it)
+            {
+                if (TrimWhitespace(*it) == L"}")
+                {
+                    lines.insert(it, text);
+                    return;
+                }
+            }
+            lines.push_back(text);
+        };
+
+        if (!foundRes)
+        {
+            insertLineBeforeClosingBrace(L"\t\"setting.defaultres\"\t\t\"" + widthValue + L"\"");
+            changed = true;
+        }
+
+        if (!foundHeight)
+        {
+            insertLineBeforeClosingBrace(L"\t\"setting.defaultresheight\"\t\t\"" + heightValue + L"\"");
+            changed = true;
+        }
+
+        if (!changed)
+            return;
+
+        std::wofstream output(videoCfgPath, std::ios::trunc);
+        if (!output.is_open())
+            return;
+
+        for (size_t i = 0; i < lines.size(); ++i)
+        {
+            output << lines[i];
+            if (i + 1 < lines.size())
+                output << L'\n';
+        }
     }
 }
 
@@ -221,7 +399,11 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
     LocalFree(szArglist);
 
     if (IsNoHmdLaunchArgPresent())
+    {
+        EnsureNoHmdVideoCfgDesktopResolution();
+        EnsureNoHmdAutoexecCrosshair();
         return 0;
+    }
 
     CreateThread(nullptr, 0, FocusGameWindowWorker, nullptr, 0, nullptr);
 

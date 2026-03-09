@@ -964,6 +964,7 @@ public:
 	// Auto fps_max in main menu: set fps_max to match HMD refresh rate (when AutoMatQueueMode is enabled).
 	bool m_MenuFpsMaxSent = false;
 	int  m_MenuFpsMaxLastHz = 0;
+	bool m_MenuCrosshairZeroSent = false;
 
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;
