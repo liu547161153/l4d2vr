@@ -1,24 +1,147 @@
+void VR::ResetFrameSubmissionState()
+{
+    m_RenderedNewFrame.store(false, std::memory_order_release);
+    m_RenderedHud.store(false, std::memory_order_release);
+    m_HudPaintedThisFrame.store(false, std::memory_order_release);
+
+    m_RenderCompletedFrameId.store(0, std::memory_order_release);
+    m_LastSubmittedFrameId.store(0, std::memory_order_release);
+    m_SubmitPoseToken.store(0, std::memory_order_release);
+    m_LastSubmittedPoseToken.store(0, std::memory_order_release);
+    m_SubmitInFlight.store(false, std::memory_order_release);
+    m_LastSubmittedCompositorFrameIndex.store(0, std::memory_order_release);
+    m_QueuedSubmitStaleStreak.store(0, std::memory_order_release);
+
+    m_CompositorNeedsHandoff = false;
+    m_ScopeRenderingPass = false;
+    m_RearMirrorRenderingPass = false;
+    m_RearMirrorSawSpecialThisPass = false;
+
+    if (m_RenderFrameReadyEvent)
+        ResetEvent(m_RenderFrameReadyEvent);
+    if (m_PoseWaiterEvent)
+        ResetEvent(m_PoseWaiterEvent);
+}
+
+void VR::HandleLeaveGameToMenu()
+{
+    ResetFrameSubmissionState();
+
+    m_PoseWaiterEnabled.store(false, std::memory_order_release);
+    Hooks::s_ServerUnderstandsVR = false;
+    m_ServerHookFallbackPending = false;
+
+    m_ScopeWeaponIsFirearm = false;
+    m_ScopeActive = false;
+    m_ScopeForcingAimLine = false;
+    m_ScopeAimSensitivityInit = false;
+    m_ScopeStabilizationInit = false;
+
+    m_RearMirrorRenderingPass = false;
+    m_RearMirrorSawSpecialThisPass = false;
+    m_RearMirrorSpecialEnlargeActive = false;
+    m_LastRearMirrorAlertTime = {};
+    m_LastRearMirrorSpecialSeenTime = {};
+    m_RearMirrorAimLineHideUntil = {};
+
+    m_HasAimLine = false;
+    m_HasAimConvergePoint = false;
+    m_HasThrowArc = false;
+    m_LastAimWasThrowable = false;
+    m_PlayerControlledBySI = false;
+
+    m_UsingMountedGunPrev = false;
+    m_ResetPositionAfterMountedGunExitPending = false;
+    m_ResetPositionAfterObserverTargetSwitchPending = false;
+    m_ObserverInEyeWasActivePrev = false;
+    m_ObserverInEyeTargetPrev = 0;
+
+    m_IsThirdPersonCamera = false;
+    m_ThirdPersonPoseInitialized = false;
+    m_ThirdPersonHoldFrames = 0;
+    m_ThirdPersonMapLoadCooldownPending = false;
+    m_ThirdPersonMapLoadCooldownEnd = {};
+
+    m_HadLocalPlayerPrev = false;
+    m_AutoResetPositionPending = false;
+    m_AutoResetHadLocalPlayerPrev = false;
+
+    // Publish a safe "no local player" snapshot immediately so queued render paths
+    // cannot keep using the previous map's player/camera state during the menu transition.
+    {
+        uint32_t seq = m_RenderViewParamsSeq.load(std::memory_order_relaxed);
+        m_RenderViewParamsSeq.store(seq + 1, std::memory_order_release);
+
+        m_RenderHasLocalPlayer.store(0, std::memory_order_relaxed);
+        m_RenderHasViewEntityOverride.store(0, std::memory_order_relaxed);
+        m_RenderViewEntityHandle.store(0, std::memory_order_relaxed);
+        m_RenderBeingRevived.store(0, std::memory_order_relaxed);
+        m_RenderRevivingOther.store(0, std::memory_order_relaxed);
+        m_RenderUsingMountedGun.store(0, std::memory_order_relaxed);
+        m_RenderPlayerIncap.store(0, std::memory_order_relaxed);
+        m_RenderPlayerControlledBySI.store(0, std::memory_order_relaxed);
+        m_RenderInThirdPersonMapLoadCooldown.store(0, std::memory_order_relaxed);
+
+        m_RenderTpWantsThirdPerson.store(0, std::memory_order_relaxed);
+        m_RenderTpObserver.store(0, std::memory_order_relaxed);
+        m_RenderTpDead.store(0, std::memory_order_relaxed);
+        m_RenderTpLifeState.store(0, std::memory_order_relaxed);
+        m_RenderTpObserverMode.store(0, std::memory_order_relaxed);
+        m_RenderTpObserverTarget.store(0, std::memory_order_relaxed);
+        m_RenderTpIncap.store(0, std::memory_order_relaxed);
+        m_RenderTpLedge.store(0, std::memory_order_relaxed);
+        m_RenderTpTongue.store(0, std::memory_order_relaxed);
+        m_RenderTpPinned.store(0, std::memory_order_relaxed);
+        m_RenderTpSelfMedkit.store(0, std::memory_order_relaxed);
+
+        m_RenderAimLineAllowed.store(0, std::memory_order_relaxed);
+        m_RenderAimLineShow.store(0, std::memory_order_relaxed);
+
+        m_RenderViewParamsSeq.store(seq + 2, std::memory_order_release);
+    }
+
+    if (m_Game)
+        m_Game->ResetTransientRenderState();
+
+    if (m_Game && m_Game->m_MaterialSystem)
+    {
+        if (IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext())
+            rndrContext->SetRenderTarget(NULL);
+    }
+
+    if (m_Overlay)
+    {
+        auto hideIfValid = [&](vr::VROverlayHandle_t h)
+        {
+            if (h != vr::k_ulOverlayHandleInvalid)
+                m_Overlay->HideOverlay(h);
+        };
+
+        hideIfValid(m_MainMenuHandle);
+        hideIfValid(m_HUDTopHandle);
+        for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
+            hideIfValid(overlay);
+        hideIfValid(m_ScopeHandle);
+        hideIfValid(m_RearMirrorHandle);
+        hideIfValid(m_LeftWristHudHandle);
+        hideIfValid(m_RightAmmoHudHandle);
+    }
+
+    // Force a one-shot RT rebuild after leaving a map, but only once per transition.
+    // The old code invalidated this every menu frame, which could continuously recreate
+    // large render targets and exhaust 32-bit address space within seconds.
+    m_CreatedVRTextures.store(false, std::memory_order_release);
+    Game::logMsg("[VR] LeaveGame->Menu: cleared transient render state and invalidated VR textures once");
+}
+
 void VR::Update()
 {
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
 
-    if (m_IsVREnabled && g_D3DVR9)
-    {
-        // Prevents crashing at menu
-        if (!m_Game->m_EngineClient->IsInGame())
-        {
-            IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
-            if (!rndrContext)
-            {
-                HandleMissingRenderContext("VR::Update");
-                return;
-            }
-            rndrContext->SetRenderTarget(NULL);
-            m_Game->m_CachedArmsModel = false;
-            m_CreatedVRTextures.store(false, std::memory_order_release); // Have to recreate textures otherwise some workshop maps won't render
-        }
-    }
+    const bool inGameNow = m_Game->m_EngineClient->IsInGame();
+    if (m_IsVREnabled && g_D3DVR9 && m_WasInGamePrev && !inGameNow)
+        HandleLeaveGameToMenu();
 
     const bool queuedAtFrameStart = (m_Game && (m_Game->GetMatQueueMode() != 0));
     if (!queuedAtFrameStart)

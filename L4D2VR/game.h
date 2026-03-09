@@ -118,6 +118,7 @@ public:
     // === Player Utilities ===
     bool IsValidPlayerIndex(int index) const;
     void ResetAllPlayerVRInfo();
+    void ResetTransientRenderState();
 };
 
 // === Logging Macros (Debug Only) ===

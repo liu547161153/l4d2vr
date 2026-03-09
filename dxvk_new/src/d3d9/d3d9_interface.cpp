@@ -15,6 +15,28 @@
 
 namespace dxvk {
 
+  static bool IsNoHmdLaunchArgPresent() {
+#ifdef _WIN32
+    int nArgs = 0;
+    LPWSTR* argList = CommandLineToArgvW(GetCommandLineW(), &nArgs);
+    if (!argList)
+      return false;
+
+    bool noHmd = false;
+    for (int i = 0; i < nArgs; i++) {
+      if (_wcsicmp(argList[i], L"-nohmd") == 0) {
+        noHmd = true;
+        break;
+      }
+    }
+
+    LocalFree(argList);
+    return noHmd;
+#else
+    return false;
+#endif
+  }
+
   Singleton<DxvkInstance> g_dxvkInstance;
 
   D3D9InterfaceEx::D3D9InterfaceEx(bool bExtended)
@@ -277,21 +299,24 @@ namespace dxvk {
     if (unlikely(pPresentationParameters == nullptr))
       return D3DERR_INVALIDCALL;
 
-    vr::HmdError error = vr::VRInitError_None;
-    vr::IVRSystem* system = vr::VR_Init(&error, vr::VRApplication_Scene);
+    const bool noHmd = IsNoHmdLaunchArgPresent();
+    if (!noHmd) {
+      vr::HmdError error = vr::VRInitError_None;
+      vr::IVRSystem* system = vr::VR_Init(&error, vr::VRApplication_Scene);
 
-    if (error == vr::VRInitError_None) {
-      // Override viewport size.
-      uint32_t renderWidth;
-      uint32_t renderHeight;
-      system->GetRecommendedRenderTargetSize(&renderWidth, &renderHeight);
-      pPresentationParameters->BackBufferWidth = renderWidth;
-      pPresentationParameters->BackBufferHeight = renderHeight;
-    } else {
-      char errorString[256];
-      std::snprintf(errorString, 256, "VR_Init failed: %s", vr::VR_GetVRInitErrorAsEnglishDescription(error));
-      MessageBox(0, errorString, "DXVK", MB_ICONERROR | MB_OK);
-      ExitProcess(0);
+      if (error == vr::VRInitError_None) {
+        // Override viewport size.
+        uint32_t renderWidth;
+        uint32_t renderHeight;
+        system->GetRecommendedRenderTargetSize(&renderWidth, &renderHeight);
+        pPresentationParameters->BackBufferWidth = renderWidth;
+        pPresentationParameters->BackBufferHeight = renderHeight;
+      } else {
+        char errorString[256];
+        std::snprintf(errorString, 256, "VR_Init failed: %s", vr::VR_GetVRInitErrorAsEnglishDescription(error));
+        MessageBox(0, errorString, "DXVK", MB_ICONERROR | MB_OK);
+        ExitProcess(0);
+      }
     }
 
     auto result = this->CreateDeviceEx(
@@ -305,7 +330,8 @@ namespace dxvk {
 
     if (SUCCEEDED(result)
      && ppReturnedDeviceInterface != nullptr
-     && *ppReturnedDeviceInterface != nullptr)
+     && *ppReturnedDeviceInterface != nullptr
+     && !noHmd)
       Direct3DCreateVRImpl(*ppReturnedDeviceInterface, &g_D3DVR9);
 
     return result;

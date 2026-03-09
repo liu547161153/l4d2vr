@@ -1447,6 +1447,8 @@ public:
 	VR(Game* game);
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
+	void ResetFrameSubmissionState();
+	void HandleLeaveGameToMenu();
 	void Update();
 	void UpdateAutoMatQueueMode();
 	void CreateVRTextures();
