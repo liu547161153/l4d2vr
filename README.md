@@ -10,7 +10,6 @@
 * Motion controls for guns and melee weapons
 * Workshop content
 * Multi-core rendering support
-* SMAA support
   
 ## Things that need fixing
 * Interactions and throwables require you to aim with your face(Except for servers that do not support non‑VR)
