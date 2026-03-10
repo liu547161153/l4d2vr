@@ -176,6 +176,9 @@ public:
 	bool m_ThirdPersonMapLoadCooldownPending = false;
 	bool m_HadLocalPlayerPrev = false;
 	bool m_WasInGamePrev = false;
+	// True while engine still reports "in game" but local player is temporarily unavailable
+	// during map transition loading (e.g. saferoom -> next chapter load).
+	bool m_InLevelTransitionLoad = false;
 	std::chrono::steady_clock::time_point m_ThirdPersonMapLoadCooldownEnd{};
 
 	int m_ThirdPersonHoldFrames = 0;
@@ -487,19 +490,19 @@ public:
 		Texture_Blank
 	};
 
-	ITexture* m_LeftEyeTexture;
-	ITexture* m_RightEyeTexture;
-	ITexture* m_HUDTexture;
+	ITexture* m_LeftEyeTexture = nullptr;
+	ITexture* m_RightEyeTexture = nullptr;
+	ITexture* m_HUDTexture = nullptr;
 	ITexture* m_ScopeTexture = nullptr;
 	ITexture* m_RearMirrorTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
-	IDirect3DSurface9* m_D9LeftEyeSurface;
-	IDirect3DSurface9* m_D9RightEyeSurface;
-	IDirect3DSurface9* m_D9HUDSurface;
-	IDirect3DSurface9* m_D9ScopeSurface;
+	IDirect3DSurface9* m_D9LeftEyeSurface = nullptr;
+	IDirect3DSurface9* m_D9RightEyeSurface = nullptr;
+	IDirect3DSurface9* m_D9HUDSurface = nullptr;
+	IDirect3DSurface9* m_D9ScopeSurface = nullptr;
 	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
-	IDirect3DSurface9* m_D9BlankSurface;
+	IDirect3DSurface9* m_D9BlankSurface = nullptr;
 
 	SharedTextureHolder m_VKLeftEye;
 	SharedTextureHolder m_VKRightEye;
@@ -1453,6 +1456,7 @@ public:
 	void InstallApplicationManifest(const char* fileName);
 	void ResetFrameSubmissionState();
 	void HandleLeaveGameToMenu();
+	void HandleInGameTransitionLoad();
 	void Update();
 	void UpdateAutoMatQueueMode();
 	void CreateVRTextures();

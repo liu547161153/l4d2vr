@@ -8,6 +8,14 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 {
 	static EngineThirdPersonCamSmoother s_engineTpCam;
 
+	auto* materialSystem = (m_Game ? m_Game->m_MaterialSystem : nullptr);
+	IMatRenderContext* rndrContext = materialSystem ? materialSystem->GetRenderContext() : nullptr;
+	if (!rndrContext)
+	{
+		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
+		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
+	}
+
 	if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
 		m_VR->CreateVRTextures();
 
@@ -15,10 +23,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Ensure they're available before any offscreen passes try to render into them.
 	m_VR->EnsureOpticsRTTTextures();
 
-	IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
+	if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
+		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
+
+	rndrContext = materialSystem ? materialSystem->GetRenderContext() : nullptr;
 	if (!rndrContext)
 	{
-		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
+		m_VR->HandleMissingRenderContext("Hooks::dRenderView(post-create)");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
 

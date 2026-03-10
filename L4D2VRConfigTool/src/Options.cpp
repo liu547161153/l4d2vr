@@ -1,4 +1,4 @@
-#include "Options.h"
+﻿#include "Options.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -142,6 +142,77 @@ static int GetInt(const std::string& key, int defVal)
     return defVal;
 }
 
+static bool GetBool(const std::string& key, bool defVal)
+{
+    return ParseBool(GetStr(key), defVal);
+}
+
+static bool StartsWith(const char* value, const char* prefix)
+{
+    if (!value || !prefix) return false;
+    const size_t len = std::strlen(prefix);
+    return std::strncmp(value, prefix, len) == 0;
+}
+
+static bool IsEnabled(const char* key, bool defVal = false)
+{
+    return GetBool(key, defVal);
+}
+
+static bool IsOptionVisible(const Option& opt)
+{
+    const char* key = opt.key;
+
+    // Key groups hidden behind their main feature toggles.
+    if (StartsWith(key, "MouseMode") && std::strcmp(key, "MouseModeEnabled") != 0)
+        return IsEnabled("MouseModeEnabled");
+
+    if (StartsWith(key, "LeftWristHud") && std::strcmp(key, "LeftWristHudEnabled") != 0)
+        return IsEnabled("LeftWristHudEnabled");
+
+    if (StartsWith(key, "RightAmmoHud") && std::strcmp(key, "RightAmmoHudEnabled") != 0)
+        return IsEnabled("RightAmmoHudEnabled");
+
+    if (StartsWith(key, "InventoryQuickSwitch") && std::strcmp(key, "InventoryQuickSwitchEnabled") != 0)
+        return IsEnabled("InventoryQuickSwitchEnabled");
+
+    if (StartsWith(key, "Scope") && std::strcmp(key, "ScopeEnabled") != 0)
+    {
+        if (!IsEnabled("ScopeEnabled"))
+            return false;
+
+        // Look-through tuning options only matter when look-through gating is enabled.
+        if ((std::strcmp(key, "ScopeLookThroughDistanceMeters") == 0 || std::strcmp(key, "ScopeLookThroughAngleDeg") == 0) &&
+            !IsEnabled("ScopeRequireLookThrough"))
+            return false;
+    }
+
+    // Individual dependency rules.
+    if (std::strcmp(key, "SnapTurnAngle") == 0)
+        return IsEnabled("SnapTurning");
+
+    if (StartsWith(key, "Roomscale1To1") && std::strcmp(key, "Roomscale1To1Movement") != 0)
+        return IsEnabled("Roomscale1To1Movement");
+
+    if (std::strcmp(key, "ViewmodelAdjustCombo") == 0)
+        return IsEnabled("ViewmodelAdjustEnabled");
+
+    // Queued-render tuning options are only meaningful when AutoMatQueueMode is enabled.
+    if (StartsWith(key, "QueuedRender"))
+        return IsEnabled("AutoMatQueueMode");
+
+    if (std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0)
+        return IsEnabled("AutoRepeatSemiAutoFire");
+
+    if (std::strcmp(key, "AimLineOnlyWhenLaserSight") == 0 ||
+        std::strcmp(key, "AimLineThickness") == 0 ||
+        std::strcmp(key, "AimLineColor") == 0 ||
+        std::strcmp(key, "AimLineMaxHz") == 0)
+        return IsEnabled("AimLineEnabled");
+
+    return true;
+}
+
 static ImVec4 ParseColorString(const std::string& s, const ImVec4& defVal)
 {
     if (s.empty()) return defVal;
@@ -263,7 +334,7 @@ Option g_Options[] =
         { u8"Keep close to real-world meter scale. 43.2 covers most play spaces.",
           u8"尽量保持与真实世界接近。43.2一般最合适。" },
         30.0f, 55.0f,
-        "43.2"
+        "true"
     },
     {
         "IPDScale",
@@ -516,54 +587,6 @@ Option g_Options[] =
         "true"
     },
     {
-        "Roomscale1To1DecoupleCamera",
-        OptionType::Bool,
-        { u8"Movement / Roomscale", u8"移动 / 房间规模" },
-        { u8"Decouple Camera From Tick Movement", u8"相机不跟随Tick位移" },
-        { u8"Keeps the VR camera 1:1 with the HMD at headset refresh rate, even when the player entity updates at tick rate.",
-          u8"即使玩家实体按tick更新，也让VR相机始终以头显刷新率做1:1渲染（避免步进感）。" },
-        { u8"Recommended for 90Hz+ headsets.",
-          u8"90Hz+头显建议开启。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "Roomscale1To1UseCameraDistanceChase",
-        OptionType::Bool,
-        { u8"Movement / Roomscale", u8"移动 / 房间规模" },
-        { u8"Move Player Only When Camera Drifts", u8"仅在相机偏离时移动人物" },
-        { u8"Instead of pushing the player every tick, only pull the player entity when the camera drifts beyond the allowed radius.",
-          u8"不再每个tick都推人物，而是当相机偏离超过允许半径时才拉人物。" },
-        { u8"Feels smoother on low-tick servers.",
-          u8"低tick（如30Hz）更顺滑。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "Roomscale1To1AllowedCameraDriftMeters",
-        OptionType::Float,
-        { u8"Movement / Roomscale", u8"移动 / 房间规模" },
-        { u8"Allowed Camera Drift (m)", u8"允许相机偏离距离（米）" },
-        { u8"Planar distance the camera can drift away from the player before the player is pulled/teleported.",
-          u8"相机在平面上允许偏离玩家的距离；超过后会拉/传送玩家。" },
-        { u8"Bigger = more leaning without moving; smaller = tighter tether.",
-          u8"越大越能自然探头；越小越紧。" },
-        0.0f, 1.0f,
-        "0.25"
-    },
-    {
-        "Roomscale1To1ChaseHysteresisMeters",
-        OptionType::Float,
-        { u8"Movement / Roomscale", u8"移动 / 房间规模" },
-        { u8"Chase Hysteresis (m)", u8"追随滞回（米）" },
-        { u8"Prevents oscillation around the drift threshold by adding a small stop margin.",
-          u8"通过增加停止边界避免在阈值附近抖动。" },
-        { u8"Try 0.03~0.08.",
-          u8"建议 0.03~0.08。" },
-        0.0f, 0.25f,
-        "0.05"
-    },
-    {
         "Roomscale1To1MinApplyMeters",
         OptionType::Float,
         { u8"Movement / Roomscale", u8"移动 / 房间规模" },
@@ -575,17 +598,18 @@ Option g_Options[] =
         0.0f, 0.20f,
         "0.02"
     },
+    // Performance / Rendering
     {
-        "Roomscale1To1DisableWhileThumbstick",
+        "AutoMatQueueMode",
         OptionType::Bool,
-        { u8"Movement / Roomscale", u8"移动 / 房间规模" },
-        { u8"Disable Roomscale While Thumbstick Moving", u8"摇杆移动时禁用房间规模" },
-        { u8"Disables 1:1 roomscale encoding while thumbstick locomotion is active to prevent movement conflicts.",
-          u8"摇杆移动时禁用1:1房间规模编码，避免移动冲突（人物会顿一下）。" },
-        { u8"Recommended if you use stick locomotion often.",
-          u8"经常用摇杆移动建议开启。" },
+        { u8"Performance / Rendering", u8"性能 / 渲染" },
+        { u8"Multi-core rendering(Experimental)", u8"多核渲染（实验）" },
+        { u8"Automatically switches mat_queue_mode depending on game state (menus/loading/paused vs in-game).",
+          u8"根据游戏状态（主菜单/加载/暂停 vs 游戏中）自动切换 mat_queue_mode。" },
+        { u8"Recommended for multi-core rendering. When enabled, QueuedRender* options become available.",
+          u8"建议用于多核渲染。开启后将显示 QueuedRender* 相关调节项。" },
         0.0f, 0.0f,
-        "true"
+        "false"
     },
     // HUD (Main)
     {
@@ -628,84 +652,48 @@ Option g_Options[] =
 
     // HUD (Hand)
     {
-        "LeftWristHudBgAlpha",
-        OptionType::Float,
-        { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Wrist HUD Background Opacity", u8"腕表HUD背景透明度" },
-        { u8"Background opacity for the wrist HUD panel (0..1).",
-          u8"腕表HUD面板背景透明度（0..1）。" },
-        { u8"Only affects panel fill; text/icons remain readable.",
-          u8"仅影响背景填充，文字/图标保持清晰。" },
-        0.0f, 1.0f,
-        "0.85"
-    },
-    {
-        "RightAmmoHudBgAlpha",
-        OptionType::Float,
-        { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Ammo HUD Background Opacity", u8"弹药HUD背景透明度" },
-        { u8"Background opacity for the ammo HUD panel (0..1).",
-          u8"弹药HUD面板背景透明度（0..1）。" },
-        { u8"Lower values make it less intrusive.",
-          u8"数值越小越不遮挡。" },
-        0.0f, 1.0f,
-        "0.70"
-    },
-    {
         "LeftWristHudEnabled",
         OptionType::Bool,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Enable Wrist HUD (Off-hand)", u8"启用腕表HUD（副手）" },
+        { u8"Enable Status HUD (Off-hand)", u8"启用状态HUD（副手）" },
         { u8"Shows a small wrist-style HUD on the off-hand controller using a SteamVR overlay.",
           u8"在副手手柄上用SteamVR覆盖层显示一个腕表式小HUD。" },
         { u8"Displays HP and quick item status (throwable/med/pills or adrenaline).",
           u8"显示生命值与关键物品状态（投掷物/医疗槽/药片或肾上腺素）。" },
         0.0f, 0.0f,
-        "false"
+        "true"
+    },
+    {
+        "LeftWristHudAlpha",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Status HUD Opacity Multiplier", u8"状态HUD透明度倍率" },
+        { u8"Extra background opacity multiplier for the Status HUD (0..1).",
+          u8"状态HUD的额外背景透明度倍率（0..1）。" },
+        { u8"",
+          u8"" },
+        0.0f, 1.0f,
+        "0.35"
     },
     {
         "LeftWristHudWidthMeters",
         OptionType::Float,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Wrist HUD Width (meters)", u8"腕表HUD宽度（米）" },
-        { u8"Physical width of the wrist HUD overlay quad (meters).",
-          u8"腕表HUD覆盖层平面的物理宽度（米）。" },
+        { u8"Status HUD Width (meters)", u8"状态HUD宽度（米）" },
+        { u8"Physical width of the Status HUD overlay quad (meters).",
+          u8"状态HUD覆盖层平面的物理宽度（米）。" },
         { u8"Bigger = easier to read, but can feel intrusive.",
           u8"越大越容易看清，但也更显眼。" },
         0.01f, 0.40f,
-        "0.11"
-    },
-    {
-        "LeftWristHudCurvature",
-        OptionType::Float,
-        { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Wrist HUD Curvature", u8"腕表HUD弧度" },
-        { u8"Curves the wrist HUD overlay so it wraps like a watch face (SteamVR overlay curvature).",
-          u8"让腕表HUD覆盖层呈弧面，像手表表盘一样贴合（SteamVR覆盖层曲率）。" },
-        { u8"0 = flat. Typical values: 0.1~0.3.",
-          u8"0为平面。常用范围：0.1~0.3。" },
-        0.0f, 1.0f,
-        "0.20"
-    },
-    {
-        "LeftWristHudShowBattery",
-        OptionType::Bool,
-        { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Show Controller Battery", u8"显示手柄电量" },
-        { u8"Shows off-hand and gun-hand controller battery percentage on the wrist HUD.",
-          u8"在腕表HUD上显示副手与持枪手手柄电量。" },
-        { u8"Useful for long sessions.",
-          u8"长时间游戏很实用。" },
-        0.0f, 0.0f,
-        "true"
+        "0.1"
     },
     {
         "LeftWristHudShowTeammates",
         OptionType::Bool,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
         { u8"Show Teammate Mini HP Bars", u8"显示队友小血条" },
-        { u8"Shows up to 3 teammate HP bars on the wrist HUD.",
-          u8"在腕表HUD上显示最多3名队友的小血条。" },
+        { u8"Shows up to 3 teammate HP bars on the Status HUD.",
+          u8"在状态HUD上显示最多3名队友的小血条。" },
         { u8"Includes temp HP and a third-strike frame.",
           u8"包含临时血，并在黑白时加边框提示。" },
         0.0f, 0.0f,
@@ -715,49 +703,49 @@ Option g_Options[] =
         "LeftWristHudXOffset",
         OptionType::Float,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Wrist HUD X Offset", u8"腕表HUD X偏移" },
+        { u8"Status HUD X Offset", u8"状态HUD X偏移" },
         { u8"Overlay translation in controller local space (meters).",
           u8"覆盖层在手柄本地坐标系中的平移（米）。" },
         { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
           u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
         -0.25f, 0.25f,
-        "-0.02"
+        "0.01"
     },
     {
         "LeftWristHudYOffset",
         OptionType::Float,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Wrist HUD Y Offset", u8"腕表HUD Y偏移" },
+        { u8"Status HUD Y Offset", u8"状态HUD Y偏移" },
         { u8"Overlay translation in controller local space (meters).",
           u8"覆盖层在手柄本地坐标系中的平移（米）。" },
         { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
           u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
         -0.25f, 0.25f,
-        "0.02"
+        "0.01"
     },
     {
         "LeftWristHudZOffset",
         OptionType::Float,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Wrist HUD Z Offset", u8"腕表HUD Z偏移" },
+        { u8"Status HUD Z Offset", u8"状态HUD Z偏移" },
         { u8"Overlay translation in controller local space (meters).",
           u8"覆盖层在手柄本地坐标系中的平移（米）。" },
         { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
           u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
         -0.25f, 0.25f,
-        "0.07"
+        "0.0"
     },
     {
         "LeftWristHudAngleOffset",
         OptionType::Vec3,
         { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Wrist HUD Angle Offset (pitch,yaw,roll)", u8"腕表HUD角度偏移 (俯仰,偏航,翻滚)" },
-        { u8"Additional rotation for the wrist HUD overlay (degrees).",
-          u8"腕表HUD覆盖层的额外旋转（度）。" },
+        { u8"Status HUD Angle Offset (pitch,yaw,roll)", u8"状态HUD角度偏移 (俯仰,偏航,翻滚)" },
+        { u8"Additional rotation for the Status HUD overlay (degrees).",
+          u8"状态HUD覆盖层的额外旋转（度）。" },
         { u8"Adjust so it faces your eyes naturally.",
           u8"调到看起来像贴在手腕上、自然朝向眼睛即可。" },
         -180.f, 180.f,
-        "-45,0,90"
+        "-75,0,0"
     },
 
     {
@@ -770,8 +758,20 @@ Option g_Options[] =
         { u8"Displays clip/reserve and upgraded ammo when available.",
           u8"显示弹匣/备弹，并在有特殊子弹时显示剩余量。" },
         0.0f, 0.0f,
-        "false"
+        "true"
     },
+    {
+        "RightAmmoHudAlpha",
+        OptionType::Float,
+        { u8"HUD (Hand)", u8"HUD（手柄）" },
+        { u8"Ammo HUD Opacity Multiplier", u8"弹药HUD透明度倍率" },
+        { u8"Extra background opacity multiplier for the ammo HUD (0..1).",
+          u8"弹药HUD的额外背景透明度倍率（0..1）。" },
+        { u8"",
+          u8"" },
+        0.0f, 1.0f,
+        "0.35"
+     },
     {
         "RightAmmoHudWidthMeters",
         OptionType::Float,
@@ -782,7 +782,7 @@ Option g_Options[] =
         { u8"Increase if numbers are too small.",
           u8"如果数字太小就调大。" },
         0.01f, 0.50f,
-        "0.04"
+        "0.1"
     },
     {
         "RightAmmoHudXOffset",
@@ -794,7 +794,7 @@ Option g_Options[] =
         { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
           u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
         -0.25f, 0.25f,
-        "0.02"
+        "-0.07"
     },
     {
         "RightAmmoHudYOffset",
@@ -806,7 +806,7 @@ Option g_Options[] =
         { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
           u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
         -0.25f, 0.25f,
-        "0.00"
+        "0.03"
     },
     {
         "RightAmmoHudZOffset",
@@ -818,7 +818,7 @@ Option g_Options[] =
         { u8"Uses the same axis convention as other overlay offsets (ScopeOverlay*).",
           u8"与其他覆盖层偏移（ScopeOverlay*）使用相同坐标约定。" },
         -0.25f, 0.25f,
-        "0.09"
+        "-0.09"
     },
     {
         "RightAmmoHudAngleOffset",
@@ -830,22 +830,8 @@ Option g_Options[] =
         { u8"Adjust so it sits like a weapon-side panel.",
           u8"调到像贴在武器旁边的小屏幕即可。" },
         -180.f, 180.f,
-        "0,0,0"
+        "-75,0,0"
     },
-
-    {
-        "HandHudMaxHz",
-        OptionType::Float,
-        { u8"HUD (Hand)", u8"HUD（手柄）" },
-        { u8"Hand HUD Update Rate (Hz)", u8"手柄HUD刷新率(Hz)" },
-        { u8"Maximum update rate for hand HUD overlays. 0 disables throttling.",
-          u8"手柄HUD的最大刷新率。0表示不限制。" },
-        { u8"30 is plenty; lower reduces CPU overhead.",
-          u8"30就足够了；更低可以减少CPU开销。" },
-        0.0f, 240.0f,
-        "30"
-    },
-
 
     // Hands / Debug
     {
@@ -853,13 +839,14 @@ Option g_Options[] =
         OptionType::Bool,
         { u8"Hands / Debug", u8"手部 / 调试" },
         { u8"Hide Arms", u8"隐藏手臂" },
-        { u8"Hides in-game arm models while keeping hands/controllers.",
-          u8"隐藏游戏中的手臂模型，仅保留手/手柄。" },
-        { u8"Useful when arm animations conflict with your pose.",
-          u8"当手臂动画与姿态不一致时可开启。" },
+        { u8"Hides in-game arm models while keeping weapons.",
+          u8"隐藏游戏中的手臂模型，仅保留武器。" },
+        { u8"",
+          u8"" },
         0.0f, 0.0f,
         "false"
     },
+
     // Interaction / Combos
     {
         "RequireSecondaryAttackForItemSwitch",
@@ -919,6 +906,18 @@ Option g_Options[] =
         0.0f, 0.0f,
         "Reload+SecondaryAttack"
     },
+    {
+        "ViewmodelDisableMoveBob",
+        OptionType::Bool,
+        { u8"Interaction / Combos", u8"交互 / 组合键" },
+        { u8"Disable Viewmodel Move Bob", u8"禁用视模移动晃动" },
+        { u8"Disables movement bob/sway on the first-person viewmodel.",
+          u8"禁用第一人称视模随移动产生的晃动/摆动。" },
+        { u8"When enabled, weapon/viewmodel appears more stable while moving.",
+          u8"开启后，移动时武器/视模会更稳定。" },
+        0.0f, 0.0f,
+        "false"
+    },
     // Weapons / Fire
     {
         "AutoRepeatSemiAutoFire",
@@ -977,6 +976,17 @@ Option g_Options[] =
         { u8"Enable Melee Aim Line", u8"启用近战瞄准线" },
         { u8"Shows the aim line when wielding melee weapons.",
           u8"在使用近战武器时仍显示瞄准线。" },
+        { u8"", u8"" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "AimLineOnlyWhenLaserSight",
+        OptionType::Bool,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Enable aimline only when laser is obtained", u8"仅获得激光时启用瞄准线" },
+        { u8"",
+          u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
         "true"
@@ -1461,7 +1471,7 @@ void DrawOptionsUI()
     for (int i = 0; i < g_OptionCount; ++i)
     {
         const Option& opt = g_Options[i];
-        if (!OptionMatchesFilter(opt))
+        if (!IsOptionVisible(opt) || !OptionMatchesFilter(opt))
             continue;
 
         std::string key = opt.key;

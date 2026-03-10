@@ -105,8 +105,12 @@ void VR::HandleLeaveGameToMenu()
 
     if (m_Game && m_Game->m_MaterialSystem)
     {
-        if (IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext())
-            rndrContext->SetRenderTarget(NULL);
+        // In queued rendering, render-thread owns context state; avoid cross-thread RT mutation here.
+        if (m_Game->GetMatQueueMode() == 0)
+        {
+            if (IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext())
+                rndrContext->SetRenderTarget(NULL);
+        }
     }
 
     if (m_Overlay)
@@ -130,8 +134,73 @@ void VR::HandleLeaveGameToMenu()
     // Force a one-shot RT rebuild after leaving a map, but only once per transition.
     // The old code invalidated this every menu frame, which could continuously recreate
     // large render targets and exhaust 32-bit address space within seconds.
-    m_CreatedVRTextures.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(m_TextureMutex);
+        m_CreatedVRTextures.store(false, std::memory_order_release);
+        m_CreatingTextureID = Texture_None;
+
+        // Make sure follow-up submit/render paths cannot accidentally reuse stale handles.
+        m_LeftEyeTexture = nullptr;
+        m_RightEyeTexture = nullptr;
+        m_HUDTexture = nullptr;
+        m_ScopeTexture = nullptr;
+        m_RearMirrorTexture = nullptr;
+        m_BlankTexture = nullptr;
+
+        std::memset(&m_VKLeftEye, 0, sizeof(m_VKLeftEye));
+        std::memset(&m_VKRightEye, 0, sizeof(m_VKRightEye));
+        std::memset(&m_VKHUD, 0, sizeof(m_VKHUD));
+        std::memset(&m_VKScope, 0, sizeof(m_VKScope));
+        std::memset(&m_VKRearMirror, 0, sizeof(m_VKRearMirror));
+        std::memset(&m_VKBlankTexture, 0, sizeof(m_VKBlankTexture));
+    }
     Game::logMsg("[VR] LeaveGame->Menu: cleared transient render state and invalidated VR textures once");
+}
+
+void VR::HandleInGameTransitionLoad()
+{
+    // Soft reset for in-game level transition loading:
+    // keep eye texture descriptors alive so queued render/submit threads won't race on zeroed data.
+    ResetFrameSubmissionState();
+
+    if (m_Game)
+        m_Game->ResetTransientRenderState();
+
+    if (m_Game && m_Game->m_MaterialSystem)
+    {
+        // In queued rendering, render-thread owns context state; avoid cross-thread RT mutation here.
+        if (m_Game->GetMatQueueMode() == 0)
+        {
+            if (IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext())
+                rndrContext->SetRenderTarget(NULL);
+        }
+    }
+
+    if (m_Overlay)
+    {
+        auto hideIfValid = [&](vr::VROverlayHandle_t h)
+        {
+            if (h != vr::k_ulOverlayHandleInvalid)
+                m_Overlay->HideOverlay(h);
+        };
+
+        hideIfValid(m_HUDTopHandle);
+        for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
+            hideIfValid(overlay);
+        hideIfValid(m_ScopeHandle);
+        hideIfValid(m_RearMirrorHandle);
+        hideIfValid(m_LeftWristHudHandle);
+        hideIfValid(m_RightAmmoHudHandle);
+    }
+
+    if (g_D3DVR9)
+    {
+        const HRESULT hr = g_D3DVR9->GetBackBufferData(&m_VKBackBuffer);
+        if (FAILED(hr))
+            Game::logMsg("[VR] InGameTransitionLoad: GetBackBufferData failed (hr=0x%08X)", static_cast<unsigned int>(hr));
+    }
+
+    Game::logMsg("[VR] InGameTransitionLoad: soft-cleared transient render state (kept eye descriptors)");
 }
 
 void VR::Update()
@@ -141,7 +210,31 @@ void VR::Update()
 
     const bool inGameNow = m_Game->m_EngineClient->IsInGame();
     if (m_IsVREnabled && g_D3DVR9 && m_WasInGamePrev && !inGameNow)
+    {
         HandleLeaveGameToMenu();
+        m_InLevelTransitionLoad = false;
+    }
+
+    bool inLevelTransitionLoadNow = false;
+    if (inGameNow)
+    {
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+        inLevelTransitionLoadNow = (localPlayer == nullptr);
+    }
+
+    if (m_IsVREnabled && g_D3DVR9)
+    {
+        if (inLevelTransitionLoadNow && !m_InLevelTransitionLoad)
+        {
+            HandleInGameTransitionLoad();
+        }
+        else if (!inLevelTransitionLoadNow && m_InLevelTransitionLoad)
+        {
+            Game::logMsg("[VR] InGameTransitionLoad: local player restored, resume stereo submit");
+        }
+    }
+    m_InLevelTransitionLoad = inLevelTransitionLoadNow;
 
     const bool queuedAtFrameStart = (m_Game && (m_Game->GetMatQueueMode() != 0));
     if (!queuedAtFrameStart)
@@ -235,10 +328,40 @@ void VR::LogVAS(const char* tag)
 
 void VR::CreateVRTextures()
 {
+    std::lock_guard<std::mutex> lock(m_TextureMutex);
+    if (m_CreatedVRTextures.load(std::memory_order_acquire))
+        return;
+
+    if (!m_Game || !m_Game->m_MaterialSystem)
+    {
+        m_CreatedVRTextures.store(false, std::memory_order_release);
+        return;
+    }
+
+    IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+    if (!renderContext)
+    {
+        HandleMissingRenderContext("VR::CreateVRTextures");
+        return;
+    }
+
     LogVAS("before CreateVRTextures");
 
-    int windowWidth, windowHeight;
-    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+    int windowWidth = static_cast<int>(m_RenderWidth);
+    int windowHeight = static_cast<int>(m_RenderHeight);
+    renderContext->GetWindowSize(windowWidth, windowHeight);
+    if (windowWidth <= 0 || windowHeight <= 0)
+    {
+        windowWidth = static_cast<int>(m_RenderWidth);
+        windowHeight = static_cast<int>(m_RenderHeight);
+    }
+
+    m_LeftEyeTexture = nullptr;
+    m_RightEyeTexture = nullptr;
+    m_HUDTexture = nullptr;
+    m_ScopeTexture = nullptr;
+    m_RearMirrorTexture = nullptr;
+    m_BlankTexture = nullptr;
 
     m_Game->m_MaterialSystem->isGameRunning = false;
     m_Game->m_MaterialSystem->BeginRenderTargetAllocation();
@@ -291,6 +414,14 @@ void VR::CreateVRTextures()
 
     m_Game->m_MaterialSystem->EndRenderTargetAllocation();
 
+    if (!m_LeftEyeTexture || !m_RightEyeTexture || !m_HUDTexture || !m_BlankTexture)
+    {
+        Game::logMsg("[VR] CreateVRTextures failed: L=%p R=%p HUD=%p Blank=%p",
+            m_LeftEyeTexture, m_RightEyeTexture, m_HUDTexture, m_BlankTexture);
+        m_CreatedVRTextures.store(false, std::memory_order_release);
+        return;
+    }
+
     // New textures should not inherit old render/submit bookkeeping.
     m_RenderCompletedFrameId.store(0, std::memory_order_release);
     m_LastSubmittedFrameId.store(0, std::memory_order_release);
@@ -309,6 +440,20 @@ void VR::EnsureOpticsRTTTextures()
 {
     if (!m_CreatedVRTextures.load(std::memory_order_acquire))
         return;
+
+    std::lock_guard<std::mutex> lock(m_TextureMutex);
+    if (!m_CreatedVRTextures.load(std::memory_order_acquire))
+        return;
+
+    if (!m_Game || !m_Game->m_MaterialSystem)
+        return;
+
+    IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+    if (!renderContext)
+    {
+        HandleMissingRenderContext("VR::EnsureOpticsRTTTextures");
+        return;
+    }
 
     const bool needScope = (m_ScopeEnabled && !m_ScopeTexture);
     const bool needRearMirror = (m_RearMirrorEnabled && !m_RearMirrorTexture);
@@ -508,6 +653,33 @@ void VR::SubmitVRTextures()
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
         };
+    auto ensureTexturesReady = [&]() -> bool
+        {
+            if (m_CreatedVRTextures.load(std::memory_order_acquire))
+                return true;
+            CreateVRTextures();
+            return m_CreatedVRTextures.load(std::memory_order_acquire);
+        };
+    auto refreshBackBufferDescriptor = [&]() -> bool
+        {
+            if (!g_D3DVR9)
+                return false;
+
+            const HRESULT hr = g_D3DVR9->GetBackBufferData(&m_VKBackBuffer);
+            if (FAILED(hr))
+            {
+                static auto s_LastBackBufferErrorLog = std::chrono::steady_clock::time_point{};
+                const auto now = std::chrono::steady_clock::now();
+                if (s_LastBackBufferErrorLog.time_since_epoch().count() == 0 ||
+                    std::chrono::duration<float>(now - s_LastBackBufferErrorLog).count() >= 2.0f)
+                {
+                    Game::logMsg("[VR] SubmitVRTextures: GetBackBufferData failed (hr=0x%08X)", static_cast<unsigned int>(hr));
+                    s_LastBackBufferErrorLog = now;
+                }
+                return false;
+            }
+            return true;
+        };
 
     //     ֡û       ݣ    ߲˵ /Overlay ·
     if (!m_RenderedNewFrame.load(std::memory_order_acquire))
@@ -517,7 +689,8 @@ void VR::SubmitVRTextures()
         // Showing the backbuffer/menu overlay in this state creates an extra compositor layer and can cause
         // severe stutter (and a visible backbuffer rectangle). Instead, just re-submit the last eye textures.
         const bool inGame = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
-        if (inGame)
+        const bool inLevelTransitionLoad = inGame && m_InLevelTransitionLoad;
+        if (inGame && !inLevelTransitionLoad)
         {
             // Ensure the menu overlay is not left visible while in-game.
             if (vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
@@ -532,10 +705,11 @@ void VR::SubmitVRTextures()
             }
             else
             {
-                if (!m_BlankTexture)
-                    CreateVRTextures();
-                submitStereoPair(&m_VKBlankTexture.m_VRTexture, nullptr,
-                    &m_VKBlankTexture.m_VRTexture, nullptr);
+                if (ensureTexturesReady())
+                {
+                    submitStereoPair(&m_VKBlankTexture.m_VRTexture, nullptr,
+                        &m_VKBlankTexture.m_VRTexture, nullptr);
+                }
             }
 
             if (successfulSubmit && m_CompositorExplicitTiming)
@@ -547,10 +721,11 @@ void VR::SubmitVRTextures()
             return;
         }
 
-        if (!m_BlankTexture)
-            CreateVRTextures();
+        const bool texturesReady = ensureTexturesReady();
+        const bool refreshedBackBuffer = refreshBackBufferDescriptor();
+        const bool forceReposition = inLevelTransitionLoad || !refreshedBackBuffer;
 
-        if (!vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
+        if (forceReposition || !vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
             RepositionOverlays();
 
         vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
@@ -561,7 +736,7 @@ void VR::SubmitVRTextures()
         vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
         vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
 
-        if (!inGame)
+        if (texturesReady)
         {
             submitStereoPair(&m_VKBlankTexture.m_VRTexture, nullptr,
                 &m_VKBlankTexture.m_VRTexture, nullptr);
@@ -1172,11 +1347,15 @@ void VR::RepositionOverlays()
     vr::ETrackingUniverseOrigin trackingOrigin = vr::VRCompositor()->GetTrackingSpace();
 
     // Reposition main menu overlay
-    float renderWidth = m_VKBackBuffer.m_VulkanData.m_nWidth;
-    float renderHeight = m_VKBackBuffer.m_VulkanData.m_nHeight;
+    float renderWidth = static_cast<float>(m_VKBackBuffer.m_VulkanData.m_nWidth);
+    float renderHeight = static_cast<float>(m_VKBackBuffer.m_VulkanData.m_nHeight);
+    if (!(renderWidth > 1.0f) || !std::isfinite(renderWidth))
+        renderWidth = static_cast<float>((std::max)(windowWidth, 1));
+    if (!(renderHeight > 1.0f) || !std::isfinite(renderHeight))
+        renderHeight = static_cast<float>((std::max)(windowHeight, 1));
 
-    float widthRatio = windowWidth / renderWidth;
-    float heightRatio = windowHeight / renderHeight;
+    float widthRatio = static_cast<float>(windowWidth) / renderWidth;
+    float heightRatio = static_cast<float>(windowHeight) / renderHeight;
     menuTransform.m[0][0] *= widthRatio;
     menuTransform.m[1][1] *= heightRatio;
 
