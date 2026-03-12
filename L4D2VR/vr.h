@@ -507,6 +507,7 @@ public:
     std::atomic<uint32_t> m_SubmitPoseToken{ 0 };
     std::atomic<uint32_t> m_LastSubmittedPoseToken{ 0 };
     std::atomic<bool> m_SubmitInFlight{ false };
+    std::atomic<uint32_t> m_LastSubmittedCompositorFrameIndex{ 0 };
 	// Render-thread -> submit-thread frame handoff (queued/multicore mode).
 	// dRenderView increments m_RenderCompletedFrameId and signals m_RenderFrameReadyEvent
 	// when a full stereo frame is rendered into eye textures.
@@ -514,8 +515,11 @@ public:
 	std::atomic<uint32_t> m_LastSubmittedFrameId{ 0 };
 	HANDLE m_RenderFrameReadyEvent = NULL;
 	// Present-side wait budget (ms) for a fresh rendered frame in mat_queue_mode!=0.
-	// 0 disables waiting. Small values (1-3) reduce stale-frame submits.
+	// 0 disables waiting. Used as an upper bound by adaptive submit-wait logic.
 	int m_QueuedSubmitWaitMs = 2;
+	// Count of consecutive presents where submit thread observes no newer rendered frame.
+	// Used to apply submit wait adaptively only when stale-frame pressure persists.
+	std::atomic<uint32_t> m_QueuedSubmitStaleStreak{ 0 };
 	// True once VGui_Paint has been redirected into m_HUDTexture for the current VR frame.
 	std::atomic<bool> m_HudPaintedThisFrame{ false };
 	std::atomic<bool> m_CreatedVRTextures{ false };
@@ -700,6 +704,10 @@ public:
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
+	// Queued rendering (mat_queue_mode!=0): keep HUD visibility stable for a short
+	// window after a successful HUD capture so transient render-thread misses don't
+	// cause top-HUD flicker when frame rate dips.
+	std::chrono::steady_clock::time_point m_QueuedHudFreshUntil{};
 
 	// Hand HUD background opacity (0..1). Applies to the panel fill only (text/icons stay opaque).
 	float m_LeftWristHudBgAlpha = 0.85f;

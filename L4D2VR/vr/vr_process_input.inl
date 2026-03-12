@@ -1209,12 +1209,25 @@ void VR::ProcessInput()
     if (PressedDigitalAction(m_ToggleHUD, true))
         m_HudToggleState = !m_HudToggleState;
 
-    const bool wantsTopHud = PressedDigitalAction(m_Scoreboard) || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
-    if ((wantsTopHud && m_RenderedHud.load(std::memory_order_acquire)) || menuActive)
+    const bool scoreboardHeld = PressedDigitalAction(m_Scoreboard);
+    const int queueModeNow = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+    const bool scoreboardSafeNow = (queueModeNow == 0);
+
+    const bool wantsTopHud = scoreboardHeld || isControllerVertical || m_HudToggleState || cursorVisible || chatRecent;
+    const bool queuedHudGate = (queueModeNow != 0);
+    const auto now = std::chrono::steady_clock::now();
+    const bool renderedHudNow = m_RenderedHud.load(std::memory_order_acquire);
+    if (queuedHudGate && renderedHudNow)
+        m_QueuedHudFreshUntil = now + std::chrono::milliseconds(300);
+
+    const bool hudReadyForDisplay = renderedHudNow || (queuedHudGate && now < m_QueuedHudFreshUntil);
+    if ((wantsTopHud && hudReadyForDisplay) || menuActive)
     {
         RepositionOverlays();
 
-        if (PressedDigitalAction(m_Scoreboard))
+        // Scoreboard in queued/multicore mode can hard-freeze before the engine has time
+        // to apply mat_queue_mode 0. Only issue +showscores after we've actually switched.
+        if (scoreboardHeld && scoreboardSafeNow)
             m_Game->ClientCmd_Unrestricted("+showscores");
         else
             m_Game->ClientCmd_Unrestricted("-showscores");

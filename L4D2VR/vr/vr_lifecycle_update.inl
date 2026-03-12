@@ -20,6 +20,10 @@ void VR::Update()
         }
     }
 
+    const bool queuedAtFrameStart = (m_Game && (m_Game->GetMatQueueMode() != 0));
+    if (!queuedAtFrameStart)
+        SubmitVRTextures();
+
     bool posesValid = UpdatePosesAndActions();
     UpdateAutoMatQueueMode();
     if (!posesValid)
@@ -27,9 +31,8 @@ void VR::Update()
         // Continue using the last known poses so smoothing and aim helpers stay active.
     }
 
-    // Important ordering: pose update before submit prevents duplicate submits
-    // within the same compositor frame (VRCompositorError_AlreadySubmitted / 108).
-    SubmitVRTextures();
+    if (queuedAtFrameStart)
+        SubmitVRTextures();
 
     // Auto ResetPosition shortly after a level finishes loading.
 
@@ -165,10 +168,14 @@ void VR::CreateVRTextures()
 
     m_Game->m_MaterialSystem->EndRenderTargetAllocation();
 
-    // New textures should not be treated as "already rendered/submitted".
+    // New textures should not inherit old render/submit bookkeeping.
     m_RenderCompletedFrameId.store(0, std::memory_order_release);
     m_LastSubmittedFrameId.store(0, std::memory_order_release);
+    m_SubmitPoseToken.store(0, std::memory_order_release);
     m_LastSubmittedPoseToken.store(0, std::memory_order_release);
+    m_SubmitInFlight.store(false, std::memory_order_release);
+    m_LastSubmittedCompositorFrameIndex.store(0, std::memory_order_release);
+    m_QueuedSubmitStaleStreak.store(0, std::memory_order_release);
 
     m_CreatedVRTextures.store(true, std::memory_order_release);
 
@@ -230,32 +237,68 @@ void VR::SubmitVRTextures()
     if (!m_Compositor)
         return;
 
-    bool expectedSubmitInFlight = false;
-    if (!m_SubmitInFlight.compare_exchange_strong(expectedSubmitInFlight, true, std::memory_order_acq_rel))
-        return;
+    const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+
     struct SubmitInFlightGuard
     {
-        std::atomic<bool>& flag;
-        ~SubmitInFlightGuard() { flag.store(false, std::memory_order_release); }
-    } submitInFlightGuard{ m_SubmitInFlight };
+        std::atomic<bool>* flag = nullptr;
+        ~SubmitInFlightGuard()
+        {
+            if (flag)
+                flag->store(false, std::memory_order_release);
+        }
+    } submitInFlightGuard{};
 
-    const uint32_t poseToken = m_SubmitPoseToken.load(std::memory_order_acquire);
-    const uint32_t lastSubmittedToken = m_LastSubmittedPoseToken.load(std::memory_order_acquire);
-    if (poseToken == 0 || poseToken == lastSubmittedToken)
-        return;
+    uint32_t poseToken = 0;
+    uint32_t compositorFrameIndex = 0;
+    if (queued)
+    {
+        bool expectedSubmitInFlight = false;
+        if (!m_SubmitInFlight.compare_exchange_strong(expectedSubmitInFlight, true, std::memory_order_acq_rel))
+            return;
+        submitInFlightGuard.flag = &m_SubmitInFlight;
+
+        poseToken = m_SubmitPoseToken.load(std::memory_order_acquire);
+        const uint32_t lastSubmittedToken = m_LastSubmittedPoseToken.load(std::memory_order_acquire);
+        if (poseToken == 0 || poseToken == lastSubmittedToken)
+            return;
+
+        auto queryCompositorFrameIndex = [&]() -> uint32_t
+            {
+                vr::Compositor_FrameTiming timing{};
+                timing.m_nSize = sizeof(timing);
+                if (m_Compositor->GetFrameTiming(&timing, 0) && timing.m_nFrameIndex != 0)
+                    return timing.m_nFrameIndex;
+                return 0;
+            };
+
+        compositorFrameIndex = queryCompositorFrameIndex();
+        const uint32_t lastSubmittedCompositorFrameIndex = m_LastSubmittedCompositorFrameIndex.load(std::memory_order_acquire);
+        if (compositorFrameIndex != 0 && compositorFrameIndex == lastSubmittedCompositorFrameIndex)
+        {
+            // Same compositor frame index: treat as already handled for this submit token.
+            m_LastSubmittedPoseToken.store(poseToken, std::memory_order_release);
+            return;
+        }
+    }
 
     bool successfulSubmit = false;
+    bool frameHandled = false;
     bool timingDataSubmitted = false;
-    auto finalizeSubmitState = [&]()
+
+    auto finalizeSubmitState = [&](bool markFrameHandled)
         {
-            if (!successfulSubmit)
+            if (!queued || !markFrameHandled)
                 return;
+
+            frameHandled = true;
+            m_LastSubmittedPoseToken.store(poseToken, std::memory_order_release);
+            if (compositorFrameIndex != 0)
+                m_LastSubmittedCompositorFrameIndex.store(compositorFrameIndex, std::memory_order_release);
 
             const uint32_t renderedFrameId = m_RenderCompletedFrameId.load(std::memory_order_acquire);
             if (renderedFrameId != 0)
                 m_LastSubmittedFrameId.store(renderedFrameId, std::memory_order_release);
-
-            m_LastSubmittedPoseToken.store(poseToken, std::memory_order_release);
         };
 
     auto ensureTimingData = [&]()
@@ -279,12 +322,39 @@ void VR::SubmitVRTextures()
             vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
             if (submitError != vr::VRCompositorError_None)
             {
+                if (queued && submitError == vr::VRCompositorError_AlreadySubmitted)
+                {
+                    // Another submit already consumed this compositor frame.
+                    finalizeSubmitState(true);
+                    return false;
+                }
                 LogCompositorError("Submit", submitError);
                 return false;
             }
 
-            successfulSubmit = true;
             return true;
+        };
+
+    auto submitStereoPair = [&](vr::Texture_t* leftTexture, const vr::VRTextureBounds_t* leftBounds,
+                                vr::Texture_t* rightTexture, const vr::VRTextureBounds_t* rightBounds) -> bool
+        {
+            if (queued)
+            {
+                if (!submitEye(vr::Eye_Left, leftTexture, leftBounds))
+                    return false;
+
+                if (!submitEye(vr::Eye_Right, rightTexture, rightBounds))
+                    return false;
+
+                successfulSubmit = true;
+                finalizeSubmitState(true);
+                return true;
+            }
+
+            const bool leftOk = submitEye(vr::Eye_Left, leftTexture, leftBounds);
+            const bool rightOk = submitEye(vr::Eye_Right, rightTexture, rightBounds);
+            successfulSubmit = leftOk || rightOk;
+            return successfulSubmit;
         };
 
     auto hideHudOverlays = [&]()
@@ -334,15 +404,15 @@ void VR::SubmitVRTextures()
             const bool texturesReady = m_CreatedVRTextures.load(std::memory_order_acquire);
             if (texturesReady)
             {
-                submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-                submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+                submitStereoPair(&m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0],
+                    &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
             }
             else
             {
                 if (!m_BlankTexture)
                     CreateVRTextures();
-                submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-                submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+                submitStereoPair(&m_VKBlankTexture.m_VRTexture, nullptr,
+                    &m_VKBlankTexture.m_VRTexture, nullptr);
             }
 
             if (successfulSubmit && m_CompositorExplicitTiming)
@@ -351,7 +421,6 @@ void VR::SubmitVRTextures()
                 FinishFrame();
             }
 
-            finalizeSubmitState();
             return;
         }
 
@@ -371,8 +440,8 @@ void VR::SubmitVRTextures()
 
         if (!inGame)
         {
-            submitEye(vr::Eye_Left, &m_VKBlankTexture.m_VRTexture, nullptr);
-            submitEye(vr::Eye_Right, &m_VKBlankTexture.m_VRTexture, nullptr);
+            submitStereoPair(&m_VKBlankTexture.m_VRTexture, nullptr,
+                &m_VKBlankTexture.m_VRTexture, nullptr);
         }
 
         if (successfulSubmit && m_CompositorExplicitTiming)
@@ -381,7 +450,6 @@ void VR::SubmitVRTextures()
             FinishFrame();
         }
 
-        finalizeSubmitState();
         return;
     }
 
@@ -606,8 +674,8 @@ void VR::SubmitVRTextures()
 
     UpdateHandHudOverlays();
 
-    submitEye(vr::Eye_Left, &m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0]);
-    submitEye(vr::Eye_Right, &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
+    submitStereoPair(&m_VKLeftEye.m_VRTexture, &(m_TextureBounds)[0],
+        &m_VKRightEye.m_VRTexture, &(m_TextureBounds)[1]);
 
     if (successfulSubmit && m_CompositorExplicitTiming)
     {
@@ -615,9 +683,8 @@ void VR::SubmitVRTextures()
         FinishFrame();
     }
 
-    finalizeSubmitState();
-
-    m_RenderedNewFrame.store(false, std::memory_order_release);
+    if (!queued || successfulSubmit || frameHandled)
+        m_RenderedNewFrame.store(false, std::memory_order_release);
 }
 
 void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)
