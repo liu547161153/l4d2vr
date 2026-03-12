@@ -115,7 +115,7 @@
       <ModuleDefinitionFile>$(SolutionDir)dxvk\src\d3d9\d3d9.def</ModuleDefinitionFile>
     </Link>
     <PostBuildEvent>
-      <Command>copy /Y "$(OutDir)$(TargetName)$(TargetExt)" "C:\Program Files (x86)\Steam\steamapps\common\Left 4 Dead 2\$(TargetName)$(TargetExt)"</Command>
+      <Command>copy /Y "$(OutDir)$(TargetName)$(TargetExt)" "E:\Program Files (x86)\Steam\steamapps\common\Left 4 Dead 2\$(TargetName)$(TargetExt)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -260,7 +260,7 @@
   <ItemGroup>
     <Text Include="config.txt" />
   </ItemGroup>
-    <ItemGroup>
+  <ItemGroup>
     <ClInclude Include="..\dxvk\include\openvr\openvr.hpp" />
     <ClInclude Include="..\dxvk\include\shaders\d3d9_convert_a2w10v10u10.h" />
     <ClInclude Include="..\dxvk\include\shaders\d3d9_convert_l6v5u5.h" />
@@ -558,7 +558,6 @@
     <ClCompile Include="..\dxvk\src\dxso\dxso_enums.cpp" />
     <ClCompile Include="..\dxvk\src\dxso\dxso_header.cpp" />
     <ClCompile Include="..\dxvk\src\dxso\dxso_module.cpp" />
-    <ClCompile Include="..\dxvk\src\dxso\dxso_options.cpp" />
     <ClCompile Include="..\dxvk\src\dxso\dxso_reader.cpp" />
     <ClCompile Include="..\dxvk\src\dxso\dxso_tables.cpp" />
     <ClCompile Include="..\dxvk\src\dxso\dxso_util.cpp" />
@@ -659,9 +658,161 @@
   <ItemGroup>
     <ResourceCompile Include="..\dxvk\src\d3d9\version.rc" />
   </ItemGroup>
-<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
-<ItemGroup><ClCompile Include="..\dxvk\subprojects\libdisplay-info\pnp-id-table.c"><ObjectFileName>$(IntDir)libdisplay-info\\%(Filename).obj</ObjectFileName></ClCompile></ItemGroup><ItemGroup><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_api.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_container.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_converter.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_disasm.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_interface.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_io_map.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_parser.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_registers.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_resources.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_signature.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_types.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_types.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_parser.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_disasm.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_converter.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_io_map.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_registers.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_builder.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_disasm.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_divergence.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_dominance.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_legalize.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_serialize.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_utils.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_arithmetic.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_buffer_kind.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_cleanup.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_convert.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cse.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_derivative.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_descriptor_indexing.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_function.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_consume.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_io.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_min16.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_resource_types.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_types.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_remove_unused.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scalarize.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scratch.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_ssa.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_sync.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_float16.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_log.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_md5.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_swizzle.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\spirv\\spirv_builder.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile><ClCompile Include="..\dxvk\subprojects\dxbc-spirv\spirv\\spirv_mapping.cpp"><ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName></ClCompile></ItemGroup></Project>
-
-
+  <ItemGroup>
+    <ClCompile Include="pnp-id-table.c">
+      <ObjectFileName>$(IntDir)libdisplay-info\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_api.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_container.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_converter.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_disasm.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_interface.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_io_map.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_parser.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_registers.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_resources.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_signature.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\dxbc\\dxbc_types.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_types.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_parser.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_disasm.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_converter.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_io_map.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_registers.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_builder.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_disasm.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_divergence.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_dominance.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_legalize.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_serialize.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_utils.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_arithmetic.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_buffer_kind.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_cleanup.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_convert.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cse.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_derivative.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_descriptor_indexing.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_function.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_consume.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_io.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_min16.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_resource_types.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_types.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_remove_unused.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scalarize.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scratch.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_ssa.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_sync.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_float16.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_log.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_md5.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_swizzle.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\spirv\\spirv_builder.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\spirv\\spirv_mapping.cpp">
+      <ObjectFileName>$(IntDir)dxbc-spirv\\%(Filename).obj</ObjectFileName>
+    </ClCompile>
+  </ItemGroup>
+</Project>

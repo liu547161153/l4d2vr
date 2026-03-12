@@ -22,9 +22,6 @@
     <Filter Include="Source Files\hook">
       <UniqueIdentifier>{01923248-f7c8-42a6-bc85-a1e8cb5f8a54}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes">
-      <UniqueIdentifier>{6B4AC55B-0E12-4AB0-B836-96B133FB4ABC}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="game.h">
@@ -140,7 +137,7 @@
     <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\ir_utils.cpp">
       <Filter>dxvk</Filter>
     </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\libdisplay-info\pnp-id-table.c">
+    <ClCompile Include="pnp-id-table.c">
       <Filter>dxvk</Filter>
     </ClCompile>
     <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\sm3\\sm3_converter.cpp">
@@ -177,6 +174,60 @@
       <Filter>dxvk</Filter>
     </ClCompile>
     <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\util\\util_swizzle.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_arithmetic.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_buffer_kind.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_cleanup.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_convert.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cse.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_derivative.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_descriptor_indexing.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_function.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_consume.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_io.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_min16.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_resource_types.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_types.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_remove_unused.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scalarize.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scratch.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_ssa.cpp">
+      <Filter>dxvk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_sync.cpp">
       <Filter>dxvk</Filter>
     </ClCompile>
   </ItemGroup>
@@ -1116,9 +1167,6 @@
     <ClCompile Include="..\dxvk\src\dxso\dxso_module.cpp">
       <Filter>dxvk</Filter>
     </ClCompile>
-    <ClCompile Include="..\dxvk\src\dxso\dxso_options.cpp">
-      <Filter>dxvk</Filter>
-    </ClCompile>
     <ClCompile Include="..\dxvk\src\dxso\dxso_reader.cpp">
       <Filter>dxvk</Filter>
     </ClCompile>
@@ -1432,61 +1480,5 @@
     <ResourceCompile Include="..\dxvk\src\d3d9\version.rc">
       <Filter>dxvk</Filter>
     </ResourceCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_arithmetic.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_buffer_kind.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_cleanup.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cfg_convert.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_cse.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_derivative.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_descriptor_indexing.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_function.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_consume.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_io.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_lower_min16.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_resource_types.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_propagate_types.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_remove_unused.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scalarize.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_scratch.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_ssa.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
-    <ClCompile Include="..\dxvk\subprojects\dxbc-spirv\ir\\passes\\ir_pass_sync.cpp">
-      <Filter>Source Files\\dxvk\\subprojects\\dxbc-spirv\\ir\passes</Filter>
-    </ClCompile>
   </ItemGroup>
 </Project>
