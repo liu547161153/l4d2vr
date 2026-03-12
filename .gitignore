@@ -401,3 +401,9 @@ FodyWeavers.xsd
 *.zip
 /L4D2VR/special_infected_features.cpp
 /L4D2VR/special_infected_feaatures.cpp
+/engine_srv.so
+/_tmp_client_disasm.txt
+/_tmp_client_dump.txt
+/_tmp_engine_disasm.txt
+/_tmp_engine_dump.txt
+/_tmp_server_srv.so
