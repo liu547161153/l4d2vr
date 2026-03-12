@@ -23,6 +23,7 @@ VoiceRecordCombo=Crouch+Reload
 QuickTurnCombo=SecondaryAttack+Crouch
 ViewmodelAdjustEnabled=true
 ViewmodelAdjustCombo=Reload+SecondaryAttack
+ViewmodelDisableMoveBob=false
 
 AimLineEnabled=true
 MeleeAimLineEnabled=true

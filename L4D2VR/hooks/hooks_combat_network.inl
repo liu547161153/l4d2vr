@@ -3,6 +3,21 @@ void __fastcall Hooks::dEndFrame(void* ecx, void* edx)
 	return hkEndFrame.fOriginal(ecx);
 }
 
+static inline void CallCalcViewModelViewOriginal(void* ecx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
+{
+	if (!Hooks::m_VR || !Hooks::m_VR->m_IsVREnabled || !Hooks::m_VR->m_ViewmodelDisableMoveBob || !owner)
+	{
+		Hooks::hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+		return;
+	}
+
+	C_BasePlayer* ownerPlayer = reinterpret_cast<C_BasePlayer*>(owner);
+	const Vector savedVelocity = ownerPlayer->m_vecVelocity;
+	ownerPlayer->m_vecVelocity = Vector{ 0.0f, 0.0f, 0.0f };
+	Hooks::hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+	ownerPlayer->m_vecVelocity = savedVelocity;
+}
+
 
 void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
 {
@@ -13,6 +28,7 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 	{
 		const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
 		const bool multiCoreQueued = (queueMode == 2);
+		const bool forceDisableMoveBob = m_VR->m_ViewmodelDisableMoveBob;
 
 		// ------------------------------------------------------------
 		// Single-thread path (mat_queue_mode 0/1)
@@ -27,7 +43,17 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 		{
 			vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 			vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
-			return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+			if (!forceDisableMoveBob)
+				return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+
+			CallCalcViewModelViewOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+			if (ecx)
+			{
+				IClientEntity* ent = reinterpret_cast<IClientEntity*>(ecx);
+				ent->GetAbsOrigin() = vecNewOrigin;
+				ent->GetAbsAngles() = vecNewAngles;
+			}
+			return;
 		}
 
 		// ------------------------------------------------------------
@@ -60,9 +86,9 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 		} tlsGuard(true);
 
 		// Call engine logic (keeps internal viewmodel state up to date).
-		hkCalcViewModelView.fOriginal(ecx, owner, eyePosition, eyeAngles);
+		CallCalcViewModelViewOriginal(ecx, owner, eyePosition, eyeAngles);
 
-		if (m_VR->m_QueuedViewmodelStabilize)
+		if (m_VR->m_QueuedViewmodelStabilize || forceDisableMoveBob)
 		{
 			const Vector targetOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 			const QAngle targetAngles = m_VR->GetRecommendedViewmodelAbsAngle();

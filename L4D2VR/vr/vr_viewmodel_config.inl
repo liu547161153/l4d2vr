@@ -1036,6 +1036,9 @@ void VR::ParseConfigFile()
 
     // Queued rendering: stabilize first-person viewmodel (disable engine bob/lag in queued mode).
     m_QueuedViewmodelStabilize = getBool("QueuedViewmodelStabilize", m_QueuedViewmodelStabilize);
+    // Global: hard-lock first-person viewmodel pose after engine calc (all queue modes).
+    m_ViewmodelDisableMoveBob = getBool("ViewmodelDisableMoveBob", m_ViewmodelDisableMoveBob);
+    Game::logMsg("[VR][Config] ViewmodelDisableMoveBob=%s", m_ViewmodelDisableMoveBob ? "true" : "false");
     m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);
     m_QueuedViewmodelStabilizeDebugLogHz = std::max(0.0f, getFloat("QueuedViewmodelStabilizeDebugLogHz", m_QueuedViewmodelStabilizeDebugLogHz));
 

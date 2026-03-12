@@ -379,7 +379,7 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 // In that case, overriding ModelRenderInfo_t.origin/angles does NOT move the model (it stays "head-locked").
 // So we apply a rigid delta to the bone matrices for this draw call, based on our controller-anchored target.
 const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
-if (m_VR->m_IsVREnabled && queueMode == 2 && m_VR->m_QueuedViewmodelStabilize)
+if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize || m_VR->m_ViewmodelDisableMoveBob))
 {
 	const bool isViewmodelClass = className &&
 		(std::strcmp(className, "CBaseViewModel") == 0 || std::strcmp(className, "C_BaseViewModel") == 0);
