@@ -15,6 +15,7 @@ void VR::Update()
                 return;
             }
             rndrContext->SetRenderTarget(NULL);
+            rndrContext->Release();
             m_Game->m_CachedArmsModel = false;
             m_CreatedVRTextures.store(false, std::memory_order_release); // Have to recreate textures otherwise some workshop maps won't render
         }
@@ -115,7 +116,9 @@ void VR::CreateVRTextures()
     LogVAS("before CreateVRTextures");
 
     int windowWidth, windowHeight;
-    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+    IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+    renderContext->GetWindowSize(windowWidth, windowHeight);
+    renderContext->Release();
 
     m_Game->m_MaterialSystem->isGameRunning = false;
     m_Game->m_MaterialSystem->BeginRenderTargetAllocation();
@@ -1036,7 +1039,9 @@ void VR::RepositionOverlays()
     Vector hmdForward = { -hmdMat.m[0][2], 0, -hmdMat.m[2][2] };
 
     int windowWidth, windowHeight;
-    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+    IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+    renderContext->GetWindowSize(windowWidth, windowHeight);
+    renderContext->Release();
 
     vr::HmdMatrix34_t menuTransform =
     {

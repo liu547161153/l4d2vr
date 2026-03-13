@@ -1618,6 +1618,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				if (touchedAngles && m_Game && m_Game->m_EngineClient)
 					m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
 				hkPopRenderTargetAndViewport.fOriginal(rc);
+				rc->Release();
 				return;
 			}
 
@@ -1652,6 +1653,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
 
 			m_VR->m_SuppressHudCapture = prevSuppress;
+			rc->Release();
 		};
 
 	// ----------------------------
@@ -1773,5 +1775,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Restore engine angles immediately after our stereo render (single-threaded only).
 	if (touchedEngineAngles && m_Game && m_Game->m_EngineClient)
 		m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
+	rndrContext->Release();
 	m_VR->m_RenderedNewFrame.store(true, std::memory_order_release);
 }

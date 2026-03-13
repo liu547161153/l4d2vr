@@ -956,7 +956,9 @@ VR::VR(Game* game)
     }
 
     int windowWidth, windowHeight;
-    m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+    IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+    renderContext->GetWindowSize(windowWidth, windowHeight);
+    renderContext->Release();
 
     const vr::HmdVector2_t mouseScaleHUD = { windowWidth, windowHeight };
     m_Overlay->SetOverlayMouseScale(m_HUDTopHandle, &mouseScaleHUD);

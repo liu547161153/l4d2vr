@@ -222,7 +222,9 @@ void VR::ProcessMenuInput()
         vr::VROverlay()->SetOverlayFlag(currentOverlay, vr::VROverlayFlags_MakeOverlaysInteractiveIfVisible, true);
 
         int windowWidth, windowHeight;
-        m_Game->m_MaterialSystem->GetRenderContext()->GetWindowSize(windowWidth, windowHeight);
+        IMatRenderContext* renderContext = m_Game->m_MaterialSystem->GetRenderContext();
+        renderContext->GetWindowSize(windowWidth, windowHeight);
+        renderContext->Release();
 
         vr::VREvent_t vrEvent;
         while (vr::VROverlay()->PollNextOverlayEvent(currentOverlay, &vrEvent, sizeof(vrEvent)))

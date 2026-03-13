@@ -840,6 +840,7 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
     renderContext->OverrideAlphaWriteEnable(true, true);
     renderContext->ClearColor4ub(0, 0, 0, 0);
     renderContext->ClearBuffers(true, false);
+    renderContext->Release();
 
     m_PushedHud = true;
     m_HUDStep = HUDPushStep::None;
@@ -860,6 +861,7 @@ void Hooks::dPopRenderTargetAndViewport(void* ecx, void* edx)
         {
             renderContext->OverrideAlphaWriteEnable(false, true);
             renderContext->ClearColor4ub(0, 0, 0, 255);
+            renderContext->Release();
         }
     }
 
@@ -901,7 +903,10 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
             }
 
             if (!hudTexture)
+            {
+                ctx->Release();
                 return;
+            }
 
             ITexture* prevTarget = ctx->GetRenderTarget();
             if (prevTarget != hudTexture)
@@ -922,6 +927,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
             }
 
             m_VR->m_RenderedHud.store(true, std::memory_order_release);
+            ctx->Release();
         };
 
     // Prefer a compact paint mode when capturing the HUD.
