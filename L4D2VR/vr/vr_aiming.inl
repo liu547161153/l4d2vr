@@ -119,6 +119,86 @@ void VR::UpdateNonVRAimSolution(C_BasePlayer* localPlayer)
         return;
     }
 
+    const bool frontViewEyeAim = m_ThirdPersonFrontViewEnabled && m_IsThirdPersonCamera && m_ThirdPersonFrontScopeFromEye;
+    const bool frontViewControllerEyeOrigin = m_ThirdPersonFrontViewEnabled && m_IsThirdPersonCamera && !m_ThirdPersonFrontScopeFromEye;
+    if (frontViewEyeAim)
+    {
+        const Vector eye = localPlayer->EyePosition();
+        Vector eyeDir = m_HmdForward;
+        if (eyeDir.IsZero())
+        {
+            QAngle eyeAngFallback = m_HmdAngAbs;
+            NormalizeAndClampViewAngles(eyeAngFallback);
+            QAngle::AngleVectors(eyeAngFallback, &eyeDir, nullptr, nullptr);
+        }
+
+        if (eyeDir.IsZero())
+        {
+            m_HasNonVRAimSolution = false;
+            return;
+        }
+        VectorNormalize(eyeDir);
+
+        const float maxDistance = 8192.0f;
+        Vector endEye = eye + eyeDir * maxDistance;
+        CGameTrace traceH;
+        Ray_t rayH;
+        // Skip self + mounted gun use entity + active weapon so the ray doesn't collide with your own gun/turret.
+        C_BaseCombatWeapon* activeWeapon = localPlayer->GetActiveWeapon();
+        CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
+        CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
+        rayH.Init(eye, endEye);
+        m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, pTraceFilter, &traceH);
+
+        const Vector H = (traceH.fraction < 1.0f && traceH.fraction > 0.0f) ? traceH.endpos : endEye;
+        m_NonVRAimHitPoint = H;
+        m_NonVRAimDesiredPoint = endEye;
+
+        QAngle eyeAng;
+        QAngle::VectorAngles(eyeDir, eyeAng);
+        NormalizeAndClampViewAngles(eyeAng);
+        m_NonVRAimAngles = eyeAng;
+        m_HasNonVRAimSolution = true;
+        return;
+    }
+    if (frontViewControllerEyeOrigin)
+    {
+        Vector direction = m_RightControllerForward;
+        if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+            direction = m_RightControllerForwardUnforced;
+        if (direction.IsZero())
+            direction = m_LastAimDirection.IsZero() ? m_LastUnforcedAimDirection : m_LastAimDirection;
+        if (direction.IsZero())
+        {
+            m_HasNonVRAimSolution = false;
+            return;
+        }
+        VectorNormalize(direction);
+
+        const Vector eye = localPlayer->EyePosition();
+        const float maxDistance = 8192.0f;
+        Vector endEye = eye + direction * maxDistance;
+
+        CGameTrace traceH;
+        Ray_t rayH;
+        C_BaseCombatWeapon* activeWeapon = localPlayer->GetActiveWeapon();
+        CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, (IHandleEntity*)mountedUseEnt, (IHandleEntity*)activeWeapon, 0);
+        CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
+        rayH.Init(eye, endEye);
+        m_Game->m_EngineTrace->TraceRay(rayH, STANDARD_TRACE_MASK, pTraceFilter, &traceH);
+
+        const Vector H = (traceH.fraction < 1.0f && traceH.fraction > 0.0f) ? traceH.endpos : endEye;
+        m_NonVRAimHitPoint = H;
+        m_NonVRAimDesiredPoint = endEye;
+
+        QAngle ang;
+        QAngle::VectorAngles(direction, ang);
+        NormalizeAndClampViewAngles(ang);
+        m_NonVRAimAngles = ang;
+        m_HasNonVRAimSolution = true;
+        return;
+    }
+
     // Use the same controller direction/origin rules as UpdateAimingLaser.
     Vector direction = m_RightControllerForward;
     if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
@@ -219,29 +299,64 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
 
     const bool useMouse = m_MouseModeEnabled;
+    const bool frontViewEyeAim = m_ThirdPersonFrontViewEnabled && m_IsThirdPersonCamera && m_ThirdPersonFrontScopeFromEye;
+    const bool frontViewControllerEyeOrigin = m_ThirdPersonFrontViewEnabled && m_IsThirdPersonCamera && !m_ThirdPersonFrontScopeFromEye;
 
     // Eye-center ray direction (mouse aim in mouse mode).
     Vector eyeDir{ 0.0f, 0.0f, 0.0f };
     if (useMouse)
+    {
         GetMouseModeEyeRay(eyeDir);
+    }
+    else if (frontViewEyeAim)
+    {
+        eyeDir = m_HmdForward;
+        if (eyeDir.IsZero())
+        {
+            QAngle eyeAngFallback = m_HmdAngAbs;
+            NormalizeAndClampViewAngles(eyeAngFallback);
+            QAngle::AngleVectors(eyeAngFallback, &eyeDir, nullptr, nullptr);
+        }
+        if (!eyeDir.IsZero())
+            VectorNormalize(eyeDir);
+    }
 
     // ---- Build the "aim line" (gun/hand) ray (existing behavior) ----
-    Vector gunDir = m_RightControllerForward;
-    if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-        gunDir = m_RightControllerForwardUnforced;
-
-    Vector gunOrigin = m_RightControllerPosAbs;
-    if (useMouse)
+    Vector gunDir{ 0.0f, 0.0f, 0.0f };
+    Vector gunOrigin{ 0.0f, 0.0f, 0.0f };
+    if (frontViewEyeAim || frontViewControllerEyeOrigin)
     {
-        const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
-        gunOrigin = m_HmdPosAbs
-            + (m_HmdForward * (anchor.x * m_VRScale))
-            + (m_HmdRight * (anchor.y * m_VRScale))
-            + (m_HmdUp * (anchor.z * m_VRScale));
+        gunOrigin = localPlayer->EyePosition();
+        if (frontViewEyeAim)
+        {
+            gunDir = eyeDir;
+        }
+        else
+        {
+            gunDir = m_RightControllerForward;
+            if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+                gunDir = m_RightControllerForwardUnforced;
+        }
+    }
+    else
+    {
+        gunDir = m_RightControllerForward;
+        if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+            gunDir = m_RightControllerForwardUnforced;
 
-        const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
-        Vector target = m_HmdPosAbs + eyeDir * convergeDist;
-        gunDir = target - gunOrigin;
+        gunOrigin = m_RightControllerPosAbs;
+        if (useMouse)
+        {
+            const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
+            gunOrigin = m_HmdPosAbs
+                + (m_HmdForward * (anchor.x * m_VRScale))
+                + (m_HmdRight * (anchor.y * m_VRScale))
+                + (m_HmdUp * (anchor.z * m_VRScale));
+
+            const float convergeDist = (m_MouseModeAimConvergeDistance > 0.0f) ? m_MouseModeAimConvergeDistance : 8192.0f;
+            Vector target = m_HmdPosAbs + eyeDir * convergeDist;
+            gunDir = target - gunOrigin;
+        }
     }
 
     if (gunDir.IsZero())
@@ -253,7 +368,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
     Vector camDelta = m_IsThirdPersonCamera
         ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
         : (m_ThirdPersonViewOrigin - m_SetupOrigin);
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+    if (!frontViewEyeAim && !frontViewControllerEyeOrigin && m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         gunOriginBase += camDelta;
 
     Vector gunStart = gunOriginBase + gunDir * 2.0f;
@@ -456,7 +571,13 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
     Vector eyeTarget = gunEnd;
 
-    if (useMouse)
+    if (frontViewEyeAim || frontViewControllerEyeOrigin)
+    {
+        const Vector frontDir = frontViewEyeAim ? eyeDir : gunDir;
+        if (!frontDir.IsZero())
+            eyeTarget = eye + frontDir * 8192.0f;
+    }
+    else if (useMouse)
     {
         if (!eyeDir.IsZero())
             eyeTarget = eye + eyeDir * 8192.0f;
@@ -565,6 +686,10 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     if (localPlayer)
         activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
     const bool allowAimLineDraw = ShouldDrawAimLine(activeWeapon);
+    const bool scopeOnlyAimLine = m_ScopeAimLineOnlyInScope
+        && m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ScopeWeaponIsFirearm;
     if (!ShouldShowAimLine(activeWeapon))
     {
         m_LastAimDirection = Vector{ 0.0f, 0.0f, 0.0f };
@@ -593,11 +718,33 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
     bool isThrowable = IsThrowableWeapon(activeWeapon);
     const bool useMouse = m_MouseModeEnabled;
+    const bool frontViewEyeAim = m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ThirdPersonFrontScopeFromEye
+        && (localPlayer != nullptr);
+    const bool frontViewControllerEyeOrigin = m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && !m_ThirdPersonFrontScopeFromEye
+        && (localPlayer != nullptr);
 
     // Eye-center ray direction (mouse aim in mouse mode).
     Vector eyeDir = { 0.0f, 0.0f, 0.0f };
     if (useMouse)
+    {
         GetMouseModeEyeRay(eyeDir);
+    }
+    else if (frontViewEyeAim)
+    {
+        eyeDir = m_HmdForward;
+        if (eyeDir.IsZero())
+        {
+            QAngle eyeAngFallback = m_HmdAngAbs;
+            NormalizeAndClampViewAngles(eyeAngFallback);
+            QAngle::AngleVectors(eyeAngFallback, &eyeDir, nullptr, nullptr);
+        }
+        if (!eyeDir.IsZero())
+            VectorNormalize(eyeDir);
+    }
 
     // Aim direction:
     //  - Normal mode: controller forward (prefer render snapshot in queued mode).
@@ -612,7 +759,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
         direction = m_RightControllerForwardUnforced;
 
-    if (useMouse)
+    if (frontViewEyeAim)
+    {
+        direction = eyeDir;
+    }
+    else if (useMouse)
     {
         const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
         Vector gunOrigin = m_HmdPosAbs
@@ -645,7 +796,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             }
 
 
-            if (!queued && allowAimLineDraw)
+            if (!queued && allowAimLineDraw && !scopeOnlyAimLine)
                 DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
             return;
         }
@@ -664,7 +815,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     // so we translate the controller position into the rendered-camera frame.
     // We key off the actual camera delta (not just the boolean) to avoid cases where 3P detection flickers.
     Vector originBase = controllerPosAbs;
-    if (useMouse)
+    if (frontViewEyeAim || frontViewControllerEyeOrigin)
+    {
+        originBase = localPlayer->EyePosition();
+    }
+    else if (useMouse)
     {
         const Vector& anchor = IsMouseModeScopeActive() ? m_MouseModeScopedViewmodelAnchorOffset : m_MouseModeViewmodelAnchorOffset;
         originBase = m_HmdPosAbs
@@ -676,7 +831,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     Vector camDelta = m_IsThirdPersonCamera
         ? (m_ThirdPersonRenderCenter - m_SetupOrigin)
         : (m_ThirdPersonViewOrigin - m_SetupOrigin);
-    if (m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
+    if (!frontViewEyeAim && !frontViewControllerEyeOrigin && m_IsThirdPersonCamera && camDelta.LengthSqr() > (5.0f * 5.0f))
         originBase += camDelta;
 
     Vector origin = originBase + direction * 2.0f;
@@ -688,7 +843,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         UpdateAimTeammateHudTarget(localPlayer, Vector{}, Vector{}, false);
 
         Vector pitchSource = direction;
-        if (useMouse && !eyeDir.IsZero())
+        if ((useMouse || frontViewEyeAim) && !eyeDir.IsZero())
             pitchSource = eyeDir;
         else if (!m_ForceNonVRServerMovement && !m_HmdForward.IsZero())
             pitchSource = m_HmdForward;
@@ -745,7 +900,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     m_HasAimLine = true;
     m_HasThrowArc = false;
 
-    if (!queued && canDraw && allowAimLineDraw)
+    if (!queued && canDraw && allowAimLineDraw && !scopeOnlyAimLine)
         DrawAimLine(origin, target);
 }
 
@@ -1245,6 +1400,12 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
     if (!m_AimLineEnabled || !m_Game || !m_Game->m_DebugOverlay)
         return;
+    const bool scopeOnlyAimLine = m_ScopeAimLineOnlyInScope
+        && m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ScopeWeaponIsFirearm;
+    if (scopeOnlyAimLine && !m_ScopeRenderingPass)
+        return;
 
     // Draw every frame with ~single-frame lifetime. DebugOverlay primitives persist for "duration" seconds;
     // if duration spans multiple frames while we also draw every frame, you get visible "ghost" trails.
@@ -1253,6 +1414,8 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 
     float duration = dt * 0.99f;
     duration = std::clamp(duration, 0.001f, 0.050f);
+    if (scopeOnlyAimLine && m_ScopeRenderingPass)
+        duration = 0.0f;
 
     DrawLineWithThickness(start, end, duration);
 }
@@ -1275,6 +1438,12 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
 
     const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
     if (queueMode == 0)
+        return;
+    const bool scopeOnlyAimLine = m_ScopeAimLineOnlyInScope
+        && m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ScopeWeaponIsFirearm;
+    if (scopeOnlyAimLine && !m_ScopeRenderingPass)
         return;
 
 
@@ -1310,6 +1479,12 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
     Vector end{};
 
     const bool useMouse = m_MouseModeEnabled;
+    const bool frontViewEyeAim = m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ThirdPersonFrontScopeFromEye;
+    const bool frontViewControllerEyeOrigin = m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && !m_ThirdPersonFrontScopeFromEye;
 
     if (useMouse)
     {
@@ -1322,23 +1497,55 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
     }
     else
     {
-        // Use the *render-frame* controller pose so the line stays glued to the hand/gun.
         Vector originBase = GetRightControllerAbsPos();
-		if (m_IsThirdPersonCamera)
-		{
-			// In third-person, the VR render camera is moved away from the player eye.
-			// The local VR hand/viewmodel visuals are shifted by the same delta; apply it so the aim line stays on the hand.
-			const Vector camDelta = (m_ThirdPersonRenderCenter - m_SetupOrigin);
-			if (camDelta.LengthSqr() > (5.0f * 5.0f))
-				originBase += camDelta;
-		}
+        Vector dir{};
 
-		const QAngle angAbs = GetRightControllerAbsAngle();
+        if (frontViewEyeAim || frontViewControllerEyeOrigin)
+        {
+            // Front-view mode: keep the rendered aim line origin at the eye in queued rendering.
+            originBase = m_SetupOrigin;
+            if (frontViewEyeAim)
+            {
+                const Vector viewAng = GetViewAngle();
+                QAngle eyeAng(viewAng.x, viewAng.y, viewAng.z);
+                NormalizeAndClampViewAngles(eyeAng);
 
-		Vector f{}, r{}, u{};
-		QAngle::AngleVectors(angAbs, &f, &r, &u);
+                Vector eyeForward{};
+                QAngle::AngleVectors(eyeAng, &eyeForward, nullptr, nullptr);
+                dir = eyeForward;
+                if (dir.IsZero())
+                    dir = m_HmdForward;
+            }
+            else
+            {
+                const QAngle angAbs = GetRightControllerAbsAngle();
 
-		Vector dir = f;
+                Vector f{}, r{}, u{};
+                QAngle::AngleVectors(angAbs, &f, &r, &u);
+                dir = f;
+                if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+                    dir = m_RightControllerForwardUnforced;
+            }
+        }
+        else
+        {
+            // Use the *render-frame* controller pose so the line stays glued to the hand/gun.
+            if (m_IsThirdPersonCamera)
+            {
+                // In third-person, the VR render camera is moved away from the player eye.
+                // The local VR hand/viewmodel visuals are shifted by the same delta; apply it so the aim line stays on the hand.
+                const Vector camDelta = (m_ThirdPersonRenderCenter - m_SetupOrigin);
+                if (camDelta.LengthSqr() > (5.0f * 5.0f))
+                    originBase += camDelta;
+            }
+
+            const QAngle angAbs = GetRightControllerAbsAngle();
+
+            Vector f{}, r{}, u{};
+            QAngle::AngleVectors(angAbs, &f, &r, &u);
+
+            dir = f;
+        }
 
         if (dir.IsZero())
             dir = m_LastAimDirection.IsZero() ? m_LastUnforcedAimDirection : m_LastAimDirection;
@@ -1377,6 +1584,8 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
 
     float durationSec = dt * 0.99f;
     durationSec = std::clamp(durationSec, 0.001f, 0.050f);
+    if (scopeOnlyAimLine && m_ScopeRenderingPass)
+        durationSec = 0.0f;
 
     DrawLineWithThickness(start, end, durationSec);
 }
@@ -1457,6 +1666,8 @@ void VR::DrawLineWithThickness(const Vector& start, const Vector& end, float dur
     int colorB = 0;
     int colorA = 0;
     GetAimLineColor(colorR, colorG, colorB, colorA);
+    if (colorA <= 0)
+        return;
 
     m_Game->m_DebugOverlay->AddLineOverlay(start, end, colorR, colorG, colorB, false, duration);
 
