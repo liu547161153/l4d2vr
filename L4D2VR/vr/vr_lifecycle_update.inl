@@ -3,21 +3,54 @@ void VR::Update()
     if (!m_IsInitialized || !m_Game->m_Initialized)
         return;
 
+    const bool inGameNow = m_Game->m_EngineClient->IsInGame();
     if (m_IsVREnabled && g_D3DVR9)
     {
-        // Prevents crashing at menu
-        if (!m_Game->m_EngineClient->IsInGame())
+        // Leaving game -> menu: do one-shot cleanup.
+        // Do NOT invalidate VR textures every menu frame, otherwise we keep recreating large RTs
+        // and can quickly exhaust 32-bit virtual address space.
+        if (m_WasInGamePrev && !inGameNow)
         {
-            IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
-            if (!rndrContext)
+            m_RenderedNewFrame.store(false, std::memory_order_release);
+            m_RenderedHud.store(false, std::memory_order_release);
+            m_HudPaintedThisFrame.store(false, std::memory_order_release);
+
+            m_RenderCompletedFrameId.store(0, std::memory_order_release);
+            m_LastSubmittedFrameId.store(0, std::memory_order_release);
+            m_SubmitPoseToken.store(0, std::memory_order_release);
+            m_LastSubmittedPoseToken.store(0, std::memory_order_release);
+            m_SubmitInFlight.store(false, std::memory_order_release);
+            m_LastSubmittedCompositorFrameIndex.store(0, std::memory_order_release);
+            m_QueuedSubmitStaleStreak.store(0, std::memory_order_release);
+
+            m_CompositorNeedsHandoff = false;
+            if (m_RenderFrameReadyEvent)
+                ResetEvent(m_RenderFrameReadyEvent);
+            if (m_PoseWaiterEvent)
+                ResetEvent(m_PoseWaiterEvent);
+
+            m_PoseWaiterEnabled.store(false, std::memory_order_release);
+            Hooks::s_ServerUnderstandsVR = false;
+            m_ServerHookFallbackPending = false;
+
+            // In queued rendering, render-thread owns RT state; avoid cross-thread RT mutation here.
+            if (m_Game->GetMatQueueMode() == 0)
             {
-                HandleMissingRenderContext("VR::Update");
-                return;
+                IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
+                if (rndrContext)
+                    rndrContext->SetRenderTarget(NULL);
+                else
+                    HandleMissingRenderContext("VR::Update(leave-game)");
             }
-            rndrContext->SetRenderTarget(NULL);
-            rndrContext->Release();
+
             m_Game->m_CachedArmsModel = false;
-            m_CreatedVRTextures.store(false, std::memory_order_release); // Have to recreate textures otherwise some workshop maps won't render
+            m_CreatedVRTextures.store(false, std::memory_order_release); // Rebuild once after leaving map.
+            Game::logMsg("[VR] LeaveGame->Menu: reset transient submit state and invalidated VR textures once");
+        }
+        else if (!inGameNow)
+        {
+            // Keep menu state clean, but avoid per-frame texture invalidation.
+            m_Game->m_CachedArmsModel = false;
         }
     }
 
@@ -38,7 +71,7 @@ void VR::Update()
     // Auto ResetPosition shortly after a level finishes loading.
 
     {
-        const bool inGame = m_Game->m_EngineClient->IsInGame();
+        const bool inGame = inGameNow;
         if (!inGame)
         {
             m_AutoResetPositionPending = false;
