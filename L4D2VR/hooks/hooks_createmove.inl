@@ -209,11 +209,10 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				};
 			const float nx = norm(ax);
 			const float ny = norm(ay);
-			float moveNx = nx;
-			float moveNy = ny;
-
-			// Third-person front-view mode: keep left/right as-is.
-			// Forward/back follows current camera-aligned basis (no extra sign flip).
+			// SteamVR walk axis can arrive as a +90deg-rotated basis on some bindings
+			// (forward -> -X, left -> -Y). Rotate back to Source move basis.
+			float moveNx = ny;
+			float moveNy = -nx;
 
 			// 最大移动速度：给一个安全常数；服务器会按自身规则再夹紧
 			const float maxSpeed = m_VR->m_AdjustingViewmodel ? 25.f : 250.f;
