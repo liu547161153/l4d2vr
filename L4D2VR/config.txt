@@ -45,6 +45,15 @@ NonVRMeleeHysteresis=0.60
 NonVRMeleeAngVelThreshold=0
 NonVRMeleeSwingDirBlend=0.55
 
+AutoRepeatSemiAutoFire=true
+AutoRepeatSemiAutoFireHz=12
+AutoRepeatSprayPushEnabled=true
+AutoRepeatSprayPushDelayTicks=0
+AutoRepeatSprayPushHoldTicks=1
+
+AutoFastMelee=true
+AutoFastMeleeUseWeaponSwitch=true
+
 InventoryGestureRange=0.16
 InventoryBodyOriginOffset=-0.1,0.0,-0.28
 InventoryChestOffset=0.45,0.0,0.5
