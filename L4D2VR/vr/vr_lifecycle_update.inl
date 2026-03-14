@@ -238,6 +238,13 @@ void VR::SubmitVRTextures()
         return;
 
     const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+    const bool inGameNow = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+
+    // Menu / transition state: never keep a stale "new frame" latched.
+    // If queued submit fails while not in-game, keeping this true can repeatedly
+    // re-submit stale eye textures and destabilize menu rendering.
+    if (!inGameNow)
+        m_RenderedNewFrame.store(false, std::memory_order_release);
 
     struct SubmitInFlightGuard
     {
