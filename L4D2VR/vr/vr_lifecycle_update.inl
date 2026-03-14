@@ -5,8 +5,19 @@ void VR::Update()
 
     if (m_IsVREnabled && g_D3DVR9)
     {
-        // Prevents crashing at menu
-        if (!m_Game->m_EngineClient->IsInGame())
+        const bool inGameNow = m_Game->m_EngineClient->IsInGame();
+        bool hasLocalPlayer = false;
+        if (inGameNow)
+        {
+            const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+            C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+            hasLocalPlayer = (localPlayer != nullptr);
+        }
+
+        // Menu or map-transition window (in-game but local player not ready):
+        // force texture recreation and clear frame-latched flags to avoid
+        // reusing stale RT pointers across level boundaries.
+        if (!inGameNow || !hasLocalPlayer)
         {
             IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
             if (!rndrContext)
@@ -17,6 +28,9 @@ void VR::Update()
             rndrContext->SetRenderTarget(NULL);
             m_Game->m_CachedArmsModel = false;
             m_CreatedVRTextures.store(false, std::memory_order_release); // Have to recreate textures otherwise some workshop maps won't render
+            m_RenderedNewFrame.store(false, std::memory_order_release);
+            m_RenderedHud.store(false, std::memory_order_release);
+            m_HudPaintedThisFrame.store(false, std::memory_order_release);
         }
     }
 
@@ -239,11 +253,19 @@ void VR::SubmitVRTextures()
 
     const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
     const bool inGameNow = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+    bool hasLocalPlayerNow = false;
+    if (inGameNow)
+    {
+        const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+        hasLocalPlayerNow = (localPlayer != nullptr);
+    }
+    const bool inPlayableGame = inGameNow && hasLocalPlayerNow;
 
     // Menu / transition state: never keep a stale "new frame" latched.
-    // If queued submit fails while not in-game, keeping this true can repeatedly
+    // If queued submit fails while not in playable game, keeping this true can repeatedly
     // re-submit stale eye textures and destabilize menu rendering.
-    if (!inGameNow)
+    if (!inPlayableGame)
         m_RenderedNewFrame.store(false, std::memory_order_release);
 
     struct SubmitInFlightGuard
@@ -400,7 +422,7 @@ void VR::SubmitVRTextures()
         // When that happens, m_RenderedNewFrame may still be false even though we're already in-game.
         // Showing the backbuffer/menu overlay in this state creates an extra compositor layer and can cause
         // severe stutter (and a visible backbuffer rectangle). Instead, just re-submit the last eye textures.
-        const bool inGame = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+        const bool inGame = inPlayableGame;
         if (inGame)
         {
             // Ensure the menu overlay is not left visible while in-game.
