@@ -1176,6 +1176,21 @@ public:
 	float m_AutoRepeatSemiAutoFireHz = 12.0f;
 	bool m_AutoRepeatHoldPrev = false;
 	std::chrono::steady_clock::time_point m_AutoRepeatNextPulse{};
+	// Pump/chrome shotgun spray-push while auto-repeat is active.
+	// Config:
+	//   AutoRepeatSprayPushEnabled
+	//   AutoRepeatSprayPushDelayTicks
+	//   AutoRepeatSprayPushHoldTicks
+	bool m_AutoRepeatSprayPushEnabled = true;
+	int m_AutoRepeatSprayPushDelayTicks = 0;
+	int m_AutoRepeatSprayPushHoldTicks = 1;
+
+	// Auto fast-melee (client-side hold-to-pulse + optional weapon-switch cancel).
+	// Config:
+	//   AutoFastMelee
+	//   AutoFastMeleeUseWeaponSwitch
+	bool m_AutoFastMelee = false;
+	bool m_AutoFastMeleeUseWeaponSwitch = true;
 
 	// Auto ResetPosition after a level finishes loading.
 	// Config: AutoResetPositionAfterLoadSeconds (0 disables)

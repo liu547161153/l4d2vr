@@ -1007,6 +1007,12 @@ void VR::ParseConfigFile()
     m_BlockFireOnFriendlyAimRadiusMeters = std::clamp(getFloat("BlockFireOnFriendlyAimRadiusMeters", m_BlockFireOnFriendlyAimRadiusMeters), 0.0f, 0.5f);
     m_AutoRepeatSemiAutoFire = getBool("AutoRepeatSemiAutoFire", m_AutoRepeatSemiAutoFire);
     m_AutoRepeatSemiAutoFireHz = std::max(0.0f, getFloat("AutoRepeatSemiAutoFireHz", m_AutoRepeatSemiAutoFireHz));
+    m_AutoRepeatSprayPushEnabled = getBool("AutoRepeatSprayPushEnabled", m_AutoRepeatSprayPushEnabled);
+    m_AutoRepeatSprayPushDelayTicks = std::clamp(getInt("AutoRepeatSprayPushDelayTicks", m_AutoRepeatSprayPushDelayTicks), 0, 8);
+    m_AutoRepeatSprayPushHoldTicks = std::clamp(getInt("AutoRepeatSprayPushHoldTicks", m_AutoRepeatSprayPushHoldTicks), 1, 8);
+
+    m_AutoFastMelee = getBool("AutoFastMelee", m_AutoFastMelee);
+    m_AutoFastMeleeUseWeaponSwitch = getBool("AutoFastMeleeUseWeaponSwitch", getBool("AutoFastMeleeUseShove", m_AutoFastMeleeUseWeaponSwitch));
     m_MeleeAimLineEnabled = getBool("MeleeAimLineEnabled", m_MeleeAimLineEnabled);
     auto aimColor = getColor("AimLineColor", m_AimLineColorR, m_AimLineColorG, m_AimLineColorB, m_AimLineColorA);
     m_AimLineColorR = aimColor[0];
