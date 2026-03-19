@@ -2,3 +2,7 @@
 	path = dxvk
 	url = https://github.com/liu547161153/dxvk_l4d2vr.git
 	branch = l4d2vr
+[submodule "L4D2VRConfigTool/external/imgui"]
+	path = L4D2VRConfigTool/external/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = master
