@@ -800,7 +800,7 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 
     if (overrideHudRT)
     {
-        std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
+        std::lock_guard<TextureStateMutex> lock(m_VR->m_TextureMutex);
         if (!m_VR->m_HUDTexture || !IsHudRenderTarget(pTexture, m_VR->m_HUDTexture))
             overrideHudRT = false;
     }
@@ -814,7 +814,7 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 
     ITexture* hudTexture = nullptr;
     {
-        std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
+        std::lock_guard<TextureStateMutex> lock(m_VR->m_TextureMutex);
         hudTexture = m_VR->m_HUDTexture;
     }
 
@@ -896,7 +896,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
             ITexture* hudTexture = nullptr;
             {
-                std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
+                std::lock_guard<TextureStateMutex> lock(m_VR->m_TextureMutex);
                 hudTexture = m_VR->m_HUDTexture;
             }
 

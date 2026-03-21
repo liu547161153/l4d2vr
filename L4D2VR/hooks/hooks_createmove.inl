@@ -26,7 +26,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	static bool s_tpMeleePrevAttackDown = false;
 	static std::chrono::steady_clock::time_point s_tpMeleeLockUntil{};
 	static QAngle s_tpMeleeLockedAngles = { 0,0,0 };
-	// Auto-repeat pump-shotgun spray-push: detect real shell spend and queue a short IN_ATTACK2.
+	// Auto-repeat spray-push for pump/chrome shotguns and AWP/scout:
+	// detect a real shot/shell spend and queue a short IN_ATTACK2.
 	static uintptr_t s_autoRepeatSprayPushWeapon = 0;
 	static int s_autoRepeatSprayPushPrevClip1 = -1;
 	static int s_autoRepeatSprayPushDelayTicks = 0;
@@ -655,12 +656,20 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			startsWith(wpnNet, "CWeaponRifle_M60") ||
 			contains(wpnNet, "Minigun");
 		const bool isMeleeWeapon = (weaponId == C_WeaponCSBase::WeaponID::MELEE);
-		const bool isPumpShotgun =
+		const bool isAutoRepeatSprayPushWeapon =
 			(weaponId == C_WeaponCSBase::WeaponID::PUMPSHOTGUN) ||
 			(weaponId == C_WeaponCSBase::WeaponID::SHOTGUN_CHROME) ||
+			(weaponId == C_WeaponCSBase::WeaponID::AWP) ||
+			(weaponId == C_WeaponCSBase::WeaponID::SCOUT) ||
 			startsWith(wpnNet, "CWeaponPumpShotgun") ||
 			startsWith(wpnNet, "CWeaponShotgun_Chrome") ||
-			(wpnName && (contains(wpnName, "weapon_pumpshotgun") || contains(wpnName, "weapon_shotgun_chrome")));
+			startsWith(wpnNet, "CWeaponSniperAWP") ||
+			startsWith(wpnNet, "CWeaponSniperScout") ||
+			(wpnName && (
+				contains(wpnName, "weapon_pumpshotgun") ||
+				contains(wpnName, "weapon_shotgun_chrome") ||
+				contains(wpnName, "weapon_awp") ||
+				contains(wpnName, "weapon_scout")));
 
 		const bool holdingAttack = (cmd->buttons & (1 << 0)) != 0; // IN_ATTACK
 
@@ -720,7 +729,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			const auto now = steady_clock::now();
 			const uintptr_t wpnTag = reinterpret_cast<uintptr_t>(wpn);
 
-			// Track active weapon + clip for pump/chrome shotgun spray-push.
+			// Track active weapon + clip for spray-push-capable weapons.
 			if (wpnTag != s_autoRepeatSprayPushWeapon)
 			{
 				s_autoRepeatSprayPushWeapon = wpnTag;
@@ -728,7 +737,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				s_autoRepeatSprayPushDelayTicks = 0;
 				s_autoRepeatSprayPushHoldTicks = 0;
 			}
-			else if (isPumpShotgun && wpn != nullptr)
+			else if (isAutoRepeatSprayPushWeapon && wpn != nullptr)
 			{
 				const int clip1 = ReadNetvar<int>(wpn, VR::kClip1Offset);
 				const bool shellSpent = (clip1 >= 0) && (s_autoRepeatSprayPushPrevClip1 >= 0) && (clip1 < s_autoRepeatSprayPushPrevClip1);
@@ -752,7 +761,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			{
 				cmd->buttons |= kIN_ATTACK;
 				// Single-tick pulse; next tick will be cleared (unless next period elapsed).
-				const float clampedHz = std::max(1.0f, std::min(30.0f, hz));
+				const float clampedHz = std::max(1.0f, std::min(50.0f, hz));
 				m_VR->m_AutoRepeatNextPulse = now + duration_cast<steady_clock::duration>(duration<float>(1.0f / clampedHz));
 			}
 			else
@@ -760,8 +769,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				cmd->buttons &= ~kIN_ATTACK;
 			}
 
-			// Pump/chrome shotgun spray-push (fire -> short shove) when auto-repeat is driving semi-auto input.
-			if (isPumpShotgun && m_VR->m_AutoRepeatSprayPushEnabled)
+			// Spray-push (fire -> short shove) when auto-repeat is driving semi-auto input.
+			if (isAutoRepeatSprayPushWeapon && m_VR->m_AutoRepeatSprayPushEnabled)
 			{
 				if (s_autoRepeatSprayPushDelayTicks > 0)
 				{

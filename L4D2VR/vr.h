@@ -55,9 +55,11 @@ struct TrackedDevicePoseData
 
 struct SharedTextureHolder
 {
-	vr::VRVulkanTextureData_t m_VulkanData;
-	vr::Texture_t m_VRTexture;
+	vr::VRVulkanTextureData_t m_VulkanData{};
+	vr::Texture_t m_VRTexture{};
 };
+
+using TextureStateMutex = std::recursive_mutex;
 
 struct CustomActionBinding
 {
@@ -509,8 +511,8 @@ public:
 	SharedTextureHolder m_VKRearMirror;
 	SharedTextureHolder m_VKBlankTexture;
 
-	// Protects access to texture pointers when render/input threads overlap (mat_queue_mode != 0).
-	mutable std::mutex m_TextureMutex;
+	// Protects VR texture lifecycle and SteamVR texture submissions when render/update threads overlap.
+	mutable TextureStateMutex m_TextureMutex;
 
 	// If enabled, scope / rear-mirror render-target textures are created only when the feature is enabled.
 	// This can save large chunks of 32-bit VAS when ScopeRTTSize/RearMirrorRTTSize are high.
@@ -1176,7 +1178,7 @@ public:
 	float m_AutoRepeatSemiAutoFireHz = 12.0f;
 	bool m_AutoRepeatHoldPrev = false;
 	std::chrono::steady_clock::time_point m_AutoRepeatNextPulse{};
-	// Pump/chrome shotgun spray-push while auto-repeat is active.
+	// Pump/chrome shotgun + AWP/scout spray-push while auto-repeat is active.
 	// Config:
 	//   AutoRepeatSprayPushEnabled
 	//   AutoRepeatSprayPushDelayTicks

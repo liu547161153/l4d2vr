@@ -112,6 +112,12 @@ void VR::LogVAS(const char* tag)
 
 void VR::CreateVRTextures()
 {
+    // CreateNamedRenderTargetTextureEx re-enters DXVK and populates m_VK* via m_CreatingTextureID.
+    // Serialize the whole sequence so submit/update threads never observe partially rewritten Vulkan descriptors.
+    std::lock_guard<TextureStateMutex> textureLock(m_TextureMutex);
+    if (m_CreatedVRTextures.load(std::memory_order_acquire))
+        return;
+
     LogVAS("before CreateVRTextures");
 
     int windowWidth, windowHeight;
@@ -184,6 +190,7 @@ void VR::CreateVRTextures()
 
 void VR::EnsureOpticsRTTTextures()
 {
+    std::lock_guard<TextureStateMutex> textureLock(m_TextureMutex);
     if (!m_CreatedVRTextures.load(std::memory_order_acquire))
         return;
 
@@ -306,6 +313,7 @@ void VR::SubmitVRTextures()
             if (!m_CompositorExplicitTiming || timingDataSubmitted)
                 return;
 
+            std::lock_guard<TextureStateMutex> textureLock(m_TextureMutex);
             vr::EVRCompositorError timingError = m_Compositor->SubmitExplicitTimingData();
             if (timingError != vr::VRCompositorError_None)
             {
@@ -319,6 +327,7 @@ void VR::SubmitVRTextures()
         {
             ensureTimingData();
 
+            std::lock_guard<TextureStateMutex> textureLock(m_TextureMutex);
             vr::EVRCompositorError submitError = m_Compositor->Submit(eye, texture, bounds, vr::Submit_Default);
             if (submitError != vr::VRCompositorError_None)
             {
@@ -368,6 +377,7 @@ void VR::SubmitVRTextures()
     auto applyHudTexture = [&](vr::VROverlayHandle_t overlay, const vr::VRTextureBounds_t& bounds)
         {
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
+            std::lock_guard<TextureStateMutex> textureLock(m_TextureMutex);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKHUD.m_VRTexture);
         };
 
@@ -375,6 +385,7 @@ void VR::SubmitVRTextures()
         {
             static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &full);
+            std::lock_guard<TextureStateMutex> textureLock(m_TextureMutex);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKScope.m_VRTexture);
         };
     auto applyRearMirrorTexture = [&](vr::VROverlayHandle_t overlay)
@@ -383,6 +394,7 @@ void VR::SubmitVRTextures()
             if (m_RearMirrorFlipHorizontal)
                 std::swap(bounds.uMin, bounds.uMax);
             vr::VROverlay()->SetOverlayTextureBounds(overlay, &bounds);
+            std::lock_guard<TextureStateMutex> textureLock(m_TextureMutex);
             vr::VROverlay()->SetOverlayTexture(overlay, &m_VKRearMirror.m_VRTexture);
         };
 

@@ -941,7 +941,7 @@ Option g_Options[] =
           u8"按住扳机时每秒生成多少次开火脉冲。" },
         { u8"Higher can feel snappier, but the weapon's real fire rate still limits shots.",
           u8"调高会更“跟手”，但实际射速仍受武器本身限制。" },
-        1.0f, 30.0f,
+        1.0f, 50.0f,
         "12.0"
     },
 
