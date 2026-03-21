@@ -496,8 +496,6 @@ namespace vr_render_snapshot_cache_roomscale
     struct HandCache
     {
         uint32_t seq = 0;
-        Vector leftPos{ 0.0f, 0.0f, 0.0f };
-        QAngle leftAng{ 0.0f, 0.0f, 0.0f };
         Vector rightPos{ 0.0f, 0.0f, 0.0f };
         QAngle rightAng{ 0.0f, 0.0f, 0.0f };
         Vector vmPos{ 0.0f, 0.0f, 0.0f };
@@ -526,14 +524,6 @@ namespace vr_render_snapshot_cache_roomscale
             const float ray = vr->m_RenderRightControllerAngAbsY.load(std::memory_order_relaxed);
             const float raz = vr->m_RenderRightControllerAngAbsZ.load(std::memory_order_relaxed);
 
-            const float lpx = vr->m_RenderLeftControllerPosAbsX.load(std::memory_order_relaxed);
-            const float lpy = vr->m_RenderLeftControllerPosAbsY.load(std::memory_order_relaxed);
-            const float lpz = vr->m_RenderLeftControllerPosAbsZ.load(std::memory_order_relaxed);
-
-            const float lax = vr->m_RenderLeftControllerAngAbsX.load(std::memory_order_relaxed);
-            const float lay = vr->m_RenderLeftControllerAngAbsY.load(std::memory_order_relaxed);
-            const float laz = vr->m_RenderLeftControllerAngAbsZ.load(std::memory_order_relaxed);
-
             const float vpx = vr->m_RenderRecommendedViewmodelPosX.load(std::memory_order_relaxed);
             const float vpy = vr->m_RenderRecommendedViewmodelPosY.load(std::memory_order_relaxed);
             const float vpz = vr->m_RenderRecommendedViewmodelPosZ.load(std::memory_order_relaxed);
@@ -546,8 +536,6 @@ namespace vr_render_snapshot_cache_roomscale
             if (s1 == s2 && !(s2 & 1u))
             {
                 c.seq = s2;
-                c.leftPos = Vector(lpx, lpy, lpz);
-                c.leftAng = QAngle(lax, lay, laz);
                 c.rightPos = Vector(rpx, rpy, rpz);
                 c.rightAng = QAngle(rax, ray, raz);
                 c.vmPos = Vector(vpx, vpy, vpz);
@@ -570,32 +558,6 @@ namespace vr_render_snapshot_cache_roomscale
         return Refresh(vr, c);
     }
 }
-
-QAngle VR::GetLeftControllerAbsAngle()
-{
-    if (t_UseRenderFrameSnapshot)
-    {
-        auto& cache = vr_render_snapshot_cache_roomscale::TLS();
-        if (vr_render_snapshot_cache_roomscale::Get(this, cache))
-            return cache.leftAng;
-    }
-
-    return m_LeftControllerAngAbs;
-}
-
-
-Vector VR::GetLeftControllerAbsPos()
-{
-    if (t_UseRenderFrameSnapshot)
-    {
-        auto& cache = vr_render_snapshot_cache_roomscale::TLS();
-        if (vr_render_snapshot_cache_roomscale::Get(this, cache))
-            return cache.leftPos;
-    }
-
-    return m_LeftControllerPosAbs;
-}
-
 
 QAngle VR::GetRightControllerAbsAngle()
 {

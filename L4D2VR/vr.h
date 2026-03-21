@@ -160,14 +160,6 @@ public:
 	// If enabled, render in third-person by default to avoid camera mode flicker.
 	// Only a small whitelist of explicitly-handled cases will remain first-person.
 	bool m_ThirdPersonDefault = false;
-	// If false, third-person camera orientation follows game/body orientation instead of HMD head turns.
-	bool m_ThirdPersonCameraFollowHmd = false;
-	// Optional front-observer mode for third-person rendering.
-	// When enabled, 3P camera is placed in front of the player and looks back at the player.
-	bool m_ThirdPersonFrontViewEnabled = false;
-	// In third-person front view, if true use eye/HMD as the scope+aim source.
-	// If false, keep scope+aim driven by right controller (recommended).
-	bool m_ThirdPersonFrontScopeFromEye = false;
 	bool m_ObserverThirdPerson = false;
 	// Map-load / reconnect camera stabilization.
 	// Source can transiently report observer-like netvars right after joining/changing maps.
@@ -176,9 +168,6 @@ public:
 	bool m_ThirdPersonMapLoadCooldownPending = false;
 	bool m_HadLocalPlayerPrev = false;
 	bool m_WasInGamePrev = false;
-	// True while engine still reports "in game" but local player is temporarily unavailable
-	// during map transition loading (e.g. saferoom -> next chapter load).
-	bool m_InLevelTransitionLoad = false;
 	std::chrono::steady_clock::time_point m_ThirdPersonMapLoadCooldownEnd{};
 
 	int m_ThirdPersonHoldFrames = 0;
@@ -190,12 +179,6 @@ public:
 	bool m_ThirdPersonPoseInitialized = false;
 	float m_ThirdPersonCameraSmoothing = 0.85f;
 	float m_ThirdPersonVRCameraOffset = 80.0f;
-	// Front-view third-person camera local offset in camera basis:
-	// x=front/back, y=left/right, z=up/down.
-	Vector m_ThirdPersonFrontVRCameraOffset = { 80.0f, 0.0f, 0.0f };
-	// Third-person scope overlay local offset in body basis (meters):
-	// x=front/back, y=left/right, z=up/down.
-	Vector m_ThirdPersonScopeOverlayOffset = { 0.35f, 0.18f, -0.04f };
 	Vector m_LeftControllerPosAbs;
 	QAngle m_LeftControllerAngAbs;
 	Vector m_RightControllerPosAbs;
@@ -273,12 +256,6 @@ public:
 	std::atomic<float> m_RenderViewOriginRightX{ 0.0f };
 	std::atomic<float> m_RenderViewOriginRightY{ 0.0f };
 	std::atomic<float> m_RenderViewOriginRightZ{ 0.0f };
-	std::atomic<float> m_RenderLeftControllerPosAbsX{ 0.0f };
-	std::atomic<float> m_RenderLeftControllerPosAbsY{ 0.0f };
-	std::atomic<float> m_RenderLeftControllerPosAbsZ{ 0.0f };
-	std::atomic<float> m_RenderLeftControllerAngAbsX{ 0.0f };
-	std::atomic<float> m_RenderLeftControllerAngAbsY{ 0.0f };
-	std::atomic<float> m_RenderLeftControllerAngAbsZ{ 0.0f };
 	std::atomic<float> m_RenderRightControllerPosAbsX{ 0.0f };
 	std::atomic<float> m_RenderRightControllerPosAbsY{ 0.0f };
 	std::atomic<float> m_RenderRightControllerPosAbsZ{ 0.0f };
@@ -490,19 +467,19 @@ public:
 		Texture_Blank
 	};
 
-	ITexture* m_LeftEyeTexture = nullptr;
-	ITexture* m_RightEyeTexture = nullptr;
-	ITexture* m_HUDTexture = nullptr;
+	ITexture* m_LeftEyeTexture;
+	ITexture* m_RightEyeTexture;
+	ITexture* m_HUDTexture;
 	ITexture* m_ScopeTexture = nullptr;
 	ITexture* m_RearMirrorTexture = nullptr;
 	ITexture* m_BlankTexture = nullptr;
 
-	IDirect3DSurface9* m_D9LeftEyeSurface = nullptr;
-	IDirect3DSurface9* m_D9RightEyeSurface = nullptr;
-	IDirect3DSurface9* m_D9HUDSurface = nullptr;
-	IDirect3DSurface9* m_D9ScopeSurface = nullptr;
+	IDirect3DSurface9* m_D9LeftEyeSurface;
+	IDirect3DSurface9* m_D9RightEyeSurface;
+	IDirect3DSurface9* m_D9HUDSurface;
+	IDirect3DSurface9* m_D9ScopeSurface;
 	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
-	IDirect3DSurface9* m_D9BlankSurface = nullptr;
+	IDirect3DSurface9* m_D9BlankSurface;
 
 	SharedTextureHolder m_VKLeftEye;
 	SharedTextureHolder m_VKRightEye;
@@ -530,7 +507,7 @@ public:
     std::atomic<uint32_t> m_SubmitPoseToken{ 0 };
     std::atomic<uint32_t> m_LastSubmittedPoseToken{ 0 };
     std::atomic<bool> m_SubmitInFlight{ false };
-    std::atomic<uint32_t> m_LastSubmittedCompositorFrameIndex{ 0 };
+	std::atomic<uint32_t> m_LastSubmittedCompositorFrameIndex{ 0 };
 	// Render-thread -> submit-thread frame handoff (queued/multicore mode).
 	// dRenderView increments m_RenderCompletedFrameId and signals m_RenderFrameReadyEvent
 	// when a full stereo frame is rendered into eye textures.
@@ -538,10 +515,10 @@ public:
 	std::atomic<uint32_t> m_LastSubmittedFrameId{ 0 };
 	HANDLE m_RenderFrameReadyEvent = NULL;
 	// Present-side wait budget (ms) for a fresh rendered frame in mat_queue_mode!=0.
-	// 0 disables waiting. Used as an upper bound by adaptive submit-wait logic.
+// 0 disables waiting. Used as an upper bound by adaptive submit-wait logic.
 	int m_QueuedSubmitWaitMs = 2;
 	// Count of consecutive presents where submit thread observes no newer rendered frame.
-	// Used to apply submit wait adaptively only when stale-frame pressure persists.
+// Used to apply submit wait adaptively only when stale-frame pressure persists.
 	std::atomic<uint32_t> m_QueuedSubmitStaleStreak{ 0 };
 	// True once VGui_Paint has been redirected into m_HUDTexture for the current VR frame.
 	std::atomic<bool> m_HudPaintedThisFrame{ false };
@@ -720,7 +697,6 @@ public:
 	float m_VRScale = 43.2;
 	float m_IpdScale = 1.0;
 	bool m_HideArms = false;
-	bool m_SplitArmsToControllers = false;
 	float m_HudDistance = 1.3;
 	float m_FixedHudYOffset = 0.0f;
 	float m_FixedHudDistanceOffset = 0.0f;
@@ -729,10 +705,9 @@ public:
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
 	// Queued rendering (mat_queue_mode!=0): keep HUD visibility stable for a short
-	// window after a successful HUD capture so transient render-thread misses don't
-	// cause top-HUD flicker when frame rate dips.
+// window after a successful HUD capture so transient render-thread misses don't
+// cause top-HUD flicker when frame rate dips.
 	std::chrono::steady_clock::time_point m_QueuedHudFreshUntil{};
-
 	// Hand HUD background opacity (0..1). Applies to the panel fill only (text/icons stay opaque).
 	float m_LeftWristHudBgAlpha = 0.85f;
 	float m_RightAmmoHudBgAlpha = 0.70f;
@@ -970,7 +945,6 @@ public:
 	// Auto fps_max in main menu: set fps_max to match HMD refresh rate when VR is active.
 	bool m_MenuFpsMaxSent = false;
 	int  m_MenuFpsMaxLastHz = 0;
-	bool m_MenuCrosshairZeroSent = false;
 
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;
@@ -1328,10 +1302,6 @@ public:
 	float  m_ScopeOverlayYOffset = 0.00f;
 	float  m_ScopeOverlayZOffset = 0.10f;
 	QAngle m_ScopeOverlayAngleOffset = { 0.0f, 0.0f, 0.0f };
-	// If true, when scoped-in the aim line is rendered only during the scope RTT pass.
-	bool  m_ScopeAimLineOnlyInScope = true;
-	// If true, hide the local player model while rendering scope RTT (prevents head/body obstruction).
-	bool  m_ScopeHideLocalPlayerModelInScope = true;
 
 	// Look-through activation (HMD -> scope camera)
 	bool  m_ScopeRequireLookThrough = true;
@@ -1384,13 +1354,7 @@ public:
 		return std::clamp(m_MouseModeScopeSensitivityScales[clamped] / 100.0f, 0.05f, 2.0f);
 	}
 	bool   IsScopeActive() const { return m_ScopeEnabled && (m_ScopeActive || IsMouseModeScopeActive()); }
-	bool   ShouldRenderScope() const
-	{
-		const bool forceScopeForThirdPersonFrontView = m_ThirdPersonFrontViewEnabled && m_IsThirdPersonCamera;
-		return m_ScopeEnabled
-			&& (m_ScopeWeaponIsFirearm || forceScopeForThirdPersonFrontView)
-			&& (m_ScopeOverlayAlwaysVisible || IsScopeActive() || forceScopeForThirdPersonFrontView);
-	}
+	bool   ShouldRenderScope() const { return m_ScopeEnabled && m_ScopeWeaponIsFirearm && (m_ScopeOverlayAlwaysVisible || IsScopeActive()); }
 	bool   ShouldUpdateScopeRTT();
 	void   ToggleMouseModeScope();
 	void   CycleScopeMagnification();
@@ -1435,7 +1399,6 @@ public:
 	// Distance is in Source units (same as SpecialInfected* distances). <= 0 disables this hint.
 	float  m_RearMirrorSpecialWarningDistance = 180.0f;
 	float  m_RearMirrorSpecialEnlargeHoldSeconds = 0.35f;
-	bool   m_ScopeRenderingPass = false;
 	bool   m_RearMirrorRenderingPass = false;
 	bool   m_RearMirrorSawSpecialThisPass = false;	// set from DrawModelExecute during mirror RTT pass
 	bool   m_RearMirrorSpecialEnlargeActive = false;
@@ -1454,9 +1417,6 @@ public:
 	VR(Game* game);
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
-	void ResetFrameSubmissionState();
-	void HandleLeaveGameToMenu();
-	void HandleInGameTransitionLoad();
 	void Update();
 	void UpdateAutoMatQueueMode();
 	void CreateVRTextures();
@@ -1483,8 +1443,6 @@ public:
 	vr::HmdMatrix34_t GetControllerTipMatrix(vr::ETrackedControllerRole controllerRole);
 	vr::HmdMatrix34_t BuildThirdPersonSubmitPose() const;
 	bool CheckOverlayIntersectionForController(vr::VROverlayHandle_t overlayHandle, vr::ETrackedControllerRole controllerRole);
-	QAngle GetLeftControllerAbsAngle();
-	Vector GetLeftControllerAbsPos();
 	QAngle GetRightControllerAbsAngle();
 	Vector GetRightControllerAbsPos();
 	Vector GetRecommendedViewmodelAbsPos();

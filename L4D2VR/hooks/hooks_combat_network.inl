@@ -18,6 +18,7 @@ static inline void CallCalcViewModelViewOriginal(void* ecx, void* owner, const V
 	ownerPlayer->m_vecVelocity = savedVelocity;
 }
 
+
 void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, const Vector& eyePosition, const QAngle& eyeAngles)
 {
 	Vector vecNewOrigin = eyePosition;
@@ -42,11 +43,9 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 		{
 			vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 			vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
-
 			if (!forceDisableMoveBob)
 				return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
 
-			// Run engine logic, then hard-lock vm pose to remove movement bob/sway.
 			CallCalcViewModelViewOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
 			if (ecx)
 			{
@@ -163,7 +162,6 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 	// Server host
 	if (m_VR->m_IsVREnabled && playerId == m_Game->m_EngineClient->GetLocalPlayer())
 	{
-		const bool scopeActive = m_VR->IsScopeActive();
 		vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
 
 		// ForceNonVRServerMovement: aim the *visual* bullet line to the solved hit point (H)
@@ -183,11 +181,6 @@ int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const
 			{
 				vecNewAngles = m_VR->m_NonVRAimAngles;
 			}
-		}
-		else if (scopeActive)
-		{
-			vecNewOrigin = m_VR->GetScopeCameraAbsPos();
-			vecNewAngles = m_VR->GetScopeCameraAbsAngle();
 		}
 		// Third-person convergence
 		else if (m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)

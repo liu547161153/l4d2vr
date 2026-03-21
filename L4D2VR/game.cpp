@@ -182,21 +182,6 @@ void Game::ResetAllPlayerVRInfo()
     m_PlayersVRInfo.fill(Player{});
 }
 
-void Game::ResetTransientRenderState()
-{
-    m_PerformingMelee = false;
-    m_CurrentUsercmdID = -1;
-    m_CurrentUsercmdPlayer = nullptr;
-
-    m_IsMeleeWeaponActive = false;
-    m_SwitchedWeapons = false;
-    m_ArmsModel = nullptr;
-    m_ArmsMaterial = nullptr;
-    m_CachedArmsModel = false;
-
-    ResetAllPlayerVRInfo();
-}
-
 // === Entity Access ===
 C_BaseEntity* Game::GetClientEntity(int entityIndex)
 {

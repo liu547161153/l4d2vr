@@ -197,7 +197,7 @@ void VR::UpdateTracking()
 
     m_Game->m_IsMeleeWeaponActive = viewPlayer->IsMeleeWeaponActive();
 
-    // Scope weapon classification (non-firearm can still use scope when front-view 3P forces it).
+    // Scope: only render/show when holding a firearm
     m_ScopeWeaponIsFirearm = false;
     if (C_BaseCombatWeapon* active = viewPlayer->GetActiveWeapon())
     {
@@ -700,86 +700,46 @@ void VR::UpdateTracking()
     }
 
     // Update scope camera pose + look-through activation
-    const bool forceScopeForThirdPersonFrontView = m_ThirdPersonFrontViewEnabled && m_IsThirdPersonCamera;
-    const bool scopePosFromEyeInFrontView = forceScopeForThirdPersonFrontView && (localPlayer != nullptr);
-    const bool scopeFromEyeInFrontView = forceScopeForThirdPersonFrontView
-        && m_ThirdPersonFrontScopeFromEye
-        && (localPlayer != nullptr);
     if (m_MouseModeEnabled && m_ScopeEnabled)
     {
         // Mouse mode: scope activation is driven by a keyboard toggle (not look-through).
-        m_ScopeActive = (m_ScopeWeaponIsFirearm && m_MouseModeScopeToggleActive) || forceScopeForThirdPersonFrontView;
+        m_ScopeActive = m_MouseModeScopeToggleActive && m_ScopeWeaponIsFirearm;
         if (m_ScopeActive)
         {
-            if (scopeFromEyeInFrontView)
-            {
-                // Front-view 3P: scope should originate from the player eye.
-                QAngle eyeAng;
-                Vector eyeDir;
-                GetMouseModeEyeRay(eyeDir, &eyeAng);
-                if (!eyeDir.IsZero())
-                    VectorNormalize(eyeDir);
+            const Vector& anchor = m_MouseModeScopedViewmodelAnchorOffset;
+            const Vector gunOrigin = m_HmdPosAbs
+                + (m_HmdForward * (anchor.x * m_VRScale))
+                + (m_HmdRight * (anchor.y * m_VRScale))
+                + (m_HmdUp * (anchor.z * m_VRScale));
 
-                Vector f, r, u;
-                QAngle::AngleVectors(eyeAng, &f, &r, &u);
-                if (f.IsZero())
-                {
-                    f = eyeDir.IsZero() ? m_HmdForward : eyeDir;
-                    r = m_HmdRight;
-                    u = m_HmdUp;
-                }
+            // Mouse-mode scope aiming must use the same yaw basis as the viewmodel/bullets.
+            // - When MouseModeAimFromHmd is true: aim follows the HMD center ray.
+            // - Otherwise: aim follows mouse pitch  body yaw (m_RotationOffset), independent of head yaw.
+            Vector eyeDir;
+            GetMouseModeEyeRay(eyeDir);
 
-                m_RightControllerForward = f;
-                m_RightControllerRight = r;
-                m_RightControllerUp = u;
+            const float converge = std::max(0.0f, m_MouseModeAimConvergeDistance);
+            const Vector target = gunOrigin + eyeDir * (converge > 0.0f ? converge : 2048.0f);
 
-                const Vector eyeOrigin = localPlayer->EyePosition();
-                m_ScopeCameraPosAbs = eyeOrigin
-                    + f * m_ScopeCameraOffset.x
-                    + r * m_ScopeCameraOffset.y
-                    + u * m_ScopeCameraOffset.z;
-                m_ScopeCameraAngAbs = eyeAng + m_ScopeCameraAngleOffset;
-                m_ScopeCameraAngAbs.x = wrapAngle(m_ScopeCameraAngAbs.x);
-                m_ScopeCameraAngAbs.y = wrapAngle(m_ScopeCameraAngAbs.y);
-                m_ScopeCameraAngAbs.z = wrapAngle(m_ScopeCameraAngAbs.z);
-            }
-            else
-            {
-                const Vector& anchor = m_MouseModeScopedViewmodelAnchorOffset;
-                const Vector gunOrigin = m_HmdPosAbs
-                    + (m_HmdForward * (anchor.x * m_VRScale))
-                    + (m_HmdRight * (anchor.y * m_VRScale))
-                    + (m_HmdUp * (anchor.z * m_VRScale));
+            Vector aimDir = target - gunOrigin;
+            if (aimDir.IsZero())
+                aimDir = m_HmdForward;
+            VectorNormalize(aimDir);
 
-                // Mouse-mode scope aiming must use the same yaw basis as the viewmodel/bullets.
-                // - When MouseModeAimFromHmd is true: aim follows the HMD center ray.
-                // - Otherwise: aim follows mouse pitch  body yaw (m_RotationOffset), independent of head yaw.
-                Vector eyeDir;
-                GetMouseModeEyeRay(eyeDir);
+            QAngle aimAng;
+            QAngle::VectorAngles(aimDir, m_HmdUp, aimAng);
 
-                const float converge = std::max(0.0f, m_MouseModeAimConvergeDistance);
-                const Vector target = gunOrigin + eyeDir * (converge > 0.0f ? converge : 2048.0f);
+            Vector f, r, u;
+            QAngle::AngleVectors(aimAng, &f, &r, &u);
+            m_RightControllerForward = f;
+            m_RightControllerRight = r;
+            m_RightControllerUp = u;
 
-                Vector aimDir = target - gunOrigin;
-                if (aimDir.IsZero())
-                    aimDir = m_HmdForward;
-                VectorNormalize(aimDir);
-
-                QAngle aimAng;
-                QAngle::VectorAngles(aimDir, m_HmdUp, aimAng);
-
-                Vector f, r, u;
-                QAngle::AngleVectors(aimAng, &f, &r, &u);
-                m_RightControllerForward = f;
-                m_RightControllerRight = r;
-                m_RightControllerUp = u;
-
-                m_ScopeCameraPosAbs = gunOrigin
-                    + f * m_ScopeCameraOffset.x
-                    + r * m_ScopeCameraOffset.y
-                    + u * m_ScopeCameraOffset.z;
-                m_ScopeCameraAngAbs = aimAng + m_ScopeCameraAngleOffset;
-            }
+            m_ScopeCameraPosAbs = gunOrigin
+                + f * m_ScopeCameraOffset.x
+                + r * m_ScopeCameraOffset.y
+                + u * m_ScopeCameraOffset.z;
+            m_ScopeCameraAngAbs = aimAng + m_ScopeCameraAngleOffset;
         }
         else
         {
@@ -788,43 +748,19 @@ void VR::UpdateTracking()
             m_ScopeStabilizationLastTime = {};
         }
     }
-    else if (m_ScopeEnabled && (m_ScopeWeaponIsFirearm || forceScopeForThirdPersonFrontView))
+    else if (m_ScopeEnabled && m_ScopeWeaponIsFirearm)
     {
-        // Raw scope camera pose (used for activation tests).
-        Vector scopePosRaw;
+        // Raw scope camera pose from controller (used for activation tests).
+        const Vector scopePosRaw = m_RightControllerPosAbs
+            + m_RightControllerForward * m_ScopeCameraOffset.x
+            + m_RightControllerRight * m_ScopeCameraOffset.y
+            + m_RightControllerUp * m_ScopeCameraOffset.z;
+
         QAngle scopeAngRaw;
-        if (scopeFromEyeInFrontView)
-        {
-            // Front-view 3P: scope should originate from the player eye.
-            QAngle eyeAng = m_HmdAngAbs;
-            NormalizeAndClampViewAngles(eyeAng);
-
-            Vector eyeForward, eyeRight, eyeUp;
-            QAngle::AngleVectors(eyeAng, &eyeForward, &eyeRight, &eyeUp);
-
-            const Vector eyeOrigin = localPlayer->EyePosition();
-            scopePosRaw = eyeOrigin
-                + eyeForward * m_ScopeCameraOffset.x
-                + eyeRight * m_ScopeCameraOffset.y
-                + eyeUp * m_ScopeCameraOffset.z;
-
-            scopeAngRaw = eyeAng + m_ScopeCameraAngleOffset;
-        }
-        else
-        {
-            scopePosRaw = m_RightControllerPosAbs
-                + m_RightControllerForward * m_ScopeCameraOffset.x
-                + m_RightControllerRight * m_ScopeCameraOffset.y
-                + m_RightControllerUp * m_ScopeCameraOffset.z;
-
-            const Vector angUp = (forceScopeForThirdPersonFrontView && !m_HmdUp.IsZero()) ? m_HmdUp : m_RightControllerUp;
-            QAngle::VectorAngles(m_RightControllerForward, angUp, scopeAngRaw);
-            scopeAngRaw.x += m_ScopeCameraAngleOffset.x;
-            scopeAngRaw.y += m_ScopeCameraAngleOffset.y;
-            scopeAngRaw.z += m_ScopeCameraAngleOffset.z;
-            if (forceScopeForThirdPersonFrontView)
-                scopeAngRaw.z = 0.0f;
-        }
+        QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAngRaw);
+        scopeAngRaw.x += m_ScopeCameraAngleOffset.x;
+        scopeAngRaw.y += m_ScopeCameraAngleOffset.y;
+        scopeAngRaw.z += m_ScopeCameraAngleOffset.z;
         scopeAngRaw.x = wrapAngle(scopeAngRaw.x);
         scopeAngRaw.y = wrapAngle(scopeAngRaw.y);
         scopeAngRaw.z = wrapAngle(scopeAngRaw.z);
@@ -833,11 +769,7 @@ void VR::UpdateTracking()
         m_ScopeCameraPosAbs = scopePosRaw;
         m_ScopeCameraAngAbs = scopeAngRaw;
 
-        if (forceScopeForThirdPersonFrontView)
-        {
-            m_ScopeActive = true;
-        }
-        else if (m_ScopeRequireLookThrough)
+        if (m_ScopeRequireLookThrough)
         {
             const float maxDist = std::max(0.0f, m_ScopeLookThroughDistanceMeters) * m_VRScale;
             Vector toScope = scopePosRaw - m_HmdPosAbs;
@@ -871,7 +803,7 @@ void VR::UpdateTracking()
         QAngle scopeAngFinal = scopeAngRaw;
 
         // Scoped aim sensitivity scaling: apply to controller aim so scope camera, aim line and bullets stay in sync.
-        if (m_ScopeActive && !scopeFromEyeInFrontView)
+        if (m_ScopeActive)
         {
             QAngle aimAngRaw;
             QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, aimAngRaw);
@@ -886,10 +818,10 @@ void VR::UpdateTracking()
             if (!m_ScopeAimSensitivityScales.empty())
             {
                 const size_t idx = std::min(m_ScopeMagnificationIndex, m_ScopeAimSensitivityScales.size() - 1);
-                gain = std::clamp(m_ScopeAimSensitivityScales[idx], 0.05f, 4.0f);
+                gain = std::clamp(m_ScopeAimSensitivityScales[idx], 0.05f, 1.0f);
             }
 
-            if (std::fabs(gain - 1.0f) > 0.001f)
+            if (gain < 0.999f)
             {
                 auto wrapDelta = [](float d) -> float
                     {
@@ -925,13 +857,10 @@ void VR::UpdateTracking()
                     + m_RightControllerRight * m_ScopeCameraOffset.y
                     + m_RightControllerUp * m_ScopeCameraOffset.z;
 
-                const Vector angUp = (forceScopeForThirdPersonFrontView && !m_HmdUp.IsZero()) ? m_HmdUp : m_RightControllerUp;
-                QAngle::VectorAngles(m_RightControllerForward, angUp, scopeAngFinal);
+                QAngle::VectorAngles(m_RightControllerForward, m_RightControllerUp, scopeAngFinal);
                 scopeAngFinal.x += m_ScopeCameraAngleOffset.x;
                 scopeAngFinal.y += m_ScopeCameraAngleOffset.y;
                 scopeAngFinal.z += m_ScopeCameraAngleOffset.z;
-                if (forceScopeForThirdPersonFrontView)
-                    scopeAngFinal.z = 0.0f;
                 scopeAngFinal.x = wrapAngle(scopeAngFinal.x);
                 scopeAngFinal.y = wrapAngle(scopeAngFinal.y);
                 scopeAngFinal.z = wrapAngle(scopeAngFinal.z);
@@ -945,31 +874,9 @@ void VR::UpdateTracking()
             m_ScopeAimSensitivityInit = false;
         }
 
-        // Front-view 3P hybrid: keep scope camera anchored at eye, but keep controller-driven aim direction.
-        if (scopePosFromEyeInFrontView)
-        {
-            Vector f, r, u;
-            QAngle::AngleVectors(scopeAngFinal, &f, &r, &u);
-            if (f.IsZero() || r.IsZero() || u.IsZero())
-            {
-                f = m_RightControllerForward;
-                r = m_RightControllerRight;
-                u = m_RightControllerUp;
-            }
-
-            const Vector eyeOrigin = localPlayer->EyePosition();
-            scopePosFinal = eyeOrigin
-                + f * m_ScopeCameraOffset.x
-                + r * m_ScopeCameraOffset.y
-                + u * m_ScopeCameraOffset.z;
-            m_ScopeCameraPosAbs = scopePosFinal;
-            m_ScopeCameraAngAbs = scopeAngFinal;
-        }
-
         // Visual stabilization: smooth the scope RTT camera pose ONLY when scoped-in.
         // This does NOT affect shooting direction (bullets still use controller aim).
-        const bool allowScopeStabilization = m_ScopeStabilizationEnabled && m_ScopeActive;
-        if (allowScopeStabilization)
+        if (m_ScopeStabilizationEnabled && m_ScopeActive)
         {
             const auto now = std::chrono::steady_clock::now();
             float dt = 1.0f / 90.0f;
@@ -1366,3 +1273,4 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     m_PrevRightControllerLocalPos = m_RightControllerPose.TrackedDevicePos;
     m_PrevHmdLocalPos = m_HmdPose.TrackedDevicePos;
 }
+

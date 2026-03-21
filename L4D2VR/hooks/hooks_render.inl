@@ -8,14 +8,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 {
 	static EngineThirdPersonCamSmoother s_engineTpCam;
 
-	auto* materialSystem = (m_Game ? m_Game->m_MaterialSystem : nullptr);
-	IMatRenderContext* rndrContext = materialSystem ? materialSystem->GetRenderContext() : nullptr;
-	if (!rndrContext)
-	{
-		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
-		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
-	}
-
 	if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
 		m_VR->CreateVRTextures();
 
@@ -23,13 +15,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Ensure they're available before any offscreen passes try to render into them.
 	m_VR->EnsureOpticsRTTTextures();
 
-	if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
-		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
-
-	rndrContext = materialSystem ? materialSystem->GetRenderContext() : nullptr;
+	IMatRenderContext* rndrContext = m_Game->m_MaterialSystem->GetRenderContext();
 	if (!rndrContext)
 	{
-		m_VR->HandleMissingRenderContext("Hooks::dRenderView(post-create)");
+		m_VR->HandleMissingRenderContext("Hooks::dRenderView");
 		return hkRenderView.fOriginal(ecx, setup, hudViewSetup, nClearFlags, whatToDraw);
 	}
 
@@ -760,14 +749,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				Vector viewLeft = viewCenter + (hmdRight * (-(ipdSu * 0.5f)));
 				Vector viewRight = viewCenter + (hmdRight * (+(ipdSu * 0.5f)));
 
-				// Controllers + viewmodel (visual only, no gameplay auto-aim overrides here).
+				// Right controller (visual/viewmodel only, no gameplay auto-aim overrides here).
 				vr::TrackedDeviceIndex_t leftIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_LeftHand);
 				vr::TrackedDeviceIndex_t rightIdx = m_VR->m_System->GetTrackedDeviceIndexForControllerRole(vr::TrackedControllerRole_RightHand);
 				if (m_VR->m_LeftHanded)
 					std::swap(leftIdx, rightIdx);
 
-				Vector leftCtrlPosAbs = m_VR->m_LeftControllerPosAbs;
-				QAngle leftCtrlAngAbs = m_VR->m_LeftControllerAngAbs;
 				Vector rightCtrlPosAbs = m_VR->m_RightControllerPosAbs;
 				QAngle rightCtrlAngAbs = m_VR->m_RightControllerAngAbs;
 				Vector vmForward = m_VR->m_ViewmodelForward;
@@ -775,28 +762,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				Vector vmUp = m_VR->m_ViewmodelUp;
 				Vector vmPosAbs = m_VR->GetRecommendedViewmodelAbsPos();
 				QAngle vmAngAbs = m_VR->GetRecommendedViewmodelAbsAngle();
-
-				if (leftIdx != vr::k_unTrackedDeviceIndexInvalid && leftIdx < vr::k_unMaxTrackedDeviceCount && renderPoses[leftIdx].bPoseIsValid)
-				{
-					TrackedDevicePoseData leftPose{};
-					m_VR->GetPoseData(renderPoses[leftIdx], leftPose);
-					Vector ctrlPosLocal = leftPose.TrackedDevicePos;
-					QAngle ctrlAngLocal = leftPose.TrackedDeviceAng;
-
-					Vector hmdToCtrl = ctrlPosLocal - hmdPosLocal;
-					Vector ctrlPosCorrected = hmdPosCorrected + hmdToCtrl;
-					VectorPivotXY(ctrlPosCorrected, hmdPosCorrected, extrapRot);
-					ctrlAngLocal.y += extrapRot;
-					ctrlAngLocal.y -= 360.0f * std::floor((ctrlAngLocal.y + 180.0f) / 360.0f);
-
-					Vector ctrlF, ctrlR, ctrlU;
-					QAngle::AngleVectors(ctrlAngLocal, &ctrlF, &ctrlR, &ctrlU);
-					ctrlF = VectorRotate(ctrlF, ctrlR, -45.0);
-					ctrlU = VectorRotate(ctrlU, ctrlR, -45.0);
-
-					leftCtrlPosAbs = cameraAnchor - Vector(0, 0, 64) + (ctrlPosCorrected * vp.vrScale);
-					QAngle::VectorAngles(ctrlF, ctrlU, leftCtrlAngAbs);
-				}
 
 				if (rightIdx != vr::k_unTrackedDeviceIndexInvalid && rightIdx < vr::k_unMaxTrackedDeviceCount && renderPoses[rightIdx].bPoseIsValid)
 				{
@@ -854,12 +819,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_VR->m_RenderViewOriginRightX.store(viewRight.x, std::memory_order_relaxed);
 				m_VR->m_RenderViewOriginRightY.store(viewRight.y, std::memory_order_relaxed);
 				m_VR->m_RenderViewOriginRightZ.store(viewRight.z, std::memory_order_relaxed);
-				m_VR->m_RenderLeftControllerPosAbsX.store(leftCtrlPosAbs.x, std::memory_order_relaxed);
-				m_VR->m_RenderLeftControllerPosAbsY.store(leftCtrlPosAbs.y, std::memory_order_relaxed);
-				m_VR->m_RenderLeftControllerPosAbsZ.store(leftCtrlPosAbs.z, std::memory_order_relaxed);
-				m_VR->m_RenderLeftControllerAngAbsX.store(leftCtrlAngAbs.x, std::memory_order_relaxed);
-				m_VR->m_RenderLeftControllerAngAbsY.store(leftCtrlAngAbs.y, std::memory_order_relaxed);
-				m_VR->m_RenderLeftControllerAngAbsZ.store(leftCtrlAngAbs.z, std::memory_order_relaxed);
 				m_VR->m_RenderRightControllerPosAbsX.store(rightCtrlPosAbs.x, std::memory_order_relaxed);
 				m_VR->m_RenderRightControllerPosAbsY.store(rightCtrlPosAbs.y, std::memory_order_relaxed);
 				m_VR->m_RenderRightControllerPosAbsZ.store(rightCtrlPosAbs.z, std::memory_order_relaxed);
@@ -1340,16 +1299,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	Vector leftOrigin, rightOrigin;
 	Vector viewAngles = m_VR->GetViewAngle();
-	Vector renderViewAngles = viewAngles;
-	const bool thirdPersonFrontViewActive = renderThirdPerson
-		&& m_VR->m_ThirdPersonFrontViewEnabled
-		&& !hasViewEntityOverride
-		&& !stateIsDeadOrObserver;
-	auto wrapYawDeg = [](float yaw)
-		{
-			yaw -= 360.0f * std::floor((yaw + 180.0f) / 360.0f);
-			return yaw;
-		};
 
 	// Recenter the VR anchors once per threshold when yaw turns left/right a lot.
 	// Requirement: if yaw turns beyond 60° (left or right), do a one-shot ResetPosition.
@@ -1395,31 +1344,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (renderThirdPerson)
 	{
 		// Render from the engine-provided third-person camera (setup.origin),
-		// optionally following HMD or decoupled body/game camera orientation.
+		// but aim the camera with the HMD so head look still works in third-person.
 		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
-		if (!m_VR->m_ThirdPersonCameraFollowHmd || m_VR->m_HmdForward.IsZero())
+		if (m_VR->m_HmdForward.IsZero())
 			camAng = engineCamAngles;
-		if (thirdPersonFrontViewActive)
-		{
-			// In front-view mode, keep the main third-person camera yaw aligned with the scope yaw
-			// so thumbstick/scope turning also recenters the character in the main view.
-			if (m_VR->ShouldRenderScope())
-			{
-				camAng.y = m_VR->GetScopeCameraAbsAngle().y;
-			}
-			else
-			{
-				float bodyYaw = m_VR->m_RotationOffset;
-				bodyYaw -= 360.0f * std::floor((bodyYaw + 180.0f) / 360.0f);
-				camAng.y = bodyYaw;
-			}
-		}
-		if (thirdPersonFrontViewActive)
-			camAng.y = wrapYawDeg(camAng.y + 180.0f);
-
-		renderViewAngles.x = camAng.x;
-		renderViewAngles.y = camAng.y;
-		renderViewAngles.z = camAng.z;
 
 		Vector fwd, right, up;
 		QAngle::AngleVectors(camAng, &fwd, &right, &up);
@@ -1444,18 +1372,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->m_HmdPosAbs;
 		}
 		Vector camCenter = baseCenter + (fwd * (-eyeZ));
-		if (thirdPersonFrontViewActive)
-		{
-			const Vector& configuredOffset = m_VR->m_ThirdPersonFrontVRCameraOffset;
-			camCenter = camCenter
-				+ (fwd * (-configuredOffset.x))
-				+ (right * configuredOffset.y)
-				+ (up * configuredOffset.z);
-		}
-		else if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
-		{
+		if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
-		}
 		// Camera collision: clamp camera distance when something blocks the line from the anchor to the desired camera.
 		// This prevents the third-person render camera from going through walls (common when using ThirdPersonVRCameraOffset).
 		if (queueMode == 0 && m_Game && m_Game->m_EngineTrace && !hasViewEntityOverride)
@@ -1516,9 +1434,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
 		if (m_VR->m_HmdForward.IsZero())
 			camAng = engineCamAngles;
-		renderViewAngles.x = camAng.x;
-		renderViewAngles.y = camAng.y;
-		renderViewAngles.z = camAng.z;
 
 		Vector fwd, right, up;
 		QAngle::AngleVectors(camAng, &fwd, &right, &up);
@@ -1540,19 +1455,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	}
 
 	leftEyeView.origin = leftOrigin;
-	leftEyeView.angles = renderViewAngles;
+	leftEyeView.angles = viewAngles;
 
 	// Queued render: draw aim line from the render-thread snapshot so it stays glued to the hand/gun.
 	// IMPORTANT: must run after we compute m_SetupOrigin / m_ThirdPersonRenderCenter for this frame.
 	if (m_VR->m_IsVREnabled && queueMode != 0)
-	{
-		const bool scopeOnlyAimLine = m_VR->m_ScopeAimLineOnlyInScope
-			&& m_VR->m_ThirdPersonFrontViewEnabled
-			&& m_VR->m_IsThirdPersonCamera
-			&& m_VR->m_ScopeWeaponIsFirearm;
-		if (!scopeOnlyAimLine)
-			m_VR->RenderDrawAimLineQueued(localPlayer);
-	}
+		m_VR->RenderDrawAimLineQueued(localPlayer);
 
 	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---
 	// Do NOT permanently overwrite engine viewangles.
@@ -1566,7 +1474,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (queueMode == 0 && m_Game && m_Game->m_EngineClient)
 	{
 		m_Game->m_EngineClient->GetViewAngles(prevEngineAngles);
-		QAngle renderAngles(renderViewAngles.x, renderViewAngles.y, renderViewAngles.z);
+		QAngle renderAngles(viewAngles.x, viewAngles.y, viewAngles.z);
 		m_Game->m_EngineClient->SetViewAngles(renderAngles);
 		touchedEngineAngles = true;
 	}
@@ -1575,7 +1483,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// appears to "follow the controller / stick" (classic double-image artifact).
 	CViewSetup hudLeft = hudViewSetup;
 	hudLeft.origin = leftEyeView.origin;
-	hudLeft.angles = renderViewAngles;
+	hudLeft.angles = viewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
 	m_PushedHud = false;
@@ -1592,10 +1500,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	rightEyeView.zNear = 6;
 	rightEyeView.zNearViewmodel = 6;
 	rightEyeView.origin = rightOrigin;
-	rightEyeView.angles = renderViewAngles;
+	rightEyeView.angles = viewAngles;
 	CViewSetup hudRight = hudViewSetup;
 	hudRight.origin = rightEyeView.origin;
-	hudRight.angles = renderViewAngles;
+	hudRight.angles = viewAngles;
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
@@ -1603,16 +1511,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
 		{
-			if (!target || texW <= 0 || texH <= 0)
-				return;
-
-			// Offscreen RTT passes (scope / rear mirror) are more fragile than the main stereo eyes.
-			// Reusing the engine-provided HUD view from the main scene can carry stale viewport/aspect
-			// state into the pass and crash inside engine RenderView, so always derive HUD from the
-			// offscreen world view itself.
-			(void)hud;
-			CViewSetup offscreenHud = view;
-
 			IMatRenderContext* rc = m_Game->m_MaterialSystem->GetRenderContext();
 			if (!rc)
 			{
@@ -1634,7 +1532,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 					touchedAngles = true;
 				}
 
-				hkRenderView.fOriginal(ecx, view, offscreenHud, nClearFlags, whatToDraw);
+				hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 
 				if (touchedAngles && m_Game && m_Game->m_EngineClient)
 					m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
@@ -1664,7 +1562,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				touchedAngles = true;
 			}
 
-			hkRenderView.fOriginal(ecx, view, offscreenHud, nClearFlags, whatToDraw);
+			hkRenderView.fOriginal(ecx, view, hud, nClearFlags, whatToDraw);
 
 			if (touchedAngles && m_Game && m_Game->m_EngineClient)
 				m_Game->m_EngineClient->SetViewAngles(oldEngineAngles);
@@ -1673,13 +1571,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			hkViewport.fOriginal(rc, oldX, oldY, oldW, oldH);
 
 			m_VR->m_SuppressHudCapture = prevSuppress;
-		};
-
-	auto offscreenViewIsFinite = [](const CViewSetup& v) -> bool
-		{
-			return IsFinite(v.origin.x) && IsFinite(v.origin.y) && IsFinite(v.origin.z)
-				&& IsFinite(v.angles.x) && IsFinite(v.angles.y) && IsFinite(v.angles.z)
-				&& std::isfinite(v.fov) && std::isfinite(v.zNear) && std::isfinite(v.m_flAspectRatio);
 		};
 
 	// ----------------------------
@@ -1708,36 +1599,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		scopeView.angles.y = scopeAngles.y;
 		scopeView.angles.z = scopeAngles.z;
 
-		CViewSetup hudScope = scopeView;
-		if (!offscreenViewIsFinite(scopeView))
-		{
-			LOG("[ScopeRTT] Skipping offscreen render due to non-finite view pose");
-		}
-		else
-		{
-			m_VR->m_ScopeRenderingPass = true;
-		// Scope-only aim line mode: draw the line only right before scope RTT rendering.
-		if (m_VR->m_ScopeAimLineOnlyInScope
-			&& m_VR->m_ThirdPersonFrontViewEnabled
-			&& m_VR->m_IsThirdPersonCamera
-			&& m_VR->m_ScopeWeaponIsFirearm
-			&& m_VR->ShouldRenderScope())
-		{
-			if (queueMode != 0)
-			{
-				m_VR->RenderDrawAimLineQueued(localPlayer);
-			}
-			else if (m_VR->m_HasAimLine)
-			{
-				m_VR->DrawAimLine(m_VR->m_AimLineStart, m_VR->m_AimLineEnd);
-			}
-		}
+		CViewSetup hudScope = hudViewSetup;
+		hudScope.origin = scopeView.origin;
+		hudScope.angles = scopeView.angles;
 
-			renderToTexture_SetRT(m_VR->m_ScopeTexture,
-				m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,
-				scopeAngles, scopeView, hudScope);
-			m_VR->m_ScopeRenderingPass = false;
-		}
+		renderToTexture_SetRT(m_VR->m_ScopeTexture,
+			m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,
+			scopeAngles, scopeView, hudScope);
 	}
 
 	// ----------------------------
@@ -1766,23 +1634,19 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		mirrorView.angles.y = mirrorAngles.y;
 		mirrorView.angles.z = mirrorAngles.z;
 
-		CViewSetup hudMirror = mirrorView;
-		if (!offscreenViewIsFinite(mirrorView))
-		{
-			LOG("[RearMirrorRTT] Skipping offscreen render due to non-finite view pose");
-		}
-		else
-		{
-			// Mark mirror RTT pass so DrawModelExecute can tag special-infected arrows seen in this pass.
-			m_VR->m_RearMirrorRenderingPass = true;
-			m_VR->m_RearMirrorSawSpecialThisPass = false;
+		CViewSetup hudMirror = hudViewSetup;
+		hudMirror.origin = mirrorView.origin;
+		hudMirror.angles = mirrorView.angles;
 
-			renderToTexture_SetRT(m_VR->m_RearMirrorTexture,
-				m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize,
-				mirrorAngles, mirrorView, hudMirror);
+		// Mark mirror RTT pass so DrawModelExecute can tag special-infected arrows seen in this pass.
+		m_VR->m_RearMirrorRenderingPass = true;
+		m_VR->m_RearMirrorSawSpecialThisPass = false;
 
-			m_VR->m_RearMirrorRenderingPass = false;
-		}
+		renderToTexture_SetRT(m_VR->m_RearMirrorTexture,
+			m_VR->m_RearMirrorRTTSize, m_VR->m_RearMirrorRTTSize,
+			mirrorAngles, mirrorView, hudMirror);
+
+		m_VR->m_RearMirrorRenderingPass = false;
 		const auto rmNow = std::chrono::steady_clock::now();
 		if (m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
 		{
@@ -1811,3 +1675,4 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
 	m_VR->m_RenderedNewFrame.store(true, std::memory_order_release);
 }
+

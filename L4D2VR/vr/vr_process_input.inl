@@ -1124,63 +1124,6 @@ void VR::ProcessInput()
             return token == "+walk";
         };
 
-    auto extractCommandToken = [](const std::string& cmd) -> std::string
-        {
-            size_t start = cmd.find_first_not_of(" \t\r\n");
-            if (start == std::string::npos)
-                return {};
-            size_t end = cmd.find_first_of(" \t\r\n;\"", start);
-            std::string token = cmd.substr(start, (end == std::string::npos) ? std::string::npos : (end - start));
-            std::transform(token.begin(), token.end(), token.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return token;
-        };
-
-    auto handleInternalCustomActionCommand = [&](const CustomActionBinding& binding, const vr::InputDigitalActionData_t& actionData) -> bool
-        {
-            const std::string token = extractCommandToken(binding.command);
-            if (token.empty())
-                return false;
-
-            auto setThirdPersonFrontView = [&](bool enabled)
-                {
-                    if (m_ThirdPersonFrontViewEnabled == enabled)
-                        return;
-                    m_ThirdPersonFrontViewEnabled = enabled;
-                    Game::logMsg("[VR] Third-person front view %s", enabled ? "enabled" : "disabled");
-                };
-            auto triggerQuickTurnOnce = [&]()
-                {
-                    m_RotationOffset += 180.0f;
-                    m_RotationOffset -= 360.0f * std::floor(m_RotationOffset / 360.0f);
-                };
-
-            if (token == "thirdpersonfronttoggle" || token == "vr_thirdpersonfronttoggle" || token == "vr_toggle_thirdpersonfront")
-            {
-                if (actionData.bState && actionData.bChanged)
-                {
-                    setThirdPersonFrontView(!m_ThirdPersonFrontViewEnabled);
-                    triggerQuickTurnOnce();
-                }
-                return true;
-            }
-
-            if (token == "thirdpersonfronton" || token == "vr_thirdpersonfront_on")
-            {
-                if (actionData.bState && actionData.bChanged)
-                    setThirdPersonFrontView(true);
-                return true;
-            }
-
-            if (token == "thirdpersonfrontoff" || token == "vr_thirdpersonfront_off")
-            {
-                if (actionData.bState && actionData.bChanged)
-                    setThirdPersonFrontView(false);
-                return true;
-            }
-
-            return false;
-        };
-
     auto handleCustomAction = [&](vr::VRActionHandle_t& actionHandle, const CustomActionBinding& binding)
         {
             vr::InputDigitalActionData_t actionData{};
@@ -1194,9 +1137,6 @@ void VR::ProcessInput()
             {
                 m_CustomWalkHeld = m_CustomWalkHeld || actionData.bState;
             }
-
-            if (handleInternalCustomActionCommand(binding, actionData))
-                return;
 
             if (binding.virtualKey.has_value())
             {
@@ -1284,7 +1224,6 @@ void VR::ProcessInput()
     if ((wantsTopHud && hudReadyForDisplay) || menuActive)
     {
         RepositionOverlays();
-
         // Scoreboard in queued/multicore mode can hard-freeze before the engine has time
         // to apply mat_queue_mode 0. Only issue +showscores after we've actually switched.
         if (scoreboardHeld && scoreboardSafeNow)

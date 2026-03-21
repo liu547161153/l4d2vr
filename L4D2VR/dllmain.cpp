@@ -214,8 +214,6 @@ namespace
             if (i + 1 < lines.size())
                 output << L'\n';
         }
-        output.close();
-
     }
 
     std::string StripQuotes(std::string value)
@@ -406,7 +404,6 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
     }
 
     CreateThread(nullptr, 0, FocusGameWindowWorker, nullptr, 0, nullptr);
-
     EnsureVideoCfgSettings();
 
     g_Game = new Game();

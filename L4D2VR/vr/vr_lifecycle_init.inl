@@ -1148,21 +1148,6 @@ void VR::UpdateAutoMatQueueMode()
         return;
     }
 
-
-    // AutoMatQueueMode=true: optional menu-only helpers.
-    if (!inGame)
-    {
-        if (!m_MenuCrosshairZeroSent)
-        {
-            m_Game->ClientCmd_Unrestricted("crosshair 0");
-            m_MenuCrosshairZeroSent = true;
-        }
-    }
-    else
-    {
-        m_MenuCrosshairZeroSent = false;
-    }
-
     const bool paused = m_Game->m_EngineClient->IsPaused();
     const bool cursorVisible = (m_Game->m_VguiSurface) ? m_Game->m_VguiSurface->IsCursorVisible() : false;
     const bool scoreboardHeld = PressedDigitalAction(m_Scoreboard, false);
