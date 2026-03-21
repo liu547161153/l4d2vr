@@ -17,6 +17,7 @@ FixedHudDistanceOffset=0.25
 ControllerSmoothing=0.0
 
 HideArms=false
+SplitArmsToControllers=false
 
 RequireSecondaryAttackForItemSwitch=true
 VoiceRecordCombo=Crouch+Reload
@@ -45,6 +46,15 @@ NonVRMeleeHysteresis=0.60
 NonVRMeleeAngVelThreshold=0
 NonVRMeleeSwingDirBlend=0.55
 
+AutoRepeatSemiAutoFire=true
+AutoRepeatSemiAutoFireHz=12
+AutoRepeatSprayPushEnabled=true
+AutoRepeatSprayPushDelayTicks=0
+AutoRepeatSprayPushHoldTicks=1
+
+AutoFastMelee=true
+AutoFastMeleeUseWeaponSwitch=true
+
 InventoryGestureRange=0.16
 InventoryBodyOriginOffset=-0.1,0.0,-0.28
 InventoryChestOffset=0.45,0.0,0.5
@@ -61,8 +71,17 @@ InventoryHudMarkerSeparation=0.14
 CustomAction1Command=+l4n_lookat
 CustomAction2Command=thirdpersonshoulder
 CustomAction3Command=+walk
-CustomAction4Command=
+CustomAction4Command=thirdpersonfronttoggle
 CustomAction5Command=
+ThirdPersonFrontVRCameraOffset=80,0,0
+ThirdPersonFrontVRCameraOffsetX=80
+ThirdPersonFrontVRCameraOffsetY=0
+ThirdPersonFrontVRCameraOffsetZ=0
+ThirdPersonCameraFollowHmd=false
+ThirdPersonScopeOverlayOffset=0.35,0.18,-0.04
+ThirdPersonScopeOverlayOffsetX=0.35
+ThirdPersonScopeOverlayOffsetY=0.18
+ThirdPersonScopeOverlayOffsetZ=-0.04
 
 SpecialInfectedArrowEnabled=false
 SpecialInfectedArrowSize=15.0
@@ -121,6 +140,9 @@ ScopeOverlayXOffset=0.02
 ScopeOverlayYOffset=0.04
 ScopeOverlayZOffset=-0.06
 ScopeOverlayAngleOffset=-65,-5,-5
+ScopeAimLineOnlyInScope=true
+ScopeHideLocalPlayerModelInScope=true
+ScopeAimSensitivityScale=100
 
 ScopeRequireLookThrough=true
 ScopeLookThroughDistanceMeters=0.6

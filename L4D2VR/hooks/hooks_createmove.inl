@@ -26,6 +26,21 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	static bool s_tpMeleePrevAttackDown = false;
 	static std::chrono::steady_clock::time_point s_tpMeleeLockUntil{};
 	static QAngle s_tpMeleeLockedAngles = { 0,0,0 };
+	// Auto-repeat spray-push for pump/chrome shotguns and AWP/scout:
+	// detect a real shot/shell spend and queue a short IN_ATTACK2.
+	static uintptr_t s_autoRepeatSprayPushWeapon = 0;
+	static int s_autoRepeatSprayPushPrevClip1 = -1;
+	static int s_autoRepeatSprayPushDelayTicks = 0;
+	static int s_autoRepeatSprayPushHoldTicks = 0;
+	// Auto fast-melee state (hold-to-pulse + optional weapon-switch cancel).
+	static bool s_autoFastMeleeHoldPrev = false;
+	static int s_autoFastMeleeNextSwingCmd = -1;
+	static uintptr_t s_autoFastMeleeWeapon = 0;
+	static bool s_autoFastMeleeSwitchOutPending = false;
+	static bool s_autoFastMeleeSwitchBackPending = false;
+	static int s_autoFastMeleeSwitchOutCmd = -1;
+	static int s_autoFastMeleeSwitchBackCmd = -1;
+	static int s_autoFastMeleeLastIntentCmd = -1;
 
 	if (!cmd)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
@@ -195,7 +210,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		}
 		const QAngle originalViewAngles = cmd->viewangles;
 		bool hadWalkAxis = false;
-		float walkNx = 0.f, walkNy = 0.f;
+		float walkNx = 0.f, walkNy = 0.f; 
 		float walkMaxSpeed = 0.f;
 		float ax = 0.f, ay = 0.f;
 		if (m_VR->GetWalkAxis(ax, ay)) {
@@ -209,16 +224,21 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				};
 			const float nx = norm(ax);
 			const float ny = norm(ay);
+			float moveNx = nx;
+			float moveNy = ny;
+
+			// Third-person front-view mode: keep left/right as-is.
+			// Forward/back follows current camera-aligned basis (no extra sign flip).
 
 			// 最大移动速度：给一个安全常数；服务器会按自身规则再夹紧
 			const float maxSpeed = m_VR->m_AdjustingViewmodel ? 25.f : 250.f;
 			hadWalkAxis = true;
-			walkNx = nx;
-			walkNy = ny;
+			walkNx = moveNx;
+			walkNy = moveNy;
 			walkMaxSpeed = maxSpeed;
 
 			// Track thumbstick locomotion state (used to disable 1:1 roomscale when requested).
-			m_VR->m_PushingThumbstick = (fabsf(nx) > 0.0001f) || (fabsf(ny) > 0.0001f);
+			m_VR->m_PushingThumbstick = (fabsf(moveNx) > 0.0001f) || (fabsf(moveNy) > 0.0001f);
 
 			// VR-aware servers: we can apply movement directly in cmd space.
 			// Non-VR servers: we will re-base movement later after overriding cmd->viewangles.
@@ -234,7 +254,14 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 					// Wrap to [-180, 180]
 					viewYaw -= 360.0f * std::floor((viewYaw + 180.0f) / 360.0f);
 				}
-				const float moveYaw = m_VR->GetMovementYawDeg();
+				float moveYaw = m_VR->GetMovementYawDeg();
+				if (m_VR->m_ThirdPersonFrontViewEnabled && m_VR->m_IsThirdPersonCamera && m_VR->ShouldRenderScope())
+				{
+					// Front-view 3P: keep locomotion basis aligned with the main front camera yaw
+					// (render camera yaw = scope yaw + 180), so stick movement stays intuitive onscreen.
+					moveYaw = m_VR->GetScopeCameraAbsAngle().y + 180.0f;
+					moveYaw -= 360.0f * std::floor((moveYaw + 180.0f) / 360.0f);
+				}
 
 				QAngle viewYawOnly(0.f, viewYaw, 0.f);
 				QAngle moveYawOnly(0.f, moveYaw, 0.f);
@@ -243,17 +270,17 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				QAngle::AngleVectors(viewYawOnly, &viewForward, &viewRight, &viewUp);
 				QAngle::AngleVectors(moveYawOnly, &moveForward, &moveRight, &moveUp);
 
-				Vector worldMove = moveForward * (ny * maxSpeed) + moveRight * (nx * maxSpeed);
+				Vector worldMove = moveForward * (moveNy * maxSpeed) + moveRight * (moveNx * maxSpeed);
 				cmd->forwardmove += DotProduct(worldMove, viewForward);
 				cmd->sidemove += DotProduct(worldMove, viewRight);
 			}
 
 			// 可选：也把方向按钮位设置一下，增加兼容性
 			// IN_FORWARD=1<<3, IN_BACK=1<<4, IN_MOVELEFT=1<<9, IN_MOVERIGHT=1<<10
-			if (ny > 0.5f)      cmd->buttons |= (1 << 3);
-			else if (ny < -0.5f)cmd->buttons |= (1 << 4);
-			if (nx > 0.5f)      cmd->buttons |= (1 << 10);
-			else if (nx < -0.5f)cmd->buttons |= (1 << 9);
+			if (moveNy > 0.5f)      cmd->buttons |= (1 << 3);
+			else if (moveNy < -0.5f)cmd->buttons |= (1 << 4);
+			if (moveNx > 0.5f)      cmd->buttons |= (1 << 10);
+			else if (moveNx < -0.5f)cmd->buttons |= (1 << 9);
 
 		}
 		else
@@ -485,7 +512,12 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				// VR stick movement (movement basis = HMD yaw or controller yaw)
 				if (hadWalkAxis)
 				{
-					const float moveYaw = m_VR->GetMovementYawDeg();
+					float moveYaw = m_VR->GetMovementYawDeg();
+					if (m_VR->m_ThirdPersonFrontViewEnabled && m_VR->m_IsThirdPersonCamera && m_VR->ShouldRenderScope())
+					{
+						moveYaw = m_VR->GetScopeCameraAbsAngle().y + 180.0f;
+						moveYaw -= 360.0f * std::floor((moveYaw + 180.0f) / 360.0f);
+					}
 					QAngle bodyYawOnly(0.f, moveYaw, 0.f);
 					Vector bodyForward, bodyRight, bodyUp;
 					QAngle::AngleVectors(bodyYawOnly, &bodyForward, &bodyRight, &bodyUp);
@@ -587,6 +619,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		const int lpIdx2 = m_Game->m_EngineClient->GetLocalPlayer();
 		C_BasePlayer* lp2 = (lpIdx2 > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx2) : nullptr;
 		C_BaseCombatWeapon* wpn = lp2 ? (C_BaseCombatWeapon*)lp2->GetActiveWeapon() : nullptr;
+		C_WeaponCSBase* wpnCS = reinterpret_cast<C_WeaponCSBase*>(wpn);
+		const C_WeaponCSBase::WeaponID weaponId = wpnCS ? wpnCS->GetWeaponID() : C_WeaponCSBase::WeaponID::NONE;
 		const char* wpnName = (wpn != nullptr) ? wpn->GetName() : nullptr;
 		const char* wpnNet = (wpn != nullptr) ? m_Game->GetNetworkClassName((uintptr_t*)wpn) : nullptr;
 		// Mounted guns (minigun / .50 cal etc.) require a continuous IN_ATTACK hold.
@@ -621,6 +655,21 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			startsWith(wpnNet, "CWeaponM60") ||
 			startsWith(wpnNet, "CWeaponRifle_M60") ||
 			contains(wpnNet, "Minigun");
+		const bool isMeleeWeapon = (weaponId == C_WeaponCSBase::WeaponID::MELEE);
+		const bool isAutoRepeatSprayPushWeapon =
+			(weaponId == C_WeaponCSBase::WeaponID::PUMPSHOTGUN) ||
+			(weaponId == C_WeaponCSBase::WeaponID::SHOTGUN_CHROME) ||
+			(weaponId == C_WeaponCSBase::WeaponID::AWP) ||
+			(weaponId == C_WeaponCSBase::WeaponID::SCOUT) ||
+			startsWith(wpnNet, "CWeaponPumpShotgun") ||
+			startsWith(wpnNet, "CWeaponShotgun_Chrome") ||
+			startsWith(wpnNet, "CWeaponSniperAWP") ||
+			startsWith(wpnNet, "CWeaponSniperScout") ||
+			(wpnName && (
+				contains(wpnName, "weapon_pumpshotgun") ||
+				contains(wpnName, "weapon_shotgun_chrome") ||
+				contains(wpnName, "weapon_awp") ||
+				contains(wpnName, "weapon_scout")));
 
 		const bool holdingAttack = (cmd->buttons & (1 << 0)) != 0; // IN_ATTACK
 
@@ -671,11 +720,35 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 
 		// Only pulse when holding attack and weapon is NOT full-auto, and NOT a hold-to-use item.
 		// NOT a hold-to-use item, and NOT during a continuous use action.
-		if (holdingAttack && !unknownWeapon && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction && !usingMountedWeapon)
+		if (holdingAttack && !unknownWeapon && !isFullAuto && !isHoldToUseItem && !isChainsaw && !isThrowable && !doingUseAction && !usingMountedWeapon && (!isMeleeWeapon || !m_VR->m_AutoFastMelee))
 		{
 			using namespace std::chrono;
+			const int kIN_ATTACK = (1 << 0);
+			const int kIN_ATTACK2 = (1 << 11);
 			const float hz = (m_VR->m_AutoRepeatSemiAutoFireHz > 0.0f) ? m_VR->m_AutoRepeatSemiAutoFireHz : 0.0f;
 			const auto now = steady_clock::now();
+			const uintptr_t wpnTag = reinterpret_cast<uintptr_t>(wpn);
+
+			// Track active weapon + clip for spray-push-capable weapons.
+			if (wpnTag != s_autoRepeatSprayPushWeapon)
+			{
+				s_autoRepeatSprayPushWeapon = wpnTag;
+				s_autoRepeatSprayPushPrevClip1 = (wpn != nullptr) ? ReadNetvar<int>(wpn, VR::kClip1Offset) : -1;
+				s_autoRepeatSprayPushDelayTicks = 0;
+				s_autoRepeatSprayPushHoldTicks = 0;
+			}
+			else if (isAutoRepeatSprayPushWeapon && wpn != nullptr)
+			{
+				const int clip1 = ReadNetvar<int>(wpn, VR::kClip1Offset);
+				const bool shellSpent = (clip1 >= 0) && (s_autoRepeatSprayPushPrevClip1 >= 0) && (clip1 < s_autoRepeatSprayPushPrevClip1);
+				s_autoRepeatSprayPushPrevClip1 = clip1;
+				if (shellSpent && m_VR->m_AutoRepeatSprayPushEnabled)
+				{
+					// Queue shove cancel right after a real shell-spend event.
+					s_autoRepeatSprayPushDelayTicks = std::max(0, m_VR->m_AutoRepeatSprayPushDelayTicks);
+					s_autoRepeatSprayPushHoldTicks = std::max(s_autoRepeatSprayPushHoldTicks, std::max(1, m_VR->m_AutoRepeatSprayPushHoldTicks));
+				}
+			}
 
 			if (!m_VR->m_AutoRepeatHoldPrev)
 			{
@@ -686,14 +759,33 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			bool pulseThisTick = (hz > 0.0f) && (now >= m_VR->m_AutoRepeatNextPulse);
 			if (pulseThisTick)
 			{
-				cmd->buttons |= (1 << 0); // IN_ATTACK
+				cmd->buttons |= kIN_ATTACK;
 				// Single-tick pulse; next tick will be cleared (unless next period elapsed).
-				const float clampedHz = std::max(1.0f, std::min(30.0f, hz));
+				const float clampedHz = std::max(1.0f, std::min(50.0f, hz));
 				m_VR->m_AutoRepeatNextPulse = now + duration_cast<steady_clock::duration>(duration<float>(1.0f / clampedHz));
 			}
 			else
 			{
-				cmd->buttons &= ~(1 << 0); // IN_ATTACK
+				cmd->buttons &= ~kIN_ATTACK;
+			}
+
+			// Spray-push (fire -> short shove) when auto-repeat is driving semi-auto input.
+			if (isAutoRepeatSprayPushWeapon && m_VR->m_AutoRepeatSprayPushEnabled)
+			{
+				if (s_autoRepeatSprayPushDelayTicks > 0)
+				{
+					--s_autoRepeatSprayPushDelayTicks;
+				}
+				if (s_autoRepeatSprayPushDelayTicks <= 0 && s_autoRepeatSprayPushHoldTicks > 0)
+				{
+					cmd->buttons |= kIN_ATTACK2;
+					--s_autoRepeatSprayPushHoldTicks;
+				}
+			}
+			else
+			{
+				s_autoRepeatSprayPushDelayTicks = 0;
+				s_autoRepeatSprayPushHoldTicks = 0;
 			}
 
 			m_VR->m_AutoRepeatHoldPrev = true;
@@ -701,7 +793,176 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		else
 		{
 			m_VR->m_AutoRepeatHoldPrev = false;
+			s_autoRepeatSprayPushDelayTicks = 0;
+			s_autoRepeatSprayPushHoldTicks = 0;
+			s_autoRepeatSprayPushWeapon = 0;
+			s_autoRepeatSprayPushPrevClip1 = -1;
 		}
+	}
+	else
+	{
+		m_VR->m_AutoRepeatHoldPrev = false;
+		s_autoRepeatSprayPushDelayTicks = 0;
+		s_autoRepeatSprayPushHoldTicks = 0;
+		s_autoRepeatSprayPushWeapon = 0;
+		s_autoRepeatSprayPushPrevClip1 = -1;
+	}
+
+	// Auto fast-melee: fixed cadence weapon-switch cancel.
+	// Sequence: +attack ; wait1(1) ; slot1 ; wait2(1) ; slot2 ; wait3(15).
+	if (m_VR->m_AutoFastMelee && m_Game && m_Game->m_EngineClient)
+	{
+		const int kIN_ATTACK = (1 << 0);
+		constexpr int kWaitOutTicks = 1;
+		constexpr int kWaitBackTicks = 1;
+		constexpr int kWaitPostTicks = 15;
+		constexpr int kIntentGraceTicks = 24;
+
+		const int lpIdx2 = m_Game->m_EngineClient->GetLocalPlayer();
+		C_BasePlayer* lp2 = (lpIdx2 > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx2) : nullptr;
+		C_BaseCombatWeapon* wpn = lp2 ? (C_BaseCombatWeapon*)lp2->GetActiveWeapon() : nullptr;
+		C_WeaponCSBase* wpnCS = reinterpret_cast<C_WeaponCSBase*>(wpn);
+		const bool isMeleeWeapon = (wpnCS != nullptr) && (wpnCS->GetWeaponID() == C_WeaponCSBase::WeaponID::MELEE);
+		const bool cmdAttackDown = (cmd->buttons & kIN_ATTACK) != 0;
+		const bool vrAttackDown = m_VR->m_PrimaryAttackDown || m_VR->m_PrimaryAttackCmdOwned;
+		const bool mouseAttackDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+		const bool attackIntentDown = cmdAttackDown || vrAttackDown || mouseAttackDown;
+		const bool doingUseAction = lp2 ? (ReadNetvar<int>(lp2, 0x1ba8) != 0) : false; // m_iCurrentUseAction
+		const bool canSwitchCancel = m_VR->m_AutoFastMeleeUseWeaponSwitch;
+		const int cmdNum = cmd->command_number;
+
+		if (attackIntentDown)
+		{
+			s_autoFastMeleeLastIntentCmd = cmdNum;
+		}
+
+		const bool hasPendingSwitchNow = s_autoFastMeleeSwitchOutPending || s_autoFastMeleeSwitchBackPending;
+		const bool inActiveCycleNow =
+			hasPendingSwitchNow ||
+			((s_autoFastMeleeWeapon != 0) && (s_autoFastMeleeNextSwingCmd > cmdNum));
+		const bool recentIntent =
+			(s_autoFastMeleeLastIntentCmd > 0) &&
+			((cmdNum - s_autoFastMeleeLastIntentCmd) <= kIntentGraceTicks);
+		const bool effectiveAttackIntentDown = attackIntentDown || (inActiveCycleNow && recentIntent);
+
+		// Keep this outside "isMeleeWeapon" so slot1 -> slot2 can finish even while temporarily on slot1.
+		if (s_autoFastMeleeSwitchOutPending && cmdNum >= s_autoFastMeleeSwitchOutCmd)
+		{
+			m_Game->ClientCmd_Unrestricted("slot1");
+			s_autoFastMeleeSwitchOutPending = false;
+			s_autoFastMeleeSwitchOutCmd = -1;
+		}
+		if (s_autoFastMeleeSwitchBackPending && cmdNum >= s_autoFastMeleeSwitchBackCmd)
+		{
+			m_Game->ClientCmd_Unrestricted("slot2");
+			s_autoFastMeleeSwitchBackPending = false;
+			s_autoFastMeleeSwitchBackCmd = -1;
+		}
+		const bool hasPendingSwitch = s_autoFastMeleeSwitchOutPending || s_autoFastMeleeSwitchBackPending;
+
+		if (effectiveAttackIntentDown && !doingUseAction)
+		{
+			if (isMeleeWeapon)
+			{
+				const uintptr_t wpnTag = reinterpret_cast<uintptr_t>(wpn);
+				if (wpnTag != s_autoFastMeleeWeapon)
+				{
+					s_autoFastMeleeWeapon = wpnTag;
+					s_autoFastMeleeSwitchOutPending = false;
+					s_autoFastMeleeSwitchBackPending = false;
+					s_autoFastMeleeSwitchOutCmd = -1;
+					s_autoFastMeleeSwitchBackCmd = -1;
+				}
+
+				if (!s_autoFastMeleeHoldPrev || s_autoFastMeleeNextSwingCmd <= 0)
+				{
+					// First hold tick: start immediately.
+					s_autoFastMeleeNextSwingCmd = cmdNum;
+				}
+
+				const bool swingThisTick = (cmdNum >= s_autoFastMeleeNextSwingCmd);
+				if (swingThisTick)
+				{
+					cmd->buttons |= kIN_ATTACK;
+					const int cycleTicks = std::max(1, kWaitOutTicks + kWaitBackTicks + kWaitPostTicks + 1);
+					s_autoFastMeleeNextSwingCmd = cmdNum + cycleTicks;
+
+					if (canSwitchCancel)
+					{
+						s_autoFastMeleeSwitchOutCmd = cmdNum + kWaitOutTicks;
+						s_autoFastMeleeSwitchBackCmd = s_autoFastMeleeSwitchOutCmd + kWaitBackTicks;
+						s_autoFastMeleeSwitchOutPending = true;
+						s_autoFastMeleeSwitchBackPending = true;
+					}
+					else
+					{
+						s_autoFastMeleeSwitchOutPending = false;
+						s_autoFastMeleeSwitchBackPending = false;
+						s_autoFastMeleeSwitchOutCmd = -1;
+						s_autoFastMeleeSwitchBackCmd = -1;
+					}
+				}
+				else
+				{
+					cmd->buttons &= ~kIN_ATTACK;
+				}
+
+				s_autoFastMeleeHoldPrev = true;
+			}
+			else if (hasPendingSwitch)
+			{
+				// While waiting for slot2 return, suppress held attack to avoid firing slot1 weapon.
+				cmd->buttons &= ~kIN_ATTACK;
+				s_autoFastMeleeHoldPrev = true;
+			}
+			else
+			{
+				// During slot-switch settle frames, active weapon can briefly report non-melee.
+				// Keep cadence timing alive while waiting for the scheduled next swing.
+				const bool waitingNextSwing = (s_autoFastMeleeWeapon != 0) && (s_autoFastMeleeNextSwingCmd > cmdNum);
+				if (waitingNextSwing)
+				{
+					cmd->buttons &= ~kIN_ATTACK;
+					s_autoFastMeleeHoldPrev = true;
+				}
+				else
+				{
+					s_autoFastMeleeHoldPrev = false;
+					s_autoFastMeleeNextSwingCmd = -1;
+					s_autoFastMeleeWeapon = 0;
+				}
+			}
+		}
+		else
+		{
+			// Stop scheduling new swings when attack is released, but let an already queued slot2 return finish.
+			s_autoFastMeleeHoldPrev = false;
+			s_autoFastMeleeNextSwingCmd = -1;
+			s_autoFastMeleeWeapon = 0;
+			s_autoFastMeleeLastIntentCmd = -1;
+			if (hasPendingSwitch)
+			{
+				cmd->buttons &= ~kIN_ATTACK;
+			}
+			else
+			{
+				s_autoFastMeleeSwitchOutPending = false;
+				s_autoFastMeleeSwitchBackPending = false;
+				s_autoFastMeleeSwitchOutCmd = -1;
+				s_autoFastMeleeSwitchBackCmd = -1;
+			}
+		}
+	}
+	else
+	{
+		s_autoFastMeleeHoldPrev = false;
+		s_autoFastMeleeSwitchOutPending = false;
+		s_autoFastMeleeSwitchBackPending = false;
+		s_autoFastMeleeSwitchOutCmd = -1;
+		s_autoFastMeleeSwitchBackCmd = -1;
+		s_autoFastMeleeNextSwingCmd = -1;
+		s_autoFastMeleeWeapon = 0;
+		s_autoFastMeleeLastIntentCmd = -1;
 	}
 
 

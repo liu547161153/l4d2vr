@@ -372,6 +372,13 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 				isAlive = m_VR->IsEntityAlive(entity);
 			}
 		}
+		// Scope RTT pass: optionally hide the local player model so scoped view isn't blocked by your own head/body.
+		if (m_VR->m_ScopeRenderingPass && m_VR->m_ScopeHideLocalPlayerModelInScope && isPlayerClass && m_Game->m_EngineClient)
+		{
+			const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+			if (info.entity_index == localPlayerIndex)
+				return;
+		}
 
 
 // --- Multicore viewmodel stabilization (first-person viewmodel ghosting fix) ---
@@ -383,6 +390,13 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 {
 	const bool isViewmodelClass = className &&
 		(std::strcmp(className, "CBaseViewModel") == 0 || std::strcmp(className, "C_BaseViewModel") == 0);
+	const bool isArmsOrHandsModel =
+		(modelName.find("models/weapons/arms/") != std::string::npos) ||
+		(modelName.find("/arms/") != std::string::npos) ||
+		(modelName.find("v_arms") != std::string::npos) ||
+		(modelName.find("models/weapons/hands/") != std::string::npos) ||
+		(modelName.find("/hands/") != std::string::npos) ||
+		(modelName.find("v_hands") != std::string::npos);
 	const bool isViewmodelModel =
 		(modelName.find("models/weapons/v_") != std::string::npos) ||
 		(modelName.find("/v_models/") != std::string::npos) ||
@@ -394,12 +408,7 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 		(modelName.find("/melee/v_") != std::string::npos) ||
 
 		// Arms/hands are frequently separate models from the gun.
-		(modelName.find("models/weapons/arms/") != std::string::npos) ||
-		(modelName.find("/arms/") != std::string::npos) ||
-		(modelName.find("v_arms") != std::string::npos) ||
-		(modelName.find("models/weapons/hands/") != std::string::npos) ||
-		(modelName.find("/hands/") != std::string::npos) ||
-		(modelName.find("v_hands") != std::string::npos);
+		isArmsOrHandsModel;
 
 
 	if (isViewmodelClass || isViewmodelModel)
@@ -434,36 +443,123 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 		{
 			if (vr_vm_stabilize::TryGetNumBonesFromDrawState(state, numBones) && numBones > 0)
 			{
-										uint32_t seqEven = m_VR->m_RenderFrameSeq.load(std::memory_order_acquire);
-										seqEven &= ~1u;
-										if (seqEven == 0)
-											seqEven = 2;
+				uint32_t seqEven = m_VR->m_RenderFrameSeq.load(std::memory_order_acquire);
+				seqEven &= ~1u;
+				if (seqEven == 0)
+					seqEven = 2;
 
-										vr_vm_stabilize::Mat3x4* bonesCopy = vr_vm_stabilize::AllocStableBones(numBones, seqEven);
-										if (bonesCopy)
-										{
-											memcpy(bonesCopy, pCustomBoneToWorld, (size_t)numBones * sizeof(vr_vm_stabilize::Mat3x4));
+				vr_vm_stabilize::Mat3x4* bonesCopy = vr_vm_stabilize::AllocStableBones(numBones, seqEven);
+				if (bonesCopy)
+				{
+					memcpy(bonesCopy, pCustomBoneToWorld, (size_t)numBones * sizeof(vr_vm_stabilize::Mat3x4));
 
-											// NOTE:
-											// pCustomBoneToWorld is already in WORLD space. However, bone[0] is NOT guaranteed
-											// to be at the entity origin (studio root can have a built-in offset). Using bone[0]
-											// as the reference will mis-anchor the whole model (often looks like it's still HMD-bound).
-											//
-											// Correct approach: treat the bones as (EntityToWorld * BoneLocal). Recover BoneLocal
-											// via inverse(EntityToWorld), then re-apply with TargetEntityToWorld.
-											vr_vm_stabilize::Mat3x4 origEntity{};
-											vr_vm_stabilize::BuildFromOrgAngles(info.origin, info.angles, origEntity);
-											vr_vm_stabilize::Mat3x4 origInv{};
-											vr_vm_stabilize::InvertTR(origEntity, origInv);
-											vr_vm_stabilize::Mat3x4 targetEntity{};
-											vr_vm_stabilize::BuildFromOrgAngles(targetOrigin, targetAngles, targetEntity);
-											vr_vm_stabilize::Mat3x4 delta{};
-											vr_vm_stabilize::Mul(targetEntity, origInv, delta);
-											vr_vm_stabilize::ApplyDelta(delta, bonesCopy, numBones);
+					// NOTE:
+					// pCustomBoneToWorld is already in WORLD space. However, bone[0] is NOT guaranteed
+					// to be at the entity origin (studio root can have a built-in offset). Using bone[0]
+					// as the reference will mis-anchor the whole model (often looks like it's still HMD-bound).
+					//
+					// Correct approach: treat the bones as (EntityToWorld * BoneLocal). Recover BoneLocal
+					// via inverse(EntityToWorld), then re-apply with TargetEntityToWorld.
+					vr_vm_stabilize::Mat3x4 origEntity{};
+					vr_vm_stabilize::BuildFromOrgAngles(info.origin, info.angles, origEntity);
+					vr_vm_stabilize::Mat3x4 origInv{};
+					vr_vm_stabilize::InvertTR(origEntity, origInv);
+					vr_vm_stabilize::Mat3x4 targetEntity{};
+					vr_vm_stabilize::BuildFromOrgAngles(targetOrigin, targetAngles, targetEntity);
+					vr_vm_stabilize::Mat3x4 delta{};
+					vr_vm_stabilize::Mul(targetEntity, origInv, delta);
 
-											pBonesToWorldFinal = bonesCopy;
-											appliedBoneDelta = true;
-										}
+					bool splitApplied = false;
+					if (m_VR->m_SplitArmsToControllers && isArmsOrHandsModel && numBones > 8 && !m_VR->m_MouseModeEnabled)
+					{
+						const Vector leftCtrlPos = m_VR->GetLeftControllerAbsPos();
+						const QAngle leftCtrlAng = m_VR->GetLeftControllerAbsAngle();
+
+						Vector leftForward{}, leftRight{}, leftUp{};
+						QAngle::AngleVectors(leftCtrlAng, &leftForward, &leftRight, &leftUp);
+
+						leftForward = VectorRotate(leftForward, leftRight, -45.0f);
+						leftUp = VectorRotate(leftUp, leftRight, -45.0f);
+
+						leftForward = VectorRotate(leftForward, leftUp, m_VR->m_ViewmodelAngOffset.y);
+						leftRight = VectorRotate(leftRight, leftUp, m_VR->m_ViewmodelAngOffset.y);
+						leftForward = VectorRotate(leftForward, leftRight, m_VR->m_ViewmodelAngOffset.x);
+						leftUp = VectorRotate(leftUp, leftRight, m_VR->m_ViewmodelAngOffset.x);
+						leftRight = VectorRotate(leftRight, leftForward, m_VR->m_ViewmodelAngOffset.z);
+						leftUp = VectorRotate(leftUp, leftForward, m_VR->m_ViewmodelAngOffset.z);
+
+						Vector leftVmPos = leftCtrlPos
+							- (leftForward * m_VR->m_ViewmodelPosOffset.x)
+							- (leftRight * m_VR->m_ViewmodelPosOffset.y)
+							- (leftUp * m_VR->m_ViewmodelPosOffset.z);
+
+						QAngle leftVmAng{};
+						QAngle::VectorAngles(leftForward, leftUp, leftVmAng);
+
+						vr_vm_stabilize::Mat3x4 leftTargetEntity{};
+						vr_vm_stabilize::BuildFromOrgAngles(leftVmPos, leftVmAng, leftTargetEntity);
+
+						vr_vm_stabilize::Mat3x4 leftDelta{};
+						vr_vm_stabilize::Mul(leftTargetEntity, origInv, leftDelta);
+
+						std::vector<float> localY((size_t)numBones, 0.0f);
+						Vector posSum{ 0.0f, 0.0f, 0.0f };
+						Vector negSum{ 0.0f, 0.0f, 0.0f };
+						int posCount = 0;
+						int negCount = 0;
+						float minY = 1e9f;
+						float maxY = -1e9f;
+
+						const auto* srcBones = reinterpret_cast<const vr_vm_stabilize::Mat3x4*>(pCustomBoneToWorld);
+						for (int i = 0; i < numBones; ++i)
+						{
+							vr_vm_stabilize::Mat3x4 localBone{};
+							vr_vm_stabilize::Mul(origInv, srcBones[i], localBone);
+							const float y = localBone.m[1][3];
+							localY[(size_t)i] = y;
+							minY = std::min(minY, y);
+							maxY = std::max(maxY, y);
+
+							const Vector worldPos = vr_vm_stabilize::GetOrigin(srcBones[i]);
+							if (y > 1.0f)
+							{
+								posSum += worldPos;
+								++posCount;
+							}
+							else if (y < -1.0f)
+							{
+								negSum += worldPos;
+								++negCount;
+							}
+						}
+
+						if (posCount > 0 && negCount > 0 && (maxY - minY) > 4.0f)
+						{
+							const Vector rightCtrlPos = m_VR->GetRightControllerAbsPos();
+							const Vector posAvg = posSum / (float)posCount;
+							const Vector negAvg = negSum / (float)negCount;
+							const bool positiveYIsRight = (posAvg - rightCtrlPos).LengthSqr() <= (negAvg - rightCtrlPos).LengthSqr();
+							const float deadZone = std::max(1.0f, (maxY - minY) * 0.08f);
+
+							for (int i = 0; i < numBones; ++i)
+							{
+								const float y = localY[(size_t)i];
+								const bool isCenter = std::fabs(y) <= deadZone;
+								const bool useRightDelta = isCenter || ((y > 0.0f) == positiveYIsRight);
+								vr_vm_stabilize::Mat3x4 tmp{};
+								vr_vm_stabilize::Mul(useRightDelta ? delta : leftDelta, bonesCopy[i], tmp);
+								bonesCopy[i] = tmp;
+							}
+							splitApplied = true;
+						}
+					}
+
+					if (!splitApplied)
+						vr_vm_stabilize::ApplyDelta(delta, bonesCopy, numBones);
+
+					pBonesToWorldFinal = bonesCopy;
+					appliedBoneDelta = true;
+				}
 			}
 		}
 
@@ -704,7 +800,7 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 
     if (overrideHudRT)
     {
-        std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
+        std::lock_guard<TextureStateMutex> lock(m_VR->m_TextureMutex);
         if (!m_VR->m_HUDTexture || !IsHudRenderTarget(pTexture, m_VR->m_HUDTexture))
             overrideHudRT = false;
     }
@@ -718,7 +814,7 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
 
     ITexture* hudTexture = nullptr;
     {
-        std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
+        std::lock_guard<TextureStateMutex> lock(m_VR->m_TextureMutex);
         hudTexture = m_VR->m_HUDTexture;
     }
 
@@ -800,7 +896,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
 
             ITexture* hudTexture = nullptr;
             {
-                std::lock_guard<std::mutex> lock(m_VR->m_TextureMutex);
+                std::lock_guard<TextureStateMutex> lock(m_VR->m_TextureMutex);
                 hudTexture = m_VR->m_HUDTexture;
             }
 
