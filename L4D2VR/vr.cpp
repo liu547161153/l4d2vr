@@ -527,6 +527,8 @@ namespace
     struct FeedbackSoundVoiceState
     {
         std::string alias;
+        std::string loadedPath;
+        bool isOpen = false;
         std::chrono::steady_clock::time_point lastStarted{};
     };
 
@@ -712,8 +714,6 @@ namespace
             };
 
         static size_t s_cachedUserIdOffset = SIZE_MAX;
-        static bool s_loggedCompatOffset = false;
-        static bool s_loggedResolveFailure = false;
 
         if (s_cachedUserIdOffset != SIZE_MAX)
         {
@@ -722,7 +722,6 @@ namespace
                 return cachedUserId;
 
             s_cachedUserIdOffset = SIZE_MAX;
-            s_loggedCompatOffset = false;
         }
 
         const size_t declaredOffset = offsetof(player_info_t, userID);
@@ -730,7 +729,6 @@ namespace
         if (declaredUserId > 0)
         {
             s_cachedUserIdOffset = declaredOffset;
-            s_loggedResolveFailure = false;
             return declaredUserId;
         }
 
@@ -745,59 +743,39 @@ namespace
                 continue;
 
             s_cachedUserIdOffset = offset;
-            s_loggedResolveFailure = false;
-            if (!s_loggedCompatOffset)
-            {
-                Game::logMsg(
-                    "[VR][KillSound][userid] localPlayer=%d userId=%d offset=0x%zX (compat)",
-                    localPlayerIndex,
-                    candidateUserId,
-                    offset);
-                s_loggedCompatOffset = true;
-            }
             return candidateUserId;
-        }
-
-        if (!s_loggedResolveFailure)
-        {
-            Game::logMsg(
-                "[VR][KillSound][userid] failed localPlayer=%d declaredOffset=0x%zX declaredValue=%d",
-                localPlayerIndex,
-                declaredOffset,
-                playerInfo.userID);
-            s_loggedResolveFailure = true;
         }
 
         return 0;
     }
 
-    static std::uintptr_t ResolveKillEventEntityTag(Game* game, IGameEvent* event, const std::string& eventName, int& outEntityIndex)
+    static std::uintptr_t ResolveKillEventEntityTag(Game* game, IGameEvent* event, const std::string& eventName)
     {
-        outEntityIndex = 0;
         if (!game || !event)
             return 0;
 
+        int entityIndex = 0;
         if (eventName == "infected_death")
         {
-            outEntityIndex = event->GetInt("infected_id", 0);
+            entityIndex = event->GetInt("infected_id", 0);
         }
         else if (eventName == "witch_killed")
         {
-            outEntityIndex = event->GetInt("witchid", 0);
+            entityIndex = event->GetInt("witchid", 0);
         }
         else if (eventName == "player_death")
         {
             const int victimUserId = event->GetInt("userid", 0);
             if (victimUserId > 0 && game->m_EngineClient)
-                outEntityIndex = game->m_EngineClient->GetPlayerForUserID(victimUserId);
-            if (outEntityIndex <= 0)
-                outEntityIndex = event->GetInt("entityid", 0);
+                entityIndex = game->m_EngineClient->GetPlayerForUserID(victimUserId);
+            if (entityIndex <= 0)
+                entityIndex = event->GetInt("entityid", 0);
         }
 
-        if (outEntityIndex <= 0)
+        if (entityIndex <= 0)
             return 0;
 
-        return reinterpret_cast<std::uintptr_t>(game->GetClientEntity(outEntityIndex));
+        return reinterpret_cast<std::uintptr_t>(game->GetClientEntity(entityIndex));
     }
 
     static float ReadGameMasterVolumeFromConfig(IEngineClient* engine)
@@ -928,29 +906,103 @@ namespace
         return voices;
     }
 
-    static void CloseFeedbackSoundVoice(const std::string& alias)
+    static bool IsSameFeedbackSoundPath(const std::string& lhs, const std::string& rhs)
     {
-        if (alias.empty())
-            return;
-
-        const std::string closeCmd = std::string("close ") + alias;
-        ::mciSendStringA(closeCmd.c_str(), nullptr, 0, nullptr);
+        return _stricmp(lhs.c_str(), rhs.c_str()) == 0;
     }
 
-    static FeedbackSoundVoiceState& AcquireFeedbackSoundVoice()
+    static void CloseFeedbackSoundVoice(FeedbackSoundVoiceState& voice)
+    {
+        if (voice.alias.empty())
+            return;
+
+        const std::string closeCmd = std::string("close ") + voice.alias;
+        ::mciSendStringA(closeCmd.c_str(), nullptr, 0, nullptr);
+        voice.loadedPath.clear();
+        voice.isOpen = false;
+    }
+
+    static bool EnsureFeedbackSoundVoiceOpen(FeedbackSoundVoiceState& voice, const std::string& resolvedPath)
+    {
+        if (resolvedPath.empty())
+            return false;
+
+        if (voice.isOpen && !voice.loadedPath.empty() && IsSameFeedbackSoundPath(voice.loadedPath, resolvedPath))
+            return true;
+
+        CloseFeedbackSoundVoice(voice);
+        const std::string openCmd = std::string("open \"") + EscapeMciString(resolvedPath) + "\" alias " + voice.alias;
+        if (::mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0)
+            return false;
+
+        voice.loadedPath = resolvedPath;
+        voice.isOpen = true;
+        return true;
+    }
+
+    static FeedbackSoundVoiceState& AcquireFeedbackSoundVoice(const std::string* preferredResolvedPath = nullptr)
     {
         auto& voices = GetFeedbackSoundVoices();
+        if (preferredResolvedPath && !preferredResolvedPath->empty())
+        {
+            auto it = std::min_element(
+                voices.begin(),
+                voices.end(),
+                [&](const FeedbackSoundVoiceState& lhs, const FeedbackSoundVoiceState& rhs)
+                {
+                    const bool lhsMatches = lhs.isOpen && !lhs.loadedPath.empty() && IsSameFeedbackSoundPath(lhs.loadedPath, *preferredResolvedPath);
+                    const bool rhsMatches = rhs.isOpen && !rhs.loadedPath.empty() && IsSameFeedbackSoundPath(rhs.loadedPath, *preferredResolvedPath);
+                    if (lhsMatches != rhsMatches)
+                        return lhsMatches;
+                    if (lhsMatches && rhsMatches)
+                        return lhs.lastStarted < rhs.lastStarted;
+                    if (lhs.isOpen != rhs.isOpen)
+                        return !lhs.isOpen;
+                    return lhs.lastStarted < rhs.lastStarted;
+                });
+            return *it;
+        }
+
         auto it = std::min_element(
             voices.begin(),
             voices.end(),
             [](const FeedbackSoundVoiceState& lhs, const FeedbackSoundVoiceState& rhs)
             {
+                if (lhs.isOpen != rhs.isOpen)
+                    return !lhs.isOpen;
                 return lhs.lastStarted < rhs.lastStarted;
             });
-
-        CloseFeedbackSoundVoice(it->alias);
-        it->lastStarted = std::chrono::steady_clock::now();
         return *it;
+    }
+
+    static bool TryResolveFeedbackSoundFileSpec(const std::string& rawSpec, std::string& outResolvedPath)
+    {
+        const std::string spec = TrimCopy(rawSpec);
+        if (spec.empty())
+            return false;
+
+        auto getPayload = [&](size_t prefixLen)
+            {
+                return TrimCopy(spec.substr(prefixLen));
+            };
+
+        if (StartsWithInsensitive(spec, "alias:") ||
+            StartsWithInsensitive(spec, "game:") ||
+            StartsWithInsensitive(spec, "gamesound:") ||
+            StartsWithInsensitive(spec, "cmd:"))
+        {
+            return false;
+        }
+
+        std::string pathSpec = spec;
+        if (StartsWithInsensitive(spec, "file:"))
+            pathSpec = getPayload(5);
+
+        if (pathSpec.empty())
+            return false;
+
+        outResolvedPath = ResolveKillSoundFilePath(pathSpec);
+        return !outResolvedPath.empty();
     }
 
     static void ApplyFeedbackSoundStereoVolumes(const std::string& alias, int leftVolume, int rightVolume)
@@ -974,20 +1026,25 @@ namespace
         if (resolvedPath.empty())
             return false;
 
-        FeedbackSoundVoiceState& voice = AcquireFeedbackSoundVoice();
-        const std::string openCmd = std::string("open \"") + EscapeMciString(resolvedPath) + "\" alias " + voice.alias;
-        if (::mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0)
+        FeedbackSoundVoiceState& voice = AcquireFeedbackSoundVoice(&resolvedPath);
+        if (!EnsureFeedbackSoundVoiceOpen(voice, resolvedPath))
             return false;
+
+        const std::string stopCmd = std::string("stop ") + voice.alias;
+        ::mciSendStringA(stopCmd.c_str(), nullptr, 0, nullptr);
+        const std::string seekCmd = std::string("seek ") + voice.alias + " to start";
+        ::mciSendStringA(seekCmd.c_str(), nullptr, 0, nullptr);
 
         ApplyFeedbackSoundStereoVolumes(voice.alias, leftVolume, rightVolume);
 
         const std::string playCmd = std::string("play ") + voice.alias + " from 0";
         if (::mciSendStringA(playCmd.c_str(), nullptr, 0, nullptr) != 0)
         {
-            CloseFeedbackSoundVoice(voice.alias);
+            CloseFeedbackSoundVoice(voice);
             return false;
         }
 
+        voice.lastStarted = std::chrono::steady_clock::now();
         return true;
     }
 
@@ -1057,6 +1114,612 @@ namespace
         return spec + "/" + desiredLeaf;
     }
 
+    struct KillIndicatorDecodedFrames
+    {
+        bool attempted = false;
+        bool loaded = false;
+        bool additive = false;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        float frameRate = 0.0f;
+        std::vector<std::vector<uint8_t>> frames;
+    };
+
+    static std::string NormalizeSlashes(std::string value, char slash)
+    {
+        std::replace(value.begin(), value.end(), '\\', slash);
+        std::replace(value.begin(), value.end(), '/', slash);
+        return value;
+    }
+
+    static std::string ToLowerCopy(std::string value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return value;
+    }
+
+    static std::string TrimQuotesCopy(std::string value)
+    {
+        value = TrimCopy(value);
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+            value = value.substr(1, value.size() - 2);
+        return value;
+    }
+
+    static size_t BytesPerBlockForImageFormat(ImageFormat format)
+    {
+        switch (format)
+        {
+        case IMAGE_FORMAT_DXT1:
+        case IMAGE_FORMAT_DXT1_ONEBITALPHA:
+            return 8;
+        case IMAGE_FORMAT_DXT3:
+        case IMAGE_FORMAT_DXT5:
+            return 16;
+        default:
+            return 0;
+        }
+    }
+
+    static size_t ComputeImageByteSize(ImageFormat format, uint32_t width, uint32_t height)
+    {
+        switch (format)
+        {
+        case IMAGE_FORMAT_RGBA8888:
+        case IMAGE_FORMAT_ABGR8888:
+        case IMAGE_FORMAT_ARGB8888:
+        case IMAGE_FORMAT_BGRA8888:
+        case IMAGE_FORMAT_BGRX8888:
+            return static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
+        case IMAGE_FORMAT_RGB888:
+        case IMAGE_FORMAT_BGR888:
+            return static_cast<size_t>(width) * static_cast<size_t>(height) * 3u;
+        case IMAGE_FORMAT_DXT1:
+        case IMAGE_FORMAT_DXT1_ONEBITALPHA:
+        case IMAGE_FORMAT_DXT3:
+        case IMAGE_FORMAT_DXT5:
+        {
+            const size_t blockWidth = (static_cast<size_t>(width) + 3u) / 4u;
+            const size_t blockHeight = (static_cast<size_t>(height) + 3u) / 4u;
+            return blockWidth * blockHeight * BytesPerBlockForImageFormat(format);
+        }
+        default:
+            return 0;
+        }
+    }
+
+    static void DecodeRgb565(uint16_t packed, uint8_t& outR, uint8_t& outG, uint8_t& outB)
+    {
+        outR = static_cast<uint8_t>(((packed >> 11) & 0x1Fu) * 255u / 31u);
+        outG = static_cast<uint8_t>(((packed >> 5) & 0x3Fu) * 255u / 63u);
+        outB = static_cast<uint8_t>((packed & 0x1Fu) * 255u / 31u);
+    }
+
+    static void DecodeDxt1Block(const uint8_t* block, uint8_t* rgba, uint32_t stride, uint32_t maxX, uint32_t maxY, bool oneBitAlpha)
+    {
+        const uint16_t color0 = static_cast<uint16_t>(block[0] | (block[1] << 8));
+        const uint16_t color1 = static_cast<uint16_t>(block[2] | (block[3] << 8));
+        uint8_t palette[4][4] = {};
+        DecodeRgb565(color0, palette[0][0], palette[0][1], palette[0][2]);
+        DecodeRgb565(color1, palette[1][0], palette[1][1], palette[1][2]);
+        palette[0][3] = 255;
+        palette[1][3] = 255;
+
+        if (color0 > color1 || !oneBitAlpha)
+        {
+            for (int c = 0; c < 3; ++c)
+            {
+                palette[2][c] = static_cast<uint8_t>((2u * palette[0][c] + palette[1][c]) / 3u);
+                palette[3][c] = static_cast<uint8_t>((palette[0][c] + 2u * palette[1][c]) / 3u);
+            }
+            palette[2][3] = 255;
+            palette[3][3] = 255;
+        }
+        else
+        {
+            for (int c = 0; c < 3; ++c)
+                palette[2][c] = static_cast<uint8_t>((palette[0][c] + palette[1][c]) / 2u);
+            palette[2][3] = 255;
+            palette[3][0] = palette[3][1] = palette[3][2] = 0;
+            palette[3][3] = 0;
+        }
+
+        uint32_t indices = block[4] | (block[5] << 8) | (block[6] << 16) | (block[7] << 24);
+        for (uint32_t y = 0; y < maxY; ++y)
+        {
+            for (uint32_t x = 0; x < maxX; ++x)
+            {
+                const uint32_t idx = (indices >> (2u * (4u * y + x))) & 0x3u;
+                uint8_t* dst = rgba + static_cast<size_t>(y) * stride + static_cast<size_t>(x) * 4u;
+                dst[0] = palette[idx][0];
+                dst[1] = palette[idx][1];
+                dst[2] = palette[idx][2];
+                dst[3] = palette[idx][3];
+            }
+        }
+    }
+
+    static void DecodeDxt5Block(const uint8_t* block, uint8_t* rgba, uint32_t stride, uint32_t maxX, uint32_t maxY)
+    {
+        uint8_t alphaPalette[8] = {};
+        alphaPalette[0] = block[0];
+        alphaPalette[1] = block[1];
+        if (alphaPalette[0] > alphaPalette[1])
+        {
+            alphaPalette[2] = static_cast<uint8_t>((6u * alphaPalette[0] + 1u * alphaPalette[1]) / 7u);
+            alphaPalette[3] = static_cast<uint8_t>((5u * alphaPalette[0] + 2u * alphaPalette[1]) / 7u);
+            alphaPalette[4] = static_cast<uint8_t>((4u * alphaPalette[0] + 3u * alphaPalette[1]) / 7u);
+            alphaPalette[5] = static_cast<uint8_t>((3u * alphaPalette[0] + 4u * alphaPalette[1]) / 7u);
+            alphaPalette[6] = static_cast<uint8_t>((2u * alphaPalette[0] + 5u * alphaPalette[1]) / 7u);
+            alphaPalette[7] = static_cast<uint8_t>((1u * alphaPalette[0] + 6u * alphaPalette[1]) / 7u);
+        }
+        else
+        {
+            alphaPalette[2] = static_cast<uint8_t>((4u * alphaPalette[0] + 1u * alphaPalette[1]) / 5u);
+            alphaPalette[3] = static_cast<uint8_t>((3u * alphaPalette[0] + 2u * alphaPalette[1]) / 5u);
+            alphaPalette[4] = static_cast<uint8_t>((2u * alphaPalette[0] + 3u * alphaPalette[1]) / 5u);
+            alphaPalette[5] = static_cast<uint8_t>((1u * alphaPalette[0] + 4u * alphaPalette[1]) / 5u);
+            alphaPalette[6] = 0;
+            alphaPalette[7] = 255;
+        }
+
+        uint64_t alphaIndices = 0;
+        for (int i = 0; i < 6; ++i)
+            alphaIndices |= static_cast<uint64_t>(block[2 + i]) << (8u * i);
+
+        DecodeDxt1Block(block + 8, rgba, stride, maxX, maxY, false);
+
+        for (uint32_t y = 0; y < maxY; ++y)
+        {
+            for (uint32_t x = 0; x < maxX; ++x)
+            {
+                const uint32_t alphaIndex = static_cast<uint32_t>((alphaIndices >> (3u * (4u * y + x))) & 0x7u);
+                uint8_t* dst = rgba + static_cast<size_t>(y) * stride + static_cast<size_t>(x) * 4u;
+                dst[3] = alphaPalette[alphaIndex];
+            }
+        }
+    }
+
+    static bool ResizeRgbaNearest(const std::vector<uint8_t>& src, uint32_t srcWidth, uint32_t srcHeight, uint32_t dstWidth, uint32_t dstHeight, std::vector<uint8_t>& dst)
+    {
+        if (src.empty() || srcWidth == 0 || srcHeight == 0 || dstWidth == 0 || dstHeight == 0)
+            return false;
+
+        dst.resize(static_cast<size_t>(dstWidth) * static_cast<size_t>(dstHeight) * 4u);
+        for (uint32_t y = 0; y < dstHeight; ++y)
+        {
+            const uint32_t srcY = static_cast<uint32_t>((static_cast<uint64_t>(y) * srcHeight) / dstHeight);
+            for (uint32_t x = 0; x < dstWidth; ++x)
+            {
+                const uint32_t srcX = static_cast<uint32_t>((static_cast<uint64_t>(x) * srcWidth) / dstWidth);
+                const uint8_t* srcPx = src.data() + (static_cast<size_t>(srcY) * srcWidth + srcX) * 4u;
+                uint8_t* dstPx = dst.data() + (static_cast<size_t>(y) * dstWidth + x) * 4u;
+                dstPx[0] = srcPx[0];
+                dstPx[1] = srcPx[1];
+                dstPx[2] = srcPx[2];
+                dstPx[3] = srcPx[3];
+            }
+        }
+        return true;
+    }
+
+    static bool CropRgba(const std::vector<uint8_t>& src, uint32_t srcWidth, uint32_t srcHeight, uint32_t left, uint32_t top, uint32_t cropWidth, uint32_t cropHeight, std::vector<uint8_t>& dst)
+    {
+        if (src.empty() || srcWidth == 0 || srcHeight == 0 || cropWidth == 0 || cropHeight == 0)
+            return false;
+        if (left >= srcWidth || top >= srcHeight)
+            return false;
+        if (left + cropWidth > srcWidth || top + cropHeight > srcHeight)
+            return false;
+
+        dst.resize(static_cast<size_t>(cropWidth) * static_cast<size_t>(cropHeight) * 4u);
+        for (uint32_t y = 0; y < cropHeight; ++y)
+        {
+            const uint8_t* srcRow = src.data() + ((static_cast<size_t>(top + y) * srcWidth) + left) * 4u;
+            uint8_t* dstRow = dst.data() + static_cast<size_t>(y) * static_cast<size_t>(cropWidth) * 4u;
+            std::memcpy(dstRow, srcRow, static_cast<size_t>(cropWidth) * 4u);
+        }
+        return true;
+    }
+
+    static void ConvertAdditiveRgbaToOverlay(std::vector<uint8_t>& rgba)
+    {
+        constexpr uint8_t kVisibilityThreshold = 12;
+
+        for (size_t i = 0; i + 3 < rgba.size(); i += 4)
+        {
+            const uint8_t srcR = rgba[i + 0];
+            const uint8_t srcG = rgba[i + 1];
+            const uint8_t srcB = rgba[i + 2];
+            const uint8_t srcA = rgba[i + 3];
+            const uint8_t maxRgb = (std::max)({ srcR, srcG, srcB });
+
+            if (maxRgb <= kVisibilityThreshold || srcA == 0)
+            {
+                rgba[i + 0] = 0;
+                rgba[i + 1] = 0;
+                rgba[i + 2] = 0;
+                rgba[i + 3] = 0;
+                continue;
+            }
+
+            const float intensity = static_cast<float>(maxRgb) / 255.0f;
+            const uint8_t overlayAlpha = static_cast<uint8_t>(std::clamp(std::lround(std::pow(intensity, 0.75f) * 255.0f), 0l, 255l));
+            const float hueScale = 255.0f / static_cast<float>(maxRgb);
+
+            rgba[i + 0] = static_cast<uint8_t>(std::clamp(std::lround(static_cast<float>(srcR) * hueScale), 0l, 255l));
+            rgba[i + 1] = static_cast<uint8_t>(std::clamp(std::lround(static_cast<float>(srcG) * hueScale), 0l, 255l));
+            rgba[i + 2] = static_cast<uint8_t>(std::clamp(std::lround(static_cast<float>(srcB) * hueScale), 0l, 255l));
+            rgba[i + 3] = overlayAlpha;
+        }
+    }
+
+    static bool FindVisibleRgbaBounds(const std::vector<std::vector<uint8_t>>& frames, uint32_t width, uint32_t height, uint32_t& outLeft, uint32_t& outTop, uint32_t& outWidth, uint32_t& outHeight)
+    {
+        if (frames.empty() || width == 0 || height == 0)
+            return false;
+
+        constexpr uint8_t kVisibleAlphaThreshold = 8;
+
+        bool foundAny = false;
+        uint32_t minX = width;
+        uint32_t minY = height;
+        uint32_t maxX = 0;
+        uint32_t maxY = 0;
+
+        for (const std::vector<uint8_t>& frame : frames)
+        {
+            if (frame.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4u)
+                continue;
+
+            for (uint32_t y = 0; y < height; ++y)
+            {
+                for (uint32_t x = 0; x < width; ++x)
+                {
+                    const uint8_t* px = frame.data() + ((static_cast<size_t>(y) * width) + x) * 4u;
+                    if (px[3] <= kVisibleAlphaThreshold)
+                        continue;
+
+                    foundAny = true;
+                    minX = (std::min)(minX, x);
+                    minY = (std::min)(minY, y);
+                    maxX = (std::max)(maxX, x);
+                    maxY = (std::max)(maxY, y);
+                }
+            }
+        }
+
+        if (!foundAny)
+            return false;
+
+        const uint32_t padding = (std::max)(4u, (std::max)(width, height) / 64u);
+        outLeft = (minX > padding) ? (minX - padding) : 0u;
+        outTop = (minY > padding) ? (minY - padding) : 0u;
+        const uint32_t paddedRight = (std::min)(width - 1u, maxX + padding);
+        const uint32_t paddedBottom = (std::min)(height - 1u, maxY + padding);
+        outWidth = paddedRight - outLeft + 1u;
+        outHeight = paddedBottom - outTop + 1u;
+        return outWidth > 0 && outHeight > 0;
+    }
+
+    static bool ParseTrailingBoolValue(const std::string& line, const char* key, bool& outValue)
+    {
+        if (!key || !*key)
+            return false;
+
+        const std::string trimmed = TrimCopy(line);
+        const std::string lowered = ToLowerCopy(trimmed);
+        const std::string loweredKey = ToLowerCopy(key);
+        const size_t keyPos = lowered.find(loweredKey);
+        if (keyPos == std::string::npos)
+            return false;
+
+        std::string tail = ToLowerCopy(TrimQuotesCopy(trimmed.substr(keyPos + loweredKey.size())));
+        if (tail.empty())
+            return false;
+
+        if (tail == "1" || tail == "true" || tail == "yes")
+        {
+            outValue = true;
+            return true;
+        }
+        if (tail == "0" || tail == "false" || tail == "no")
+        {
+            outValue = false;
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool ParseQuotedMaterialValue(const std::string& line, const char* key, std::string& outValue)
+    {
+        if (!key || !*key)
+            return false;
+
+        const std::string trimmed = TrimCopy(line);
+        const std::string lowered = ToLowerCopy(trimmed);
+        const std::string loweredKey = ToLowerCopy(key);
+        const size_t keyPos = lowered.find(loweredKey);
+        if (keyPos == std::string::npos)
+            return false;
+
+        size_t searchPos = keyPos + loweredKey.size();
+        while (searchPos < trimmed.size() && std::isspace(static_cast<unsigned char>(trimmed[searchPos])))
+            ++searchPos;
+
+        if (searchPos >= trimmed.size() || trimmed[searchPos] != '"')
+            return false;
+
+        size_t firstQuote = searchPos;
+        size_t secondQuote = trimmed.find('"', firstQuote + 1);
+        if (secondQuote == std::string::npos)
+            return false;
+
+        std::string candidate = TrimCopy(trimmed.substr(firstQuote + 1, secondQuote - firstQuote - 1));
+        if (!candidate.empty())
+        {
+            outValue = candidate;
+            return true;
+        }
+
+        firstQuote = secondQuote;
+        secondQuote = trimmed.find('"', firstQuote + 1);
+        if (secondQuote == std::string::npos)
+            return false;
+
+        outValue = TrimCopy(trimmed.substr(firstQuote + 1, secondQuote - firstQuote - 1));
+        return !outValue.empty();
+    }
+
+    static bool ParseTrailingFloatValue(const std::string& line, const char* key, float& outValue)
+    {
+        if (!key || !*key)
+            return false;
+
+        const std::string trimmed = TrimCopy(line);
+        const std::string lowered = ToLowerCopy(trimmed);
+        const std::string loweredKey = ToLowerCopy(key);
+        const size_t keyPos = lowered.find(loweredKey);
+        if (keyPos == std::string::npos)
+            return false;
+
+        std::string tail = TrimQuotesCopy(trimmed.substr(keyPos + loweredKey.size()));
+        if (tail.empty())
+            return false;
+
+        char* endPtr = nullptr;
+        const float value = std::strtof(tail.c_str(), &endPtr);
+        if (endPtr == tail.c_str())
+            return false;
+        outValue = value;
+        return true;
+    }
+
+    static bool LoadKillIndicatorDecodedFramesFromDisk(const std::string& materialName, KillIndicatorDecodedFrames& outFrames)
+    {
+        const std::string moduleDir = GetModuleDirectoryA();
+        if (moduleDir.empty())
+            return false;
+
+        const std::string normalizedMaterial = NormalizeMaterialPathSpec(materialName);
+        if (normalizedMaterial.empty())
+            return false;
+
+        const std::string materialsDir = JoinWindowsPath(JoinWindowsPath(moduleDir, "left4dead2"), "materials");
+        const std::string vmtPath = JoinWindowsPath(materialsDir, NormalizeSlashes(normalizedMaterial, '\\') + ".vmt");
+
+        std::ifstream vmtFile(vmtPath);
+        if (!vmtFile.is_open())
+            return false;
+
+        std::string baseTexture = normalizedMaterial;
+        float frameRate = 0.0f;
+        bool additive = false;
+        std::string line;
+        while (std::getline(vmtFile, line))
+        {
+            std::string parsedValue;
+            if (ParseQuotedMaterialValue(line, "$basetexture", parsedValue))
+                baseTexture = NormalizeMaterialPathSpec(parsedValue);
+
+            float parsedRate = 0.0f;
+            if (ParseTrailingFloatValue(line, "animatedTextureFrameRate", parsedRate))
+                frameRate = (std::max)(0.0f, parsedRate);
+
+            std::string parsedBoolValue;
+            if (ParseQuotedMaterialValue(line, "$additive", parsedBoolValue))
+            {
+                const std::string loweredBool = ToLowerCopy(TrimQuotesCopy(parsedBoolValue));
+                if (loweredBool == "1" || loweredBool == "true" || loweredBool == "yes")
+                    additive = true;
+                else if (loweredBool == "0" || loweredBool == "false" || loweredBool == "no")
+                    additive = false;
+            }
+            else
+            {
+                bool parsedAdditive = false;
+                if (ParseTrailingBoolValue(line, "$additive", parsedAdditive))
+                    additive = parsedAdditive;
+            }
+        }
+
+        const std::string vtfPath = JoinWindowsPath(materialsDir, NormalizeSlashes(baseTexture, '\\') + ".vtf");
+        std::ifstream vtfFile(vtfPath, std::ios::binary);
+        if (!vtfFile.is_open())
+            return false;
+
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(vtfFile)), std::istreambuf_iterator<char>());
+        if (bytes.size() < 80 || bytes[0] != 'V' || bytes[1] != 'T' || bytes[2] != 'F' || bytes[3] != '\0')
+            return false;
+
+        auto readU16 = [&](size_t offset) -> uint16_t
+        {
+            return static_cast<uint16_t>(bytes[offset] | (static_cast<uint16_t>(bytes[offset + 1]) << 8));
+        };
+        auto readU32 = [&](size_t offset) -> uint32_t
+        {
+            return static_cast<uint32_t>(bytes[offset]
+                | (static_cast<uint32_t>(bytes[offset + 1]) << 8)
+                | (static_cast<uint32_t>(bytes[offset + 2]) << 16)
+                | (static_cast<uint32_t>(bytes[offset + 3]) << 24));
+        };
+
+        const uint32_t headerSize = readU32(12);
+        const uint32_t width = readU16(16);
+        const uint32_t height = readU16(18);
+        const uint32_t frameCount = (std::max<uint32_t>)(1u, readU16(24));
+        const ImageFormat highResFormat = static_cast<ImageFormat>(readU32(52));
+        const uint8_t mipCount = bytes[56];
+        const ImageFormat lowResFormat = static_cast<ImageFormat>(readU32(57));
+        const uint8_t lowResWidth = bytes[61];
+        const uint8_t lowResHeight = bytes[62];
+        const uint16_t depth = readU16(63);
+        if (headerSize >= bytes.size() || width == 0 || height == 0 || mipCount == 0 || depth == 0)
+            return false;
+
+        const size_t lowResBytes = ComputeImageByteSize(lowResFormat, lowResWidth, lowResHeight);
+        size_t highResOffset = static_cast<size_t>(headerSize) + lowResBytes;
+        for (int mip = static_cast<int>(mipCount) - 1; mip >= 1; --mip)
+        {
+            const uint32_t mipWidth = (std::max)(1u, width >> mip);
+            const uint32_t mipHeight = (std::max)(1u, height >> mip);
+            const uint32_t mipDepth = (std::max)(1u, static_cast<uint32_t>(depth) >> mip);
+            const size_t mipBytes = ComputeImageByteSize(highResFormat, mipWidth, mipHeight) * static_cast<size_t>(mipDepth) * static_cast<size_t>(frameCount);
+            highResOffset += mipBytes;
+        }
+
+        const size_t frameBytes = ComputeImageByteSize(highResFormat, width, height);
+        if (frameBytes == 0 || highResOffset + frameBytes * static_cast<size_t>(frameCount) > bytes.size())
+            return false;
+
+        outFrames.frames.clear();
+        outFrames.frames.reserve(frameCount);
+        outFrames.additive = additive;
+        outFrames.width = width;
+        outFrames.height = height;
+        outFrames.frameRate = frameRate;
+
+        for (uint32_t frameIndex = 0; frameIndex < frameCount; ++frameIndex)
+        {
+            const uint8_t* frameData = bytes.data() + highResOffset + frameIndex * frameBytes;
+            std::vector<uint8_t> rgba(static_cast<size_t>(width) * static_cast<size_t>(height) * 4u, 0);
+
+            switch (highResFormat)
+            {
+            case IMAGE_FORMAT_DXT1:
+            case IMAGE_FORMAT_DXT1_ONEBITALPHA:
+            {
+                const size_t blocksWide = (static_cast<size_t>(width) + 3u) / 4u;
+                const size_t blocksHigh = (static_cast<size_t>(height) + 3u) / 4u;
+                for (size_t by = 0; by < blocksHigh; ++by)
+                {
+                    for (size_t bx = 0; bx < blocksWide; ++bx)
+                    {
+                        const uint8_t* block = frameData + (by * blocksWide + bx) * 8u;
+                        uint8_t* dst = rgba.data() + (by * 4u * static_cast<size_t>(width) + bx * 4u) * 4u;
+                        const uint32_t maxX = static_cast<uint32_t>((std::min)(4u, width - static_cast<uint32_t>(bx * 4u)));
+                        const uint32_t maxY = static_cast<uint32_t>((std::min)(4u, height - static_cast<uint32_t>(by * 4u)));
+                        DecodeDxt1Block(block, dst, width * 4u, maxX, maxY, highResFormat == IMAGE_FORMAT_DXT1_ONEBITALPHA);
+                    }
+                }
+                break;
+            }
+            case IMAGE_FORMAT_DXT5:
+            {
+                const size_t blocksWide = (static_cast<size_t>(width) + 3u) / 4u;
+                const size_t blocksHigh = (static_cast<size_t>(height) + 3u) / 4u;
+                for (size_t by = 0; by < blocksHigh; ++by)
+                {
+                    for (size_t bx = 0; bx < blocksWide; ++bx)
+                    {
+                        const uint8_t* block = frameData + (by * blocksWide + bx) * 16u;
+                        uint8_t* dst = rgba.data() + (by * 4u * static_cast<size_t>(width) + bx * 4u) * 4u;
+                        const uint32_t maxX = static_cast<uint32_t>((std::min)(4u, width - static_cast<uint32_t>(bx * 4u)));
+                        const uint32_t maxY = static_cast<uint32_t>((std::min)(4u, height - static_cast<uint32_t>(by * 4u)));
+                        DecodeDxt5Block(block, dst, width * 4u, maxX, maxY);
+                    }
+                }
+                break;
+            }
+            case IMAGE_FORMAT_BGRA8888:
+            {
+                for (uint32_t i = 0; i < width * height; ++i)
+                {
+                    rgba[i * 4 + 0] = frameData[i * 4 + 2];
+                    rgba[i * 4 + 1] = frameData[i * 4 + 1];
+                    rgba[i * 4 + 2] = frameData[i * 4 + 0];
+                    rgba[i * 4 + 3] = frameData[i * 4 + 3];
+                }
+                break;
+            }
+            case IMAGE_FORMAT_RGBA8888:
+            {
+                std::memcpy(rgba.data(), frameData, rgba.size());
+                break;
+            }
+            default:
+                return false;
+            }
+
+            outFrames.frames.push_back(std::move(rgba));
+        }
+
+        if (outFrames.additive)
+        {
+            for (std::vector<uint8_t>& frame : outFrames.frames)
+                ConvertAdditiveRgbaToOverlay(frame);
+        }
+
+        uint32_t visibleLeft = 0;
+        uint32_t visibleTop = 0;
+        uint32_t visibleWidth = outFrames.width;
+        uint32_t visibleHeight = outFrames.height;
+        if (FindVisibleRgbaBounds(outFrames.frames, outFrames.width, outFrames.height, visibleLeft, visibleTop, visibleWidth, visibleHeight)
+            && (visibleWidth < outFrames.width || visibleHeight < outFrames.height))
+        {
+            for (std::vector<uint8_t>& frame : outFrames.frames)
+            {
+                std::vector<uint8_t> cropped;
+                if (CropRgba(frame, outFrames.width, outFrames.height, visibleLeft, visibleTop, visibleWidth, visibleHeight, cropped))
+                    frame = std::move(cropped);
+            }
+
+            outFrames.width = visibleWidth;
+            outFrames.height = visibleHeight;
+        }
+
+        if (outFrames.width > 256 || outFrames.height > 256)
+        {
+            const uint32_t dstWidth = (std::min)(256u, outFrames.width);
+            const uint32_t dstHeight = (std::min)(256u, outFrames.height);
+            for (std::vector<uint8_t>& frame : outFrames.frames)
+            {
+                std::vector<uint8_t> resized;
+                if (ResizeRgbaNearest(frame, outFrames.width, outFrames.height, dstWidth, dstHeight, resized))
+                    frame = std::move(resized);
+            }
+            outFrames.width = dstWidth;
+            outFrames.height = dstHeight;
+        }
+
+        outFrames.loaded = !outFrames.frames.empty();
+        return outFrames.loaded;
+    }
+
+    static KillIndicatorDecodedFrames& GetKillIndicatorDecodedFrameCache(const std::string& materialName)
+    {
+        static std::unordered_map<std::string, KillIndicatorDecodedFrames> cache;
+        const std::string key = ToLowerCopy(materialName);
+        KillIndicatorDecodedFrames& entry = cache[key];
+        if (!entry.attempted)
+        {
+            entry.attempted = true;
+            entry.loaded = LoadKillIndicatorDecodedFramesFromDisk(materialName, entry);
+        }
+        return entry;
+    }
+
     static float GetActiveIndicatorLifetimeSeconds(const VR::ActiveKillIndicator& indicator, float killLifetimeSeconds)
     {
         if (indicator.killConfirmed)
@@ -1064,6 +1727,28 @@ namespace
 
         const float scaled = killLifetimeSeconds * 0.42f;
         return std::clamp(scaled, 0.10f, 0.45f);
+    }
+
+    enum class KillIndicatorMaterialKind
+    {
+        Hit = 0,
+        Kill = 1,
+        Headshot = 2,
+    };
+
+    static IDirect3DDevice9* GetKillIndicatorD3DDevice(VR* vr)
+    {
+        if (!vr)
+            return nullptr;
+
+        IDirect3DDevice9* device = nullptr;
+        if (vr->m_D9HUDSurface)
+            vr->m_D9HUDSurface->GetDevice(&device);
+        else if (vr->m_D9LeftEyeSurface)
+            vr->m_D9LeftEyeSurface->GetDevice(&device);
+        else if (vr->m_D9RightEyeSurface)
+            vr->m_D9RightEyeSurface->GetDevice(&device);
+        return device;
     }
 
     static bool ProjectKillIndicatorToHud(const VR* vr, const Vector& worldPos, int screenWidth, int screenHeight, float maxDistance, int& outX, int& outY)
@@ -1245,7 +1930,8 @@ void VR::EnsureKillSoundEventListener()
     {
         const bool alreadyRegistered = m_KillSoundEventManager->FindListener(m_KillSoundEventListener, eventName);
         const bool registered = alreadyRegistered || m_KillSoundEventManager->AddListener(m_KillSoundEventListener, eventName, false);
-        Game::logMsg("[VR][KillSound][listener] event=%s registered=%d", eventName, registered ? 1 : 0);
+        if (!registered)
+            Game::logMsg("[VR][KillSound][listener] failed to register event=%s", eventName);
         registeredAll = registeredAll && registered;
     }
 
@@ -1263,7 +1949,6 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
 
     const std::string eventName(rawEventName);
     const int localUserId = GetLocalPlayerUserId(m_Game);
-    Game::logMsg("[VR][KillSound][event-raw] name=%s localUserId=%d", eventName.c_str(), localUserId);
     if (localUserId <= 0)
         return;
 
@@ -1290,40 +1975,13 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
     }
 
     if (attackerUserId != localUserId)
-    {
-        Game::logMsg(
-            "[VR][KillSound][event-skip] name=%s attacker=%d local=%d",
-            eventName.c_str(),
-            attackerUserId,
-            localUserId);
         return;
-    }
 
-    int resolvedEntityIndex = 0;
-    const std::uintptr_t entityTag = ResolveKillEventEntityTag(m_Game, event, eventName, resolvedEntityIndex);
-    const int victimUserId = event->GetInt("userid", 0);
-    const int victimEntityId = event->GetInt("entityid", 0);
-    const int infectedId = event->GetInt("infected_id", 0);
-    const int witchId = event->GetInt("witchid", 0);
-    const char* weapon = event->GetString("weapon", "");
-
-    Game::logMsg(
-        "[VR][KillSound][event] name=%s attacker=%d userid=%d entityid=%d infected_id=%d witchid=%d headshot=%d weapon=%s resolvedEntity=%d tag=%p",
-        eventName.c_str(),
-        attackerUserId,
-        victimUserId,
-        victimEntityId,
-        infectedId,
-        witchId,
-        headshot ? 1 : 0,
-        weapon ? weapon : "",
-        resolvedEntityIndex,
-        reinterpret_cast<void*>(entityTag));
-
-    QueuePendingKillSoundEvent(entityTag, headshot, eventName.c_str());
+    const std::uintptr_t entityTag = ResolveKillEventEntityTag(m_Game, event, eventName);
+    QueuePendingKillSoundEvent(entityTag, headshot);
 }
 
-void VR::QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot, const char* eventName)
+void VR::QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot)
 {
     const auto now = std::chrono::steady_clock::now();
     const float eventLifetimeSeconds = (std::max)(0.5f, m_KillSoundDetectionWindowSeconds + 0.35f);
@@ -1341,13 +1999,12 @@ void VR::QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot, con
     pendingEvent.entityTag = entityTag;
     pendingEvent.headshot = headshot;
     pendingEvent.receivedAt = now;
-    pendingEvent.eventName = eventName ? eventName : "";
     m_PendingKillSoundEvents.push_back(std::move(pendingEvent));
     if (m_PendingKillSoundEvents.size() > 32)
         m_PendingKillSoundEvents.erase(m_PendingKillSoundEvents.begin(), m_PendingKillSoundEvents.begin() + (m_PendingKillSoundEvents.size() - 32));
 }
 
-bool VR::ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag, std::string* outEventName)
+bool VR::ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag)
 {
     const float eventLifetimeSeconds = (std::max)(0.5f, m_KillSoundDetectionWindowSeconds + 0.35f);
     m_PendingKillSoundEvents.erase(
@@ -1368,8 +2025,6 @@ bool VR::ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now,
 
     outHeadshot = pendingEvent.headshot;
     outEntityTag = pendingEvent.entityTag;
-    if (outEventName)
-        *outEventName = pendingEvent.eventName;
     return true;
 }
 
@@ -1702,6 +2357,48 @@ void VR::PlayKillSound(bool headshot, const Vector* worldPos)
     m_LastKillSoundPlaybackTime = now;
 }
 
+void VR::EnsureFeedbackSoundWarmup()
+{
+    const std::string signature = m_HitSoundSpec + "\n" + m_KillSoundNormalSpec + "\n" + m_KillSoundHeadshotSpec;
+    if (signature == m_FeedbackSoundWarmupSignature)
+        return;
+
+    m_FeedbackSoundWarmupSignature = signature;
+
+    const std::array<std::string, 3> specs =
+    {
+        m_HitSoundEnabled ? m_HitSoundSpec : std::string{},
+        m_KillSoundEnabled ? m_KillSoundNormalSpec : std::string{},
+        m_KillSoundEnabled ? m_KillSoundHeadshotSpec : std::string{}
+    };
+
+    std::vector<std::string> warmedPaths;
+    warmedPaths.reserve(specs.size());
+
+    for (const std::string& spec : specs)
+    {
+        std::string resolvedPath;
+        if (!TryResolveFeedbackSoundFileSpec(spec, resolvedPath))
+            continue;
+
+        bool alreadyWarmed = false;
+        for (const std::string& existingPath : warmedPaths)
+        {
+            if (IsSameFeedbackSoundPath(existingPath, resolvedPath))
+            {
+                alreadyWarmed = true;
+                break;
+            }
+        }
+        if (alreadyWarmed)
+            continue;
+
+        FeedbackSoundVoiceState& voice = AcquireFeedbackSoundVoice(&resolvedPath);
+        if (EnsureFeedbackSoundVoiceOpen(voice, resolvedPath))
+            warmedPaths.push_back(resolvedPath);
+    }
+}
+
 IMaterial* VR::ResolveHitIndicatorMaterial()
 {
     if (m_KillIndicatorHitMaterial && !m_KillIndicatorHitMaterial->IsErrorMaterial())
@@ -1747,22 +2444,403 @@ IMaterial* VR::ResolveKillIndicatorMaterial(bool headshot)
     return cachedMaterial;
 }
 
+void VR::DestroyKillIndicatorOverlayTextures()
+{
+    for (int materialIndex = 0; materialIndex < static_cast<int>(m_KillIndicatorOverlayTextures.size()); ++materialIndex)
+        DestroyKillIndicatorOverlayTexture(materialIndex);
+}
+
+void VR::DestroyKillIndicatorOverlayTexture(int materialIndex)
+{
+    if (materialIndex < 0 || materialIndex >= static_cast<int>(m_KillIndicatorOverlayTextures.size()))
+        return;
+
+    auto SafeReleaseD3D = [](auto*& ptr)
+    {
+        if (!ptr)
+            return;
+        ptr->Release();
+        ptr = nullptr;
+    };
+
+    KillIndicatorOverlayTexture& texture = m_KillIndicatorOverlayTextures[materialIndex];
+    SafeReleaseD3D(texture.d3dSurface);
+    SafeReleaseD3D(texture.d3dTexture);
+    texture.width = 0;
+    texture.height = 0;
+    std::memset(&texture.sharedTexture, 0, sizeof(texture.sharedTexture));
+}
+
+bool VR::EnsureKillIndicatorOverlayTexture(int materialIndex, int width, int height)
+{
+    if (materialIndex < 0 || materialIndex >= static_cast<int>(m_KillIndicatorOverlayTextures.size()) || width <= 0 || height <= 0)
+        return false;
+    if (!g_D3DVR9)
+        return false;
+
+    KillIndicatorOverlayTexture& texture = m_KillIndicatorOverlayTextures[materialIndex];
+    if (texture.d3dTexture && (texture.width != width || texture.height != height))
+        DestroyKillIndicatorOverlayTexture(materialIndex);
+    if (texture.d3dTexture && texture.d3dSurface)
+        return true;
+
+    IDirect3DDevice9* device = GetKillIndicatorD3DDevice(this);
+    if (!device)
+        return false;
+
+    g_D3DVR9->LockDevice();
+
+    HRESULT hr = device->CreateTexture(
+        static_cast<UINT>(width),
+        static_cast<UINT>(height),
+        1,
+        D3DUSAGE_DYNAMIC,
+        D3DFMT_A8R8G8B8,
+        D3DPOOL_DEFAULT,
+        &texture.d3dTexture,
+        nullptr);
+
+    if (SUCCEEDED(hr) && texture.d3dTexture)
+    {
+        texture.d3dTexture->GetSurfaceLevel(0, &texture.d3dSurface);
+        if (texture.d3dSurface)
+        {
+            D3D9_TEXTURE_VR_DESC desc{};
+            if (SUCCEEDED(g_D3DVR9->GetVRDesc(texture.d3dSurface, &desc)))
+            {
+                std::memcpy(&texture.sharedTexture.m_VulkanData, &desc, sizeof(vr::VRVulkanTextureData_t));
+                texture.sharedTexture.m_VRTexture.handle = &texture.sharedTexture.m_VulkanData;
+                texture.sharedTexture.m_VRTexture.eColorSpace = vr::ColorSpace_Auto;
+                texture.sharedTexture.m_VRTexture.eType = vr::TextureType_Vulkan;
+                texture.width = width;
+                texture.height = height;
+            }
+            else
+            {
+                DestroyKillIndicatorOverlayTexture(materialIndex);
+            }
+        }
+        else
+        {
+            DestroyKillIndicatorOverlayTexture(materialIndex);
+        }
+    }
+
+    g_D3DVR9->UnlockDevice();
+    device->Release();
+
+    return texture.d3dTexture != nullptr && texture.d3dSurface != nullptr;
+}
+
+bool VR::UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgba, int width, int height)
+{
+    if (!rgba || width <= 0 || height <= 0)
+        return false;
+    if (!EnsureKillIndicatorOverlayTexture(materialIndex, width, height))
+        return false;
+    if (!g_D3DVR9)
+        return false;
+
+    KillIndicatorOverlayTexture& texture = m_KillIndicatorOverlayTextures[materialIndex];
+    if (!texture.d3dTexture || !texture.d3dSurface)
+        return false;
+
+    g_D3DVR9->LockDevice();
+
+    D3DLOCKED_RECT lockedRect{};
+    const HRESULT hr = texture.d3dTexture->LockRect(0, &lockedRect, nullptr, D3DLOCK_DISCARD);
+    if (FAILED(hr) || !lockedRect.pBits)
+    {
+        g_D3DVR9->UnlockDevice();
+        return false;
+    }
+
+    uint8_t* dst0 = reinterpret_cast<uint8_t*>(lockedRect.pBits);
+    for (int y = 0; y < height; ++y)
+    {
+        const uint8_t* srcRow = rgba + static_cast<size_t>(y) * static_cast<size_t>(width) * 4u;
+        uint8_t* dstRow = dst0 + static_cast<size_t>(y) * static_cast<size_t>(lockedRect.Pitch);
+        for (int x = 0; x < width; ++x)
+        {
+            const uint8_t r = srcRow[x * 4 + 0];
+            const uint8_t g = srcRow[x * 4 + 1];
+            const uint8_t b = srcRow[x * 4 + 2];
+            const uint8_t a = srcRow[x * 4 + 3];
+            dstRow[x * 4 + 0] = b;
+            dstRow[x * 4 + 1] = g;
+            dstRow[x * 4 + 2] = r;
+            dstRow[x * 4 + 3] = a;
+        }
+    }
+
+    texture.d3dTexture->UnlockRect(0);
+    g_D3DVR9->TransferSurface(texture.d3dSurface, FALSE);
+    g_D3DVR9->UnlockDevice();
+    return true;
+}
+
+void VR::DestroyKillIndicatorOverlay(ActiveKillIndicator& indicator)
+{
+    if (indicator.overlayHandle == vr::k_ulOverlayHandleInvalid)
+        return;
+
+    vr::IVROverlay* overlay = m_Overlay ? m_Overlay : vr::VROverlay();
+    if (overlay)
+    {
+        std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+        overlay->HideOverlay(indicator.overlayHandle);
+        overlay->DestroyOverlay(indicator.overlayHandle);
+    }
+
+    indicator.overlayHandle = vr::k_ulOverlayHandleInvalid;
+}
+
+void VR::TrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool clearAll)
+{
+    auto it = m_ActiveKillIndicators.begin();
+    while (it != m_ActiveKillIndicators.end())
+    {
+        const bool expired = clearAll
+            || std::chrono::duration<float>(now - it->startedAt).count() >= GetActiveIndicatorLifetimeSeconds(*it, m_KillIndicatorLifetimeSeconds);
+        if (!expired)
+        {
+            ++it;
+            continue;
+        }
+
+        DestroyKillIndicatorOverlay(*it);
+        it = m_ActiveKillIndicators.erase(it);
+    }
+
+    if (m_ActiveKillIndicators.empty())
+        DestroyKillIndicatorOverlayTextures();
+}
+
+bool VR::BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight)
+{
+    outPixels.clear();
+    outWidth = 0;
+    outHeight = 0;
+
+    if (!material || material->IsErrorMaterial())
+        return false;
+
+    KillIndicatorDecodedFrames& decoded = GetKillIndicatorDecodedFrameCache(material->GetName());
+    if (decoded.loaded && !decoded.frames.empty())
+    {
+        size_t frameIndex = 0;
+        if (decoded.frames.size() > 1 && decoded.frameRate > 0.01f)
+        {
+            const double nowSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            frameIndex = static_cast<size_t>(std::floor(nowSeconds * decoded.frameRate)) % decoded.frames.size();
+        }
+
+        outPixels = decoded.frames[frameIndex];
+        outWidth = decoded.width;
+        outHeight = decoded.height;
+        return !outPixels.empty();
+    }
+
+    int previewWidth = 0;
+    int previewHeight = 0;
+    ImageFormat previewFormat = IMAGE_FORMAT_RGBA8888;
+    bool isTranslucent = false;
+    material->Refresh();
+    material->GetPreviewImageProperties(&previewWidth, &previewHeight, &previewFormat, &isTranslucent);
+
+    if (previewWidth <= 0 || previewHeight <= 0)
+    {
+        previewWidth = material->GetMappingWidth();
+        previewHeight = material->GetMappingHeight();
+    }
+
+    previewWidth = std::clamp(previewWidth, 1, 256);
+    previewHeight = std::clamp(previewHeight, 1, 256);
+
+    outPixels.resize(static_cast<size_t>(previewWidth) * static_cast<size_t>(previewHeight) * 4u, 0);
+    material->GetPreviewImage(outPixels.data(), previewWidth, previewHeight, IMAGE_FORMAT_RGBA8888);
+
+    outWidth = static_cast<uint32_t>(previewWidth);
+    outHeight = static_cast<uint32_t>(previewHeight);
+    return !outPixels.empty();
+}
+
+bool VR::ComputeKillIndicatorOverlayTransform(const Vector& worldPos, vr::HmdMatrix34_t& outTransform) const
+{
+    Vector srcRight = m_HmdRight;
+    Vector srcUp = m_HmdUp;
+    Vector srcForward = m_HmdForward;
+    if (VectorNormalize(srcRight) == 0.0f || VectorNormalize(srcUp) == 0.0f || VectorNormalize(srcForward) == 0.0f)
+        return false;
+
+    const float unitsPerMeter = (std::max)(1.0f, m_VRScale);
+    const Vector deltaSource = worldPos - m_HmdPosAbs;
+    const float deltaRightMeters = DotProduct(deltaSource, srcRight) / unitsPerMeter;
+    const float deltaUpMeters = DotProduct(deltaSource, srcUp) / unitsPerMeter;
+    const float deltaForwardMeters = DotProduct(deltaSource, srcForward) / unitsPerMeter;
+
+    outTransform = {
+        1.0f, 0.0f, 0.0f, deltaRightMeters,
+        0.0f, 1.0f, 0.0f, deltaUpMeters,
+        0.0f, 0.0f, 1.0f, -deltaForwardMeters
+    };
+    return true;
+}
+
+void VR::UpdateKillIndicatorOverlays()
+{
+    const auto now = std::chrono::steady_clock::now();
+    TrimExpiredKillIndicators(now, false);
+
+    if (!m_KillIndicatorEnabled || m_ActiveKillIndicators.empty())
+        return;
+
+    if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame())
+        return;
+
+    vr::IVROverlay* overlay = m_Overlay ? m_Overlay : vr::VROverlay();
+    if (!overlay || !m_Compositor)
+        return;
+
+    IMaterial* materials[3] = {
+        ResolveHitIndicatorMaterial(),
+        ResolveKillIndicatorMaterial(false),
+        ResolveKillIndicatorMaterial(true)
+    };
+    std::vector<uint8_t> pixels[3];
+    uint32_t pixelWidths[3] = {};
+    uint32_t pixelHeights[3] = {};
+    bool pixelReady[3] = {};
+    bool textureReady[3] = {};
+    const float baseSizePixels = (std::max)(16.0f, m_KillIndicatorSizePixels);
+    static const vr::VRTextureBounds_t fullTextureBounds{ 0.0f, 0.0f, 1.0f, 1.0f };
+
+    for (ActiveKillIndicator& indicator : m_ActiveKillIndicators)
+    {
+        const KillIndicatorMaterialKind kind = !indicator.killConfirmed
+            ? KillIndicatorMaterialKind::Hit
+            : (indicator.headshot ? KillIndicatorMaterialKind::Headshot : KillIndicatorMaterialKind::Kill);
+        const int materialIndex = static_cast<int>(kind);
+        IMaterial* material = materials[materialIndex];
+        if (!material)
+            continue;
+
+        if (!pixelReady[materialIndex])
+        {
+            pixelReady[materialIndex] = BuildKillIndicatorOverlayPixels(material, pixels[materialIndex], pixelWidths[materialIndex], pixelHeights[materialIndex]);
+            if (!pixelReady[materialIndex])
+            {
+                Game::logMsg("[VR][KillIndicator] preview build failed material=%s", material->GetName());
+                continue;
+            }
+
+            textureReady[materialIndex] = UploadKillIndicatorOverlayTexture(
+                materialIndex,
+                pixels[materialIndex].data(),
+                static_cast<int>(pixelWidths[materialIndex]),
+                static_cast<int>(pixelHeights[materialIndex]));
+            if (!textureReady[materialIndex])
+            {
+                Game::logMsg(
+                    "[VR][KillIndicator] world texture upload failed material=%s size=%ux%u",
+                    material->GetName(),
+                    pixelWidths[materialIndex],
+                    pixelHeights[materialIndex]);
+                continue;
+            }
+        }
+        else
+        {
+            textureReady[materialIndex] = m_KillIndicatorOverlayTextures[materialIndex].sharedTexture.m_VRTexture.handle != nullptr;
+        }
+
+        if (!textureReady[materialIndex])
+            continue;
+
+        if (indicator.overlayHandle == vr::k_ulOverlayHandleInvalid)
+        {
+            indicator.overlaySerial = m_NextKillIndicatorOverlaySerial++;
+            const std::string key = "KillIndicatorOverlayKey_" + std::to_string(indicator.overlaySerial);
+            const std::string name = "KillIndicatorOverlay_" + std::to_string(indicator.overlaySerial);
+
+            std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+            const vr::EVROverlayError createError = overlay->CreateOverlay(key.c_str(), name.c_str(), &indicator.overlayHandle);
+            if (createError != vr::VROverlayError_None)
+            {
+                indicator.overlayHandle = vr::k_ulOverlayHandleInvalid;
+                Game::logMsg("[VR][KillIndicator] CreateOverlay failed err=%d key=%s", (int)createError, key.c_str());
+                continue;
+            }
+
+            overlay->SetOverlayTexelAspect(indicator.overlayHandle, 1.0f);
+            overlay->SetOverlayFlag(indicator.overlayHandle, vr::VROverlayFlags_IgnoreTextureAlpha, false);
+        }
+
+        const float lifetime = GetActiveIndicatorLifetimeSeconds(indicator, m_KillIndicatorLifetimeSeconds);
+        const float ageSeconds = std::chrono::duration<float>(now - indicator.startedAt).count();
+        const float progress = Clamp01(ageSeconds / lifetime);
+        const float introWindow = indicator.killConfirmed ? 0.22f : 0.18f;
+        const float intro = Clamp01(progress / introWindow);
+        const float fadeStart = indicator.killConfirmed ? 0.72f : 0.58f;
+        const float fadeWidth = indicator.killConfirmed ? 0.28f : 0.42f;
+        const float fade = 1.0f - Clamp01((progress - fadeStart) / fadeWidth);
+        const float pulse = std::sin(intro * 1.57079632679f);
+
+        Vector drawPos = indicator.worldPos;
+        if ((drawPos - m_HmdPosAbs).Length() > m_KillIndicatorMaxDistance)
+        {
+            std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+            overlay->HideOverlay(indicator.overlayHandle);
+            continue;
+        }
+
+        vr::HmdMatrix34_t transform{};
+        if (!ComputeKillIndicatorOverlayTransform(drawPos, transform))
+            continue;
+
+        float scale = indicator.killConfirmed ? (0.78f + 0.34f * pulse) : (0.56f + 0.24f * pulse);
+        if (indicator.killConfirmed && indicator.headshot)
+            scale *= 1.10f;
+
+        const float alphaBase = indicator.killConfirmed ? 0.72f : 0.60f;
+        const float alpha = Clamp01((alphaBase + (1.0f - alphaBase) * intro) * fade);
+        const float widthMeters = std::clamp((baseSizePixels / 640.0f) * scale, 0.10f, 0.45f);
+
+        std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+        overlay->SetOverlayTextureBounds(indicator.overlayHandle, &fullTextureBounds);
+        const vr::EVROverlayError textureError = overlay->SetOverlayTexture(
+            indicator.overlayHandle,
+            &m_KillIndicatorOverlayTextures[materialIndex].sharedTexture.m_VRTexture);
+        if (textureError != vr::VROverlayError_None)
+        {
+            Game::logMsg(
+                "[VR][KillIndicator] SetOverlayTexture failed err=%d material=%s size=%ux%u",
+                (int)textureError,
+                material->GetName(),
+                pixelWidths[materialIndex],
+                pixelHeights[materialIndex]);
+            continue;
+        }
+
+        overlay->SetOverlayTransformTrackedDeviceRelative(indicator.overlayHandle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
+        overlay->SetOverlayWidthInMeters(indicator.overlayHandle, widthMeters);
+        overlay->SetOverlayAlpha(indicator.overlayHandle, alpha);
+        const vr::EVROverlayError showError = overlay->ShowOverlay(indicator.overlayHandle);
+        if (showError != vr::VROverlayError_None)
+        {
+            Game::logMsg("[VR][KillIndicator] ShowOverlay failed err=%d material=%s", (int)showError, material->GetName());
+            continue;
+        }
+    }
+}
+
 void VR::SpawnHitIndicator(const Vector& worldPos)
 {
     if (!m_KillIndicatorEnabled)
         return;
 
     const auto now = std::chrono::steady_clock::now();
-    m_ActiveKillIndicators.erase(
-        std::remove_if(
-            m_ActiveKillIndicators.begin(),
-            m_ActiveKillIndicators.end(),
-            [&](const ActiveKillIndicator& indicator)
-            {
-                const float lifetime = GetActiveIndicatorLifetimeSeconds(indicator, m_KillIndicatorLifetimeSeconds);
-                return std::chrono::duration<float>(now - indicator.startedAt).count() >= lifetime;
-            }),
-        m_ActiveKillIndicators.end());
+    TrimExpiredKillIndicators(now, false);
 
     ActiveKillIndicator indicator{};
     indicator.worldPos = worldPos;
@@ -1770,8 +2848,11 @@ void VR::SpawnHitIndicator(const Vector& worldPos)
     indicator.killConfirmed = false;
     indicator.headshot = false;
     m_ActiveKillIndicators.push_back(indicator);
-    if (m_ActiveKillIndicators.size() > 16)
-        m_ActiveKillIndicators.erase(m_ActiveKillIndicators.begin(), m_ActiveKillIndicators.begin() + (m_ActiveKillIndicators.size() - 16));
+    while (m_ActiveKillIndicators.size() > 16)
+    {
+        DestroyKillIndicatorOverlay(m_ActiveKillIndicators.front());
+        m_ActiveKillIndicators.erase(m_ActiveKillIndicators.begin());
+    }
 }
 
 void VR::SpawnKillIndicator(bool headshot, const Vector& worldPos)
@@ -1780,16 +2861,7 @@ void VR::SpawnKillIndicator(bool headshot, const Vector& worldPos)
         return;
 
     const auto now = std::chrono::steady_clock::now();
-    m_ActiveKillIndicators.erase(
-        std::remove_if(
-            m_ActiveKillIndicators.begin(),
-            m_ActiveKillIndicators.end(),
-            [&](const ActiveKillIndicator& indicator)
-            {
-                const float lifetime = GetActiveIndicatorLifetimeSeconds(indicator, m_KillIndicatorLifetimeSeconds);
-                return std::chrono::duration<float>(now - indicator.startedAt).count() >= lifetime;
-            }),
-        m_ActiveKillIndicators.end());
+    TrimExpiredKillIndicators(now, false);
 
     Vector indicatorPos = worldPos;
     if (indicatorPos.IsZero())
@@ -1813,8 +2885,11 @@ void VR::SpawnKillIndicator(bool headshot, const Vector& worldPos)
     indicator.killConfirmed = true;
     indicator.headshot = headshot;
     m_ActiveKillIndicators.push_back(indicator);
-    if (m_ActiveKillIndicators.size() > 16)
-        m_ActiveKillIndicators.erase(m_ActiveKillIndicators.begin(), m_ActiveKillIndicators.begin() + (m_ActiveKillIndicators.size() - 16));
+    while (m_ActiveKillIndicators.size() > 16)
+    {
+        DestroyKillIndicatorOverlay(m_ActiveKillIndicators.front());
+        m_ActiveKillIndicators.erase(m_ActiveKillIndicators.begin());
+    }
 }
 
 void VR::DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTexture)
@@ -1823,23 +2898,17 @@ void VR::DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTextu
         return;
 
     const auto now = std::chrono::steady_clock::now();
-    m_ActiveKillIndicators.erase(
-        std::remove_if(
-            m_ActiveKillIndicators.begin(),
-            m_ActiveKillIndicators.end(),
-            [&](const ActiveKillIndicator& indicator)
-            {
-                const float lifetime = GetActiveIndicatorLifetimeSeconds(indicator, m_KillIndicatorLifetimeSeconds);
-                return std::chrono::duration<float>(now - indicator.startedAt).count() >= lifetime;
-            }),
-        m_ActiveKillIndicators.end());
+    TrimExpiredKillIndicators(now, false);
 
     if (!m_KillIndicatorEnabled || m_ActiveKillIndicators.empty() || !hudTexture)
         return;
 
+    if (m_IsVREnabled && (m_Overlay || vr::VROverlay()))
+        return;
+
     if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame())
     {
-        m_ActiveKillIndicators.clear();
+        TrimExpiredKillIndicators(now, true);
         return;
     }
 
@@ -1880,8 +2949,6 @@ void VR::DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTextu
         const float pulse = std::sin(intro * 1.57079632679f);
 
         Vector drawPos = indicator.worldPos;
-        const float riseScale = indicator.killConfirmed ? 1.0f : 0.38f;
-        drawPos.z += m_KillIndicatorRiseUnits * riseScale * (0.15f + 0.85f * EaseOutCubic(progress));
 
         int screenX = 0;
         int screenY = 0;
@@ -1892,7 +2959,7 @@ void VR::DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTextu
         if (indicator.killConfirmed && indicator.headshot)
             scale *= 1.10f;
 
-        const float alphaBase = indicator.killConfirmed ? 0.55f : 0.42f;
+        const float alphaBase = indicator.killConfirmed ? 0.72f : 0.60f;
         const float alpha = Clamp01((alphaBase + (1.0f - alphaBase) * intro) * fade);
         const int texWidth = (std::max)(1, material->GetMappingWidth());
         const int texHeight = (std::max)(1, material->GetMappingHeight());
@@ -1939,12 +3006,12 @@ void VR::UpdateKillSoundFeedback()
 {
     auto resetState = [&]()
         {
+            TrimExpiredKillIndicators(std::chrono::steady_clock::now(), true);
             m_PendingKillSoundHits.clear();
             m_PendingKillSoundEvents.clear();
-            m_ActiveKillIndicators.clear();
             m_LastKillSoundCommonKills = -1;
             m_LastKillSoundSpecialKills = -1;
-            m_LastKillSoundHeadshots = -1;
+            m_FeedbackSoundWarmupSignature.clear();
         };
 
     if ((!m_KillSoundEnabled && !m_KillIndicatorEnabled) || !m_Game || !m_Game->m_EngineClient)
@@ -1966,6 +3033,8 @@ void VR::UpdateKillSoundFeedback()
         resetState();
         return;
     }
+
+    EnsureFeedbackSoundWarmup();
 
     int commonKills = 0;
     int specialKills = 0;
@@ -2006,37 +3075,18 @@ void VR::UpdateKillSoundFeedback()
     }
 
     const int totalDelta = deltaCommon + deltaSpecial;
-    if (totalDelta > 0)
-    {
-        Game::logMsg(
-            "[VR][KillSound][resolve] totalDelta=%d commonDelta=%d specialDelta=%d pendingHits=%zu pendingEvents=%zu",
-            totalDelta,
-            deltaCommon,
-            deltaSpecial,
-            m_PendingKillSoundHits.size(),
-            m_PendingKillSoundEvents.size());
-    }
 
     for (int i = 0; i < totalDelta; ++i)
     {
         bool headshot = false;
         std::uintptr_t entityTag = 0;
-        std::string eventName;
-        const bool hasEvent = ConsumePendingKillSoundEvent(now, headshot, entityTag, &eventName);
+        const bool hasEvent = ConsumePendingKillSoundEvent(now, headshot, entityTag);
         Vector impactPos{};
-        const bool matched = ConsumePendingKillSoundHit(entityTag, now, &impactPos);
-
-        Game::logMsg(
-            "[VR][KillSound][kill] idx=%d/%d event=%s eventHeadshot=%d entityTag=%p matched=%d impact=(%.1f %.1f %.1f)",
-            i + 1,
-            totalDelta,
-            hasEvent ? eventName.c_str() : "",
-            headshot ? 1 : 0,
-            reinterpret_cast<void*>(entityTag),
-            matched ? 1 : 0,
-            impactPos.x,
-            impactPos.y,
-            impactPos.z);
+        bool matched = false;
+        if (entityTag != 0)
+            matched = ConsumePendingKillSoundHit(entityTag, now, &impactPos);
+        if (!matched && hasEvent)
+            matched = ConsumePendingKillSoundHit(0, now, &impactPos);
 
         if (matched)
         {
@@ -2045,8 +3095,9 @@ void VR::UpdateKillSoundFeedback()
         }
         else
         {
-            PlayKillSound(false, nullptr);
-            SpawnKillIndicator(false, Vector{});
+            const bool unresolvedHeadshot = hasEvent && headshot;
+            PlayKillSound(unresolvedHeadshot, nullptr);
+            SpawnKillIndicator(unresolvedHeadshot, Vector{});
         }
     }
 

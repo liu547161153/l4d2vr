@@ -79,6 +79,7 @@ void VR::Update()
 
     UpdateTracking();
     UpdateKillSoundFeedback();
+    UpdateKillIndicatorOverlays();
 
 
     if (!m_Game->m_VguiSurface)

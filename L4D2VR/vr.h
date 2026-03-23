@@ -33,6 +33,7 @@ class C_BaseEntity;
 class C_BasePlayer;
 class C_WeaponCSBase;
 class CUserCmd;
+class IDirect3DDevice9;
 class IDirect3DTexture9;
 class IDirect3DSurface9;
 class ITexture;
@@ -1127,6 +1128,17 @@ public:
 		std::chrono::steady_clock::time_point startedAt{};
 		bool killConfirmed = true;
 		bool headshot = false;
+		vr::VROverlayHandle_t overlayHandle = vr::k_ulOverlayHandleInvalid;
+		uint64_t overlaySerial = 0;
+	};
+
+	struct KillIndicatorOverlayTexture
+	{
+		IDirect3DTexture9* d3dTexture = nullptr;
+		IDirect3DSurface9* d3dSurface = nullptr;
+		SharedTextureHolder sharedTexture{};
+		int width = 0;
+		int height = 0;
 	};
 
 	struct PendingKillSoundEvent
@@ -1134,7 +1146,6 @@ public:
 		std::uintptr_t entityTag = 0;
 		bool headshot = false;
 		std::chrono::steady_clock::time_point receivedAt{};
-		std::string eventName;
 	};
 
 	bool m_HitSoundEnabled = true;
@@ -1161,13 +1172,15 @@ public:
 	std::vector<ActiveKillIndicator> m_ActiveKillIndicators;
 	int m_LastKillSoundCommonKills = -1;
 	int m_LastKillSoundSpecialKills = -1;
-	int m_LastKillSoundHeadshots = -1;
 	std::chrono::steady_clock::time_point m_LastHitSoundPlaybackTime{};
 	std::chrono::steady_clock::time_point m_LastKillSoundPlaybackTime{};
 	std::chrono::steady_clock::time_point m_LastKillSoundEventRegisterAttempt{};
+	std::string m_FeedbackSoundWarmupSignature;
 	IMaterial* m_KillIndicatorHitMaterial = nullptr;
 	IMaterial* m_KillIndicatorNormalMaterial = nullptr;
 	IMaterial* m_KillIndicatorHeadshotMaterial = nullptr;
+	std::array<KillIndicatorOverlayTexture, 3> m_KillIndicatorOverlayTextures{};
+	uint64_t m_NextKillIndicatorOverlaySerial = 1;
 	IGameEventManager2* m_KillSoundEventManager = nullptr;
 	IGameEventListener2* m_KillSoundEventListener = nullptr;
 	bool m_KillSoundEventListenerRegistered = false;
@@ -1616,8 +1629,8 @@ public:
 	void UpdateKillSoundFeedback();
 	void EnsureKillSoundEventListener();
 	void HandleKillSoundGameEvent(IGameEvent* event);
-	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot, const char* eventName);
-	bool ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag, std::string* outEventName = nullptr);
+	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot);
+	bool ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag);
 	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const;
 	bool ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) const;
 	bool IsKillSoundTargetEntity(const C_BaseEntity* entity) const;
@@ -1626,11 +1639,21 @@ public:
 	void PlayKillSound(bool headshot, const Vector* worldPos = nullptr);
 	bool TryPlayKillSoundSpec(const std::string& spec, float baseVolume = 1.0f, const Vector* worldPos = nullptr);
 	void ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVolume, int& outLeftVolume, int& outRightVolume) const;
+	void EnsureFeedbackSoundWarmup();
 	void SpawnHitIndicator(const Vector& worldPos);
 	void SpawnKillIndicator(bool headshot, const Vector& worldPos);
 	void DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTexture);
+	void UpdateKillIndicatorOverlays();
 	IMaterial* ResolveHitIndicatorMaterial();
 	IMaterial* ResolveKillIndicatorMaterial(bool headshot);
+	void DestroyKillIndicatorOverlayTextures();
+	void DestroyKillIndicatorOverlayTexture(int materialIndex);
+	bool EnsureKillIndicatorOverlayTexture(int materialIndex, int width, int height);
+	bool UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgba, int width, int height);
+	void TrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool clearAll = false);
+	void DestroyKillIndicatorOverlay(ActiveKillIndicator& indicator);
+	bool BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight);
+	bool ComputeKillIndicatorOverlayTransform(const Vector& worldPos, vr::HmdMatrix34_t& outTransform) const;
 	// Mounted gun helper: returns the entity the player is currently "using" (turret/mounted gun) if any.
 	// Used to skip that entity in aim-related traces so the aim line doesn't collide with the gun platform.
 	bool IsUsingMountedGun(const C_BasePlayer* localPlayer) const;
