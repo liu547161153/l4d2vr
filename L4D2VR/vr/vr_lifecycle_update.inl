@@ -1,6 +1,12 @@
 void VR::Update()
 {
-    if (!m_IsInitialized || !m_Game->m_Initialized)
+    if (!m_IsInitialized || !g_Game)
+        return;
+
+    if (!m_Game || m_Game != g_Game)
+        m_Game = g_Game;
+
+    if (!m_Game->m_Initialized)
         return;
 
     if (m_IsVREnabled && g_D3DVR9)
@@ -72,7 +78,11 @@ void VR::Update()
     }
 
     UpdateTracking();
+    UpdateKillSoundFeedback();
 
+
+    if (!m_Game->m_VguiSurface)
+        return;
 
     if (m_Game->m_VguiSurface->IsCursorVisible())
         ProcessMenuInput();

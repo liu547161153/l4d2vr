@@ -36,6 +36,11 @@ class CUserCmd;
 class IDirect3DTexture9;
 class IDirect3DSurface9;
 class ITexture;
+class IMaterial;
+class IMatRenderContext;
+class IGameEvent;
+class IGameEventListener2;
+class IGameEventManager2;
 
 struct ViewmodelAdjustment
 {
@@ -1080,6 +1085,7 @@ public:
 	static constexpr int kIsHangingFromLedgeOffset = 0x25EC;  // DT_TerrorPlayer::m_isHangingFromLedge
 	static constexpr int kMissionZombieKillsOffset = 0x24AC;   // DT_TerrorPlayer::m_missionZombieKills[0] (current chapter)
 	static constexpr int kCheckpointZombieKillsOffset = 0x2488; // DT_TerrorPlayer::m_checkpointZombieKills[0] (checkpoint stats; some servers only update this)
+	static constexpr int kCheckpointHeadshotsOffset = 0x2568;   // DT_TerrorPlayer::m_checkpointHeadshots
 	static constexpr int kZombieKillsMaxIndex = 8;             // 0=common, 1..8=special categories (smoker..tank/witch)
 	// Weapon netvars (from offsets.txt)
 	static constexpr int kClip1Offset = 0x984;                // DT_BaseCombatWeapon::m_iClip1
@@ -1106,6 +1112,65 @@ public:
 	std::chrono::steady_clock::time_point m_AimTeammateDisplayUntil{};
 	int m_AimTeammateLastRawIndex = -1;
 	std::chrono::steady_clock::time_point m_AimTeammateLastRawTime{};
+
+	struct PendingKillSoundHit
+	{
+		std::uintptr_t entityTag = 0;
+		std::chrono::steady_clock::time_point expiresAt{};
+		bool headshot = false;
+		Vector impactPos = { 0,0,0 };
+	};
+
+	struct ActiveKillIndicator
+	{
+		Vector worldPos = { 0,0,0 };
+		std::chrono::steady_clock::time_point startedAt{};
+		bool killConfirmed = true;
+		bool headshot = false;
+	};
+
+	struct PendingKillSoundEvent
+	{
+		std::uintptr_t entityTag = 0;
+		bool headshot = false;
+		std::chrono::steady_clock::time_point receivedAt{};
+		std::string eventName;
+	};
+
+	bool m_HitSoundEnabled = true;
+	float m_HitSoundPlaybackCooldownSeconds = 0.03f;
+	std::string m_HitSoundSpec = "alias:SystemQuestion";
+	float m_HitSoundVolume = 0.80f;
+	bool m_KillSoundEnabled = true;
+	float m_KillSoundDetectionWindowSeconds = 0.75f;
+	float m_KillSoundPlaybackCooldownSeconds = 0.04f;
+	std::string m_KillSoundNormalSpec = "alias:SystemAsterisk";
+	std::string m_KillSoundHeadshotSpec = "alias:SystemExclamation";
+	float m_KillSoundVolume = 0.95f;
+	float m_HeadshotSoundVolume = 1.10f;
+	float m_FeedbackSoundSpatialBlend = 0.85f;
+	float m_FeedbackSoundSpatialRange = 1400.0f;
+	bool m_KillIndicatorEnabled = true;
+	float m_KillIndicatorLifetimeSeconds = 0.85f;
+	float m_KillIndicatorSizePixels = 180.0f;
+	float m_KillIndicatorRiseUnits = 18.0f;
+	float m_KillIndicatorMaxDistance = 4096.0f;
+	std::string m_KillIndicatorMaterialBaseSpec = "overlays/2965700751";
+	std::vector<PendingKillSoundHit> m_PendingKillSoundHits;
+	std::vector<PendingKillSoundEvent> m_PendingKillSoundEvents;
+	std::vector<ActiveKillIndicator> m_ActiveKillIndicators;
+	int m_LastKillSoundCommonKills = -1;
+	int m_LastKillSoundSpecialKills = -1;
+	int m_LastKillSoundHeadshots = -1;
+	std::chrono::steady_clock::time_point m_LastHitSoundPlaybackTime{};
+	std::chrono::steady_clock::time_point m_LastKillSoundPlaybackTime{};
+	std::chrono::steady_clock::time_point m_LastKillSoundEventRegisterAttempt{};
+	IMaterial* m_KillIndicatorHitMaterial = nullptr;
+	IMaterial* m_KillIndicatorNormalMaterial = nullptr;
+	IMaterial* m_KillIndicatorHeadshotMaterial = nullptr;
+	IGameEventManager2* m_KillSoundEventManager = nullptr;
+	IGameEventListener2* m_KillSoundEventListener = nullptr;
+	bool m_KillSoundEventListenerRegistered = false;
 
 	// Right ammo HUD: show *aimed* special-infected (and Witch) HP%% (client-side, visual-only).
 	// - Updated from the aim-ray trace (same trace used for the teammate aim hint).
@@ -1547,6 +1612,25 @@ public:
 	void UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& start, const Vector& end, bool aimLineActive);
 	bool GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outName, size_t outNameSize);
 	int GetIncapMaxHealth() const;
+	void RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles);
+	void UpdateKillSoundFeedback();
+	void EnsureKillSoundEventListener();
+	void HandleKillSoundGameEvent(IGameEvent* event);
+	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot, const char* eventName);
+	bool ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag, std::string* outEventName = nullptr);
+	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const;
+	bool ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) const;
+	bool IsKillSoundTargetEntity(const C_BaseEntity* entity) const;
+	bool ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
+	void PlayHitSound(const Vector* worldPos = nullptr);
+	void PlayKillSound(bool headshot, const Vector* worldPos = nullptr);
+	bool TryPlayKillSoundSpec(const std::string& spec, float baseVolume = 1.0f, const Vector* worldPos = nullptr);
+	void ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVolume, int& outLeftVolume, int& outRightVolume) const;
+	void SpawnHitIndicator(const Vector& worldPos);
+	void SpawnKillIndicator(bool headshot, const Vector& worldPos);
+	void DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTexture);
+	IMaterial* ResolveHitIndicatorMaterial();
+	IMaterial* ResolveKillIndicatorMaterial(bool headshot);
 	// Mounted gun helper: returns the entity the player is currently "using" (turret/mounted gun) if any.
 	// Used to skip that entity in aim-related traces so the aim line doesn't collide with the gun platform.
 	bool IsUsingMountedGun(const C_BasePlayer* localPlayer) const;

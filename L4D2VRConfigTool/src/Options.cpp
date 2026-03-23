@@ -204,6 +204,25 @@ static bool IsOptionVisible(const Option& opt)
     if (std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0)
         return IsEnabled("AutoRepeatSemiAutoFire");
 
+    if (std::strcmp(key, "HitSoundSpec") == 0)
+        return IsEnabled("HitSoundEnabled");
+
+    if (std::strcmp(key, "HitSoundVolume") == 0)
+        return IsEnabled("HitSoundEnabled");
+
+    if (std::strcmp(key, "KillSoundNormalSpec") == 0 ||
+        std::strcmp(key, "KillSoundHeadshotSpec") == 0 ||
+        std::strcmp(key, "KillSoundVolume") == 0 ||
+        std::strcmp(key, "HeadshotSoundVolume") == 0)
+        return IsEnabled("KillSoundEnabled");
+
+    if (std::strcmp(key, "FeedbackSoundSpatialBlend") == 0 ||
+        std::strcmp(key, "FeedbackSoundSpatialRange") == 0)
+        return IsEnabled("HitSoundEnabled") || IsEnabled("KillSoundEnabled");
+
+    if (StartsWith(key, "KillIndicator") && std::strcmp(key, "KillIndicatorEnabled") != 0)
+        return IsEnabled("KillIndicatorEnabled");
+
     if (std::strcmp(key, "AimLineOnlyWhenLaserSight") == 0 ||
         std::strcmp(key, "AimLineThickness") == 0 ||
         std::strcmp(key, "AimLineColor") == 0 ||
@@ -942,6 +961,198 @@ Option g_Options[] =
           u8"调高会更“跟手”，但实际射速仍受武器本身限制。" },
         1.0f, 30.0f,
         "12.0"
+    },
+    {
+        "HitSoundEnabled",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Hit Sound Feedback", u8"命中音效反馈" },
+        { u8"Plays a short cue immediately when your shot trace hits an infected target.",
+          u8"当本地射击轨迹命中感染者目标时，立刻播放短促命中提示音。" },
+        { u8"Uses the same local hit detection as the projected hit icon.",
+          u8"和命中位置图标使用同一套本地命中检测。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "HitSoundSpec",
+        OptionType::String,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Hit Sound", u8"命中音效" },
+        { u8"Sound spec for non-lethal hits. Supports alias:, file:, game:, gamesound:, cmd:, or a direct audio file path.",
+          u8"普通命中音效配置。支持 alias:、file:、game:、gamesound:、cmd:，也支持直接填写音频文件路径。" },
+        { u8"Direct file paths may be absolute, relative to the game folder, or relative to the VR folder. Example: hit.mp3",
+          u8"文件路径可用绝对路径，也可相对游戏目录或 VR 目录。示例：hit.mp3" },
+        0.0f, 0.0f,
+        "hit.mp3"
+    },
+    {
+        "HitSoundVolume",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Hit Sound Volume", u8"命中音量" },
+        { u8"Volume multiplier for the hit cue. 1.0 keeps the source loudness unchanged.",
+          u8"命中提示音的音量倍率。1.0 表示保持素材原始响度。" },
+        { u8"Only affects direct audio files. Alias / game command playback still uses the engine or Windows defaults.",
+          u8"只影响直接音频文件。alias / game 命令类播放仍沿用引擎或 Windows 默认音量。" },
+        0.0f, 2.0f,
+        "0.80"
+    },
+    {
+        "KillSoundEnabled",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Kill Sound Feedback", u8"击杀音效反馈" },
+        { u8"Plays a short sound when your local kill counter increases.",
+          u8"当本地击杀计数增加时播放短促提示音。" },
+        { u8"Headshots can use a separate sound via KillSoundHeadshotSpec.",
+          u8"爆头可通过 KillSoundHeadshotSpec 使用另一种音效。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "KillSoundNormalSpec",
+        OptionType::String,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Normal Kill Sound", u8"普通击杀音效" },
+        { u8"Sound spec for normal kills. Supports alias:, file:, game:, gamesound:, cmd:, or a direct audio file path.",
+          u8"普通击杀音效配置。支持 alias:、file:、game:、gamesound:、cmd:，也支持直接填写音频文件路径。" },
+        { u8"Direct file paths may be absolute, relative to the game folder, or relative to the VR folder.",
+          u8"文件路径可用绝对路径，也可相对游戏目录或 VR 目录。" },
+        0.0f, 0.0f,
+        "kill.mp3"
+    },
+    {
+        "KillSoundHeadshotSpec",
+        OptionType::String,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Headshot Kill Sound", u8"爆头击杀音效" },
+        { u8"Sound spec used when the confirmed kill followed a recent head hit.",
+          u8"当确认击杀来自最近一次头部命中时使用的音效配置。" },
+        { u8"Direct file paths may be absolute, relative to the game folder, or relative to the VR folder. Example: headshot.mp3",
+          u8"文件路径可用绝对路径，也可相对游戏目录或 VR 目录。示例：headshot.mp3" },
+        0.0f, 0.0f,
+        "headshot.mp3"
+    },
+    {
+        "KillSoundVolume",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Kill Sound Volume", u8"击杀音量" },
+        { u8"Volume multiplier for normal kill sounds.",
+          u8"普通击杀音效的音量倍率。" },
+        { u8"Useful when the kill cue should sit lower than the hit cue or headshot cue.",
+          u8"适合在你想让普通击杀弱于命中或爆头提示时调整。" },
+        0.0f, 2.0f,
+        "0.95"
+    },
+    {
+        "HeadshotSoundVolume",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Headshot Volume", u8"爆头音量" },
+        { u8"Volume multiplier used when a confirmed kill is matched to a recent head hit.",
+          u8"当确认击杀匹配到最近一次头部命中时使用的音量倍率。" },
+        { u8"Set above 1.0 if you want the headshot cue to pop harder than the normal kill cue.",
+          u8"如果想让爆头提示更“炸”，可以设到 1.0 以上。" },
+        0.0f, 2.0f,
+        "1.10"
+    },
+    {
+        "FeedbackSoundSpatialBlend",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Feedback Spatial Blend", u8"反馈空间感强度" },
+        { u8"Blends the custom audio between centered playback and stereo panning / distance falloff from the hit point.",
+          u8"控制自定义音频从“居中播放”过渡到“按命中点做左右声像和距离衰减”的强度。" },
+        { u8"0 disables spatial feel. 1 makes the hit location drive the sound as strongly as possible.",
+          u8"0 表示关闭空间感。1 表示尽量让命中位置主导声音方向与远近感。" },
+        0.0f, 1.0f,
+        "0.85"
+    },
+    {
+        "FeedbackSoundSpatialRange",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Feedback Spatial Range", u8"反馈空间作用距离" },
+        { u8"Distance in Source units over which hit / kill sounds fade with depth.",
+          u8"命中 / 击杀音效按距离衰减时使用的作用范围，单位是 Source 世界单位。" },
+        { u8"Higher keeps distant hits louder. Lower makes nearby impacts sound more intimate.",
+          u8"调高会让远处命中更响，调低会让近处反馈更贴脸、远处更轻。" },
+        64.0f, 8192.0f,
+        "1400"
+    },
+    {
+        "KillIndicatorEnabled",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Hit / Kill Icons", u8"命中 / 击杀图标" },
+        { u8"Projects animated hit and kill icons onto the HUD at the traced impact / confirmed kill position.",
+          u8"把动态命中和击杀图标投影到 HUD 上，并跟随命中点 / 确认击杀位置显示。" },
+        { u8"Uses Source materials, so animated VMT/VTF feedback packs can play directly.",
+          u8"直接使用 Source 材质，带动画的 VMT/VTF 反馈素材可以直接播放。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "KillIndicatorMaterialBaseSpec",
+        OptionType::String,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Kill Icon Material Base", u8"击杀图标材质目录" },
+        { u8"Base material path or folder. The mod will use /hit, /kill, and /headshot under it.",
+          u8"材质基础路径或目录。模组会自动使用其中的 /hit、/kill 和 /headshot 材质。" },
+        { u8"Supports engine material paths like overlays/2965700751 or an absolute folder path ending in materials\\...",
+          u8"支持 overlays/2965700751 这类材质路径，也支持以 materials\\... 结尾的绝对目录路径。" },
+        0.0f, 0.0f,
+        "overlays/2965700751"
+    },
+    {
+        "KillIndicatorLifetimeSeconds",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Kill Icon Duration", u8"击杀图标持续时间" },
+        { u8"How long each kill icon stays visible.",
+          u8"每个击杀图标在屏幕上保留多久。" },
+        { u8"Longer values are easier to notice but can feel busy during hordes.",
+          u8"时间越长越容易注意到，但尸潮时会更占视野。" },
+        0.10f, 3.0f,
+        "0.85"
+    },
+    {
+        "KillIndicatorSizePixels",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Kill Icon Size", u8"击杀图标大小" },
+        { u8"Base on-screen size of the projected kill icon.",
+          u8"投影后的击杀图标基础屏幕尺寸。" },
+        { u8"Headshots get a slightly larger pulse automatically.",
+          u8"爆头会自动带一点更大的脉冲放大效果。" },
+        16.0f, 512.0f,
+        "180"
+    },
+    {
+        "KillIndicatorRiseUnits",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Kill Icon Rise", u8"击杀图标上浮" },
+        { u8"How many Source units the icon rises during its animation.",
+          u8"图标动画期间会向上浮动多少 Source 单位。" },
+        { u8"Adds a COD/BF-style lift instead of leaving the icon completely static.",
+          u8"会带一点 COD/BF 风格的上扬感，不会像静态贴纸一样钉死在原处。" },
+        0.0f, 128.0f,
+        "18"
+    },
+    {
+        "KillIndicatorMaxDistance",
+        OptionType::Float,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Kill Icon Max Distance", u8"击杀图标最远距离" },
+        { u8"Skip projected icons for kills that are too far away from the camera.",
+          u8"距离摄像机太远的击杀将不再投影图标。" },
+        { u8"Useful to avoid tiny, noisy markers from very distant kills.",
+          u8"可避免超远距离击杀产生又小又杂的标记。" },
+        128.0f, 16384.0f,
+        "4096"
     },
 
     // Aim Assist

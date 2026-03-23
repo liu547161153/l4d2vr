@@ -209,6 +209,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			cmd->mousedy = 0;
 		}
 		const QAngle originalViewAngles = cmd->viewangles;
+		const float originalForwardMove = cmd->forwardmove;
+		const float originalSideMove = cmd->sidemove;
 		bool hadWalkAxis = false;
 		float walkNx = 0.f, walkNy = 0.f; 
 		float walkMaxSpeed = 0.f;
@@ -240,40 +242,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			// Track thumbstick locomotion state (used to disable 1:1 roomscale when requested).
 			m_VR->m_PushingThumbstick = (fabsf(moveNx) > 0.0001f) || (fabsf(moveNy) > 0.0001f);
 
-			// VR-aware servers: we can apply movement directly in cmd space.
-			// Non-VR servers: we will re-base movement later after overriding cmd->viewangles.
-			if (!treatServerAsNonVR)
-			{
-				// Final cmd basis will be HMD yaw (see below). Convert walk input from the chosen
-				// movement basis (HMD or controller) into that cmd basis.
-				Vector hmdAng = m_VR->GetViewAngle();
-				float viewYaw = hmdAng.y;
-				if (m_VR->m_MouseModeEnabled)
-				{
-					viewYaw = m_VR->m_RotationOffset;
-					// Wrap to [-180, 180]
-					viewYaw -= 360.0f * std::floor((viewYaw + 180.0f) / 360.0f);
-				}
-				float moveYaw = m_VR->GetMovementYawDeg();
-				if (m_VR->m_ThirdPersonFrontViewEnabled && m_VR->m_IsThirdPersonCamera && m_VR->ShouldRenderScope())
-				{
-					// Front-view 3P: keep locomotion basis aligned with the main front camera yaw
-					// (render camera yaw = scope yaw + 180), so stick movement stays intuitive onscreen.
-					moveYaw = m_VR->GetScopeCameraAbsAngle().y + 180.0f;
-					moveYaw -= 360.0f * std::floor((moveYaw + 180.0f) / 360.0f);
-				}
-
-				QAngle viewYawOnly(0.f, viewYaw, 0.f);
-				QAngle moveYawOnly(0.f, moveYaw, 0.f);
-				Vector viewForward, viewRight, viewUp;
-				Vector moveForward, moveRight, moveUp;
-				QAngle::AngleVectors(viewYawOnly, &viewForward, &viewRight, &viewUp);
-				QAngle::AngleVectors(moveYawOnly, &moveForward, &moveRight, &moveUp);
-
-				Vector worldMove = moveForward * (moveNy * maxSpeed) + moveRight * (moveNx * maxSpeed);
-				cmd->forwardmove += DotProduct(worldMove, viewForward);
-				cmd->sidemove += DotProduct(worldMove, viewRight);
-			}
+			// Stick locomotion is applied later once the final cmd->viewangles basis is known.
+			// That keeps keyboard movement and stick movement in the same basis.
 
 			// 可选：也把方向按钮位设置一下，增加兼容性
 			// IN_FORWARD=1<<3, IN_BACK=1<<4, IN_MOVELEFT=1<<9, IN_MOVERIGHT=1<<10
@@ -552,6 +522,36 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			while (view.y < -180.f) view.y += 360.f;
 			view.z = 0.f;
 			cmd->viewangles = view;
+
+			// Re-base engine-generated locomotion (keyboard WASD, etc.) from the original
+			// cmd basis into the VR-facing basis, then add stick movement in world space.
+			// Without this, keyboard movement gets rotated when cmd->viewangles is replaced.
+			{
+				QAngle origYawOnly(0.f, originalViewAngles.y, 0.f);
+				Vector origForward, origRight, origUp;
+				QAngle::AngleVectors(origYawOnly, &origForward, &origRight, &origUp);
+				Vector worldMove = origForward * originalForwardMove + origRight * originalSideMove;
+
+				if (hadWalkAxis)
+				{
+					float moveYaw = m_VR->GetMovementYawDeg();
+					if (m_VR->m_ThirdPersonFrontViewEnabled && m_VR->m_IsThirdPersonCamera && m_VR->ShouldRenderScope())
+					{
+						moveYaw = m_VR->GetScopeCameraAbsAngle().y + 180.0f;
+						moveYaw -= 360.0f * std::floor((moveYaw + 180.0f) / 360.0f);
+					}
+					QAngle moveYawOnly(0.f, moveYaw, 0.f);
+					Vector moveForward, moveRight, moveUp;
+					QAngle::AngleVectors(moveYawOnly, &moveForward, &moveRight, &moveUp);
+					worldMove += moveForward * (walkNy * walkMaxSpeed) + moveRight * (walkNx * walkMaxSpeed);
+				}
+
+				QAngle cmdYawOnly(0.f, cmd->viewangles.y, 0.f);
+				Vector cmdForward, cmdRight, cmdUp;
+				QAngle::AngleVectors(cmdYawOnly, &cmdForward, &cmdRight, &cmdUp);
+				cmd->forwardmove = DotProduct(worldMove, cmdForward);
+				cmd->sidemove = DotProduct(worldMove, cmdRight);
+			}
 
 			// Third-person melee: on VR-aware servers, melee swing direction is resolved from cmd->viewangles.
 			// In third-person camera, the rendered reticle ray (m_AimConvergePoint) may not match HMD yaw,

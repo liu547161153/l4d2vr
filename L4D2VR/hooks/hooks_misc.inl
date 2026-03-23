@@ -912,6 +912,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
                 ctx->ClearColor4ub(0, 0, 0, clearAlpha);
                 ctx->ClearBuffers(true, false, false);
                 hkVgui_Paint.fOriginal(ecx, paintMode);
+                m_VR->DrawKillIndicators(ctx, hudTexture);
                 ctx->OverrideAlphaWriteEnable(false, true);
                 ctx->SetRenderTarget(prevTarget);
             }
@@ -919,6 +920,7 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
             {
                 // Already on the HUD RT (single-threaded PushRT hijack).
                 hkVgui_Paint.fOriginal(ecx, paintMode);
+                m_VR->DrawKillIndicators(ctx, hudTexture);
             }
 
             m_VR->m_RenderedHud.store(true, std::memory_order_release);

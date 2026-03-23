@@ -19,6 +19,7 @@ class IModelRender;
 class IMaterial;
 class IInput;
 class ISurface;
+class IGameEventManager2;
 class C_BaseEntity;
 class C_BasePlayer;
 class Server_BaseEntity;
@@ -63,6 +64,7 @@ public:
     IInput* m_VguiInput = nullptr;
     ISurface* m_VguiSurface = nullptr;
     IVDebugOverlay* m_DebugOverlay = nullptr;
+    IGameEventManager2* m_GameEventManager = nullptr;
 
     // === Module Base Addresses ===
     uintptr_t m_BaseEngine = 0;

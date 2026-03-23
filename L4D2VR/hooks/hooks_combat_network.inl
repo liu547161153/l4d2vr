@@ -452,8 +452,14 @@ int Hooks::dClientFireTerrorBullets(
 
     // RightAmmoHUD: hit-based target HP bar has been removed.
 // The ammo HUD now shows HP%% for the *aimed* special infected (and Witch) and hides instantly on leave.
+    if (m_VR->m_IsVREnabled)
+        m_VR->RegisterPotentialKillSoundHit(vecNewOrigin, vecNewAngles);
 
-    return hkClientFireTerrorBullets.fOriginal(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
+    const auto original = hkClientFireTerrorBullets.fOriginal;
+    if (!original)
+        return 0;
+
+    return original(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
 }
 }
 
