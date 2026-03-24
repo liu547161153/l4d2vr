@@ -1,0 +1,3 @@
+[submodule "L4D2VRConfigTool/external/imgui"]
+	path = L4D2VRConfigTool/external/imgui
+	url = https://github.com/ocornut/imgui.git
