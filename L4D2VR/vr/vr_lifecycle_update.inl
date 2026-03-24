@@ -1158,6 +1158,7 @@ void VR::RepositionOverlays()
 
     vr::VROverlay()->SetOverlayTransformAbsolute(m_HUDTopHandle, trackingOrigin, &hudTopTransform);
     vr::VROverlay()->SetOverlayWidthInMeters(m_HUDTopHandle, m_HudSize);
+    vr::VROverlay()->SetOverlayCurvature(m_HUDTopHandle, (std::max)(0.0f, m_TopHudCurvature));
 
     for (size_t i = 0; i < m_HUDBottomHandles.size(); ++i)
     {

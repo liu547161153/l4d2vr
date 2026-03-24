@@ -733,6 +733,7 @@ public:
 	float m_FixedHudYOffset = 0.0f;
 	float m_FixedHudDistanceOffset = 0.0f;
 	float m_HudSize = 1.1;
+	float m_TopHudCurvature = 0.0f;
 	bool m_HudAlwaysVisible = false;
 	bool m_HudToggleState = false;
 	std::chrono::steady_clock::time_point m_HudChatVisibleUntil{};
