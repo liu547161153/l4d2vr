@@ -255,6 +255,34 @@ void VR::SubmitVRTextures()
     if (!m_Compositor)
         return;
 
+    const bool inGame = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
+    const bool renderedNewFrame = m_RenderedNewFrame.load(std::memory_order_acquire);
+
+    // In the main menu, keep the scene side of the compositor static after the first
+    // successful blank submit. Repeating blank Vulkan submits every frame is unnecessary
+    // because the visible menu is an overlay, and on some NVIDIA setups it eventually
+    // trips driver/runtime instability inside vrclient/vulkan.
+    if (!renderedNewFrame && !inGame && m_MenuBlankSubmitted)
+    {
+        if (!vr::VROverlay()->IsOverlayVisible(m_MainMenuHandle))
+            RepositionOverlays();
+
+        vr::VROverlay()->SetOverlayTexture(m_MainMenuHandle, &m_VKBackBuffer.m_VRTexture);
+        vr::VROverlay()->ShowOverlay(m_MainMenuHandle);
+        vr::VROverlay()->HideOverlay(m_HUDTopHandle);
+        for (vr::VROverlayHandle_t& overlay : m_HUDBottomHandles)
+            vr::VROverlay()->HideOverlay(overlay);
+        vr::VROverlay()->HideOverlay(m_ScopeHandle);
+        vr::VROverlay()->HideOverlay(m_RearMirrorHandle);
+        vr::VROverlay()->HideOverlay(m_LeftWristHudHandle);
+        vr::VROverlay()->HideOverlay(m_RightAmmoHudHandle);
+        m_CompositorNeedsHandoff = false;
+        return;
+    }
+
+    if (renderedNewFrame || inGame)
+        m_MenuBlankSubmitted = false;
+
     const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
 
     struct SubmitInFlightGuard
@@ -410,13 +438,12 @@ void VR::SubmitVRTextures()
         };
 
     //     ֡û       ݣ    ߲˵ /Overlay ·
-    if (!m_RenderedNewFrame.load(std::memory_order_acquire))
+    if (!renderedNewFrame)
     {
         // In mat_queue_mode!=0 (queued/multicore), the render thread can lag behind the submit thread.
         // When that happens, m_RenderedNewFrame may still be false even though we're already in-game.
         // Showing the backbuffer/menu overlay in this state creates an extra compositor layer and can cause
         // severe stutter (and a visible backbuffer rectangle). Instead, just re-submit the last eye textures.
-        const bool inGame = (m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame());
         if (inGame)
         {
             // Ensure the menu overlay is not left visible while in-game.
@@ -465,6 +492,8 @@ void VR::SubmitVRTextures()
         {
             submitStereoPair(&m_VKBlankTexture.m_VRTexture, nullptr,
                 &m_VKBlankTexture.m_VRTexture, nullptr);
+            if (successfulSubmit)
+                m_MenuBlankSubmitted = true;
         }
 
         if (successfulSubmit && m_CompositorExplicitTiming)

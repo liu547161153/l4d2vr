@@ -201,20 +201,28 @@ static bool IsOptionVisible(const Option& opt)
     if (StartsWith(key, "QueuedRender"))
         return IsEnabled("AutoMatQueueMode");
 
-    if (std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0)
+    if (std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0 ||
+        std::strcmp(key, "AutoRepeatSprayPushEnabled") == 0)
         return IsEnabled("AutoRepeatSemiAutoFire");
+
+    if (StartsWith(key, "AutoFastMelee") && std::strcmp(key, "AutoFastMelee") != 0)
+        return IsEnabled("AutoFastMelee");
 
     if (std::strcmp(key, "HitSoundSpec") == 0)
         return IsEnabled("HitSoundEnabled");
 
     if (std::strcmp(key, "HitSoundVolume") == 0)
-        return IsEnabled("HitSoundEnabled");
+        return IsEnabled("HitSoundEnabled") || IsEnabled("KillSoundEnabled");
 
     if (std::strcmp(key, "KillSoundNormalSpec") == 0 ||
         std::strcmp(key, "KillSoundHeadshotSpec") == 0 ||
         std::strcmp(key, "KillSoundVolume") == 0 ||
         std::strcmp(key, "HeadshotSoundVolume") == 0)
+    {
+        if (std::strcmp(key, "KillSoundVolume") == 0 || std::strcmp(key, "HeadshotSoundVolume") == 0)
+            return false;
         return IsEnabled("KillSoundEnabled");
+    }
 
     if (std::strcmp(key, "FeedbackSoundSpatialBlend") == 0 ||
         std::strcmp(key, "FeedbackSoundSpatialRange") == 0)
@@ -269,7 +277,11 @@ static ImVec4 GetColor(const Option& opt, const ImVec4& fallback)
 static void SetColor(const std::string& key, const ImVec4& c)
 {
     char buf[64];
-    std::snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f,%.3f", c.x, c.y, c.z, c.w);
+    const int r = std::clamp(static_cast<int>(c.x * 255.0f + 0.5f), 0, 255);
+    const int g = std::clamp(static_cast<int>(c.y * 255.0f + 0.5f), 0, 255);
+    const int b = std::clamp(static_cast<int>(c.z * 255.0f + 0.5f), 0, 255);
+    const int a = std::clamp(static_cast<int>(c.w * 255.0f + 0.5f), 0, 255);
+    std::snprintf(buf, sizeof(buf), "%d,%d,%d,%d", r, g, b, a);
     g_Values[key] = buf;
 }
 
@@ -963,6 +975,30 @@ Option g_Options[] =
         "12.0"
     },
     {
+        "AutoRepeatSprayPushEnabled",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Auto Spray-Push", u8"自动 Spray-Push" },
+        { u8"While hold-to-fire is active, automatically applies the extra spray/push input assist used by pump/chrome shotguns and AWP/scout.",
+          u8"在长按连发激活时，自动附带 pump/chrome 霰弹枪和 AWP/scout 使用的 spray/push 输入辅助。" },
+        { u8"Only matters when Hold-to-Fire for Semi-Auto is enabled.",
+          u8"仅在“单发枪长按连发”开启时才有意义。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "AutoFastMelee",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Auto Fast Melee", u8"自动快速近战" },
+        { u8"Turns melee into fixed one-by-one client-side pulses instead of relying on a raw continuous hold.",
+          u8"把近战输入改成固定“一下一下”的客户端脉冲，而不是直接依赖原始连续长按。" },
+        { u8"Useful when long melee holds feel sticky. If a server still jams swings, release and press again instead of mashing.",
+          u8"适合近战长按容易发黏时使用。如果某些服里仍会卡刀，建议松开后再按，不要一直闷按。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
         "HitSoundEnabled",
         OptionType::Bool,
         { u8"Weapons / Fire", u8"武器 / 开火" },
@@ -981,8 +1017,8 @@ Option g_Options[] =
         { u8"Hit Sound", u8"命中音效" },
         { u8"Sound spec for non-lethal hits. Supports alias:, file:, game:, gamesound:, cmd:, or a direct audio file path.",
           u8"普通命中音效配置。支持 alias:、file:、game:、gamesound:、cmd:，也支持直接填写音频文件路径。" },
-        { u8"Direct file paths may be absolute, relative to the game folder, or relative to the VR folder. Example: hit.mp3",
-          u8"文件路径可用绝对路径，也可相对游戏目录或 VR 目录。示例：hit.mp3" },
+        { u8"Direct file paths may be absolute, or relative to the VR folder. Example: hit.mp3 resolves to VR\\hit.mp3",
+          u8"文件路径可用绝对路径，也可相对 VR 目录。示例：hit.mp3 会解析到 VR\\hit.mp3" },
         0.0f, 0.0f,
         "hit.mp3"
     },
@@ -990,13 +1026,13 @@ Option g_Options[] =
         "HitSoundVolume",
         OptionType::Float,
         { u8"Weapons / Fire", u8"武器 / 开火" },
-        { u8"Hit Sound Volume", u8"命中音量" },
-        { u8"Volume multiplier for the hit cue. 1.0 keeps the source loudness unchanged.",
-          u8"命中提示音的音量倍率。1.0 表示保持素材原始响度。" },
-        { u8"Only affects direct audio files. Alias / game command playback still uses the engine or Windows defaults.",
-          u8"只影响直接音频文件。alias / game 命令类播放仍沿用引擎或 Windows 默认音量。" },
-        0.0f, 2.0f,
-        "0.80"
+        { u8"Feedback Sound Volume", u8"反馈音量" },
+        { u8"Unified volume multiplier for hit, kill, and headshot sounds. Adjusting this slider updates all three together.",
+          u8"统一控制命中、击杀、爆头三种提示音的音量倍率。调整这个滑杆会同时写入三个配置项。" },
+        { u8"1.0 keeps source loudness unchanged. This slider is clamped to 0.5~2.0 in the config tool.",
+          u8"1.0 表示保持素材原始响度。配置工具里这个滑杆的范围限制为 0.5~2.0。" },
+        0.5f, 2.0f,
+        "1.0"
     },
     {
         "KillSoundEnabled",
@@ -1017,8 +1053,8 @@ Option g_Options[] =
         { u8"Normal Kill Sound", u8"普通击杀音效" },
         { u8"Sound spec for normal kills. Supports alias:, file:, game:, gamesound:, cmd:, or a direct audio file path.",
           u8"普通击杀音效配置。支持 alias:、file:、game:、gamesound:、cmd:，也支持直接填写音频文件路径。" },
-        { u8"Direct file paths may be absolute, relative to the game folder, or relative to the VR folder.",
-          u8"文件路径可用绝对路径，也可相对游戏目录或 VR 目录。" },
+        { u8"Direct file paths may be absolute, or relative to the VR folder.",
+          u8"文件路径可用绝对路径，也可相对 VR 目录。" },
         0.0f, 0.0f,
         "kill.mp3"
     },
@@ -1029,8 +1065,8 @@ Option g_Options[] =
         { u8"Headshot Kill Sound", u8"爆头击杀音效" },
         { u8"Sound spec used when the confirmed kill followed a recent head hit.",
           u8"当确认击杀来自最近一次头部命中时使用的音效配置。" },
-        { u8"Direct file paths may be absolute, relative to the game folder, or relative to the VR folder. Example: headshot.mp3",
-          u8"文件路径可用绝对路径，也可相对游戏目录或 VR 目录。示例：headshot.mp3" },
+        { u8"Direct file paths may be absolute, or relative to the VR folder. Example: headshot.mp3 resolves to VR\\headshot.mp3",
+          u8"文件路径可用绝对路径，也可相对 VR 目录。示例：headshot.mp3 会解析到 VR\\headshot.mp3" },
         0.0f, 0.0f,
         "headshot.mp3"
     },
@@ -1130,30 +1166,6 @@ Option g_Options[] =
         16.0f, 512.0f,
         "180"
     },
-    {
-        "KillIndicatorRiseUnits",
-        OptionType::Float,
-        { u8"Weapons / Fire", u8"武器 / 开火" },
-        { u8"Kill Icon Rise", u8"击杀图标上浮" },
-        { u8"How many Source units the icon rises during its animation.",
-          u8"图标动画期间会向上浮动多少 Source 单位。" },
-        { u8"Adds a COD/BF-style lift instead of leaving the icon completely static.",
-          u8"会带一点 COD/BF 风格的上扬感，不会像静态贴纸一样钉死在原处。" },
-        0.0f, 128.0f,
-        "18"
-    },
-    {
-        "KillIndicatorMaxDistance",
-        OptionType::Float,
-        { u8"Weapons / Fire", u8"武器 / 开火" },
-        { u8"Kill Icon Max Distance", u8"击杀图标最远距离" },
-        { u8"Skip projected icons for kills that are too far away from the camera.",
-          u8"距离摄像机太远的击杀将不再投影图标。" },
-        { u8"Useful to avoid tiny, noisy markers from very distant kills.",
-          u8"可避免超远距离击杀产生又小又杂的标记。" },
-        128.0f, 16384.0f,
-        "4096"
-    },
 
     // Aim Assist
     {
@@ -1231,8 +1243,8 @@ Option g_Options[] =
         OptionType::Color,
         { u8"Aim Assist", u8"辅助瞄准" },
         { u8"Aim Line Color", u8"瞄准线颜色" },
-        { u8"RGBA color for the aim line (supports 0~1 or 0~255).",
-          u8"瞄准线的RGBA颜色（支持 0~1 或 0~255）。" },
+        { u8"RGBA color for the aim line, stored as 0~255 integers.",
+          u8"瞄准线的 RGBA 颜色，按 0~255 整数保存。" },
         { u8"", u8"" },
         0.0f, 0.0f,
         "255,0,0,180"
@@ -1711,6 +1723,34 @@ void DrawOptionsUI()
         }
         case OptionType::Float:
         {
+            if (key == "HitSoundVolume")
+            {
+                float sum = 0.0f;
+                int count = 0;
+                const char* volumeKeys[] = { "HitSoundVolume", "KillSoundVolume", "HeadshotSoundVolume" };
+                for (const char* volumeKey : volumeKeys)
+                {
+                    float parsed = 0.0f;
+                    if (TryParseFloat(GetStr(volumeKey), parsed))
+                    {
+                        sum += parsed;
+                        ++count;
+                    }
+                }
+
+                float v = (count > 0) ? (sum / static_cast<float>(count)) : GetDefaultFloat(opt);
+                v = std::clamp(v, opt.min, opt.max);
+                if (ImGui::SliderFloat(L(opt.title), &v, opt.min, opt.max, "%.3f"))
+                {
+                    const std::string value = std::to_string(v);
+                    g_Values["HitSoundVolume"] = value;
+                    g_Values["KillSoundVolume"] = value;
+                    g_Values["HeadshotSoundVolume"] = value;
+                }
+                DrawHelp(opt);
+                break;
+            }
+
             float v = GetFloat(key, GetDefaultFloat(opt));
             v = std::clamp(v, opt.min, opt.max);
             if (ImGui::SliderFloat(L(opt.title), &v, opt.min, opt.max, "%.3f"))
@@ -1730,7 +1770,11 @@ void DrawOptionsUI()
         case OptionType::Color:
         {
             ImVec4 c = GetColor(opt, ImVec4(1, 1, 1, 1));
-            if (ImGui::ColorEdit4(L(opt.title), (float*)&c))
+            const ImGuiColorEditFlags colorFlags =
+                ImGuiColorEditFlags_DisplayRGB |
+                ImGuiColorEditFlags_InputRGB |
+                ImGuiColorEditFlags_Uint8;
+            if (ImGui::ColorEdit4(L(opt.title), (float*)&c, colorFlags))
                 SetColor(key, c);
             DrawHelp(opt);
             break;

@@ -609,6 +609,18 @@ namespace
         return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
     }
 
+    static bool IsAbsoluteWindowsPath(const std::string& path)
+    {
+        if (!path.empty() && (path[0] == '\\' || path[0] == '/'))
+            return true;
+
+        if (path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':')
+            return true;
+
+        return path.size() >= 2
+            && ((path[0] == '\\' && path[1] == '\\') || (path[0] == '/' && path[1] == '/'));
+    }
+
     static std::string JoinWindowsPath(const std::string& base, const std::string& child)
     {
         if (base.empty())
@@ -847,20 +859,22 @@ namespace
         if (path.empty())
             return {};
 
-        if (FileExistsPath(path))
-            return path;
+        if (IsAbsoluteWindowsPath(path))
+            return FileExistsPath(path) ? path : std::string{};
 
         const std::string moduleDir = GetModuleDirectoryA();
-        if (!moduleDir.empty())
+        if (moduleDir.empty())
+            return {};
+
+        if (StartsWithInsensitive(path, "VR\\") || StartsWithInsensitive(path, "VR/"))
         {
             const std::string fromModule = JoinWindowsPath(moduleDir, path);
-            if (FileExistsPath(fromModule))
-                return fromModule;
-
-            const std::string fromVrDir = JoinWindowsPath(JoinWindowsPath(moduleDir, "VR"), path);
-            if (FileExistsPath(fromVrDir))
-                return fromVrDir;
+            return FileExistsPath(fromModule) ? fromModule : std::string{};
         }
+
+        const std::string fromVrDir = JoinWindowsPath(JoinWindowsPath(moduleDir, "VR"), path);
+        if (FileExistsPath(fromVrDir))
+            return fromVrDir;
 
         return {};
     }
@@ -2324,6 +2338,11 @@ void VR::PlayHitSound(const Vector* worldPos)
 
     bool played = TryPlayKillSoundSpec(m_HitSoundSpec, m_HitSoundVolume, worldPos);
     if (!played)
+    {
+        EnsureFeedbackSoundWarmup();
+        played = TryPlayKillSoundSpec(m_HitSoundSpec, m_HitSoundVolume, worldPos);
+    }
+    if (!played)
         MessageBeep(MB_ICONQUESTION);
 
     m_LastHitSoundPlaybackTime = now;
@@ -2347,9 +2366,20 @@ void VR::PlayKillSound(bool headshot, const Vector* worldPos)
         : m_KillSoundNormalSpec;
     const float preferredVolume = headshot ? m_HeadshotSoundVolume : m_KillSoundVolume;
 
-    bool played = TryPlayKillSoundSpec(preferredSpec, preferredVolume, worldPos);
-    if (!played && headshot && !m_KillSoundNormalSpec.empty())
-        played = TryPlayKillSoundSpec(m_KillSoundNormalSpec, m_KillSoundVolume, worldPos);
+    auto tryPlayConfiguredKillSounds = [&]() -> bool
+        {
+            bool result = TryPlayKillSoundSpec(preferredSpec, preferredVolume, worldPos);
+            if (!result && headshot && !m_KillSoundNormalSpec.empty())
+                result = TryPlayKillSoundSpec(m_KillSoundNormalSpec, m_KillSoundVolume, worldPos);
+            return result;
+        };
+
+    bool played = tryPlayConfiguredKillSounds();
+    if (!played)
+    {
+        EnsureFeedbackSoundWarmup();
+        played = tryPlayConfiguredKillSounds();
+    }
 
     if (!played)
         MessageBeep(headshot ? MB_ICONEXCLAMATION : MB_ICONASTERISK);
@@ -3014,7 +3044,8 @@ void VR::UpdateKillSoundFeedback()
             m_FeedbackSoundWarmupSignature.clear();
         };
 
-    if ((!m_KillSoundEnabled && !m_KillIndicatorEnabled) || !m_Game || !m_Game->m_EngineClient)
+    const bool wantsAnyFeedback = m_HitSoundEnabled || m_KillSoundEnabled || m_KillIndicatorEnabled;
+    if (!wantsAnyFeedback || !m_Game || !m_Game->m_EngineClient)
     {
         resetState();
         return;
