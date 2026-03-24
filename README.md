@@ -22,7 +22,7 @@
 1. Download [L4D2VR.zip](https://github.com/liu547161153/l4d2vr/releases) and extract the files to your Left 4 Dead 2 directory (steamapps\common\Left 4 Dead 2)
 2. Launch SteamVR, then launch Left 4 Dead 2 with these launch options:
    
-   ```-insecure -heapsize 524288 -processheap -high -novid```
+   ```-insecure -heapsize 524288 -processheap -high -novid +crosshair 0 -w 1280 -h 720 +mat_queue_mode 0 +mat_vsync 0 +mat_antialias 0 +mat_grain_scale_override 0 ```
 
 3. At the menu, feel free to change [these video settings](https://i.imgur.com/yYQMXs6.jpg).
 4. Load into a campaign.
