@@ -168,7 +168,9 @@ public:
 	// If enabled, render in third-person by default to avoid camera mode flicker.
 	// Only a small whitelist of explicitly-handled cases will remain first-person.
 	bool m_ThirdPersonDefault = false;
-	// If false, third-person camera orientation follows game/body orientation instead of HMD head turns.
+	// If true, third-person camera placement/orbit follows HMD head turns.
+	// If false, the rendered view still follows the HMD, but the third-person camera center/offset
+	// is placed using the engine/body camera basis so turning your head does not drag the whole camera.
 	bool m_ThirdPersonCameraFollowHmd = false;
 	// Optional front-observer mode for third-person rendering.
 	// When enabled, 3P camera is placed in front of the player and looks back at the player.
@@ -1132,8 +1134,7 @@ public:
 		std::chrono::steady_clock::time_point startedAt{};
 		bool killConfirmed = true;
 		bool headshot = false;
-		vr::VROverlayHandle_t overlayHandle = vr::k_ulOverlayHandleInvalid;
-		uint64_t overlaySerial = 0;
+		int overlaySlot = -1;
 	};
 
 	struct KillIndicatorOverlayTexture
@@ -1143,6 +1144,15 @@ public:
 		SharedTextureHolder sharedTexture{};
 		int width = 0;
 		int height = 0;
+		uint32_t uploadedFrameIndex = UINT32_MAX;
+		bool uploadedFromDecodedFrames = false;
+	};
+
+	struct KillIndicatorOverlaySlot
+	{
+		vr::VROverlayHandle_t overlayHandle = vr::k_ulOverlayHandleInvalid;
+		int materialIndex = -1;
+		bool visible = false;
 	};
 
 	struct PendingKillSoundEvent
@@ -1165,6 +1175,7 @@ public:
 	float m_HeadshotSoundVolume = 1.10f;
 	float m_FeedbackSoundSpatialBlend = 0.85f;
 	float m_FeedbackSoundSpatialRange = 1400.0f;
+	bool m_HitIndicatorEnabled = false;
 	bool m_KillIndicatorEnabled = true;
 	float m_KillIndicatorLifetimeSeconds = 0.85f;
 	float m_KillIndicatorSizePixels = 180.0f;
@@ -1184,6 +1195,7 @@ public:
 	IMaterial* m_KillIndicatorNormalMaterial = nullptr;
 	IMaterial* m_KillIndicatorHeadshotMaterial = nullptr;
 	std::array<KillIndicatorOverlayTexture, 3> m_KillIndicatorOverlayTextures{};
+	std::array<KillIndicatorOverlaySlot, 16> m_KillIndicatorOverlaySlots{};
 	uint64_t m_NextKillIndicatorOverlaySerial = 1;
 	IGameEventManager2* m_KillSoundEventManager = nullptr;
 	IGameEventListener2* m_KillSoundEventListener = nullptr;
@@ -1636,6 +1648,7 @@ public:
 	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot);
 	bool ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag);
 	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const;
+	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial, char* outSource) const;
 	bool ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) const;
 	bool IsKillSoundTargetEntity(const C_BaseEntity* entity) const;
 	bool ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
@@ -1653,10 +1666,12 @@ public:
 	void DestroyKillIndicatorOverlayTextures();
 	void DestroyKillIndicatorOverlayTexture(int materialIndex);
 	bool EnsureKillIndicatorOverlayTexture(int materialIndex, int width, int height);
-	bool UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgba, int width, int height);
+	bool UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgba, int width, int height, uint32_t frameIndex = 0, bool fromDecodedFrames = false);
 	void TrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool clearAll = false);
 	void DestroyKillIndicatorOverlay(ActiveKillIndicator& indicator);
-	bool BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight);
+	bool EnsureKillIndicatorOverlaySlot(int slotIndex);
+	int AcquireKillIndicatorOverlaySlot() const;
+	bool BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight, uint32_t preferredFrameIndex = UINT32_MAX, bool* outUsedDecodedFrames = nullptr);
 	bool ComputeKillIndicatorOverlayTransform(const Vector& worldPos, vr::HmdMatrix34_t& outTransform) const;
 	// Mounted gun helper: returns the entity the player is currently "using" (turret/mounted gun) if any.
 	// Used to skip that entity in aim-related traces so the aim line doesn't collide with the gun platform.

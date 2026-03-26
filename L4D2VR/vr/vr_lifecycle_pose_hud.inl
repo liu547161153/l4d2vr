@@ -813,62 +813,12 @@ void VR::UpdateHandHudOverlays()
         const int medItem   = getItemSlotWeaponId(3);
         const int pillItem  = getItemSlotWeaponId(4);
 
-        // 本关击杀数（普通/特感）：优先使用 DT_TerrorPlayer::m_missionZombieKills（章/关统计）。
-        // 某些服务器/状态下 mission 不更新或为 0，此时回退到 DT_TerrorPlayer::m_checkpointZombieKills。
-        // [0] 普通僵尸；[1..kZombieKillsMaxIndex] 视为特感类别并求和。
+        // 本关击杀数（普通/特感）：统一走 ReadLocalKillCounters。
+        // 这里会在 mission / checkpoint 两套统计之间做更稳妥的选择，避免 mission 在跨图后卡住旧值。
         int commonKills = 0;
         int specialKills = 0;
-        int commonKillsM = 0, specialKillsM = 0;
-        int commonKillsC = 0, specialKillsC = 0;
-        char killSrc = 'M';
-
-        int localTeam = 0;
-        TryReadInt(pBase, kTeamNumOffset, localTeam);
-        if (localTeam == 2)
-        {
-            auto readKillsArray = [&](int baseOff, int& outCommon, int& outSpecial) -> bool
-            {
-                int v = 0;
-                bool okAny = false;
-
-                if (TryReadInt(pBase, baseOff + 0 * 4, v))
-                {
-                    outCommon = (std::max)(0, v);
-                    okAny = true;
-                }
-
-                int sum = 0;
-                for (int i = 1; i <= kZombieKillsMaxIndex; ++i)
-                {
-                    if (TryReadInt(pBase, baseOff + i * 4, v))
-                    {
-                        sum += (std::max)(0, v);
-                        okAny = true;
-                    }
-                }
-                outSpecial = sum;
-                return okAny;
-            };
-
-            const bool okM = readKillsArray(kMissionZombieKillsOffset, commonKillsM, specialKillsM);
-            const bool okC = readKillsArray(kCheckpointZombieKillsOffset, commonKillsC, specialKillsC);
-
-            const int sumM = commonKillsM + specialKillsM;
-            const int sumC = commonKillsC + specialKillsC;
-
-            if ((!okM || sumM == 0) && (okC && sumC > 0))
-            {
-                commonKills = commonKillsC;
-                specialKills = specialKillsC;
-                killSrc = 'C';
-            }
-            else
-            {
-                commonKills = commonKillsM;
-                specialKills = specialKillsM;
-                killSrc = 'M';
-            }
-        }
+        char killSrc = 'N';
+        ReadLocalKillCounters(localPlayer, commonKills, specialKills, &killSrc);
 
 
         // Snapshot teammates so changes in THEIR HP/name also trigger redraw (fix: teammates only updated when local changed).

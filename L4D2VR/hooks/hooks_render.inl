@@ -1383,35 +1383,49 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		ResetTpWallColl();
 	if (renderThirdPerson)
 	{
-		// Render from the engine-provided third-person camera (setup.origin),
-		// optionally following HMD or decoupled body/game camera orientation.
-		QAngle camAng(viewAngles.x, viewAngles.y, viewAngles.z);
+		// Third-person uses two different angle bases:
+		//  1) renderCamAng: the orientation the user actually looks through this frame.
+		//     This should continue to follow the HMD so head turning still looks around naturally.
+		//  2) cameraBasisAng: the basis used to place the third-person camera center behind/in front of
+		//     the player. When decoupled from HMD, head turning no longer drags the whole third-person
+		//     camera position/orbit, while roomscale translation still moves it.
+		QAngle renderCamAng(viewAngles.x, viewAngles.y, viewAngles.z);
+		if (m_VR->m_HmdForward.IsZero())
+			renderCamAng = engineCamAngles;
+
+		QAngle cameraBasisAng = renderCamAng;
 		if (!m_VR->m_ThirdPersonCameraFollowHmd || m_VR->m_HmdForward.IsZero())
-			camAng = engineCamAngles;
+			cameraBasisAng = engineCamAngles;
+
 		if (thirdPersonFrontViewActive)
 		{
 			// In front-view mode, keep the main third-person camera yaw aligned with the scope yaw
 			// so thumbstick/scope turning also recenters the character in the main view.
+			float frontYaw = 0.0f;
 			if (m_VR->ShouldRenderScope())
 			{
-				camAng.y = m_VR->GetScopeCameraAbsAngle().y;
+				frontYaw = m_VR->GetScopeCameraAbsAngle().y;
 			}
 			else
 			{
-				float bodyYaw = m_VR->m_RotationOffset;
-				bodyYaw -= 360.0f * std::floor((bodyYaw + 180.0f) / 360.0f);
-				camAng.y = bodyYaw;
+				frontYaw = m_VR->m_RotationOffset;
+				frontYaw -= 360.0f * std::floor((frontYaw + 180.0f) / 360.0f);
 			}
+
+			frontYaw = wrapYawDeg(frontYaw + 180.0f);
+			renderCamAng.y = frontYaw;
+			cameraBasisAng.y = frontYaw;
 		}
-		if (thirdPersonFrontViewActive)
-			camAng.y = wrapYawDeg(camAng.y + 180.0f);
 
-		renderViewAngles.x = camAng.x;
-		renderViewAngles.y = camAng.y;
-		renderViewAngles.z = camAng.z;
+		renderViewAngles.x = renderCamAng.x;
+		renderViewAngles.y = renderCamAng.y;
+		renderViewAngles.z = renderCamAng.z;
 
-		Vector fwd, right, up;
-		QAngle::AngleVectors(camAng, &fwd, &right, &up);
+		Vector renderRight;
+		QAngle::AngleVectors(renderCamAng, nullptr, &renderRight, nullptr);
+
+		Vector basisFwd, basisRight, basisUp;
+		QAngle::AngleVectors(cameraBasisAng, &basisFwd, &basisRight, &basisUp);
 
 		const float ipd = (m_VR->m_Ipd * m_VR->m_IpdScale * m_VR->m_VRScale);
 		const float eyeZ = (m_VR->m_EyeZ * m_VR->m_VRScale);
@@ -1432,18 +1446,18 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		{
 			baseCenter = (engineThirdPersonNow || customWalkThirdPersonNow) ? engineCamOrigin : m_VR->m_HmdPosAbs;
 		}
-		Vector camCenter = baseCenter + (fwd * (-eyeZ));
+		Vector camCenter = baseCenter + (basisFwd * (-eyeZ));
 		if (thirdPersonFrontViewActive)
 		{
 			const Vector& configuredOffset = m_VR->m_ThirdPersonFrontVRCameraOffset;
 			camCenter = camCenter
-				+ (fwd * (-configuredOffset.x))
-				+ (right * configuredOffset.y)
-				+ (up * configuredOffset.z);
+				+ (basisFwd * (-configuredOffset.x))
+				+ (basisRight * configuredOffset.y)
+				+ (basisUp * configuredOffset.z);
 		}
 		else if (m_VR->m_ThirdPersonVRCameraOffset > 0.0f)
 		{
-			camCenter = camCenter + (fwd * (-m_VR->m_ThirdPersonVRCameraOffset));
+			camCenter = camCenter + (basisFwd * (-m_VR->m_ThirdPersonVRCameraOffset));
 		}
 		// Camera collision: clamp camera distance when something blocks the line from the anchor to the desired camera.
 		// This prevents the third-person render camera from going through walls (common when using ThirdPersonVRCameraOffset).
@@ -1496,8 +1510,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// Expose the actual VR render camera center used for third-person this frame.
 		// This includes HMD-aim yaw and any VR camera offsets, and is used to keep aim line and overlays aligned.
 		m_VR->m_ThirdPersonRenderCenter = camCenter;
-		leftOrigin = camCenter + (right * (-(ipd * 0.5f)));
-		rightOrigin = camCenter + (right * (+(ipd * 0.5f)));
+		leftOrigin = camCenter + (renderRight * (-(ipd * 0.5f)));
+		rightOrigin = camCenter + (renderRight * (+(ipd * 0.5f)));
 	}
 	else if (observerForceInEye)
 	{

@@ -1820,8 +1820,15 @@ namespace
 
 bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const
 {
+    return ReadLocalKillCounters(localPlayer, outCommon, outSpecial, nullptr);
+}
+
+bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial, char* outSource) const
+{
     outCommon = 0;
     outSpecial = 0;
+    if (outSource)
+        *outSource = 'N';
 
     if (!localPlayer)
         return false;
@@ -1866,13 +1873,28 @@ bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& o
     const bool missionOk = readKillsArray(kMissionZombieKillsOffset, missionCommon, missionSpecial);
     const bool checkpointOk = readKillsArray(kCheckpointZombieKillsOffset, checkpointCommon, checkpointSpecial);
 
+    if (!missionOk && !checkpointOk)
+        return false;
+
     const int missionSum = missionCommon + missionSpecial;
     const int checkpointSum = checkpointCommon + checkpointSpecial;
 
-    if ((!missionOk || missionSum == 0) && checkpointOk && checkpointSum > 0)
+    // Some servers stop refreshing m_missionZombieKills after map transitions but leave the
+    // previous non-zero value in place. The old code only fell back when mission was zero,
+    // so a stale mission value could pin the HUD / kill-feedback forever after a few chapters.
+    // Prefer whichever valid source currently has the larger non-zero total; equal totals keep
+    // mission as the primary source.
+    const bool useCheckpoint = checkpointOk && (
+        !missionOk ||
+        (checkpointSum > 0 && missionSum <= 0) ||
+        (checkpointSum > missionSum));
+
+    if (useCheckpoint)
     {
         outCommon = checkpointCommon;
         outSpecial = checkpointSpecial;
+        if (outSource)
+            *outSource = 'C';
         return true;
     }
 
@@ -1880,17 +1902,16 @@ bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& o
     {
         outCommon = missionCommon;
         outSpecial = missionSpecial;
+        if (outSource)
+            *outSource = 'M';
         return true;
     }
 
-    if (checkpointOk)
-    {
-        outCommon = checkpointCommon;
-        outSpecial = checkpointSpecial;
-        return true;
-    }
-
-    return false;
+    outCommon = checkpointCommon;
+    outSpecial = checkpointSpecial;
+    if (outSource)
+        *outSource = 'C';
+    return true;
 }
 
 bool VR::ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) const
@@ -2076,7 +2097,7 @@ bool VR::IsKillSoundTargetEntity(const C_BaseEntity* entity) const
 
 void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles)
 {
-    const bool wantsHitFeedback = m_HitSoundEnabled || m_KillIndicatorEnabled;
+    const bool wantsHitFeedback = m_HitSoundEnabled || m_HitIndicatorEnabled;
     const bool wantsKillFeedback = m_KillSoundEnabled || m_KillIndicatorEnabled;
     if ((!wantsHitFeedback && !wantsKillFeedback) || !m_Game || !m_Game->m_EngineTrace || !m_Game->m_EngineClient)
         return;
@@ -2108,7 +2129,7 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
     if (m_HitSoundEnabled)
         PlayHitSound(&trace.endpos);
 
-    if (m_KillIndicatorEnabled)
+    if (m_HitIndicatorEnabled)
         SpawnHitIndicator(trace.endpos);
 
     if (!wantsKillFeedback)
@@ -2499,6 +2520,8 @@ void VR::DestroyKillIndicatorOverlayTexture(int materialIndex)
     texture.width = 0;
     texture.height = 0;
     std::memset(&texture.sharedTexture, 0, sizeof(texture.sharedTexture));
+    texture.uploadedFrameIndex = UINT32_MAX;
+    texture.uploadedFromDecodedFrames = false;
 }
 
 bool VR::EnsureKillIndicatorOverlayTexture(int materialIndex, int width, int height)
@@ -2562,7 +2585,7 @@ bool VR::EnsureKillIndicatorOverlayTexture(int materialIndex, int width, int hei
     return texture.d3dTexture != nullptr && texture.d3dSurface != nullptr;
 }
 
-bool VR::UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgba, int width, int height)
+bool VR::UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgba, int width, int height, uint32_t frameIndex, bool fromDecodedFrames)
 {
     if (!rgba || width <= 0 || height <= 0)
         return false;
@@ -2606,23 +2629,85 @@ bool VR::UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgb
     texture.d3dTexture->UnlockRect(0);
     g_D3DVR9->TransferSurface(texture.d3dSurface, FALSE);
     g_D3DVR9->UnlockDevice();
+    texture.uploadedFrameIndex = frameIndex;
+    texture.uploadedFromDecodedFrames = fromDecodedFrames;
     return true;
 }
 
 void VR::DestroyKillIndicatorOverlay(ActiveKillIndicator& indicator)
 {
-    if (indicator.overlayHandle == vr::k_ulOverlayHandleInvalid)
-        return;
-
-    vr::IVROverlay* overlay = m_Overlay ? m_Overlay : vr::VROverlay();
-    if (overlay)
+    if (indicator.overlaySlot < 0 || indicator.overlaySlot >= static_cast<int>(m_KillIndicatorOverlaySlots.size()))
     {
-        std::lock_guard<std::mutex> lock(m_VROverlayMutex);
-        overlay->HideOverlay(indicator.overlayHandle);
-        overlay->DestroyOverlay(indicator.overlayHandle);
+        indicator.overlaySlot = -1;
+        return;
     }
 
-    indicator.overlayHandle = vr::k_ulOverlayHandleInvalid;
+    KillIndicatorOverlaySlot& slot = m_KillIndicatorOverlaySlots[indicator.overlaySlot];
+    if (slot.overlayHandle != vr::k_ulOverlayHandleInvalid)
+    {
+        vr::IVROverlay* overlay = m_Overlay ? m_Overlay : vr::VROverlay();
+        if (overlay)
+        {
+            std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+            overlay->HideOverlay(slot.overlayHandle);
+        }
+    }
+
+    slot.visible = false;
+    slot.materialIndex = -1;
+    indicator.overlaySlot = -1;
+}
+
+bool VR::EnsureKillIndicatorOverlaySlot(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= static_cast<int>(m_KillIndicatorOverlaySlots.size()))
+        return false;
+
+    KillIndicatorOverlaySlot& slot = m_KillIndicatorOverlaySlots[slotIndex];
+    if (slot.overlayHandle != vr::k_ulOverlayHandleInvalid)
+        return true;
+
+    vr::IVROverlay* overlay = m_Overlay ? m_Overlay : vr::VROverlay();
+    if (!overlay)
+        return false;
+
+    const std::string key = "KillIndicatorOverlayKey_" + std::to_string(m_NextKillIndicatorOverlaySerial++);
+    const std::string name = "KillIndicatorOverlay_" + std::to_string(slotIndex);
+
+    std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+    const vr::EVROverlayError createError = overlay->CreateOverlay(key.c_str(), name.c_str(), &slot.overlayHandle);
+    if (createError != vr::VROverlayError_None)
+    {
+        slot.overlayHandle = vr::k_ulOverlayHandleInvalid;
+        Game::logMsg("[VR][KillIndicator] CreateOverlay failed err=%d key=%s", (int)createError, key.c_str());
+        return false;
+    }
+
+    static const vr::VRTextureBounds_t fullTextureBounds{ 0.0f, 0.0f, 1.0f, 1.0f };
+    overlay->SetOverlayTexelAspect(slot.overlayHandle, 1.0f);
+    overlay->SetOverlayFlag(slot.overlayHandle, vr::VROverlayFlags_IgnoreTextureAlpha, false);
+    overlay->SetOverlayTextureBounds(slot.overlayHandle, &fullTextureBounds);
+    slot.materialIndex = -1;
+    slot.visible = false;
+    return true;
+}
+
+int VR::AcquireKillIndicatorOverlaySlot() const
+{
+    std::array<bool, 16> used{};
+    for (const ActiveKillIndicator& active : m_ActiveKillIndicators)
+    {
+        if (active.overlaySlot >= 0 && active.overlaySlot < static_cast<int>(used.size()))
+            used[active.overlaySlot] = true;
+    }
+
+    for (int slotIndex = 0; slotIndex < static_cast<int>(used.size()); ++slotIndex)
+    {
+        if (!used[slotIndex])
+            return slotIndex;
+    }
+
+    return -1;
 }
 
 void VR::TrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool clearAll)
@@ -2642,15 +2727,15 @@ void VR::TrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bo
         it = m_ActiveKillIndicators.erase(it);
     }
 
-    if (m_ActiveKillIndicators.empty())
-        DestroyKillIndicatorOverlayTextures();
 }
 
-bool VR::BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight)
+bool VR::BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight, uint32_t preferredFrameIndex, bool* outUsedDecodedFrames)
 {
     outPixels.clear();
     outWidth = 0;
     outHeight = 0;
+    if (outUsedDecodedFrames)
+        *outUsedDecodedFrames = false;
 
     if (!material || material->IsErrorMaterial())
         return false;
@@ -2659,15 +2744,24 @@ bool VR::BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_
     if (decoded.loaded && !decoded.frames.empty())
     {
         size_t frameIndex = 0;
-        if (decoded.frames.size() > 1 && decoded.frameRate > 0.01f)
+        if (decoded.frames.size() > 1)
         {
-            const double nowSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-            frameIndex = static_cast<size_t>(std::floor(nowSeconds * decoded.frameRate)) % decoded.frames.size();
+            if (preferredFrameIndex != UINT32_MAX)
+            {
+                frameIndex = static_cast<size_t>(preferredFrameIndex) % decoded.frames.size();
+            }
+            else if (decoded.frameRate > 0.01f)
+            {
+                const double nowSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+                frameIndex = static_cast<size_t>(std::floor(nowSeconds * decoded.frameRate)) % decoded.frames.size();
+            }
         }
 
         outPixels = decoded.frames[frameIndex];
         outWidth = decoded.width;
         outHeight = decoded.height;
+        if (outUsedDecodedFrames)
+            *outUsedDecodedFrames = true;
         return !outPixels.empty();
     }
 
@@ -2737,13 +2831,53 @@ void VR::UpdateKillIndicatorOverlays()
         ResolveKillIndicatorMaterial(false),
         ResolveKillIndicatorMaterial(true)
     };
-    std::vector<uint8_t> pixels[3];
-    uint32_t pixelWidths[3] = {};
-    uint32_t pixelHeights[3] = {};
-    bool pixelReady[3] = {};
     bool textureReady[3] = {};
     const float baseSizePixels = (std::max)(16.0f, m_KillIndicatorSizePixels);
-    static const vr::VRTextureBounds_t fullTextureBounds{ 0.0f, 0.0f, 1.0f, 1.0f };
+
+    for (int materialIndex = 0; materialIndex < 3; ++materialIndex)
+    {
+        IMaterial* material = materials[materialIndex];
+        if (!material)
+            continue;
+
+        uint32_t desiredFrameIndex = 0;
+        bool usesDecodedFrames = false;
+        KillIndicatorDecodedFrames& decoded = GetKillIndicatorDecodedFrameCache(material->GetName());
+        if (decoded.loaded && !decoded.frames.empty())
+        {
+            usesDecodedFrames = true;
+            if (decoded.frames.size() > 1 && decoded.frameRate > 0.01f)
+            {
+                const double nowSeconds = std::chrono::duration<double>(now.time_since_epoch()).count();
+                desiredFrameIndex = static_cast<uint32_t>(std::floor(nowSeconds * decoded.frameRate)) % static_cast<uint32_t>(decoded.frames.size());
+            }
+        }
+
+        KillIndicatorOverlayTexture& texture = m_KillIndicatorOverlayTextures[materialIndex];
+        const bool needsUpload = texture.sharedTexture.m_VRTexture.handle == nullptr
+            || texture.uploadedFrameIndex != desiredFrameIndex
+            || texture.uploadedFromDecodedFrames != usesDecodedFrames;
+        if (needsUpload)
+        {
+            std::vector<uint8_t> pixels;
+            uint32_t pixelWidth = 0;
+            uint32_t pixelHeight = 0;
+            bool builtFromDecodedFrames = false;
+            if (!BuildKillIndicatorOverlayPixels(material, pixels, pixelWidth, pixelHeight, desiredFrameIndex, &builtFromDecodedFrames))
+            {
+                Game::logMsg("[VR][KillIndicator] preview build failed material=%s", material->GetName());
+                continue;
+            }
+
+            if (!UploadKillIndicatorOverlayTexture(materialIndex, pixels.data(), static_cast<int>(pixelWidth), static_cast<int>(pixelHeight), desiredFrameIndex, builtFromDecodedFrames))
+            {
+                Game::logMsg("[VR][KillIndicator] world texture upload failed material=%s size=%ux%u", material->GetName(), pixelWidth, pixelHeight);
+                continue;
+            }
+        }
+
+        textureReady[materialIndex] = m_KillIndicatorOverlayTextures[materialIndex].sharedTexture.m_VRTexture.handle != nullptr;
+    }
 
     for (ActiveKillIndicator& indicator : m_ActiveKillIndicators)
     {
@@ -2752,59 +2886,25 @@ void VR::UpdateKillIndicatorOverlays()
             : (indicator.headshot ? KillIndicatorMaterialKind::Headshot : KillIndicatorMaterialKind::Kill);
         const int materialIndex = static_cast<int>(kind);
         IMaterial* material = materials[materialIndex];
-        if (!material)
+        if (!material || !textureReady[materialIndex])
             continue;
 
-        if (!pixelReady[materialIndex])
+        if (indicator.overlaySlot < 0)
         {
-            pixelReady[materialIndex] = BuildKillIndicatorOverlayPixels(material, pixels[materialIndex], pixelWidths[materialIndex], pixelHeights[materialIndex]);
-            if (!pixelReady[materialIndex])
-            {
-                Game::logMsg("[VR][KillIndicator] preview build failed material=%s", material->GetName());
+            indicator.overlaySlot = AcquireKillIndicatorOverlaySlot();
+            if (indicator.overlaySlot < 0)
                 continue;
-            }
-
-            textureReady[materialIndex] = UploadKillIndicatorOverlayTexture(
-                materialIndex,
-                pixels[materialIndex].data(),
-                static_cast<int>(pixelWidths[materialIndex]),
-                static_cast<int>(pixelHeights[materialIndex]));
-            if (!textureReady[materialIndex])
-            {
-                Game::logMsg(
-                    "[VR][KillIndicator] world texture upload failed material=%s size=%ux%u",
-                    material->GetName(),
-                    pixelWidths[materialIndex],
-                    pixelHeights[materialIndex]);
-                continue;
-            }
-        }
-        else
-        {
-            textureReady[materialIndex] = m_KillIndicatorOverlayTextures[materialIndex].sharedTexture.m_VRTexture.handle != nullptr;
         }
 
-        if (!textureReady[materialIndex])
+        if (!EnsureKillIndicatorOverlaySlot(indicator.overlaySlot))
+        {
+            indicator.overlaySlot = -1;
             continue;
-
-        if (indicator.overlayHandle == vr::k_ulOverlayHandleInvalid)
-        {
-            indicator.overlaySerial = m_NextKillIndicatorOverlaySerial++;
-            const std::string key = "KillIndicatorOverlayKey_" + std::to_string(indicator.overlaySerial);
-            const std::string name = "KillIndicatorOverlay_" + std::to_string(indicator.overlaySerial);
-
-            std::lock_guard<std::mutex> lock(m_VROverlayMutex);
-            const vr::EVROverlayError createError = overlay->CreateOverlay(key.c_str(), name.c_str(), &indicator.overlayHandle);
-            if (createError != vr::VROverlayError_None)
-            {
-                indicator.overlayHandle = vr::k_ulOverlayHandleInvalid;
-                Game::logMsg("[VR][KillIndicator] CreateOverlay failed err=%d key=%s", (int)createError, key.c_str());
-                continue;
-            }
-
-            overlay->SetOverlayTexelAspect(indicator.overlayHandle, 1.0f);
-            overlay->SetOverlayFlag(indicator.overlayHandle, vr::VROverlayFlags_IgnoreTextureAlpha, false);
         }
+
+        KillIndicatorOverlaySlot& slot = m_KillIndicatorOverlaySlots[indicator.overlaySlot];
+        if (slot.overlayHandle == vr::k_ulOverlayHandleInvalid)
+            continue;
 
         const float lifetime = GetActiveIndicatorLifetimeSeconds(indicator, m_KillIndicatorLifetimeSeconds);
         const float ageSeconds = std::chrono::duration<float>(now - indicator.startedAt).count();
@@ -2819,8 +2919,12 @@ void VR::UpdateKillIndicatorOverlays()
         Vector drawPos = indicator.worldPos;
         if ((drawPos - m_HmdPosAbs).Length() > m_KillIndicatorMaxDistance)
         {
-            std::lock_guard<std::mutex> lock(m_VROverlayMutex);
-            overlay->HideOverlay(indicator.overlayHandle);
+            if (slot.visible)
+            {
+                std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+                overlay->HideOverlay(slot.overlayHandle);
+                slot.visible = false;
+            }
             continue;
         }
 
@@ -2837,29 +2941,29 @@ void VR::UpdateKillIndicatorOverlays()
         const float widthMeters = std::clamp((baseSizePixels / 640.0f) * scale, 0.10f, 0.45f);
 
         std::lock_guard<std::mutex> lock(m_VROverlayMutex);
-        overlay->SetOverlayTextureBounds(indicator.overlayHandle, &fullTextureBounds);
-        const vr::EVROverlayError textureError = overlay->SetOverlayTexture(
-            indicator.overlayHandle,
-            &m_KillIndicatorOverlayTextures[materialIndex].sharedTexture.m_VRTexture);
-        if (textureError != vr::VROverlayError_None)
+        if (slot.materialIndex != materialIndex)
         {
-            Game::logMsg(
-                "[VR][KillIndicator] SetOverlayTexture failed err=%d material=%s size=%ux%u",
-                (int)textureError,
-                material->GetName(),
-                pixelWidths[materialIndex],
-                pixelHeights[materialIndex]);
-            continue;
+            const vr::EVROverlayError textureError = overlay->SetOverlayTexture(slot.overlayHandle, &m_KillIndicatorOverlayTextures[materialIndex].sharedTexture.m_VRTexture);
+            if (textureError != vr::VROverlayError_None)
+            {
+                Game::logMsg("[VR][KillIndicator] SetOverlayTexture failed err=%d material=%s", (int)textureError, material->GetName());
+                continue;
+            }
+            slot.materialIndex = materialIndex;
         }
 
-        overlay->SetOverlayTransformTrackedDeviceRelative(indicator.overlayHandle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
-        overlay->SetOverlayWidthInMeters(indicator.overlayHandle, widthMeters);
-        overlay->SetOverlayAlpha(indicator.overlayHandle, alpha);
-        const vr::EVROverlayError showError = overlay->ShowOverlay(indicator.overlayHandle);
-        if (showError != vr::VROverlayError_None)
+        overlay->SetOverlayTransformTrackedDeviceRelative(slot.overlayHandle, vr::k_unTrackedDeviceIndex_Hmd, &transform);
+        overlay->SetOverlayWidthInMeters(slot.overlayHandle, widthMeters);
+        overlay->SetOverlayAlpha(slot.overlayHandle, alpha);
+        if (!slot.visible)
         {
-            Game::logMsg("[VR][KillIndicator] ShowOverlay failed err=%d material=%s", (int)showError, material->GetName());
-            continue;
+            const vr::EVROverlayError showError = overlay->ShowOverlay(slot.overlayHandle);
+            if (showError != vr::VROverlayError_None)
+            {
+                Game::logMsg("[VR][KillIndicator] ShowOverlay failed err=%d material=%s", (int)showError, material->GetName());
+                continue;
+            }
+            slot.visible = true;
         }
     }
 }
@@ -3044,7 +3148,7 @@ void VR::UpdateKillSoundFeedback()
             m_FeedbackSoundWarmupSignature.clear();
         };
 
-    const bool wantsAnyFeedback = m_HitSoundEnabled || m_KillSoundEnabled || m_KillIndicatorEnabled;
+    const bool wantsAnyFeedback = m_HitSoundEnabled || m_HitIndicatorEnabled || m_KillSoundEnabled || m_KillIndicatorEnabled;
     if (!wantsAnyFeedback || !m_Game || !m_Game->m_EngineClient)
     {
         resetState();
