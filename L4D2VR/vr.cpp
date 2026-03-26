@@ -1998,17 +1998,17 @@ bool VR::ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) 
     return true;
 }
 
-void VR::TriggerImpactHapticsBothHands(float amplitude, float frequency, float durationSeconds)
+void VR::TriggerImpactHapticsBothHands(float amplitude, float frequency, float durationSeconds, int priority)
 {
     const float amp = std::clamp(amplitude, 0.0f, 1.0f);
     if (amp <= 0.0f)
         return;
 
-    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp);
-    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp);
+    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp, priority);
+    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp, priority);
 }
 
-void VR::TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias)
+void VR::TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias, int priority)
 {
     const float amp = std::clamp(amplitude, 0.0f, 1.0f);
     if (amp <= 0.0f)
@@ -2017,8 +2017,8 @@ void VR::TriggerDirectionalDamageHaptics(float amplitude, float frequency, float
     const float bias = std::clamp(rightBias, -1.0f, 1.0f);
     const float leftWeight = 0.25f + 0.75f * ((1.0f - bias) * 0.5f);
     const float rightWeight = 0.25f + 0.75f * ((1.0f + bias) * 0.5f);
-    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp * std::clamp(leftWeight, 0.0f, 1.0f));
-    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp * std::clamp(rightWeight, 0.0f, 1.0f));
+    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp * std::clamp(leftWeight, 0.0f, 1.0f), priority);
+    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp * std::clamp(rightWeight, 0.0f, 1.0f), priority);
 }
 
 VR::DamageFeedbackType VR::ClassifyDamageFeedbackType(const char* weaponName, int damage) const
@@ -2169,6 +2169,7 @@ void VR::ParseHapticsConfigFile()
         };
 
     m_WeaponHapticsEnabled = getBool("weapon.enabled", m_WeaponHapticsEnabled);
+    m_HapticMixMinIntervalSeconds = std::max(0.0f, getFloat("mix.min_interval", m_HapticMixMinIntervalSeconds));
     m_DefaultWeaponHapticsProfile = parseProfile("weapon.default", m_DefaultWeaponHapticsProfile);
     m_MeleeSwingHapticsProfile = parseProfile("melee.swing", m_MeleeSwingHapticsProfile);
     m_ShoveHapticsProfile = parseProfile("melee.shove", m_ShoveHapticsProfile);
@@ -2308,6 +2309,11 @@ void VR::HandleDamageFeedbackGameEvent(IGameEvent* event)
     const float duration = damageProfile.durationSeconds;
     const float damageBonus = std::clamp((damage - m_DamageScaleStart) * m_DamageScalePerPoint, 0.0f, m_DamageScaleMaxBonus);
     amplitude = std::clamp(amplitude + damageBonus, m_DamageAmplitudeMin, m_DamageAmplitudeMax);
+    int damagePriority = 2;
+    if (type == DamageFeedbackType::SpecialHit)
+        damagePriority = 3;
+    else if (type == DamageFeedbackType::HeavyHit || type == DamageFeedbackType::Explosion)
+        damagePriority = 4;
 
     float rightBias = 0.0f;
     if (m_DamageDirectionalEnabled)
@@ -2337,7 +2343,7 @@ void VR::HandleDamageFeedbackGameEvent(IGameEvent* event)
         }
     }
 
-    TriggerDirectionalDamageHaptics(amplitude, frequency, duration, rightBias);
+    TriggerDirectionalDamageHaptics(amplitude, frequency, duration, rightBias, damagePriority);
 
     const auto now = std::chrono::steady_clock::now();
     if (m_DamageSustainEnabled)
@@ -2375,7 +2381,8 @@ void VR::UpdateDamageFeedback()
             TriggerImpactHapticsBothHands(
                 m_DamageAcidSustainPulse.amplitude,
                 m_DamageAcidSustainPulse.frequency,
-                m_DamageAcidSustainPulse.durationSeconds);
+                m_DamageAcidSustainPulse.durationSeconds,
+                1);
             m_NextAcidSustainPulse = now + std::chrono::milliseconds((int)std::round(m_DamageAcidSustainIntervalSeconds * 1000.0f));
         }
         if (now < m_FireSustainUntil && now >= m_NextFireSustainPulse)
@@ -2383,7 +2390,8 @@ void VR::UpdateDamageFeedback()
             TriggerImpactHapticsBothHands(
                 m_DamageFireSustainPulse.amplitude,
                 m_DamageFireSustainPulse.frequency,
-                m_DamageFireSustainPulse.durationSeconds);
+                m_DamageFireSustainPulse.durationSeconds,
+                1);
             m_NextFireSustainPulse = now + std::chrono::milliseconds((int)std::round(m_DamageFireSustainIntervalSeconds * 1000.0f));
         }
     }
@@ -2399,7 +2407,7 @@ void VR::UpdateDamageFeedback()
             const float amp = m_LandingAmpMin + (m_LandingAmpMax - m_LandingAmpMin) * fallImpact;
             const float freq = m_LandingFreqMax + (m_LandingFreqMin - m_LandingFreqMax) * fallImpact;
             const float dur = m_LandingDurMin + (m_LandingDurMax - m_LandingDurMin) * fallImpact;
-            TriggerImpactHapticsBothHands(amp, freq, dur);
+            TriggerImpactHapticsBothHands(amp, freq, dur, 3);
         }
         m_WasOnGroundForHaptics = onGround;
         m_LastVerticalSpeedForHaptics = verticalSpeed;
@@ -2444,7 +2452,7 @@ void VR::UpdateDamageFeedback()
                     const float amp = m_CameraShakePulseAmpMin + (m_CameraShakePulseAmpMax - m_CameraShakePulseAmpMin) * shakeScore;
                     const float freq = m_CameraShakePulseFreqMax + (m_CameraShakePulseFreqMin - m_CameraShakePulseFreqMax) * shakeScore;
                     const float dur = m_CameraShakePulseDurMin + (m_CameraShakePulseDurMax - m_CameraShakePulseDurMin) * shakeScore;
-                    TriggerImpactHapticsBothHands(amp, freq, dur);
+                    TriggerImpactHapticsBothHands(amp, freq, dur, 2);
                     m_LastCameraShakeHapticsPulse = now;
                 }
             }

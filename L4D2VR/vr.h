@@ -83,6 +83,17 @@ struct WeaponHapticsProfile
 	float amplitude = 0.0f;
 };
 
+struct HapticMixState
+{
+	bool pending = false;
+	float amplitude = 0.0f;
+	float frequency = 0.0f;
+	float durationSeconds = 0.0f;
+	float weight = 0.0f;
+	int priority = -1;
+	std::chrono::steady_clock::time_point lastSubmit{};
+};
+
 
 class VR
 {
@@ -651,6 +662,9 @@ public:
 	WeaponHapticsProfile m_DefaultWeaponHapticsProfile = { 0.018f, 130.0f, 0.32f };
 	WeaponHapticsProfile m_MeleeSwingHapticsProfile = { 0.035f, 95.0f, 0.72f };
 	WeaponHapticsProfile m_ShoveHapticsProfile = { 0.022f, 120.0f, 0.58f };
+	HapticMixState m_LeftHapticMix{};
+	HapticMixState m_RightHapticMix{};
+	float m_HapticMixMinIntervalSeconds = 0.005f;
 
 	TrackedDevicePoseData m_HmdPose;
 	TrackedDevicePoseData m_LeftControllerPose;
@@ -1717,6 +1731,8 @@ public:
 	void PoseWaiterThreadMain();
 	bool ReadPoseWaiterSnapshot(vr::TrackedDevicePose_t* outPoses, uint32_t* outSeq = nullptr) const;
 	void TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude);
+	void TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude, int priority);
+	void FlushHapticMixer();
 	WeaponHapticsProfile GetWeaponHapticsProfile(int weaponId) const;
 	void TriggerWeaponFireHaptics(int weaponId, bool leftHand = false);
 	void TriggerMeleeSwingHaptics(bool leftHand = false);
@@ -1753,8 +1769,8 @@ public:
 	void UpdateDamageFeedback();
 	DamageFeedbackType ClassifyDamageFeedbackType(const char* weaponName, int damage) const;
 	WeaponHapticsProfile GetDamageHapticsProfile(DamageFeedbackType type) const;
-	void TriggerImpactHapticsBothHands(float amplitude, float frequency, float durationSeconds);
-	void TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias);
+	void TriggerImpactHapticsBothHands(float amplitude, float frequency, float durationSeconds, int priority = 1);
+	void TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias, int priority = 1);
 	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot);
 	bool ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag);
 	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const;

@@ -84,12 +84,17 @@ void VR::Update()
 
 
     if (!m_Game->m_VguiSurface)
+    {
+        FlushHapticMixer();
         return;
+    }
 
     if (m_Game->m_VguiSurface->IsCursorVisible())
         ProcessMenuInput();
     else
         ProcessInput();
+
+    FlushHapticMixer();
 }
 
 bool VR::GetWalkAxis(float& x, float& y) {

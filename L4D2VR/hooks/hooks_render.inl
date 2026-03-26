@@ -240,7 +240,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		static thread_local uint32_t s_cachedVpSeqEven = 0;
 		static thread_local bool s_cachedVpValid = false;
 		static thread_local int s_vpMissStreak = 0;
-		static thread_local std::chrono::steady_clock::time_point s_lastVpMissLog{};
 
 		auto ReadViewParamsUnsafe = [&]()
 			{
@@ -314,14 +313,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				vpOk = true;
 			}
 
-			const auto nowLog = std::chrono::steady_clock::now();
-			if (s_lastVpMissLog.time_since_epoch().count() == 0 ||
-				std::chrono::duration<float>(nowLog - s_lastVpMissLog).count() > 1.0f)
-			{
-				Game::logMsg("[VR][Queued][RenderView] seqlock read miss (streak=%d cached=%d) -> using fallback view params",
-					s_vpMissStreak, s_cachedVpValid ? 1 : 0);
-				s_lastVpMissLog = nowLog;
-			}
 		}
 
 		// Render-thread smoothing of camera anchor / body yaw in queued rendering.

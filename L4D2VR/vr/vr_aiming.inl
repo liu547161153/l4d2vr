@@ -1783,6 +1783,11 @@ bool VR::IsThirdPersonMapLoadCooldownActive() const
 
 void VR::TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude)
 {
+    TriggerHapticPulse(actionHandle, durationSeconds, frequency, amplitude, 1);
+}
+
+void VR::TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude, int priority)
+{
     if (!m_IsVREnabled || !m_Input || actionHandle == vr::k_ulInvalidActionHandle)
         return;
 
@@ -1792,13 +1797,98 @@ void VR::TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSec
     if (safeDuration <= 0.0f || safeAmplitude <= 0.0f)
         return;
 
-    m_Input->TriggerHapticVibrationAction(
-        actionHandle,
-        0.0f,
-        safeDuration,
-        safeFrequency,
-        safeAmplitude,
-        vr::k_ulInvalidInputValueHandle);
+    HapticMixState* mix = nullptr;
+    if (actionHandle == m_ActionVibrationLeft)
+        mix = &m_LeftHapticMix;
+    else if (actionHandle == m_ActionVibrationRight)
+        mix = &m_RightHapticMix;
+
+    if (!mix)
+    {
+        m_Input->TriggerHapticVibrationAction(
+            actionHandle,
+            0.0f,
+            safeDuration,
+            safeFrequency,
+            safeAmplitude,
+            vr::k_ulInvalidInputValueHandle);
+        return;
+    }
+
+    if (!mix->pending)
+    {
+        mix->pending = true;
+        mix->amplitude = safeAmplitude;
+        mix->frequency = safeFrequency;
+        mix->durationSeconds = safeDuration;
+        mix->weight = safeAmplitude;
+        mix->priority = priority;
+        return;
+    }
+
+    if (priority > mix->priority)
+    {
+        mix->priority = priority;
+        mix->amplitude = std::clamp((mix->amplitude * 0.45f) + (safeAmplitude * 0.75f), 0.0f, 1.0f);
+        mix->frequency = safeFrequency;
+        mix->durationSeconds = std::max(mix->durationSeconds, safeDuration);
+        mix->weight = safeAmplitude;
+        return;
+    }
+
+    if (priority == mix->priority)
+    {
+        mix->amplitude = 1.0f - (1.0f - mix->amplitude) * (1.0f - safeAmplitude);
+        const float combinedWeight = mix->weight + safeAmplitude;
+        if (combinedWeight > 0.0001f)
+            mix->frequency = (mix->frequency * mix->weight + safeFrequency * safeAmplitude) / combinedWeight;
+        mix->weight = combinedWeight;
+        mix->durationSeconds = std::max(mix->durationSeconds, safeDuration);
+        return;
+    }
+
+    // Lower priority contributes softly to avoid erasing high-priority feedback.
+    const float attenuatedAmp = safeAmplitude * 0.35f;
+    mix->amplitude = 1.0f - (1.0f - mix->amplitude) * (1.0f - attenuatedAmp);
+    mix->durationSeconds = std::max(mix->durationSeconds, safeDuration * 0.6f);
+}
+
+void VR::FlushHapticMixer()
+{
+    if (!m_IsVREnabled || !m_Input)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    const float minInterval = std::max(0.0f, m_HapticMixMinIntervalSeconds);
+
+    auto flushOne = [&](vr::VRActionHandle_t actionHandle, HapticMixState& mix)
+        {
+            if (!mix.pending)
+                return;
+
+            if (mix.lastSubmit.time_since_epoch().count() != 0 && minInterval > 0.0f)
+            {
+                const float elapsed = std::chrono::duration<float>(now - mix.lastSubmit).count();
+                if (elapsed < minInterval)
+                    return;
+            }
+
+            m_Input->TriggerHapticVibrationAction(
+                actionHandle,
+                0.0f,
+                std::clamp(mix.durationSeconds, 0.0f, 0.5f),
+                std::clamp(mix.frequency, 0.0f, 320.0f),
+                std::clamp(mix.amplitude, 0.0f, 1.0f),
+                vr::k_ulInvalidInputValueHandle);
+
+            mix.pending = false;
+            mix.weight = 0.0f;
+            mix.priority = -1;
+            mix.lastSubmit = now;
+        };
+
+    flushOne(m_ActionVibrationLeft, m_LeftHapticMix);
+    flushOne(m_ActionVibrationRight, m_RightHapticMix);
 }
 
 WeaponHapticsProfile VR::GetWeaponHapticsProfile(int weaponId) const

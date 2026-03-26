@@ -1,5 +1,6 @@
 # L4D2VR haptics config
 # profile format: duration_seconds,frequency_hz,amplitude_0_to_1
+mix.min_interval=0.005
 
 # ----------------------------
 # Weapon / melee
