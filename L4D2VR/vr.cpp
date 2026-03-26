@@ -913,6 +913,48 @@ namespace
         return {};
     }
 
+    static std::string ResolveGameSoundFilePath(const std::string& rawPath)
+    {
+        std::string path = TrimCopy(rawPath);
+        if (path.empty())
+            return {};
+
+        while (!path.empty() && (path.front() == '\\' || path.front() == '/'))
+            path.erase(path.begin());
+
+        if (StartsWithInsensitive(path, "sound\\") || StartsWithInsensitive(path, "sound/"))
+            path = TrimCopy(path.substr(6));
+
+        if (path.empty())
+            return {};
+
+        if (IsAbsoluteWindowsPath(path))
+            return FileExistsPath(path) ? path : std::string{};
+
+        const std::string moduleDir = GetModuleDirectoryA();
+        if (moduleDir.empty())
+            return {};
+
+        const std::string candidate = JoinWindowsPath(JoinWindowsPath(JoinWindowsPath(moduleDir, "left4dead2"), "sound"), path);
+        return FileExistsPath(candidate) ? candidate : std::string{};
+    }
+
+    static std::string ResolveBuiltinFeedbackGameSoundPath(const std::string& rawSoundName)
+    {
+        const std::string soundName = TrimCopy(rawSoundName);
+        if (soundName.empty())
+            return {};
+
+        if (_stricmp(soundName.c_str(), "VR_HitMarker") == 0)
+            return ResolveGameSoundFilePath("vrmod/hit.mp3");
+        if (_stricmp(soundName.c_str(), "VR_KillMarker") == 0)
+            return ResolveGameSoundFilePath("vrmod/kill.mp3");
+        if (_stricmp(soundName.c_str(), "VR_HeadshotMarker") == 0)
+            return ResolveGameSoundFilePath("vrmod/headshot.mp3");
+
+        return {};
+    }
+
     static bool LooksLikeAudioFilePath(const std::string& value)
     {
         return value.find('\\') != std::string::npos
@@ -2004,8 +2046,8 @@ void VR::TriggerImpactHapticsBothHands(float amplitude, float frequency, float d
     if (amp <= 0.0f)
         return;
 
-    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp, priority);
-    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp, priority);
+    TriggerPhysicalHandHapticPulse(true, durationSeconds, frequency, amp, priority);
+    TriggerPhysicalHandHapticPulse(false, durationSeconds, frequency, amp, priority);
 }
 
 void VR::TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias, int priority)
@@ -2017,8 +2059,8 @@ void VR::TriggerDirectionalDamageHaptics(float amplitude, float frequency, float
     const float bias = std::clamp(rightBias, -1.0f, 1.0f);
     const float leftWeight = 0.25f + 0.75f * ((1.0f - bias) * 0.5f);
     const float rightWeight = 0.25f + 0.75f * ((1.0f + bias) * 0.5f);
-    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp * std::clamp(leftWeight, 0.0f, 1.0f), priority);
-    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp * std::clamp(rightWeight, 0.0f, 1.0f), priority);
+    TriggerPhysicalHandHapticPulse(true, durationSeconds, frequency, amp * std::clamp(leftWeight, 0.0f, 1.0f), priority);
+    TriggerPhysicalHandHapticPulse(false, durationSeconds, frequency, amp * std::clamp(rightWeight, 0.0f, 1.0f), priority);
 }
 
 VR::DamageFeedbackType VR::ClassifyDamageFeedbackType(const char* weaponName, int damage) const
@@ -2222,6 +2264,7 @@ void VR::ParseHapticsConfigFile()
     m_DamageAcidSustainPulse = parseProfile("sustain.acid.pulse", m_DamageAcidSustainPulse);
 
     m_LandingMinFallSpeed = std::max(0.0f, getFloat("landing.min_fall_speed", m_LandingMinFallSpeed));
+    m_LandingMinAirTime = std::max(0.0f, getFloat("landing.min_air_time", m_LandingMinAirTime));
     m_LandingFallSpeedRange = std::max(1.0f, getFloat("landing.fall_speed_range", m_LandingFallSpeedRange));
     m_LandingAmpMin = std::clamp(getFloat("landing.amp_min", m_LandingAmpMin), 0.0f, 1.0f);
     m_LandingAmpMax = std::clamp(getFloat("landing.amp_max", m_LandingAmpMax), 0.0f, 1.0f);
@@ -2401,14 +2444,42 @@ void VR::UpdateDamageFeedback()
     {
         const bool onGround = localPlayer->m_hGroundEntity != -1;
         const float verticalSpeed = localPlayer->m_vecVelocity.z;
-        if (!m_WasOnGroundForHaptics && onGround && m_LastVerticalSpeedForHaptics < -m_LandingMinFallSpeed)
+        if (onGround)
         {
-            const float fallImpact = std::clamp((std::fabs(m_LastVerticalSpeedForHaptics) - m_LandingMinFallSpeed) / m_LandingFallSpeedRange, 0.0f, 1.0f);
-            const float amp = m_LandingAmpMin + (m_LandingAmpMax - m_LandingAmpMin) * fallImpact;
-            const float freq = m_LandingFreqMax + (m_LandingFreqMin - m_LandingFreqMax) * fallImpact;
-            const float dur = m_LandingDurMin + (m_LandingDurMax - m_LandingDurMin) * fallImpact;
-            TriggerImpactHapticsBothHands(amp, freq, dur, 3);
+            if (!m_WasOnGroundForHaptics)
+            {
+                const float airTime = (m_LandingAirborneSince.time_since_epoch().count() == 0)
+                    ? 0.0f
+                    : std::chrono::duration<float>(now - m_LandingAirborneSince).count();
+                if (airTime >= m_LandingMinAirTime && m_LandingPeakDownwardSpeedForHaptics >= m_LandingMinFallSpeed)
+                {
+                    const float fallImpact = std::clamp(
+                        (m_LandingPeakDownwardSpeedForHaptics - m_LandingMinFallSpeed) / m_LandingFallSpeedRange,
+                        0.0f,
+                        1.0f);
+                    const float amp = m_LandingAmpMin + (m_LandingAmpMax - m_LandingAmpMin) * fallImpact;
+                    const float freq = m_LandingFreqMax + (m_LandingFreqMin - m_LandingFreqMax) * fallImpact;
+                    const float dur = m_LandingDurMin + (m_LandingDurMax - m_LandingDurMin) * fallImpact;
+                    TriggerImpactHapticsBothHands(amp, freq, dur, 3);
+                }
+            }
+
+            m_LandingAirborneSince = {};
+            m_LandingPeakDownwardSpeedForHaptics = 0.0f;
         }
+        else
+        {
+            if (m_WasOnGroundForHaptics)
+            {
+                m_LandingAirborneSince = now;
+                m_LandingPeakDownwardSpeedForHaptics = std::max(0.0f, -verticalSpeed);
+            }
+            else
+            {
+                m_LandingPeakDownwardSpeedForHaptics = std::max(m_LandingPeakDownwardSpeedForHaptics, std::max(0.0f, -verticalSpeed));
+            }
+        }
+
         m_WasOnGroundForHaptics = onGround;
         m_LastVerticalSpeedForHaptics = verticalSpeed;
     }
@@ -2429,9 +2500,11 @@ void VR::UpdateDamageFeedback()
         }
         else
         {
+            vr::InputAnalogActionData_t turnActionData{};
+            const bool turnActionActive = GetAnalogActionData(m_ActionTurn, turnActionData)
+                && std::fabs(turnActionData.x) > 0.2f;
             const float angDelta =
                 normalizeAngleDelta(m_SetupAngles.x, m_LastCameraShakeAngles.x) +
-                normalizeAngleDelta(m_SetupAngles.y, m_LastCameraShakeAngles.y) +
                 normalizeAngleDelta(m_SetupAngles.z, m_LastCameraShakeAngles.z);
             const float posDelta = (m_SetupOrigin - m_LastCameraShakeOrigin).Length();
             const float hmdAngVel = m_HmdPose.TrackedDeviceAngVel.Length();
@@ -2439,7 +2512,7 @@ void VR::UpdateDamageFeedback()
             m_LastCameraShakeAngles = m_SetupAngles;
             m_LastCameraShakeOrigin = m_SetupOrigin;
 
-            if (hmdAngVel < m_CameraShakeHmdAngVelMax)
+            if (!turnActionActive && hmdAngVel < m_CameraShakeHmdAngVelMax)
             {
                 const float shakeScore = (std::max)(
                     std::clamp((angDelta - m_CameraShakeAngleThreshold) / m_CameraShakeAngleRange, 0.0f, 1.0f),
@@ -2776,7 +2849,20 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
     if (StartsWithInsensitive(spec, "game:"))
     {
         const std::string soundPath = getPayload(5);
-        if (soundPath.empty() || !m_Game)
+        if (soundPath.empty())
+            return false;
+
+        const std::string resolvedPath = ResolveGameSoundFilePath(soundPath);
+        if (!resolvedPath.empty())
+        {
+            int leftVolume = 1000;
+            int rightVolume = 1000;
+            ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
+            if (TryPlayFeedbackSoundFilePath(resolvedPath, leftVolume, rightVolume, false))
+                return true;
+        }
+
+        if (!m_Game)
             return false;
 
         const std::string cmd = "play " + soundPath;
@@ -2787,7 +2873,21 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
     if (StartsWithInsensitive(spec, "gamesound:"))
     {
         const std::string soundName = getPayload(10);
-        if (soundName.empty() || !m_Game)
+        if (soundName.empty())
+            return false;
+
+        // Route the built-in VR marker sounds through the local voice pool so repeated hits can overlap.
+        const std::string resolvedPath = ResolveBuiltinFeedbackGameSoundPath(soundName);
+        if (!resolvedPath.empty())
+        {
+            int leftVolume = 1000;
+            int rightVolume = 1000;
+            ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
+            if (TryPlayFeedbackSoundFilePath(resolvedPath, leftVolume, rightVolume, false))
+                return true;
+        }
+
+        if (!m_Game)
             return false;
 
         const std::string cmd = "playgamesound " + soundName;

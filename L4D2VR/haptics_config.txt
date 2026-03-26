@@ -66,7 +66,8 @@ sustain.acid.pulse=0.010,170,0.24
 # Landing feedback
 # ----------------------------
 landing.enabled=1
-landing.min_fall_speed=140
+landing.min_fall_speed=60
+landing.min_air_time=0.06
 landing.fall_speed_range=500
 landing.amp_min=0.25
 landing.amp_max=0.80

@@ -996,9 +996,11 @@ int VR::SetActionManifest(const char* fileName)
     char path[MAX_STR_LEN];
     sprintf_s(path, MAX_STR_LEN, "%s\\VR\\SteamVRActionManifest\\%s", currentDir, fileName);
 
-    if (m_Input->SetActionManifestPath(path) != vr::VRInputError_None)
+    const vr::EVRInputError manifestResult = m_Input->SetActionManifestPath(path);
+    if (manifestResult != vr::VRInputError_None)
     {
         Game::errorMsg("SetActionManifestPath failed");
+        Game::logMsg("[VR][Input] SetActionManifestPath failed err=%d path=%s", static_cast<int>(manifestResult), path);
     }
 
     m_Input->GetActionHandle("/actions/main/in/ActivateVR", &m_ActionActivateVR);
@@ -1026,7 +1028,7 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/MenuRight", &m_MenuRight);
     m_Input->GetActionHandle("/actions/main/in/Spray", &m_Spray);
     m_Input->GetActionHandle("/actions/main/in/Scoreboard", &m_Scoreboard);
-    m_Input->GetActionHandle("/actions/main/in/ToggleHUD", &m_ToggleHUD);
+    m_Input->GetActionHandle("/actions/main/in/ShowHUD", &m_ToggleHUD);
     m_Input->GetActionHandle("/actions/main/in/Pause", &m_Pause);
     m_Input->GetActionHandle("/actions/main/in/NonVRServerMovementAngleToggle", &m_NonVRServerMovementAngleToggle);
     m_Input->GetActionHandle("/actions/main/in/ScopeMagnificationToggle", &m_ActionScopeMagnificationToggle);
@@ -1037,8 +1039,17 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/CustomAction3", &m_CustomAction3);
     m_Input->GetActionHandle("/actions/main/in/CustomAction4", &m_CustomAction4);
     m_Input->GetActionHandle("/actions/main/in/CustomAction5", &m_CustomAction5);
-    m_Input->GetActionHandle("/actions/base/out/vibration_left", &m_ActionVibrationLeft);
-    m_Input->GetActionHandle("/actions/base/out/vibration_right", &m_ActionVibrationRight);
+    const vr::EVRInputError leftVibrationResult = m_Input->GetActionHandle("/actions/base/out/vibration_left", &m_ActionVibrationLeft);
+    const vr::EVRInputError rightVibrationResult = m_Input->GetActionHandle("/actions/base/out/vibration_right", &m_ActionVibrationRight);
+    if (leftVibrationResult != vr::VRInputError_None || rightVibrationResult != vr::VRInputError_None)
+    {
+        Game::logMsg(
+            "[VR][Haptics] vibration action handle lookup failed leftErr=%d rightErr=%d left=%llu right=%llu",
+            static_cast<int>(leftVibrationResult),
+            static_cast<int>(rightVibrationResult),
+            static_cast<unsigned long long>(m_ActionVibrationLeft),
+            static_cast<unsigned long long>(m_ActionVibrationRight));
+    }
 
     m_Input->GetActionSetHandle("/actions/main", &m_ActionSet);
     m_ActiveActionSet = {};

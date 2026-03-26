@@ -1286,9 +1286,12 @@ public:
 	std::chrono::steady_clock::time_point m_NextAcidSustainPulse{};
 	std::chrono::steady_clock::time_point m_NextFireSustainPulse{};
 	std::chrono::steady_clock::time_point m_LastCameraShakeHapticsPulse{};
+	std::chrono::steady_clock::time_point m_LandingAirborneSince{};
 	bool m_WasOnGroundForHaptics = true;
 	float m_LastVerticalSpeedForHaptics = 0.0f;
-	float m_LandingMinFallSpeed = 140.0f;
+	float m_LandingPeakDownwardSpeedForHaptics = 0.0f;
+	float m_LandingMinFallSpeed = 60.0f;
+	float m_LandingMinAirTime = 0.06f;
 	float m_LandingFallSpeedRange = 500.0f;
 	float m_LandingAmpMin = 0.25f;
 	float m_LandingAmpMax = 0.80f;
@@ -1730,6 +1733,11 @@ public:
 	void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
 	void PoseWaiterThreadMain();
 	bool ReadPoseWaiterSnapshot(vr::TrackedDevicePose_t* outPoses, uint32_t* outSeq = nullptr) const;
+	// leftHand follows the project's gameplay hand ordering after LeftHanded remapping.
+	vr::VRActionHandle_t GetGameplayHandHapticAction(bool leftHand) const;
+	vr::TrackedDeviceIndex_t GetPhysicalControllerIndexForHapticAction(vr::VRActionHandle_t actionHandle) const;
+	void TriggerLegacyHapticPulse(vr::TrackedDeviceIndex_t deviceIndex, float durationSeconds, float amplitude) const;
+	void TriggerPhysicalHandHapticPulse(bool leftHand, float durationSeconds, float frequency, float amplitude, int priority = 1);
 	void TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude);
 	void TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude, int priority);
 	void FlushHapticMixer();
