@@ -1166,6 +1166,10 @@ public:
 	float m_HitSoundPlaybackCooldownSeconds = 0.03f;
 	std::string m_HitSoundSpec = "alias:SystemQuestion";
 	float m_HitSoundVolume = 0.80f;
+	bool m_HitSoundPending = false;
+	uint32_t m_HitSoundPendingMergedCount = 0;
+	Vector m_HitSoundPendingWorldPos = { 0,0,0 };
+	std::chrono::steady_clock::time_point m_HitSoundPendingQueuedAt{};
 	bool m_KillSoundEnabled = true;
 	float m_KillSoundDetectionWindowSeconds = 0.75f;
 	float m_KillSoundPlaybackCooldownSeconds = 0.04f;
@@ -1177,6 +1181,8 @@ public:
 	float m_FeedbackSoundSpatialRange = 1400.0f;
 	bool m_HitIndicatorEnabled = false;
 	bool m_KillIndicatorEnabled = true;
+	bool m_KillIndicatorDebugLog = false;
+	float m_KillIndicatorDebugLogHz = 1.0f;
 	float m_KillIndicatorLifetimeSeconds = 0.85f;
 	float m_KillIndicatorSizePixels = 180.0f;
 	float m_KillIndicatorRiseUnits = 18.0f;
@@ -1190,6 +1196,17 @@ public:
 	std::chrono::steady_clock::time_point m_LastHitSoundPlaybackTime{};
 	std::chrono::steady_clock::time_point m_LastKillSoundPlaybackTime{};
 	std::chrono::steady_clock::time_point m_LastKillSoundEventRegisterAttempt{};
+	std::chrono::steady_clock::time_point m_LastKillIndicatorTrimTime{};
+	std::chrono::steady_clock::time_point m_LastKillIndicatorDebugLogTime{};
+	uint32_t m_KillIndicatorStatsHitSpawned = 0;
+	uint32_t m_KillIndicatorStatsKillSpawned = 0;
+	uint32_t m_KillIndicatorStatsHitMerged = 0;
+	uint32_t m_KillIndicatorStatsRecycled = 0;
+	uint32_t m_KillIndicatorStatsTrimmed = 0;
+	uint32_t m_KillIndicatorStatsPeakActive = 0;
+	uint32_t m_HitSoundStatsQueued = 0;
+	uint32_t m_HitSoundStatsMerged = 0;
+	uint32_t m_HitSoundStatsFlushed = 0;
 	std::string m_FeedbackSoundWarmupSignature;
 	IMaterial* m_KillIndicatorHitMaterial = nullptr;
 	IMaterial* m_KillIndicatorNormalMaterial = nullptr;
@@ -1380,7 +1397,7 @@ public:
 	float m_SpecialInfectedRunCommandShotWindow = 0.10f;
 	float m_SpecialInfectedRunCommandShotLerp = 1.0f;
 	std::chrono::steady_clock::time_point m_SpecialInfectedRunCommandShotAimUntil{};
-	bool m_SpecialInfectedRunCommandSecondaryPredictEnabled = false;
+	bool m_SpecialInfectedRunCommandSecondaryPredictEnabled = true;
 	bool m_SpecialInfectedRunCommandSecondaryForceAttack = true;
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
@@ -1654,7 +1671,9 @@ public:
 	bool ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
 	void PlayHitSound(const Vector* worldPos = nullptr);
 	void PlayKillSound(bool headshot, const Vector* worldPos = nullptr);
-	bool TryPlayKillSoundSpec(const std::string& spec, float baseVolume = 1.0f, const Vector* worldPos = nullptr);
+	bool TryPlayKillSoundSpec(const std::string& spec, float baseVolume = 1.0f, const Vector* worldPos = nullptr, bool preferLoadedPathReuse = true);
+	void QueueHitSoundPlayback(const Vector* worldPos = nullptr);
+	void FlushPendingHitSound(std::chrono::steady_clock::time_point now);
 	void ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVolume, int& outLeftVolume, int& outRightVolume) const;
 	void EnsureFeedbackSoundWarmup();
 	void SpawnHitIndicator(const Vector& worldPos);
@@ -1668,9 +1687,13 @@ public:
 	bool EnsureKillIndicatorOverlayTexture(int materialIndex, int width, int height);
 	bool UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgba, int width, int height, uint32_t frameIndex = 0, bool fromDecodedFrames = false);
 	void TrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool clearAll = false);
+	void MaybeTrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool force = false);
+	void MaybeLogKillIndicatorStats(std::chrono::steady_clock::time_point now);
 	void DestroyKillIndicatorOverlay(ActiveKillIndicator& indicator);
 	bool EnsureKillIndicatorOverlaySlot(int slotIndex);
 	int AcquireKillIndicatorOverlaySlot() const;
+	int FindReusableKillIndicatorIndex(bool preferNonKill) const;
+	void AddOrRecycleKillIndicator(const Vector& worldPos, bool killConfirmed, bool headshot, std::chrono::steady_clock::time_point now, bool preferNonKill);
 	bool BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight, uint32_t preferredFrameIndex = UINT32_MAX, bool* outUsedDecodedFrames = nullptr);
 	bool ComputeKillIndicatorOverlayTransform(const Vector& worldPos, vr::HmdMatrix34_t& outTransform) const;
 	// Mounted gun helper: returns the entity the player is currently "using" (turret/mounted gun) if any.

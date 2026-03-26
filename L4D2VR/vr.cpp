@@ -31,6 +31,10 @@
 
 namespace
 {
+    constexpr size_t kMaxActiveKillIndicators = 16;
+    constexpr float kKillIndicatorTrimIntervalSeconds = 1.0f / 90.0f;
+    constexpr float kHitIndicatorMergeWindowSeconds = 0.12f;
+    constexpr float kHitIndicatorMergeDistance = 128.0f;
     // NOTE: “被控放行”要宁可保守：只在「确实是控制者本人」且「目标非常贴近队友」时才放行。
     // Used by VR::UpdateFriendlyFireAimHit().
     constexpr float kAllowThroughControlledTeammateMaxDist = 64.0f; // units (conservative)
@@ -1034,13 +1038,15 @@ namespace
         ::mciSendStringA(rightCmd.c_str(), nullptr, 0, nullptr);
     }
 
-    static bool TryPlayFeedbackSoundFilePath(const std::string& rawPath, int leftVolume, int rightVolume)
+    static bool TryPlayFeedbackSoundFilePath(const std::string& rawPath, int leftVolume, int rightVolume, bool preferLoadedPathReuse = true)
     {
         const std::string resolvedPath = ResolveKillSoundFilePath(rawPath);
         if (resolvedPath.empty())
             return false;
 
-        FeedbackSoundVoiceState& voice = AcquireFeedbackSoundVoice(&resolvedPath);
+        FeedbackSoundVoiceState& voice = preferLoadedPathReuse
+            ? AcquireFeedbackSoundVoice(&resolvedPath)
+            : AcquireFeedbackSoundVoice();
         if (!EnsureFeedbackSoundVoiceOpen(voice, resolvedPath))
             return false;
 
@@ -2127,7 +2133,7 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
         return;
 
     if (m_HitSoundEnabled)
-        PlayHitSound(&trace.endpos);
+        QueueHitSoundPlayback(&trace.endpos);
 
     if (m_HitIndicatorEnabled)
         SpawnHitIndicator(trace.endpos);
@@ -2217,7 +2223,7 @@ bool VR::ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chro
     return false;
 }
 
-bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, const Vector* worldPos)
+bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, const Vector* worldPos, bool preferLoadedPathReuse)
 {
     const std::string spec = TrimCopy(rawSpec);
     if (spec.empty())
@@ -2244,7 +2250,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
         int leftVolume = 1000;
         int rightVolume = 1000;
         ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
-        return TryPlayFeedbackSoundFilePath(path, leftVolume, rightVolume);
+        return TryPlayFeedbackSoundFilePath(path, leftVolume, rightVolume, preferLoadedPathReuse);
     }
 
     if (StartsWithInsensitive(spec, "game:"))
@@ -2284,7 +2290,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
         int leftVolume = 1000;
         int rightVolume = 1000;
         ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
-        return TryPlayFeedbackSoundFilePath(spec, leftVolume, rightVolume);
+        return TryPlayFeedbackSoundFilePath(spec, leftVolume, rightVolume, preferLoadedPathReuse);
     }
 
     return ::PlaySoundA(spec.c_str(), nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT) != FALSE;
@@ -2357,16 +2363,56 @@ void VR::PlayHitSound(const Vector* worldPos)
             return;
     }
 
-    bool played = TryPlayKillSoundSpec(m_HitSoundSpec, m_HitSoundVolume, worldPos);
+    bool played = TryPlayKillSoundSpec(m_HitSoundSpec, m_HitSoundVolume, worldPos, false);
     if (!played)
     {
         EnsureFeedbackSoundWarmup();
-        played = TryPlayKillSoundSpec(m_HitSoundSpec, m_HitSoundVolume, worldPos);
+        played = TryPlayKillSoundSpec(m_HitSoundSpec, m_HitSoundVolume, worldPos, false);
     }
     if (!played)
         MessageBeep(MB_ICONQUESTION);
 
     m_LastHitSoundPlaybackTime = now;
+}
+
+void VR::QueueHitSoundPlayback(const Vector* worldPos)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (!m_HitSoundPending)
+    {
+        m_HitSoundPending = true;
+        ++m_HitSoundStatsQueued;
+        m_HitSoundPendingMergedCount = 1;
+        m_HitSoundPendingQueuedAt = now;
+        m_HitSoundPendingWorldPos = worldPos ? *worldPos : Vector{};
+        return;
+    }
+
+    ++m_HitSoundStatsMerged;
+    ++m_HitSoundPendingMergedCount;
+    if (worldPos)
+        m_HitSoundPendingWorldPos = *worldPos;
+}
+
+void VR::FlushPendingHitSound(std::chrono::steady_clock::time_point now)
+{
+    if (!m_HitSoundPending || !m_HitSoundEnabled)
+        return;
+
+    if (m_HitSoundPlaybackCooldownSeconds > 0.0f && m_LastHitSoundPlaybackTime.time_since_epoch().count() != 0)
+    {
+        const float elapsed = std::chrono::duration<float>(now - m_LastHitSoundPlaybackTime).count();
+        if (elapsed < m_HitSoundPlaybackCooldownSeconds)
+            return;
+    }
+
+    const Vector* worldPos = m_HitSoundPendingWorldPos.IsZero() ? nullptr : &m_HitSoundPendingWorldPos;
+    PlayHitSound(worldPos);
+    ++m_HitSoundStatsFlushed;
+    m_HitSoundPending = false;
+    m_HitSoundPendingMergedCount = 0;
+    m_HitSoundPendingWorldPos = Vector{};
+    m_HitSoundPendingQueuedAt = {};
 }
 
 void VR::PlayKillSound(bool headshot, const Vector* worldPos)
@@ -2712,21 +2758,135 @@ int VR::AcquireKillIndicatorOverlaySlot() const
 
 void VR::TrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool clearAll)
 {
-    auto it = m_ActiveKillIndicators.begin();
-    while (it != m_ActiveKillIndicators.end())
+    size_t writeIndex = 0;
+    const size_t originalCount = m_ActiveKillIndicators.size();
+    for (size_t readIndex = 0; readIndex < originalCount; ++readIndex)
     {
+        ActiveKillIndicator& indicator = m_ActiveKillIndicators[readIndex];
         const bool expired = clearAll
-            || std::chrono::duration<float>(now - it->startedAt).count() >= GetActiveIndicatorLifetimeSeconds(*it, m_KillIndicatorLifetimeSeconds);
+            || std::chrono::duration<float>(now - indicator.startedAt).count() >= GetActiveIndicatorLifetimeSeconds(indicator, m_KillIndicatorLifetimeSeconds);
         if (!expired)
         {
-            ++it;
+            if (writeIndex != readIndex)
+                m_ActiveKillIndicators[writeIndex] = std::move(indicator);
+            ++writeIndex;
             continue;
         }
 
-        DestroyKillIndicatorOverlay(*it);
-        it = m_ActiveKillIndicators.erase(it);
+        DestroyKillIndicatorOverlay(indicator);
+        ++m_KillIndicatorStatsTrimmed;
     }
 
+    if (writeIndex < originalCount)
+        m_ActiveKillIndicators.resize(writeIndex);
+}
+
+void VR::MaybeTrimExpiredKillIndicators(std::chrono::steady_clock::time_point now, bool force)
+{
+    if (!force && m_LastKillIndicatorTrimTime.time_since_epoch().count() != 0)
+    {
+        const float elapsed = std::chrono::duration<float>(now - m_LastKillIndicatorTrimTime).count();
+        if (elapsed < kKillIndicatorTrimIntervalSeconds)
+            return;
+    }
+
+    TrimExpiredKillIndicators(now, false);
+    m_LastKillIndicatorTrimTime = now;
+}
+
+void VR::MaybeLogKillIndicatorStats(std::chrono::steady_clock::time_point now)
+{
+    if (!m_KillIndicatorDebugLog)
+        return;
+
+    if (ShouldThrottle(m_LastKillIndicatorDebugLogTime, m_KillIndicatorDebugLogHz))
+        return;
+
+    Game::logMsg(
+        "[VR][KillIndicator][stats] active=%zu peak=%u hit_spawned=%u kill_spawned=%u hit_merged=%u recycled=%u trimmed=%u hit_sound_queued=%u hit_sound_merged=%u hit_sound_flushed=%u",
+        m_ActiveKillIndicators.size(),
+        m_KillIndicatorStatsPeakActive,
+        m_KillIndicatorStatsHitSpawned,
+        m_KillIndicatorStatsKillSpawned,
+        m_KillIndicatorStatsHitMerged,
+        m_KillIndicatorStatsRecycled,
+        m_KillIndicatorStatsTrimmed,
+        m_HitSoundStatsQueued,
+        m_HitSoundStatsMerged,
+        m_HitSoundStatsFlushed);
+
+    m_KillIndicatorStatsHitSpawned = 0;
+    m_KillIndicatorStatsKillSpawned = 0;
+    m_KillIndicatorStatsHitMerged = 0;
+    m_KillIndicatorStatsRecycled = 0;
+    m_KillIndicatorStatsTrimmed = 0;
+    m_KillIndicatorStatsPeakActive = static_cast<uint32_t>(m_ActiveKillIndicators.size());
+    m_HitSoundStatsQueued = 0;
+    m_HitSoundStatsMerged = 0;
+    m_HitSoundStatsFlushed = 0;
+}
+
+int VR::FindReusableKillIndicatorIndex(bool preferNonKill) const
+{
+    if (m_ActiveKillIndicators.empty())
+        return -1;
+
+    int fallbackIndex = 0;
+    auto fallbackStartedAt = m_ActiveKillIndicators[0].startedAt;
+    int preferredIndex = -1;
+    auto preferredStartedAt = std::chrono::steady_clock::time_point::max();
+
+    for (int i = 0; i < static_cast<int>(m_ActiveKillIndicators.size()); ++i)
+    {
+        const ActiveKillIndicator& indicator = m_ActiveKillIndicators[i];
+        if (indicator.startedAt < fallbackStartedAt)
+        {
+            fallbackStartedAt = indicator.startedAt;
+            fallbackIndex = i;
+        }
+
+        if (preferNonKill && indicator.killConfirmed)
+            continue;
+
+        if (preferredIndex < 0 || indicator.startedAt < preferredStartedAt)
+        {
+            preferredStartedAt = indicator.startedAt;
+            preferredIndex = i;
+        }
+    }
+
+    return preferredIndex >= 0 ? preferredIndex : fallbackIndex;
+}
+
+void VR::AddOrRecycleKillIndicator(const Vector& worldPos, bool killConfirmed, bool headshot, std::chrono::steady_clock::time_point now, bool preferNonKill)
+{
+    if (m_ActiveKillIndicators.capacity() < kMaxActiveKillIndicators)
+        m_ActiveKillIndicators.reserve(kMaxActiveKillIndicators);
+
+    if (m_ActiveKillIndicators.size() < kMaxActiveKillIndicators)
+    {
+        ActiveKillIndicator indicator{};
+        indicator.worldPos = worldPos;
+        indicator.startedAt = now;
+        indicator.killConfirmed = killConfirmed;
+        indicator.headshot = headshot;
+        m_ActiveKillIndicators.push_back(indicator);
+        m_KillIndicatorStatsPeakActive = (std::max)(m_KillIndicatorStatsPeakActive, static_cast<uint32_t>(m_ActiveKillIndicators.size()));
+        return;
+    }
+
+    const int reuseIndex = FindReusableKillIndicatorIndex(preferNonKill);
+    if (reuseIndex < 0)
+        return;
+
+    ActiveKillIndicator& indicator = m_ActiveKillIndicators[reuseIndex];
+    DestroyKillIndicatorOverlay(indicator);
+    ++m_KillIndicatorStatsRecycled;
+    indicator.worldPos = worldPos;
+    indicator.startedAt = now;
+    indicator.killConfirmed = killConfirmed;
+    indicator.headshot = headshot;
+    indicator.overlaySlot = -1;
 }
 
 bool VR::BuildKillIndicatorOverlayPixels(IMaterial* material, std::vector<uint8_t>& outPixels, uint32_t& outWidth, uint32_t& outHeight, uint32_t preferredFrameIndex, bool* outUsedDecodedFrames)
@@ -2814,7 +2974,8 @@ bool VR::ComputeKillIndicatorOverlayTransform(const Vector& worldPos, vr::HmdMat
 void VR::UpdateKillIndicatorOverlays()
 {
     const auto now = std::chrono::steady_clock::now();
-    TrimExpiredKillIndicators(now, false);
+    MaybeTrimExpiredKillIndicators(now, true);
+    MaybeLogKillIndicatorStats(now);
 
     if (!m_KillIndicatorEnabled || m_ActiveKillIndicators.empty())
         return;
@@ -2974,19 +3135,29 @@ void VR::SpawnHitIndicator(const Vector& worldPos)
         return;
 
     const auto now = std::chrono::steady_clock::now();
-    TrimExpiredKillIndicators(now, false);
+    MaybeTrimExpiredKillIndicators(now, false);
+    ++m_KillIndicatorStatsHitSpawned;
 
-    ActiveKillIndicator indicator{};
-    indicator.worldPos = worldPos;
-    indicator.startedAt = now;
-    indicator.killConfirmed = false;
-    indicator.headshot = false;
-    m_ActiveKillIndicators.push_back(indicator);
-    while (m_ActiveKillIndicators.size() > 16)
+    const float mergeDistanceSqr = kHitIndicatorMergeDistance * kHitIndicatorMergeDistance;
+    for (ActiveKillIndicator& indicator : m_ActiveKillIndicators)
     {
-        DestroyKillIndicatorOverlay(m_ActiveKillIndicators.front());
-        m_ActiveKillIndicators.erase(m_ActiveKillIndicators.begin());
+        if (indicator.killConfirmed)
+            continue;
+
+        const float ageSeconds = std::chrono::duration<float>(now - indicator.startedAt).count();
+        if (ageSeconds > kHitIndicatorMergeWindowSeconds)
+            continue;
+
+        if (indicator.worldPos.DistToSqr(worldPos) > mergeDistanceSqr)
+            continue;
+
+        indicator.worldPos = worldPos;
+        indicator.startedAt = now;
+        ++m_KillIndicatorStatsHitMerged;
+        return;
     }
+
+    AddOrRecycleKillIndicator(worldPos, false, false, now, true);
 }
 
 void VR::SpawnKillIndicator(bool headshot, const Vector& worldPos)
@@ -2995,7 +3166,8 @@ void VR::SpawnKillIndicator(bool headshot, const Vector& worldPos)
         return;
 
     const auto now = std::chrono::steady_clock::now();
-    TrimExpiredKillIndicators(now, false);
+    MaybeTrimExpiredKillIndicators(now, false);
+    ++m_KillIndicatorStatsKillSpawned;
 
     Vector indicatorPos = worldPos;
     if (indicatorPos.IsZero())
@@ -3013,17 +3185,7 @@ void VR::SpawnKillIndicator(bool headshot, const Vector& worldPos)
         indicatorPos = m_SetupOrigin + fallbackForward * 196.0f;
     }
 
-    ActiveKillIndicator indicator{};
-    indicator.worldPos = indicatorPos;
-    indicator.startedAt = now;
-    indicator.killConfirmed = true;
-    indicator.headshot = headshot;
-    m_ActiveKillIndicators.push_back(indicator);
-    while (m_ActiveKillIndicators.size() > 16)
-    {
-        DestroyKillIndicatorOverlay(m_ActiveKillIndicators.front());
-        m_ActiveKillIndicators.erase(m_ActiveKillIndicators.begin());
-    }
+    AddOrRecycleKillIndicator(indicatorPos, true, headshot, now, true);
 }
 
 void VR::DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTexture)
@@ -3032,7 +3194,7 @@ void VR::DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTextu
         return;
 
     const auto now = std::chrono::steady_clock::now();
-    TrimExpiredKillIndicators(now, false);
+    MaybeTrimExpiredKillIndicators(now, true);
 
     if (!m_KillIndicatorEnabled || m_ActiveKillIndicators.empty() || !hudTexture)
         return;
@@ -3143,6 +3305,10 @@ void VR::UpdateKillSoundFeedback()
             TrimExpiredKillIndicators(std::chrono::steady_clock::now(), true);
             m_PendingKillSoundHits.clear();
             m_PendingKillSoundEvents.clear();
+            m_HitSoundPending = false;
+            m_HitSoundPendingMergedCount = 0;
+            m_HitSoundPendingWorldPos = Vector{};
+            m_HitSoundPendingQueuedAt = {};
             m_LastKillSoundCommonKills = -1;
             m_LastKillSoundSpecialKills = -1;
             m_FeedbackSoundWarmupSignature.clear();
@@ -3180,6 +3346,7 @@ void VR::UpdateKillSoundFeedback()
     }
 
     const auto now = std::chrono::steady_clock::now();
+    FlushPendingHitSound(now);
     EnsureKillSoundEventListener();
     m_PendingKillSoundHits.erase(
         std::remove_if(

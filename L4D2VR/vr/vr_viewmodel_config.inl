@@ -1029,6 +1029,8 @@ void VR::ParseConfigFile()
     m_FeedbackSoundSpatialRange = std::clamp(getFloat("FeedbackSoundSpatialRange", m_FeedbackSoundSpatialRange), 64.0f, 8192.0f);
     m_HitIndicatorEnabled = getBool("HitIndicatorEnabled", m_HitIndicatorEnabled);
     m_KillIndicatorEnabled = getBool("KillIndicatorEnabled", m_KillIndicatorEnabled);
+    m_KillIndicatorDebugLog = getBool("KillIndicatorDebugLog", m_KillIndicatorDebugLog);
+    m_KillIndicatorDebugLogHz = std::clamp(getFloat("KillIndicatorDebugLogHz", m_KillIndicatorDebugLogHz), 0.0f, 20.0f);
     m_KillIndicatorLifetimeSeconds = std::clamp(getFloat("KillIndicatorLifetimeSeconds", m_KillIndicatorLifetimeSeconds), 0.10f, 3.0f);
     m_KillIndicatorSizePixels = std::clamp(getFloat("KillIndicatorSizePixels", m_KillIndicatorSizePixels), 16.0f, 512.0f);
     m_KillIndicatorRiseUnits = std::clamp(getFloat("KillIndicatorRiseUnits", m_KillIndicatorRiseUnits), 0.0f, 128.0f);

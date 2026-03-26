@@ -174,7 +174,24 @@ int Hooks::initSourceHooks()
 	}
 
 	hkCreateMove.createHook(clientModeVTable[27], dCreateMove);
-	Game::logMsg("RunCommand hook disabled by local build");
+	// Hook CPrediction::RunCommand via prediction interface vtable.
+	void* prediction = m_Game->GetInterface("client.dll", "VClientPrediction001");
+	if (!prediction)
+		prediction = m_Game->GetInterface("client.dll", "VClientPrediction002");
+	if (prediction)
+	{
+		void*** predictionPtr = reinterpret_cast<void***>(prediction);
+		void** predictionVTable = predictionPtr ? *predictionPtr : nullptr;
+		constexpr size_t kRunCommandIndex = 18;
+		if (predictionVTable && predictionVTable[kRunCommandIndex])
+			hkRunCommand.createHook(predictionVTable[kRunCommandIndex], dRunCommand);
+		else
+			Game::logMsg("RunCommand hook skipped: prediction vtable index %zu unavailable", kRunCommandIndex);
+	}
+	else
+	{
+		Game::logMsg("RunCommand hook skipped: VClientPrediction interface not found");
+	}
 	return 1;
 }
 
