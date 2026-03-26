@@ -922,6 +922,14 @@ void VR::ProcessInput()
         {
             m_Game->ClientCmd_Unrestricted("+attack");
             m_PrimaryAttackCmdOwned = true;
+
+            // Melee swings do not go through the bullet fire hook, so trigger haptics on swing press.
+            if (localPlayer)
+            {
+                C_WeaponCSBase* activeWeapon = (C_WeaponCSBase*)localPlayer->GetActiveWeapon();
+                if (activeWeapon && activeWeapon->GetWeaponID() == C_WeaponCSBase::WeaponID::MELEE)
+                    TriggerMeleeSwingHaptics(false);
+            }
         }
         else if (!primaryAttackDown && m_PrimaryAttackCmdOwned)
         {
@@ -1046,6 +1054,8 @@ void VR::ProcessInput()
             {
                 m_Game->ClientCmd_Unrestricted("+attack2");
                 m_SecondaryAttackCmdOwned = true;
+                TriggerShoveHaptics(true);
+                TriggerShoveHaptics(false);
             }
             else if (!wantAttack2 && m_SecondaryAttackCmdOwned)
             {

@@ -1,0 +1,92 @@
+# L4D2VR haptics config
+# profile format: duration_seconds,frequency_hz,amplitude_0_to_1
+
+# ----------------------------
+# Weapon / melee
+# ----------------------------
+weapon.enabled=1
+weapon.default=0.018,130,0.32
+
+weapon.pistol=0.018,165,0.33
+weapon.magnum=0.032,85,0.66
+weapon.uzi=0.012,185,0.23
+weapon.mac10=0.011,195,0.24
+weapon.mp5=0.012,190,0.26
+weapon.m16a1=0.015,145,0.34
+weapon.ak47=0.020,120,0.44
+weapon.scar=0.017,135,0.39
+weapon.sg552=0.018,130,0.40
+weapon.pumpshotgun=0.040,72,0.78
+weapon.shotgun_chrome=0.042,70,0.80
+weapon.autoshotgun=0.030,78,0.65
+weapon.spas=0.029,82,0.62
+weapon.hunting_rifle=0.038,88,0.72
+weapon.sniper_military=0.033,92,0.61
+weapon.scout=0.036,96,0.69
+weapon.awp=0.052,62,0.94
+weapon.m60=0.019,115,0.50
+weapon.grenade_launcher=0.060,55,1.00
+weapon.melee=0.028,105,0.54
+weapon.chainsaw=0.014,175,0.34
+
+melee.swing=0.035,95,0.72
+melee.shove=0.022,120,0.58
+
+# ----------------------------
+# Damage feedback
+# ----------------------------
+damage.enabled=1
+damage.directional_enabled=1
+damage.sustain_enabled=1
+
+damage.common=0.016,135,0.24
+damage.special=0.020,112,0.38
+damage.heavy=0.030,82,0.62
+damage.explosion=0.036,72,0.74
+damage.fire=0.018,106,0.28
+damage.acid=0.014,156,0.32
+
+damage.scale_start=6
+damage.scale_per_damage=0.008
+damage.scale_max_bonus=0.24
+damage.amp_min=0.05
+damage.amp_max=1.0
+
+# sustained dot (fire / acid)
+sustain.fire.duration=1.4
+sustain.fire.interval=0.11
+sustain.fire.pulse=0.016,110,0.20
+
+sustain.acid.duration=1.6
+sustain.acid.interval=0.08
+sustain.acid.pulse=0.010,170,0.24
+
+# ----------------------------
+# Landing feedback
+# ----------------------------
+landing.enabled=1
+landing.min_fall_speed=140
+landing.fall_speed_range=500
+landing.amp_min=0.25
+landing.amp_max=0.80
+landing.freq_min=65
+landing.freq_max=85
+landing.dur_min=0.018
+landing.dur_max=0.040
+
+# ----------------------------
+# Camera shake -> haptics
+# ----------------------------
+camera_shake.enabled=1
+camera_shake.angle_threshold=5
+camera_shake.angle_range=18
+camera_shake.pos_threshold=8
+camera_shake.pos_range=64
+camera_shake.hmd_angvel_max=120
+camera_shake.pulse_interval=0.12
+camera_shake.pulse_amp_min=0.12
+camera_shake.pulse_amp_max=0.46
+camera_shake.pulse_freq_min=80
+camera_shake.pulse_freq_max=100
+camera_shake.pulse_dur_min=0.012
+camera_shake.pulse_dur_max=0.028

@@ -1,0 +1,26 @@
+"VR_HitMarker"
+{
+	"channel"		"CHAN_AUTO"
+	"volume"		"0.80"
+	"soundlevel"		"SNDLVL_NONE"
+	"pitch"			"100"
+	"wave"			"vrmod/hit.mp3"
+}
+
+"VR_KillMarker"
+{
+	"channel"		"CHAN_AUTO"
+	"volume"		"0.95"
+	"soundlevel"		"SNDLVL_NONE"
+	"pitch"			"100"
+	"wave"			"vrmod/kill.mp3"
+}
+
+"VR_HeadshotMarker"
+{
+	"channel"		"CHAN_AUTO"
+	"volume"		"1.10"
+	"soundlevel"		"SNDLVL_NONE"
+	"pitch"			"100"
+	"wave"			"vrmod/headshot.mp3"
+}

@@ -76,6 +76,13 @@ struct CustomActionBinding
 	bool usePressReleaseCommands = false;
 };
 
+struct WeaponHapticsProfile
+{
+	float durationSeconds = 0.0f;
+	float frequency = 0.0f;
+	float amplitude = 0.0f;
+};
+
 
 class VR
 {
@@ -637,6 +644,13 @@ public:
 	vr::VRActionHandle_t m_CustomAction4;
 	vr::VRActionHandle_t m_CustomAction5;
 	vr::VRActionHandle_t m_ActionScopeMagnificationToggle;
+	vr::VRActionHandle_t m_ActionVibrationLeft = vr::k_ulInvalidActionHandle;
+	vr::VRActionHandle_t m_ActionVibrationRight = vr::k_ulInvalidActionHandle;
+	bool m_WeaponHapticsEnabled = true;
+	std::unordered_map<std::string, WeaponHapticsProfile> m_WeaponHapticsOverrides;
+	WeaponHapticsProfile m_DefaultWeaponHapticsProfile = { 0.018f, 130.0f, 0.32f };
+	WeaponHapticsProfile m_MeleeSwingHapticsProfile = { 0.035f, 95.0f, 0.72f };
+	WeaponHapticsProfile m_ShoveHapticsProfile = { 0.022f, 120.0f, 0.58f };
 
 	TrackedDevicePoseData m_HmdPose;
 	TrackedDevicePoseData m_LeftControllerPose;
@@ -1162,9 +1176,19 @@ public:
 		std::chrono::steady_clock::time_point receivedAt{};
 	};
 
+	enum class DamageFeedbackType
+	{
+		CommonHit,
+		SpecialHit,
+		HeavyHit,
+		Explosion,
+		Fire,
+		Acid
+	};
+
 	bool m_HitSoundEnabled = true;
 	float m_HitSoundPlaybackCooldownSeconds = 0.03f;
-	std::string m_HitSoundSpec = "alias:SystemQuestion";
+	std::string m_HitSoundSpec = "gamesound:VR_HitMarker";
 	float m_HitSoundVolume = 0.80f;
 	bool m_HitSoundPending = false;
 	uint32_t m_HitSoundPendingMergedCount = 0;
@@ -1173,8 +1197,8 @@ public:
 	bool m_KillSoundEnabled = true;
 	float m_KillSoundDetectionWindowSeconds = 0.75f;
 	float m_KillSoundPlaybackCooldownSeconds = 0.04f;
-	std::string m_KillSoundNormalSpec = "alias:SystemAsterisk";
-	std::string m_KillSoundHeadshotSpec = "alias:SystemExclamation";
+	std::string m_KillSoundNormalSpec = "gamesound:VR_KillMarker";
+	std::string m_KillSoundHeadshotSpec = "gamesound:VR_HeadshotMarker";
 	float m_KillSoundVolume = 0.95f;
 	float m_HeadshotSoundVolume = 1.10f;
 	float m_FeedbackSoundSpatialBlend = 0.85f;
@@ -1217,6 +1241,62 @@ public:
 	IGameEventManager2* m_KillSoundEventManager = nullptr;
 	IGameEventListener2* m_KillSoundEventListener = nullptr;
 	bool m_KillSoundEventListenerRegistered = false;
+	IGameEventManager2* m_DamageFeedbackEventManager = nullptr;
+	IGameEventListener2* m_DamageFeedbackEventListener = nullptr;
+	bool m_DamageFeedbackEventListenerRegistered = false;
+	bool m_DamageFeedbackEnabled = true;
+	bool m_DamageDirectionalEnabled = true;
+	bool m_DamageSustainEnabled = true;
+	bool m_LandingHapticsEnabled = true;
+	bool m_CameraShakeHapticsEnabled = true;
+	WeaponHapticsProfile m_DamageCommonHapticsProfile = { 0.016f, 135.0f, 0.24f };
+	WeaponHapticsProfile m_DamageSpecialHapticsProfile = { 0.020f, 112.0f, 0.38f };
+	WeaponHapticsProfile m_DamageHeavyHapticsProfile = { 0.030f, 82.0f, 0.62f };
+	WeaponHapticsProfile m_DamageExplosionHapticsProfile = { 0.036f, 72.0f, 0.74f };
+	WeaponHapticsProfile m_DamageFireHapticsProfile = { 0.018f, 106.0f, 0.28f };
+	WeaponHapticsProfile m_DamageAcidHapticsProfile = { 0.014f, 156.0f, 0.32f };
+	float m_DamageScaleStart = 6.0f;
+	float m_DamageScalePerPoint = 0.008f;
+	float m_DamageScaleMaxBonus = 0.24f;
+	float m_DamageAmplitudeMin = 0.05f;
+	float m_DamageAmplitudeMax = 1.0f;
+	float m_DamageFireSustainSeconds = 1.4f;
+	float m_DamageAcidSustainSeconds = 1.6f;
+	WeaponHapticsProfile m_DamageFireSustainPulse = { 0.016f, 110.0f, 0.20f };
+	WeaponHapticsProfile m_DamageAcidSustainPulse = { 0.010f, 170.0f, 0.24f };
+	float m_DamageFireSustainIntervalSeconds = 0.11f;
+	float m_DamageAcidSustainIntervalSeconds = 0.08f;
+	std::chrono::steady_clock::time_point m_LastDamageFeedbackEventRegisterAttempt{};
+	std::chrono::steady_clock::time_point m_AcidSustainUntil{};
+	std::chrono::steady_clock::time_point m_FireSustainUntil{};
+	std::chrono::steady_clock::time_point m_NextAcidSustainPulse{};
+	std::chrono::steady_clock::time_point m_NextFireSustainPulse{};
+	std::chrono::steady_clock::time_point m_LastCameraShakeHapticsPulse{};
+	bool m_WasOnGroundForHaptics = true;
+	float m_LastVerticalSpeedForHaptics = 0.0f;
+	float m_LandingMinFallSpeed = 140.0f;
+	float m_LandingFallSpeedRange = 500.0f;
+	float m_LandingAmpMin = 0.25f;
+	float m_LandingAmpMax = 0.80f;
+	float m_LandingFreqMin = 65.0f;
+	float m_LandingFreqMax = 85.0f;
+	float m_LandingDurMin = 0.018f;
+	float m_LandingDurMax = 0.040f;
+	bool m_CameraShakeStateInitialized = false;
+	Vector m_LastCameraShakeOrigin = { 0,0,0 };
+	QAngle m_LastCameraShakeAngles = { 0,0,0 };
+	float m_CameraShakeAngleThreshold = 5.0f;
+	float m_CameraShakeAngleRange = 18.0f;
+	float m_CameraShakePosThreshold = 8.0f;
+	float m_CameraShakePosRange = 64.0f;
+	float m_CameraShakeHmdAngVelMax = 120.0f;
+	float m_CameraShakePulseIntervalSeconds = 0.12f;
+	float m_CameraShakePulseAmpMin = 0.12f;
+	float m_CameraShakePulseAmpMax = 0.46f;
+	float m_CameraShakePulseFreqMin = 80.0f;
+	float m_CameraShakePulseFreqMax = 100.0f;
+	float m_CameraShakePulseDurMin = 0.012f;
+	float m_CameraShakePulseDurMax = 0.028f;
 
 	// Right ammo HUD: show *aimed* special-infected (and Witch) HP%% (client-side, visual-only).
 	// - Updated from the aim-ray trace (same trace used for the teammate aim hint).
@@ -1636,7 +1716,13 @@ public:
 	void GetPoseData(vr::TrackedDevicePose_t& poseRaw, TrackedDevicePoseData& poseOut);
 	void PoseWaiterThreadMain();
 	bool ReadPoseWaiterSnapshot(vr::TrackedDevicePose_t* outPoses, uint32_t* outSeq = nullptr) const;
+	void TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude);
+	WeaponHapticsProfile GetWeaponHapticsProfile(int weaponId) const;
+	void TriggerWeaponFireHaptics(int weaponId, bool leftHand = false);
+	void TriggerMeleeSwingHaptics(bool leftHand = false);
+	void TriggerShoveHaptics(bool leftHand = false);
 	void ParseConfigFile();
+	void ParseHapticsConfigFile();
 	void LoadViewmodelAdjustments();
 	void SaveViewmodelAdjustments();
 	void RefreshActiveViewmodelAdjustment(C_BasePlayer* localPlayer);
@@ -1662,6 +1748,13 @@ public:
 	void UpdateKillSoundFeedback();
 	void EnsureKillSoundEventListener();
 	void HandleKillSoundGameEvent(IGameEvent* event);
+	void EnsureDamageFeedbackEventListener();
+	void HandleDamageFeedbackGameEvent(IGameEvent* event);
+	void UpdateDamageFeedback();
+	DamageFeedbackType ClassifyDamageFeedbackType(const char* weaponName, int damage) const;
+	WeaponHapticsProfile GetDamageHapticsProfile(DamageFeedbackType type) const;
+	void TriggerImpactHapticsBothHands(float amplitude, float frequency, float durationSeconds);
+	void TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias);
 	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot);
 	bool ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag);
 	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const;
@@ -1675,6 +1768,7 @@ public:
 	void QueueHitSoundPlayback(const Vector* worldPos = nullptr);
 	void FlushPendingHitSound(std::chrono::steady_clock::time_point now);
 	void ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVolume, int& outLeftVolume, int& outRightVolume) const;
+	void SyncVrmodFeedbackGameSounds() const;
 	void EnsureFeedbackSoundWarmup();
 	void SpawnHitIndicator(const Vector& worldPos);
 	void SpawnKillIndicator(bool headshot, const Vector& worldPos);

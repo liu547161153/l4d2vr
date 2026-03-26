@@ -1780,6 +1780,92 @@ bool VR::IsThirdPersonMapLoadCooldownActive() const
         return false;
     return std::chrono::steady_clock::now() < m_ThirdPersonMapLoadCooldownEnd;
 }
+
+void VR::TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude)
+{
+    if (!m_IsVREnabled || !m_Input || actionHandle == vr::k_ulInvalidActionHandle)
+        return;
+
+    const float safeDuration = std::clamp(durationSeconds, 0.0f, 0.5f);
+    const float safeFrequency = std::clamp(frequency, 0.0f, 320.0f);
+    const float safeAmplitude = std::clamp(amplitude, 0.0f, 1.0f);
+    if (safeDuration <= 0.0f || safeAmplitude <= 0.0f)
+        return;
+
+    m_Input->TriggerHapticVibrationAction(
+        actionHandle,
+        0.0f,
+        safeDuration,
+        safeFrequency,
+        safeAmplitude,
+        vr::k_ulInvalidInputValueHandle);
+}
+
+WeaponHapticsProfile VR::GetWeaponHapticsProfile(int weaponId) const
+{
+    const std::string weaponName = WeaponIdToString(weaponId);
+    if (!weaponName.empty())
+    {
+        auto it = m_WeaponHapticsOverrides.find(weaponName);
+        if (it != m_WeaponHapticsOverrides.end())
+            return it->second;
+    }
+
+    using W = C_WeaponCSBase::WeaponID;
+    switch ((W)weaponId)
+    {
+    case W::PISTOL:            return { 0.018f, 165.0f, 0.33f };
+    case W::MAGNUM:            return { 0.032f, 85.0f, 0.66f };
+    case W::UZI:               return { 0.012f, 185.0f, 0.23f };
+    case W::MAC10:             return { 0.011f, 195.0f, 0.24f };
+    case W::MP5:               return { 0.012f, 190.0f, 0.26f };
+    case W::M16A1:             return { 0.015f, 145.0f, 0.34f };
+    case W::AK47:              return { 0.020f, 120.0f, 0.44f };
+    case W::SCAR:              return { 0.017f, 135.0f, 0.39f };
+    case W::SG552:             return { 0.018f, 130.0f, 0.40f };
+    case W::PUMPSHOTGUN:       return { 0.040f, 72.0f, 0.78f };
+    case W::SHOTGUN_CHROME:    return { 0.042f, 70.0f, 0.80f };
+    case W::AUTOSHOTGUN:       return { 0.030f, 78.0f, 0.65f };
+    case W::SPAS:              return { 0.029f, 82.0f, 0.62f };
+    case W::HUNTING_RIFLE:     return { 0.038f, 88.0f, 0.72f };
+    case W::SNIPER_MILITARY:   return { 0.033f, 92.0f, 0.61f };
+    case W::SCOUT:             return { 0.036f, 96.0f, 0.69f };
+    case W::AWP:               return { 0.052f, 62.0f, 0.94f };
+    case W::M60:               return { 0.019f, 115.0f, 0.50f };
+    case W::GRENADE_LAUNCHER:  return { 0.060f, 55.0f, 1.00f };
+    case W::MELEE:             return { 0.028f, 105.0f, 0.54f };
+    case W::CHAINSAW:          return { 0.014f, 175.0f, 0.34f };
+    default:                   return m_DefaultWeaponHapticsProfile;
+    }
+}
+
+void VR::TriggerWeaponFireHaptics(int weaponId, bool leftHand)
+{
+    if (!m_WeaponHapticsEnabled)
+        return;
+
+    const WeaponHapticsProfile profile = GetWeaponHapticsProfile(weaponId);
+    const vr::VRActionHandle_t action = leftHand ? m_ActionVibrationLeft : m_ActionVibrationRight;
+    TriggerHapticPulse(action, profile.durationSeconds, profile.frequency, profile.amplitude);
+}
+
+void VR::TriggerMeleeSwingHaptics(bool leftHand)
+{
+    if (!m_WeaponHapticsEnabled)
+        return;
+
+    const vr::VRActionHandle_t action = leftHand ? m_ActionVibrationLeft : m_ActionVibrationRight;
+    TriggerHapticPulse(action, m_MeleeSwingHapticsProfile.durationSeconds, m_MeleeSwingHapticsProfile.frequency, m_MeleeSwingHapticsProfile.amplitude);
+}
+
+void VR::TriggerShoveHaptics(bool leftHand)
+{
+    if (!m_WeaponHapticsEnabled)
+        return;
+
+    const vr::VRActionHandle_t action = leftHand ? m_ActionVibrationLeft : m_ActionVibrationRight;
+    TriggerHapticPulse(action, m_ShoveHapticsProfile.durationSeconds, m_ShoveHapticsProfile.frequency, m_ShoveHapticsProfile.amplitude);
+}
 // Special infected recognition
 
 #if __has_include("special_infected_features.cpp")

@@ -78,6 +78,7 @@ void VR::Update()
     }
 
     UpdateTracking();
+    UpdateDamageFeedback();
     UpdateKillSoundFeedback();
     UpdateKillIndicatorOverlays();
 

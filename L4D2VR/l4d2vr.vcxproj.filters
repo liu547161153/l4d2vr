@@ -2519,5 +2519,8 @@
     <Text Include="config.txt">
       <Filter>Source Files</Filter>
     </Text>
+    <Text Include="haptics_config.txt">
+      <Filter>Source Files</Filter>
+    </Text>
   </ItemGroup>
 </Project>

@@ -450,6 +450,20 @@ int Hooks::dClientFireTerrorBullets(
 
 
 
+    if (m_VR->m_IsVREnabled && m_Game && m_Game->m_EngineClient
+        && playerId == m_Game->m_EngineClient->GetLocalPlayer())
+    {
+        int weaponId = (int)C_WeaponCSBase::WeaponID::NONE;
+        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerId);
+        if (localPlayer)
+        {
+            C_WeaponCSBase* activeWeapon = (C_WeaponCSBase*)localPlayer->GetActiveWeapon();
+            if (activeWeapon)
+                weaponId = (int)activeWeapon->GetWeaponID();
+        }
+        m_VR->TriggerWeaponFireHaptics(weaponId, false);
+    }
+
     // RightAmmoHUD: hit-based target HP bar has been removed.
 // The ammo HUD now shows HP%% for the *aimed* special infected (and Witch) and hides instantly on leave.
     if (m_VR->m_IsVREnabled)

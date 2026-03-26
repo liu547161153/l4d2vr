@@ -10,6 +10,7 @@
 #include "sdk/ivdebugoverlay.h"
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <unordered_map>
 #include <string>
@@ -559,6 +560,35 @@ namespace
         VR* m_VR = nullptr;
     };
 
+    class VRDamageFeedbackEventListener final : public IGameEventListener2
+    {
+    public:
+        explicit VRDamageFeedbackEventListener(VR* vr)
+            : m_VR(vr)
+        {
+        }
+
+        void FireGameEvent(IGameEvent* event) override
+        {
+            if (m_VR)
+                m_VR->HandleDamageFeedbackGameEvent(event);
+        }
+
+        int GetEventDebugID(void) override
+        {
+            return kGameEventDebugIdInit;
+        }
+
+    private:
+        VR* m_VR = nullptr;
+    };
+
+    static std::string ToLowerCopy(std::string value)
+    {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return value;
+    }
+
     static std::string TrimCopy(std::string value)
     {
         auto isSpace = [](unsigned char ch) { return std::isspace(ch) != 0; };
@@ -897,6 +927,40 @@ namespace
             || EndsWithInsensitive(value, ".flac");
     }
 
+    static std::string FormatFeedbackSoundVolume(float value)
+    {
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(2) << std::clamp(value, 0.0f, 2.0f);
+        return stream.str();
+    }
+
+    static std::string ReadWholeTextFile(const std::string& path)
+    {
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open())
+            return {};
+
+        std::ostringstream stream;
+        stream << file.rdbuf();
+        return stream.str();
+    }
+
+    static bool WriteWholeTextFileIfChanged(const std::string& path, const std::string& contents)
+    {
+        if (path.empty())
+            return false;
+
+        if (ReadWholeTextFile(path) == contents)
+            return true;
+
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        if (!file.is_open())
+            return false;
+
+        file.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        return file.good();
+    }
+
     static std::string EscapeMciString(std::string value)
     {
         std::string escaped;
@@ -1149,12 +1213,6 @@ namespace
     {
         std::replace(value.begin(), value.end(), '\\', slash);
         std::replace(value.begin(), value.end(), '/', slash);
-        return value;
-    }
-
-    static std::string ToLowerCopy(std::string value)
-    {
-        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return value;
     }
 
@@ -1940,6 +1998,460 @@ bool VR::ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) 
     return true;
 }
 
+void VR::TriggerImpactHapticsBothHands(float amplitude, float frequency, float durationSeconds)
+{
+    const float amp = std::clamp(amplitude, 0.0f, 1.0f);
+    if (amp <= 0.0f)
+        return;
+
+    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp);
+    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp);
+}
+
+void VR::TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias)
+{
+    const float amp = std::clamp(amplitude, 0.0f, 1.0f);
+    if (amp <= 0.0f)
+        return;
+
+    const float bias = std::clamp(rightBias, -1.0f, 1.0f);
+    const float leftWeight = 0.25f + 0.75f * ((1.0f - bias) * 0.5f);
+    const float rightWeight = 0.25f + 0.75f * ((1.0f + bias) * 0.5f);
+    TriggerHapticPulse(m_ActionVibrationLeft, durationSeconds, frequency, amp * std::clamp(leftWeight, 0.0f, 1.0f));
+    TriggerHapticPulse(m_ActionVibrationRight, durationSeconds, frequency, amp * std::clamp(rightWeight, 0.0f, 1.0f));
+}
+
+VR::DamageFeedbackType VR::ClassifyDamageFeedbackType(const char* weaponName, int damage) const
+{
+    const std::string weapon = weaponName ? ToLowerCopy(weaponName) : std::string();
+
+    if (weapon.find("spit") != std::string::npos || weapon.find("acid") != std::string::npos || weapon.find("insect_swarm") != std::string::npos)
+        return DamageFeedbackType::Acid;
+    if (weapon.find("fire") != std::string::npos || weapon.find("burn") != std::string::npos || weapon.find("inferno") != std::string::npos || weapon.find("molotov") != std::string::npos)
+        return DamageFeedbackType::Fire;
+    if (weapon.find("explosion") != std::string::npos || weapon.find("grenade") != std::string::npos || weapon.find("blast") != std::string::npos || weapon.find("pipe_bomb") != std::string::npos || weapon.find("propane") != std::string::npos)
+        return DamageFeedbackType::Explosion;
+    if (weapon.find("tank") != std::string::npos || weapon.find("charger") != std::string::npos || weapon.find("rock") != std::string::npos)
+        return DamageFeedbackType::HeavyHit;
+    if (weapon.find("claw") != std::string::npos || weapon.find("hunter") != std::string::npos || weapon.find("jockey") != std::string::npos || weapon.find("smoker") != std::string::npos || weapon.find("boomer") != std::string::npos || weapon.find("spitter") != std::string::npos)
+        return DamageFeedbackType::SpecialHit;
+
+    if (damage >= 22)
+        return DamageFeedbackType::HeavyHit;
+    if (damage >= 8)
+        return DamageFeedbackType::SpecialHit;
+    return DamageFeedbackType::CommonHit;
+}
+
+WeaponHapticsProfile VR::GetDamageHapticsProfile(DamageFeedbackType type) const
+{
+    switch (type)
+    {
+    case DamageFeedbackType::CommonHit: return m_DamageCommonHapticsProfile;
+    case DamageFeedbackType::SpecialHit: return m_DamageSpecialHapticsProfile;
+    case DamageFeedbackType::HeavyHit: return m_DamageHeavyHapticsProfile;
+    case DamageFeedbackType::Explosion: return m_DamageExplosionHapticsProfile;
+    case DamageFeedbackType::Fire: return m_DamageFireHapticsProfile;
+    case DamageFeedbackType::Acid: return m_DamageAcidHapticsProfile;
+    default: return m_DamageCommonHapticsProfile;
+    }
+}
+
+void VR::ParseHapticsConfigFile()
+{
+    std::ifstream configStream("VR\\haptics_config.txt");
+    if (!configStream)
+        return;
+
+    auto trim = [](std::string& s)
+        {
+            auto isSpace = [](unsigned char ch) { return std::isspace(ch) != 0; };
+            s.erase(s.begin(), std::find_if(s.begin(), s.end(), [&](unsigned char ch) { return !isSpace(ch); }));
+            s.erase(std::find_if(s.rbegin(), s.rend(), [&](unsigned char ch) { return !isSpace(ch); }).base(), s.end());
+        };
+
+    std::unordered_map<std::string, std::string> userConfig;
+    std::string line;
+    while (std::getline(configStream, line))
+    {
+        size_t cut = std::string::npos;
+        const size_t p1 = line.find("//");
+        const size_t p2 = line.find('#');
+        const size_t p3 = line.find(';');
+        if (p1 != std::string::npos) cut = p1;
+        if (p2 != std::string::npos) cut = (cut == std::string::npos) ? p2 : std::min(cut, p2);
+        if (p3 != std::string::npos) cut = (cut == std::string::npos) ? p3 : std::min(cut, p3);
+        if (cut != std::string::npos)
+            line.erase(cut);
+
+        trim(line);
+        if (line.empty())
+            continue;
+
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos)
+            continue;
+
+        std::string key = line.substr(0, eq);
+        std::string value = line.substr(eq + 1);
+        trim(key);
+        trim(value);
+        if (key.empty())
+            continue;
+
+        userConfig[ToLowerCopy(key)] = value;
+    }
+
+    auto getBool = [&](const char* key, bool defVal) -> bool
+        {
+            auto it = userConfig.find(ToLowerCopy(key));
+            if (it == userConfig.end())
+                return defVal;
+            std::string value = ToLowerCopy(TrimCopy(it->second));
+            if (value == "1" || value == "true" || value == "on" || value == "yes")
+                return true;
+            if (value == "0" || value == "false" || value == "off" || value == "no")
+                return false;
+            return defVal;
+        };
+
+    auto getFloat = [&](const char* key, float defVal) -> float
+        {
+            auto it = userConfig.find(ToLowerCopy(key));
+            if (it == userConfig.end())
+                return defVal;
+            try
+            {
+                return std::stof(TrimCopy(it->second));
+            }
+            catch (...)
+            {
+                return defVal;
+            }
+        };
+
+    auto parseProfile = [&](const std::string& key, const WeaponHapticsProfile& defaults) -> WeaponHapticsProfile
+        {
+            auto it = userConfig.find(ToLowerCopy(key));
+            if (it == userConfig.end())
+                return defaults;
+
+            WeaponHapticsProfile profile = defaults;
+            std::stringstream ss(it->second);
+            std::string token;
+            float* values[3] = { &profile.durationSeconds, &profile.frequency, &profile.amplitude };
+            int index = 0;
+            while (std::getline(ss, token, ',') && index < 3)
+            {
+                token = TrimCopy(token);
+                if (!token.empty())
+                {
+                    try
+                    {
+                        *values[index] = std::stof(token);
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+                ++index;
+            }
+            profile.durationSeconds = std::clamp(profile.durationSeconds, 0.0f, 0.5f);
+            profile.frequency = std::clamp(profile.frequency, 0.0f, 320.0f);
+            profile.amplitude = std::clamp(profile.amplitude, 0.0f, 1.0f);
+            return profile;
+        };
+
+    auto setWeaponOverride = [&](const char* weaponKey, const WeaponHapticsProfile& defaults)
+        {
+            const std::string key = std::string("weapon.") + weaponKey;
+            m_WeaponHapticsOverrides[weaponKey] = parseProfile(key, defaults);
+        };
+
+    m_WeaponHapticsEnabled = getBool("weapon.enabled", m_WeaponHapticsEnabled);
+    m_DefaultWeaponHapticsProfile = parseProfile("weapon.default", m_DefaultWeaponHapticsProfile);
+    m_MeleeSwingHapticsProfile = parseProfile("melee.swing", m_MeleeSwingHapticsProfile);
+    m_ShoveHapticsProfile = parseProfile("melee.shove", m_ShoveHapticsProfile);
+
+    setWeaponOverride("pistol", { 0.018f, 165.0f, 0.33f });
+    setWeaponOverride("magnum", { 0.032f, 85.0f, 0.66f });
+    setWeaponOverride("uzi", { 0.012f, 185.0f, 0.23f });
+    setWeaponOverride("mac10", { 0.011f, 195.0f, 0.24f });
+    setWeaponOverride("mp5", { 0.012f, 190.0f, 0.26f });
+    setWeaponOverride("m16a1", { 0.015f, 145.0f, 0.34f });
+    setWeaponOverride("ak47", { 0.020f, 120.0f, 0.44f });
+    setWeaponOverride("scar", { 0.017f, 135.0f, 0.39f });
+    setWeaponOverride("sg552", { 0.018f, 130.0f, 0.40f });
+    setWeaponOverride("pumpshotgun", { 0.040f, 72.0f, 0.78f });
+    setWeaponOverride("shotgun_chrome", { 0.042f, 70.0f, 0.80f });
+    setWeaponOverride("autoshotgun", { 0.030f, 78.0f, 0.65f });
+    setWeaponOverride("spas", { 0.029f, 82.0f, 0.62f });
+    setWeaponOverride("hunting_rifle", { 0.038f, 88.0f, 0.72f });
+    setWeaponOverride("sniper_military", { 0.033f, 92.0f, 0.61f });
+    setWeaponOverride("scout", { 0.036f, 96.0f, 0.69f });
+    setWeaponOverride("awp", { 0.052f, 62.0f, 0.94f });
+    setWeaponOverride("m60", { 0.019f, 115.0f, 0.50f });
+    setWeaponOverride("grenade_launcher", { 0.060f, 55.0f, 1.00f });
+    setWeaponOverride("melee", { 0.028f, 105.0f, 0.54f });
+    setWeaponOverride("chainsaw", { 0.014f, 175.0f, 0.34f });
+
+    m_DamageFeedbackEnabled = getBool("damage.enabled", m_DamageFeedbackEnabled);
+    m_DamageDirectionalEnabled = getBool("damage.directional_enabled", m_DamageDirectionalEnabled);
+    m_DamageSustainEnabled = getBool("damage.sustain_enabled", m_DamageSustainEnabled);
+    m_LandingHapticsEnabled = getBool("landing.enabled", m_LandingHapticsEnabled);
+    m_CameraShakeHapticsEnabled = getBool("camera_shake.enabled", m_CameraShakeHapticsEnabled);
+
+    m_DamageCommonHapticsProfile = parseProfile("damage.common", m_DamageCommonHapticsProfile);
+    m_DamageSpecialHapticsProfile = parseProfile("damage.special", m_DamageSpecialHapticsProfile);
+    m_DamageHeavyHapticsProfile = parseProfile("damage.heavy", m_DamageHeavyHapticsProfile);
+    m_DamageExplosionHapticsProfile = parseProfile("damage.explosion", m_DamageExplosionHapticsProfile);
+    m_DamageFireHapticsProfile = parseProfile("damage.fire", m_DamageFireHapticsProfile);
+    m_DamageAcidHapticsProfile = parseProfile("damage.acid", m_DamageAcidHapticsProfile);
+    m_DamageScaleStart = getFloat("damage.scale_start", m_DamageScaleStart);
+    m_DamageScalePerPoint = getFloat("damage.scale_per_damage", m_DamageScalePerPoint);
+    m_DamageScaleMaxBonus = getFloat("damage.scale_max_bonus", m_DamageScaleMaxBonus);
+    m_DamageAmplitudeMin = getFloat("damage.amp_min", m_DamageAmplitudeMin);
+    m_DamageAmplitudeMax = getFloat("damage.amp_max", m_DamageAmplitudeMax);
+
+    m_DamageFireSustainSeconds = std::max(0.0f, getFloat("sustain.fire.duration", m_DamageFireSustainSeconds));
+    m_DamageAcidSustainSeconds = std::max(0.0f, getFloat("sustain.acid.duration", m_DamageAcidSustainSeconds));
+    m_DamageFireSustainIntervalSeconds = std::max(0.0f, getFloat("sustain.fire.interval", m_DamageFireSustainIntervalSeconds));
+    m_DamageAcidSustainIntervalSeconds = std::max(0.0f, getFloat("sustain.acid.interval", m_DamageAcidSustainIntervalSeconds));
+    m_DamageFireSustainPulse = parseProfile("sustain.fire.pulse", m_DamageFireSustainPulse);
+    m_DamageAcidSustainPulse = parseProfile("sustain.acid.pulse", m_DamageAcidSustainPulse);
+
+    m_LandingMinFallSpeed = std::max(0.0f, getFloat("landing.min_fall_speed", m_LandingMinFallSpeed));
+    m_LandingFallSpeedRange = std::max(1.0f, getFloat("landing.fall_speed_range", m_LandingFallSpeedRange));
+    m_LandingAmpMin = std::clamp(getFloat("landing.amp_min", m_LandingAmpMin), 0.0f, 1.0f);
+    m_LandingAmpMax = std::clamp(getFloat("landing.amp_max", m_LandingAmpMax), 0.0f, 1.0f);
+    m_LandingFreqMin = std::clamp(getFloat("landing.freq_min", m_LandingFreqMin), 0.0f, 320.0f);
+    m_LandingFreqMax = std::clamp(getFloat("landing.freq_max", m_LandingFreqMax), 0.0f, 320.0f);
+    m_LandingDurMin = std::clamp(getFloat("landing.dur_min", m_LandingDurMin), 0.0f, 0.5f);
+    m_LandingDurMax = std::clamp(getFloat("landing.dur_max", m_LandingDurMax), 0.0f, 0.5f);
+
+    m_CameraShakeAngleThreshold = std::max(0.0f, getFloat("camera_shake.angle_threshold", m_CameraShakeAngleThreshold));
+    m_CameraShakeAngleRange = std::max(0.001f, getFloat("camera_shake.angle_range", m_CameraShakeAngleRange));
+    m_CameraShakePosThreshold = std::max(0.0f, getFloat("camera_shake.pos_threshold", m_CameraShakePosThreshold));
+    m_CameraShakePosRange = std::max(0.001f, getFloat("camera_shake.pos_range", m_CameraShakePosRange));
+    m_CameraShakeHmdAngVelMax = std::max(0.0f, getFloat("camera_shake.hmd_angvel_max", m_CameraShakeHmdAngVelMax));
+    m_CameraShakePulseIntervalSeconds = std::max(0.0f, getFloat("camera_shake.pulse_interval", m_CameraShakePulseIntervalSeconds));
+    m_CameraShakePulseAmpMin = std::clamp(getFloat("camera_shake.pulse_amp_min", m_CameraShakePulseAmpMin), 0.0f, 1.0f);
+    m_CameraShakePulseAmpMax = std::clamp(getFloat("camera_shake.pulse_amp_max", m_CameraShakePulseAmpMax), 0.0f, 1.0f);
+    m_CameraShakePulseFreqMin = std::clamp(getFloat("camera_shake.pulse_freq_min", m_CameraShakePulseFreqMin), 0.0f, 320.0f);
+    m_CameraShakePulseFreqMax = std::clamp(getFloat("camera_shake.pulse_freq_max", m_CameraShakePulseFreqMax), 0.0f, 320.0f);
+    m_CameraShakePulseDurMin = std::clamp(getFloat("camera_shake.pulse_dur_min", m_CameraShakePulseDurMin), 0.0f, 0.5f);
+    m_CameraShakePulseDurMax = std::clamp(getFloat("camera_shake.pulse_dur_max", m_CameraShakePulseDurMax), 0.0f, 0.5f);
+}
+
+void VR::EnsureDamageFeedbackEventListener()
+{
+    if (m_DamageFeedbackEventListenerRegistered || !m_Game || !m_DamageFeedbackEnabled)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (m_LastDamageFeedbackEventRegisterAttempt.time_since_epoch().count() != 0)
+    {
+        const float elapsed = std::chrono::duration<float>(now - m_LastDamageFeedbackEventRegisterAttempt).count();
+        if (elapsed < 2.0f)
+            return;
+    }
+    m_LastDamageFeedbackEventRegisterAttempt = now;
+
+    if (!m_DamageFeedbackEventManager)
+        m_DamageFeedbackEventManager = m_Game->m_GameEventManager;
+    if (!m_DamageFeedbackEventManager)
+        return;
+
+    if (!m_DamageFeedbackEventListener)
+        m_DamageFeedbackEventListener = new VRDamageFeedbackEventListener(this);
+
+    static constexpr const char* kDamageEvents[] = { "player_hurt", "player_incapacitated" };
+    bool registeredAll = true;
+    for (const char* eventName : kDamageEvents)
+    {
+        const bool alreadyRegistered = m_DamageFeedbackEventManager->FindListener(m_DamageFeedbackEventListener, eventName);
+        const bool registered = alreadyRegistered || m_DamageFeedbackEventManager->AddListener(m_DamageFeedbackEventListener, eventName, false);
+        registeredAll = registeredAll && registered;
+    }
+
+    m_DamageFeedbackEventListenerRegistered = registeredAll;
+}
+
+void VR::HandleDamageFeedbackGameEvent(IGameEvent* event)
+{
+    if (!event || !m_DamageFeedbackEnabled || !m_Game || !m_Game->m_EngineClient || !m_IsVREnabled)
+        return;
+
+    const char* eventNameRaw = event->GetName();
+    if (!eventNameRaw || !*eventNameRaw)
+        return;
+
+    const std::string eventName = ToLowerCopy(eventNameRaw);
+    if (eventName != "player_hurt" && eventName != "player_incapacitated")
+        return;
+
+    const int localUserId = GetLocalPlayerUserId(m_Game);
+    if (localUserId <= 0)
+        return;
+
+    const int victimUserId = event->GetInt("userid", 0);
+    if (victimUserId != localUserId)
+        return;
+
+    const int damage = (std::max)(1, event->GetInt("dmg_health", event->GetInt("amount", 1)));
+    const char* weapon = event->GetString("weapon", "");
+    const DamageFeedbackType type = ClassifyDamageFeedbackType(weapon, damage);
+
+    const WeaponHapticsProfile damageProfile = GetDamageHapticsProfile(type);
+    float amplitude = damageProfile.amplitude;
+    const float frequency = damageProfile.frequency;
+    const float duration = damageProfile.durationSeconds;
+    const float damageBonus = std::clamp((damage - m_DamageScaleStart) * m_DamageScalePerPoint, 0.0f, m_DamageScaleMaxBonus);
+    amplitude = std::clamp(amplitude + damageBonus, m_DamageAmplitudeMin, m_DamageAmplitudeMax);
+
+    float rightBias = 0.0f;
+    if (m_DamageDirectionalEnabled)
+    {
+        const int attackerUserId = event->GetInt("attacker", 0);
+        int attackerIndex = 0;
+        if (attackerUserId > 0)
+            attackerIndex = m_Game->m_EngineClient->GetPlayerForUserID(attackerUserId);
+        if (attackerIndex <= 0)
+            attackerIndex = event->GetInt("attackerentid", 0);
+
+        const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(localPlayerIndex);
+        C_BaseEntity* attacker = attackerIndex > 0 ? m_Game->GetClientEntity(attackerIndex) : nullptr;
+        if (localPlayer && attacker)
+        {
+            Vector localPos = localPlayer->GetAbsOrigin();
+            Vector attackerPos = attacker->GetAbsOrigin();
+            Vector toAttacker = attackerPos - localPos;
+            if (!toAttacker.IsZero() && !m_HmdRight.IsZero())
+            {
+                VectorNormalize(toAttacker);
+                Vector right = m_HmdRight;
+                VectorNormalize(right);
+                rightBias = std::clamp(DotProduct(toAttacker, right), -1.0f, 1.0f);
+            }
+        }
+    }
+
+    TriggerDirectionalDamageHaptics(amplitude, frequency, duration, rightBias);
+
+    const auto now = std::chrono::steady_clock::now();
+    if (m_DamageSustainEnabled)
+    {
+        if (type == DamageFeedbackType::Fire)
+            m_FireSustainUntil = (std::max)(
+                m_FireSustainUntil,
+                now + std::chrono::milliseconds((int)std::round(m_DamageFireSustainSeconds * 1000.0f)));
+        else if (type == DamageFeedbackType::Acid)
+            m_AcidSustainUntil = (std::max)(
+                m_AcidSustainUntil,
+                now + std::chrono::milliseconds((int)std::round(m_DamageAcidSustainSeconds * 1000.0f)));
+    }
+}
+
+void VR::UpdateDamageFeedback()
+{
+    if (!m_DamageFeedbackEnabled || !m_IsVREnabled || !m_Game || !m_Game->m_EngineClient)
+        return;
+
+    EnsureDamageFeedbackEventListener();
+
+    const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+    C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(localPlayerIndex);
+    if (!localPlayer)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+
+    // Sustained damage envelopes (acid / fire).
+    if (m_DamageSustainEnabled)
+    {
+        if (now < m_AcidSustainUntil && now >= m_NextAcidSustainPulse)
+        {
+            TriggerImpactHapticsBothHands(
+                m_DamageAcidSustainPulse.amplitude,
+                m_DamageAcidSustainPulse.frequency,
+                m_DamageAcidSustainPulse.durationSeconds);
+            m_NextAcidSustainPulse = now + std::chrono::milliseconds((int)std::round(m_DamageAcidSustainIntervalSeconds * 1000.0f));
+        }
+        if (now < m_FireSustainUntil && now >= m_NextFireSustainPulse)
+        {
+            TriggerImpactHapticsBothHands(
+                m_DamageFireSustainPulse.amplitude,
+                m_DamageFireSustainPulse.frequency,
+                m_DamageFireSustainPulse.durationSeconds);
+            m_NextFireSustainPulse = now + std::chrono::milliseconds((int)std::round(m_DamageFireSustainIntervalSeconds * 1000.0f));
+        }
+    }
+
+    // Landing impact.
+    if (m_LandingHapticsEnabled)
+    {
+        const bool onGround = localPlayer->m_hGroundEntity != -1;
+        const float verticalSpeed = localPlayer->m_vecVelocity.z;
+        if (!m_WasOnGroundForHaptics && onGround && m_LastVerticalSpeedForHaptics < -m_LandingMinFallSpeed)
+        {
+            const float fallImpact = std::clamp((std::fabs(m_LastVerticalSpeedForHaptics) - m_LandingMinFallSpeed) / m_LandingFallSpeedRange, 0.0f, 1.0f);
+            const float amp = m_LandingAmpMin + (m_LandingAmpMax - m_LandingAmpMin) * fallImpact;
+            const float freq = m_LandingFreqMax + (m_LandingFreqMin - m_LandingFreqMax) * fallImpact;
+            const float dur = m_LandingDurMin + (m_LandingDurMax - m_LandingDurMin) * fallImpact;
+            TriggerImpactHapticsBothHands(amp, freq, dur);
+        }
+        m_WasOnGroundForHaptics = onGround;
+        m_LastVerticalSpeedForHaptics = verticalSpeed;
+    }
+
+    // Camera shake -> haptics (explosions, tank stomps, etc.).
+    if (m_CameraShakeHapticsEnabled)
+    {
+        const auto normalizeAngleDelta = [](float current, float previous)
+            {
+                return std::fabs(std::remainderf(current - previous, 360.0f));
+            };
+
+        if (!m_CameraShakeStateInitialized)
+        {
+            m_LastCameraShakeOrigin = m_SetupOrigin;
+            m_LastCameraShakeAngles = m_SetupAngles;
+            m_CameraShakeStateInitialized = true;
+        }
+        else
+        {
+            const float angDelta =
+                normalizeAngleDelta(m_SetupAngles.x, m_LastCameraShakeAngles.x) +
+                normalizeAngleDelta(m_SetupAngles.y, m_LastCameraShakeAngles.y) +
+                normalizeAngleDelta(m_SetupAngles.z, m_LastCameraShakeAngles.z);
+            const float posDelta = (m_SetupOrigin - m_LastCameraShakeOrigin).Length();
+            const float hmdAngVel = m_HmdPose.TrackedDeviceAngVel.Length();
+
+            m_LastCameraShakeAngles = m_SetupAngles;
+            m_LastCameraShakeOrigin = m_SetupOrigin;
+
+            if (hmdAngVel < m_CameraShakeHmdAngVelMax)
+            {
+                const float shakeScore = (std::max)(
+                    std::clamp((angDelta - m_CameraShakeAngleThreshold) / m_CameraShakeAngleRange, 0.0f, 1.0f),
+                    std::clamp((posDelta - m_CameraShakePosThreshold) / m_CameraShakePosRange, 0.0f, 1.0f));
+
+                if (shakeScore > 0.0f
+                    && (m_LastCameraShakeHapticsPulse.time_since_epoch().count() == 0
+                        || std::chrono::duration<float>(now - m_LastCameraShakeHapticsPulse).count() >= m_CameraShakePulseIntervalSeconds))
+                {
+                    const float amp = m_CameraShakePulseAmpMin + (m_CameraShakePulseAmpMax - m_CameraShakePulseAmpMin) * shakeScore;
+                    const float freq = m_CameraShakePulseFreqMax + (m_CameraShakePulseFreqMin - m_CameraShakePulseFreqMax) * shakeScore;
+                    const float dur = m_CameraShakePulseDurMin + (m_CameraShakePulseDurMax - m_CameraShakePulseDurMin) * shakeScore;
+                    TriggerImpactHapticsBothHands(amp, freq, dur);
+                    m_LastCameraShakeHapticsPulse = now;
+                }
+            }
+        }
+    }
+}
+
 void VR::EnsureKillSoundEventListener()
 {
     if (m_KillSoundEventListenerRegistered || !m_Game)
@@ -2494,6 +3006,47 @@ void VR::EnsureFeedbackSoundWarmup()
         if (EnsureFeedbackSoundVoiceOpen(voice, resolvedPath))
             warmedPaths.push_back(resolvedPath);
     }
+}
+
+void VR::SyncVrmodFeedbackGameSounds() const
+{
+    const std::string moduleDir = GetModuleDirectoryA();
+    if (moduleDir.empty())
+        return;
+
+    const std::string scriptsDir = JoinWindowsPath(JoinWindowsPath(moduleDir, "left4dead2"), "scripts");
+    ::CreateDirectoryA(scriptsDir.c_str(), nullptr);
+
+    const std::string scriptPath = JoinWindowsPath(scriptsDir, "game_sounds_vrmod.txt");
+    std::ostringstream script;
+    script
+        << "\"VR_HitMarker\"\r\n"
+        << "{\r\n"
+        << "\t\"channel\"\t\t\"CHAN_AUTO\"\r\n"
+        << "\t\"volume\"\t\t\"" << FormatFeedbackSoundVolume(m_HitSoundVolume) << "\"\r\n"
+        << "\t\"soundlevel\"\t\t\"SNDLVL_NONE\"\r\n"
+        << "\t\"pitch\"\t\t\t\"100\"\r\n"
+        << "\t\"wave\"\t\t\t\"vrmod/hit.mp3\"\r\n"
+        << "}\r\n\r\n"
+        << "\"VR_KillMarker\"\r\n"
+        << "{\r\n"
+        << "\t\"channel\"\t\t\"CHAN_AUTO\"\r\n"
+        << "\t\"volume\"\t\t\"" << FormatFeedbackSoundVolume(m_KillSoundVolume) << "\"\r\n"
+        << "\t\"soundlevel\"\t\t\"SNDLVL_NONE\"\r\n"
+        << "\t\"pitch\"\t\t\t\"100\"\r\n"
+        << "\t\"wave\"\t\t\t\"vrmod/kill.mp3\"\r\n"
+        << "}\r\n\r\n"
+        << "\"VR_HeadshotMarker\"\r\n"
+        << "{\r\n"
+        << "\t\"channel\"\t\t\"CHAN_AUTO\"\r\n"
+        << "\t\"volume\"\t\t\"" << FormatFeedbackSoundVolume(m_HeadshotSoundVolume) << "\"\r\n"
+        << "\t\"soundlevel\"\t\t\"SNDLVL_NONE\"\r\n"
+        << "\t\"pitch\"\t\t\t\"100\"\r\n"
+        << "\t\"wave\"\t\t\t\"vrmod/headshot.mp3\"\r\n"
+        << "}\r\n";
+
+    if (!WriteWholeTextFileIfChanged(scriptPath, script.str()) && m_Game)
+        Game::logMsg("[VR][FeedbackSound] failed to write soundscript path=%s", scriptPath.c_str());
 }
 
 IMaterial* VR::ResolveHitIndicatorMaterial()

@@ -349,6 +349,7 @@ void VR::LoadViewmodelAdjustments()
     if (m_ViewmodelAdjustmentSavePath.empty())
     {
         Game::logMsg("[VR] No viewmodel adjustment save path configured.");
+        ParseHapticsConfigFile();
         return;
     }
 
@@ -1027,6 +1028,7 @@ void VR::ParseConfigFile()
     m_HeadshotSoundVolume = std::clamp(getFloat("HeadshotSoundVolume", m_HeadshotSoundVolume), 0.0f, 2.0f);
     m_FeedbackSoundSpatialBlend = std::clamp(getFloat("FeedbackSoundSpatialBlend", m_FeedbackSoundSpatialBlend), 0.0f, 1.0f);
     m_FeedbackSoundSpatialRange = std::clamp(getFloat("FeedbackSoundSpatialRange", m_FeedbackSoundSpatialRange), 64.0f, 8192.0f);
+    SyncVrmodFeedbackGameSounds();
     m_HitIndicatorEnabled = getBool("HitIndicatorEnabled", m_HitIndicatorEnabled);
     m_KillIndicatorEnabled = getBool("KillIndicatorEnabled", m_KillIndicatorEnabled);
     m_KillIndicatorDebugLog = getBool("KillIndicatorDebugLog", m_KillIndicatorDebugLog);
@@ -1468,6 +1470,7 @@ void VR::ParseConfigFile()
         std::string key = std::string("SpecialInfectedPreWarningAimOffset") + suffix;
         m_SpecialInfectedPreWarningAimOffsets[typeIndex] = getVector3(key.c_str(), m_SpecialInfectedPreWarningAimOffsets[typeIndex]);
     }
+    ParseHapticsConfigFile();
 }
 
 void VR::WaitForConfigUpdate()
@@ -1479,6 +1482,7 @@ void VR::WaitForConfigUpdate()
     HANDLE fileChangeHandle = FindFirstChangeNotificationA(configDir, false, FILE_NOTIFY_CHANGE_LAST_WRITE);
 
     FILETIME configLastModified{};
+    FILETIME hapticsLastModified{};
     while (1)
     {
         WIN32_FILE_ATTRIBUTE_DATA fileAttributes{};
@@ -1498,6 +1502,27 @@ void VR::WaitForConfigUpdate()
             catch (const std::invalid_argument&)
             {
                 m_Game->errorMsg("Failed to parse config.txt");
+            }
+        }
+
+        WIN32_FILE_ATTRIBUTE_DATA hapticsAttributes{};
+        if (GetFileAttributesExA("VR\\haptics_config.txt", GetFileExInfoStandard, &hapticsAttributes))
+        {
+            if (CompareFileTime(&hapticsAttributes.ftLastWriteTime, &hapticsLastModified) != 0)
+            {
+                const bool configAlsoChanged = CompareFileTime(&fileAttributes.ftLastWriteTime, &configLastModified) == 0;
+                hapticsLastModified = hapticsAttributes.ftLastWriteTime;
+                if (configAlsoChanged)
+                {
+                    try
+                    {
+                        ParseHapticsConfigFile();
+                    }
+                    catch (const std::invalid_argument&)
+                    {
+                        m_Game->errorMsg("Failed to parse haptics_config.txt");
+                    }
+                }
             }
         }
 
