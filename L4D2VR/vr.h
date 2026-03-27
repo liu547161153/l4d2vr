@@ -655,8 +655,6 @@ public:
 	vr::VRActionHandle_t m_CustomAction4;
 	vr::VRActionHandle_t m_CustomAction5;
 	vr::VRActionHandle_t m_ActionScopeMagnificationToggle;
-	vr::VRActionHandle_t m_ActionVibrationLeft = vr::k_ulInvalidActionHandle;
-	vr::VRActionHandle_t m_ActionVibrationRight = vr::k_ulInvalidActionHandle;
 	bool m_WeaponHapticsEnabled = true;
 	std::unordered_map<std::string, WeaponHapticsProfile> m_WeaponHapticsOverrides;
 	WeaponHapticsProfile m_DefaultWeaponHapticsProfile = { 0.018f, 130.0f, 0.32f };
@@ -1734,12 +1732,10 @@ public:
 	void PoseWaiterThreadMain();
 	bool ReadPoseWaiterSnapshot(vr::TrackedDevicePose_t* outPoses, uint32_t* outSeq = nullptr) const;
 	// leftHand follows the project's gameplay hand ordering after LeftHanded remapping.
-	vr::VRActionHandle_t GetGameplayHandHapticAction(bool leftHand) const;
-	vr::TrackedDeviceIndex_t GetPhysicalControllerIndexForHapticAction(vr::VRActionHandle_t actionHandle) const;
+	bool IsGameplayHandLeftPhysical(bool leftHand) const;
+	vr::TrackedDeviceIndex_t GetPhysicalControllerIndexForHand(bool leftHand) const;
 	void TriggerLegacyHapticPulse(vr::TrackedDeviceIndex_t deviceIndex, float durationSeconds, float amplitude) const;
 	void TriggerPhysicalHandHapticPulse(bool leftHand, float durationSeconds, float frequency, float amplitude, int priority = 1);
-	void TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude);
-	void TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude, int priority);
 	void FlushHapticMixer();
 	WeaponHapticsProfile GetWeaponHapticsProfile(int weaponId) const;
 	void TriggerWeaponFireHaptics(int weaponId, bool leftHand = false);

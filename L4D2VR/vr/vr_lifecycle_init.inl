@@ -1039,17 +1039,6 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/CustomAction3", &m_CustomAction3);
     m_Input->GetActionHandle("/actions/main/in/CustomAction4", &m_CustomAction4);
     m_Input->GetActionHandle("/actions/main/in/CustomAction5", &m_CustomAction5);
-    const vr::EVRInputError leftVibrationResult = m_Input->GetActionHandle("/actions/base/out/vibration_left", &m_ActionVibrationLeft);
-    const vr::EVRInputError rightVibrationResult = m_Input->GetActionHandle("/actions/base/out/vibration_right", &m_ActionVibrationRight);
-    if (leftVibrationResult != vr::VRInputError_None || rightVibrationResult != vr::VRInputError_None)
-    {
-        Game::logMsg(
-            "[VR][Haptics] vibration action handle lookup failed leftErr=%d rightErr=%d left=%llu right=%llu",
-            static_cast<int>(leftVibrationResult),
-            static_cast<int>(rightVibrationResult),
-            static_cast<unsigned long long>(m_ActionVibrationLeft),
-            static_cast<unsigned long long>(m_ActionVibrationRight));
-    }
 
     m_Input->GetActionSetHandle("/actions/main", &m_ActionSet);
     m_ActiveActionSet = {};

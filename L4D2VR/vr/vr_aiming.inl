@@ -1781,27 +1781,18 @@ bool VR::IsThirdPersonMapLoadCooldownActive() const
     return std::chrono::steady_clock::now() < m_ThirdPersonMapLoadCooldownEnd;
 }
 
-vr::VRActionHandle_t VR::GetGameplayHandHapticAction(bool leftHand) const
+bool VR::IsGameplayHandLeftPhysical(bool leftHand) const
 {
-    const bool physicalLeftHand = m_LeftHanded ? !leftHand : leftHand;
-    return physicalLeftHand ? m_ActionVibrationLeft : m_ActionVibrationRight;
+    return m_LeftHanded ? !leftHand : leftHand;
 }
 
-vr::TrackedDeviceIndex_t VR::GetPhysicalControllerIndexForHapticAction(vr::VRActionHandle_t actionHandle) const
+vr::TrackedDeviceIndex_t VR::GetPhysicalControllerIndexForHand(bool leftHand) const
 {
     if (!m_System)
         return vr::k_unTrackedDeviceIndexInvalid;
 
-    vr::ETrackedControllerRole role = vr::TrackedControllerRole_Invalid;
-    if (m_ActionVibrationLeft != vr::k_ulInvalidActionHandle && actionHandle == m_ActionVibrationLeft)
-        role = vr::TrackedControllerRole_LeftHand;
-    else if (m_ActionVibrationRight != vr::k_ulInvalidActionHandle && actionHandle == m_ActionVibrationRight)
-        role = vr::TrackedControllerRole_RightHand;
-
-    if (role == vr::TrackedControllerRole_Invalid)
-        return vr::k_unTrackedDeviceIndexInvalid;
-
-    return m_System->GetTrackedDeviceIndexForControllerRole(role);
+    return m_System->GetTrackedDeviceIndexForControllerRole(
+        leftHand ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
 }
 
 void VR::TriggerLegacyHapticPulse(vr::TrackedDeviceIndex_t deviceIndex, float durationSeconds, float amplitude) const
@@ -1827,29 +1818,7 @@ void VR::TriggerLegacyHapticPulse(vr::TrackedDeviceIndex_t deviceIndex, float du
 
 void VR::TriggerPhysicalHandHapticPulse(bool leftHand, float durationSeconds, float frequency, float amplitude, int priority)
 {
-    const vr::VRActionHandle_t actionHandle = leftHand ? m_ActionVibrationLeft : m_ActionVibrationRight;
-    if (actionHandle != vr::k_ulInvalidActionHandle)
-    {
-        TriggerHapticPulse(actionHandle, durationSeconds, frequency, amplitude, priority);
-        return;
-    }
-
-    if (!m_System)
-        return;
-
-    const vr::TrackedDeviceIndex_t deviceIndex = m_System->GetTrackedDeviceIndexForControllerRole(
-        leftHand ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
-    TriggerLegacyHapticPulse(deviceIndex, durationSeconds, amplitude);
-}
-
-void VR::TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude)
-{
-    TriggerHapticPulse(actionHandle, durationSeconds, frequency, amplitude, 1);
-}
-
-void VR::TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSeconds, float frequency, float amplitude, int priority)
-{
-    if (!m_IsVREnabled || actionHandle == vr::k_ulInvalidActionHandle)
+    if (!m_IsVREnabled)
         return;
 
     const float safeDuration = std::clamp(durationSeconds, 0.0f, 0.5f);
@@ -1858,73 +1827,55 @@ void VR::TriggerHapticPulse(vr::VRActionHandle_t actionHandle, float durationSec
     if (safeDuration <= 0.0f || safeAmplitude <= 0.0f)
         return;
 
-    HapticMixState* mix = nullptr;
-    if (actionHandle == m_ActionVibrationLeft)
-        mix = &m_LeftHapticMix;
-    else if (actionHandle == m_ActionVibrationRight)
-        mix = &m_RightHapticMix;
+    HapticMixState& mix = leftHand ? m_LeftHapticMix : m_RightHapticMix;
 
-    if (!mix)
+    if (!mix.pending)
     {
-        if (!m_Input)
-            return;
-        m_Input->TriggerHapticVibrationAction(
-            actionHandle,
-            0.0f,
-            safeDuration,
-            safeFrequency,
-            safeAmplitude,
-            vr::k_ulInvalidInputValueHandle);
+        mix.pending = true;
+        mix.amplitude = safeAmplitude;
+        mix.frequency = safeFrequency;
+        mix.durationSeconds = safeDuration;
+        mix.weight = safeAmplitude;
+        mix.priority = priority;
         return;
     }
 
-    if (!mix->pending)
+    if (priority > mix.priority)
     {
-        mix->pending = true;
-        mix->amplitude = safeAmplitude;
-        mix->frequency = safeFrequency;
-        mix->durationSeconds = safeDuration;
-        mix->weight = safeAmplitude;
-        mix->priority = priority;
+        mix.priority = priority;
+        mix.amplitude = std::clamp((mix.amplitude * 0.45f) + (safeAmplitude * 0.75f), 0.0f, 1.0f);
+        mix.frequency = safeFrequency;
+        mix.durationSeconds = std::max(mix.durationSeconds, safeDuration);
+        mix.weight = safeAmplitude;
         return;
     }
 
-    if (priority > mix->priority)
+    if (priority == mix.priority)
     {
-        mix->priority = priority;
-        mix->amplitude = std::clamp((mix->amplitude * 0.45f) + (safeAmplitude * 0.75f), 0.0f, 1.0f);
-        mix->frequency = safeFrequency;
-        mix->durationSeconds = std::max(mix->durationSeconds, safeDuration);
-        mix->weight = safeAmplitude;
-        return;
-    }
-
-    if (priority == mix->priority)
-    {
-        mix->amplitude = 1.0f - (1.0f - mix->amplitude) * (1.0f - safeAmplitude);
-        const float combinedWeight = mix->weight + safeAmplitude;
+        mix.amplitude = 1.0f - (1.0f - mix.amplitude) * (1.0f - safeAmplitude);
+        const float combinedWeight = mix.weight + safeAmplitude;
         if (combinedWeight > 0.0001f)
-            mix->frequency = (mix->frequency * mix->weight + safeFrequency * safeAmplitude) / combinedWeight;
-        mix->weight = combinedWeight;
-        mix->durationSeconds = std::max(mix->durationSeconds, safeDuration);
+            mix.frequency = (mix.frequency * mix.weight + safeFrequency * safeAmplitude) / combinedWeight;
+        mix.weight = combinedWeight;
+        mix.durationSeconds = std::max(mix.durationSeconds, safeDuration);
         return;
     }
 
     // Lower priority contributes softly to avoid erasing high-priority feedback.
     const float attenuatedAmp = safeAmplitude * 0.35f;
-    mix->amplitude = 1.0f - (1.0f - mix->amplitude) * (1.0f - attenuatedAmp);
-    mix->durationSeconds = std::max(mix->durationSeconds, safeDuration * 0.6f);
+    mix.amplitude = 1.0f - (1.0f - mix.amplitude) * (1.0f - attenuatedAmp);
+    mix.durationSeconds = std::max(mix.durationSeconds, safeDuration * 0.6f);
 }
 
 void VR::FlushHapticMixer()
 {
-    if (!m_IsVREnabled || (!m_Input && !m_System))
+    if (!m_IsVREnabled || !m_System)
         return;
 
     const auto now = std::chrono::steady_clock::now();
     const float minInterval = std::max(0.0f, m_HapticMixMinIntervalSeconds);
 
-    auto flushOne = [&](vr::VRActionHandle_t actionHandle, HapticMixState& mix)
+    auto flushOne = [&](bool leftHand, HapticMixState& mix)
         {
             if (!mix.pending)
                 return;
@@ -1936,19 +1887,8 @@ void VR::FlushHapticMixer()
                     return;
             }
 
-            if (m_Input)
-            {
-                m_Input->TriggerHapticVibrationAction(
-                    actionHandle,
-                    0.0f,
-                    std::clamp(mix.durationSeconds, 0.0f, 0.5f),
-                    std::clamp(mix.frequency, 0.0f, 320.0f),
-                    std::clamp(mix.amplitude, 0.0f, 1.0f),
-                    vr::k_ulInvalidInputValueHandle);
-            }
-
             TriggerLegacyHapticPulse(
-                GetPhysicalControllerIndexForHapticAction(actionHandle),
+                GetPhysicalControllerIndexForHand(leftHand),
                 mix.durationSeconds,
                 mix.amplitude);
 
@@ -1958,8 +1898,8 @@ void VR::FlushHapticMixer()
             mix.lastSubmit = now;
         };
 
-    flushOne(m_ActionVibrationLeft, m_LeftHapticMix);
-    flushOne(m_ActionVibrationRight, m_RightHapticMix);
+    flushOne(true, m_LeftHapticMix);
+    flushOne(false, m_RightHapticMix);
 }
 
 WeaponHapticsProfile VR::GetWeaponHapticsProfile(int weaponId) const
@@ -2006,7 +1946,7 @@ void VR::TriggerWeaponFireHaptics(int weaponId, bool leftHand)
         return;
 
     const WeaponHapticsProfile profile = GetWeaponHapticsProfile(weaponId);
-    const bool physicalLeftHand = m_LeftHanded ? !leftHand : leftHand;
+    const bool physicalLeftHand = IsGameplayHandLeftPhysical(leftHand);
     TriggerPhysicalHandHapticPulse(physicalLeftHand, profile.durationSeconds, profile.frequency, profile.amplitude);
 }
 
@@ -2015,7 +1955,7 @@ void VR::TriggerMeleeSwingHaptics(bool leftHand)
     if (!m_WeaponHapticsEnabled)
         return;
 
-    const bool physicalLeftHand = m_LeftHanded ? !leftHand : leftHand;
+    const bool physicalLeftHand = IsGameplayHandLeftPhysical(leftHand);
     TriggerPhysicalHandHapticPulse(
         physicalLeftHand,
         m_MeleeSwingHapticsProfile.durationSeconds,
@@ -2028,7 +1968,7 @@ void VR::TriggerShoveHaptics(bool leftHand)
     if (!m_WeaponHapticsEnabled)
         return;
 
-    const bool physicalLeftHand = m_LeftHanded ? !leftHand : leftHand;
+    const bool physicalLeftHand = IsGameplayHandLeftPhysical(leftHand);
     TriggerPhysicalHandHapticPulse(
         physicalLeftHand,
         m_ShoveHapticsProfile.durationSeconds,
