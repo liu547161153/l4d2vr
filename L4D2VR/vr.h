@@ -16,6 +16,8 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include <condition_variable>
+#include <deque>
 #include <limits>
 #include <optional>
 #include <string>
@@ -1247,6 +1249,25 @@ public:
 	uint32_t m_HitSoundStatsQueued = 0;
 	uint32_t m_HitSoundStatsMerged = 0;
 	uint32_t m_HitSoundStatsFlushed = 0;
+	struct FeedbackSoundWorkerJob
+	{
+		enum class Type
+		{
+			PlayFile,
+			WarmupFile,
+			ResetState
+		};
+
+		Type type = Type::PlayFile;
+		std::string resolvedPath;
+		int leftVolume = 1000;
+		int rightVolume = 1000;
+		bool preferLoadedPathReuse = true;
+	};
+	std::mutex m_FeedbackSoundWorkerMutex{};
+	std::condition_variable m_FeedbackSoundWorkerCv{};
+	std::deque<FeedbackSoundWorkerJob> m_FeedbackSoundWorkerJobs;
+	std::atomic<bool> m_FeedbackSoundWorkerStarted{ false };
 	std::string m_FeedbackSoundWarmupSignature;
 	IMaterial* m_KillIndicatorHitMaterial = nullptr;
 	IMaterial* m_KillIndicatorNormalMaterial = nullptr;
@@ -1794,6 +1815,11 @@ public:
 	void ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVolume, int& outLeftVolume, int& outRightVolume) const;
 	void SyncVrmodFeedbackGameSounds() const;
 	void EnsureFeedbackSoundWarmup();
+	void EnsureFeedbackSoundWorkerThread();
+	bool EnqueueFeedbackSoundPlayback(const std::string& resolvedPath, int leftVolume, int rightVolume, bool preferLoadedPathReuse = true);
+	void EnqueueFeedbackSoundWarmupPath(const std::string& resolvedPath);
+	void ResetFeedbackSoundWorkerState();
+	void FeedbackSoundWorkerMain();
 	void SpawnHitIndicator(const Vector& worldPos);
 	void SpawnKillIndicator(bool headshot, const Vector& worldPos);
 	void DrawKillIndicators(IMatRenderContext* renderContext, ITexture* hudTexture);

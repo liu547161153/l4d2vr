@@ -14,6 +14,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <chrono>
 #include <algorithm>
@@ -36,6 +37,7 @@ namespace
     constexpr float kKillIndicatorTrimIntervalSeconds = 1.0f / 90.0f;
     constexpr float kHitIndicatorMergeWindowSeconds = 0.12f;
     constexpr float kHitIndicatorMergeDistance = 128.0f;
+    constexpr size_t kFeedbackSoundWorkerMaxQueuedJobs = 64;
     // NOTE: “被控放行”要宁可保守：只在「确实是控制者本人」且「目标非常贴近队友」时才放行。
     // Used by VR::UpdateFriendlyFireAimHit().
     constexpr float kAllowThroughControlledTeammateMaxDist = 64.0f; // units (conservative)
@@ -1269,6 +1271,13 @@ namespace
         voice.waveMonoSamples.clear();
     }
 
+    static void CloseAllFeedbackSoundVoices()
+    {
+        auto& voices = GetFeedbackSoundVoices();
+        for (FeedbackSoundVoiceState& voice : voices)
+            CloseFeedbackSoundVoice(voice);
+    }
+
     static bool EnsureFeedbackSoundVoiceOpen(FeedbackSoundVoiceState& voice, const std::string& resolvedPath)
     {
         if (resolvedPath.empty())
@@ -1362,22 +1371,18 @@ namespace
                 return TrimCopy(spec.substr(prefixLen));
             };
 
-        if (StartsWithInsensitive(spec, "alias:") ||
-            StartsWithInsensitive(spec, "game:") ||
-            StartsWithInsensitive(spec, "gamesound:") ||
-            StartsWithInsensitive(spec, "cmd:"))
-        {
+        if (StartsWithInsensitive(spec, "alias:") || StartsWithInsensitive(spec, "cmd:"))
             return false;
-        }
 
-        std::string pathSpec = spec;
         if (StartsWithInsensitive(spec, "file:"))
-            pathSpec = getPayload(5);
+            outResolvedPath = ResolveKillSoundFilePath(getPayload(5));
+        else if (StartsWithInsensitive(spec, "game:"))
+            outResolvedPath = ResolveGameSoundFilePath(getPayload(5));
+        else if (StartsWithInsensitive(spec, "gamesound:"))
+            outResolvedPath = ResolveBuiltinFeedbackGameSoundPath(getPayload(10));
+        else
+            outResolvedPath = ResolveKillSoundFilePath(spec);
 
-        if (pathSpec.empty())
-            return false;
-
-        outResolvedPath = ResolveKillSoundFilePath(pathSpec);
         return !outResolvedPath.empty();
     }
 
@@ -3164,14 +3169,14 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
 
     if (StartsWithInsensitive(spec, "file:"))
     {
-        const std::string path = getPayload(5);
-        if (path.empty())
+        std::string resolvedPath;
+        if (!TryResolveFeedbackSoundFileSpec(spec, resolvedPath))
             return false;
 
         int leftVolume = 1000;
         int rightVolume = 1000;
         computeStereoVolumes(leftVolume, rightVolume);
-        return TryPlayFeedbackSoundFilePath(path, leftVolume, rightVolume, preferLoadedPathReuse);
+        return EnqueueFeedbackSoundPlayback(resolvedPath, leftVolume, rightVolume, preferLoadedPathReuse);
     }
 
     if (StartsWithInsensitive(spec, "game:"))
@@ -3186,7 +3191,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
             int leftVolume = 1000;
             int rightVolume = 1000;
             computeStereoVolumes(leftVolume, rightVolume);
-            if (TryPlayFeedbackSoundFilePath(resolvedPath, leftVolume, rightVolume, false))
+            if (EnqueueFeedbackSoundPlayback(resolvedPath, leftVolume, rightVolume, false))
                 return true;
         }
 
@@ -3211,7 +3216,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
             int leftVolume = 1000;
             int rightVolume = 1000;
             computeStereoVolumes(leftVolume, rightVolume);
-            if (TryPlayFeedbackSoundFilePath(resolvedPath, leftVolume, rightVolume, false))
+            if (EnqueueFeedbackSoundPlayback(resolvedPath, leftVolume, rightVolume, false))
                 return true;
         }
 
@@ -3235,13 +3240,177 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
 
     if (LooksLikeAudioFilePath(spec))
     {
+        std::string resolvedPath;
+        if (!TryResolveFeedbackSoundFileSpec(spec, resolvedPath))
+            return false;
+
         int leftVolume = 1000;
         int rightVolume = 1000;
         computeStereoVolumes(leftVolume, rightVolume);
-        return TryPlayFeedbackSoundFilePath(spec, leftVolume, rightVolume, preferLoadedPathReuse);
+        return EnqueueFeedbackSoundPlayback(resolvedPath, leftVolume, rightVolume, preferLoadedPathReuse);
     }
 
     return ::PlaySoundA(spec.c_str(), nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT) != FALSE;
+}
+
+void VR::EnsureFeedbackSoundWorkerThread()
+{
+    bool expected = false;
+    if (!m_FeedbackSoundWorkerStarted.compare_exchange_strong(expected, true))
+        return;
+
+    try
+    {
+        std::thread worker(&VR::FeedbackSoundWorkerMain, this);
+        worker.detach();
+    }
+    catch (const std::system_error&)
+    {
+        m_FeedbackSoundWorkerStarted.store(false);
+        Game::logMsg("[VR][FeedbackSound] failed to start worker thread");
+    }
+}
+
+bool VR::EnqueueFeedbackSoundPlayback(const std::string& resolvedPath, int leftVolume, int rightVolume, bool preferLoadedPathReuse)
+{
+    if (resolvedPath.empty())
+        return false;
+    if (leftVolume <= 0 && rightVolume <= 0)
+        return true;
+
+    EnsureFeedbackSoundWorkerThread();
+    if (!m_FeedbackSoundWorkerStarted.load())
+        return false;
+
+    FeedbackSoundWorkerJob job{};
+    job.type = FeedbackSoundWorkerJob::Type::PlayFile;
+    job.resolvedPath = resolvedPath;
+    job.leftVolume = std::clamp(leftVolume, 0, 1000);
+    job.rightVolume = std::clamp(rightVolume, 0, 1000);
+    job.preferLoadedPathReuse = preferLoadedPathReuse;
+
+    {
+        std::lock_guard<std::mutex> lock(m_FeedbackSoundWorkerMutex);
+        if (m_FeedbackSoundWorkerJobs.size() >= kFeedbackSoundWorkerMaxQueuedJobs)
+        {
+            auto warmupIt = std::find_if(
+                m_FeedbackSoundWorkerJobs.begin(),
+                m_FeedbackSoundWorkerJobs.end(),
+                [](const FeedbackSoundWorkerJob& queuedJob)
+                {
+                    return queuedJob.type == FeedbackSoundWorkerJob::Type::WarmupFile;
+                });
+            if (warmupIt != m_FeedbackSoundWorkerJobs.end())
+                m_FeedbackSoundWorkerJobs.erase(warmupIt);
+            else
+                m_FeedbackSoundWorkerJobs.pop_front();
+        }
+
+        m_FeedbackSoundWorkerJobs.push_back(std::move(job));
+    }
+
+    m_FeedbackSoundWorkerCv.notify_one();
+    return true;
+}
+
+void VR::EnqueueFeedbackSoundWarmupPath(const std::string& resolvedPath)
+{
+    if (resolvedPath.empty())
+        return;
+
+    EnsureFeedbackSoundWorkerThread();
+    if (!m_FeedbackSoundWorkerStarted.load())
+        return;
+
+    FeedbackSoundWorkerJob job{};
+    job.type = FeedbackSoundWorkerJob::Type::WarmupFile;
+    job.resolvedPath = resolvedPath;
+
+    {
+        std::lock_guard<std::mutex> lock(m_FeedbackSoundWorkerMutex);
+        const auto duplicateIt = std::find_if(
+            m_FeedbackSoundWorkerJobs.begin(),
+            m_FeedbackSoundWorkerJobs.end(),
+            [&](const FeedbackSoundWorkerJob& queuedJob)
+            {
+                return queuedJob.type == FeedbackSoundWorkerJob::Type::WarmupFile
+                    && IsSameFeedbackSoundPath(queuedJob.resolvedPath, resolvedPath);
+            });
+        if (duplicateIt != m_FeedbackSoundWorkerJobs.end())
+            return;
+
+        if (m_FeedbackSoundWorkerJobs.size() >= kFeedbackSoundWorkerMaxQueuedJobs)
+        {
+            auto warmupIt = std::find_if(
+                m_FeedbackSoundWorkerJobs.begin(),
+                m_FeedbackSoundWorkerJobs.end(),
+                [](const FeedbackSoundWorkerJob& queuedJob)
+                {
+                    return queuedJob.type == FeedbackSoundWorkerJob::Type::WarmupFile;
+                });
+            if (warmupIt != m_FeedbackSoundWorkerJobs.end())
+                m_FeedbackSoundWorkerJobs.erase(warmupIt);
+            else
+                m_FeedbackSoundWorkerJobs.pop_front();
+        }
+
+        m_FeedbackSoundWorkerJobs.push_back(std::move(job));
+    }
+
+    m_FeedbackSoundWorkerCv.notify_one();
+}
+
+void VR::ResetFeedbackSoundWorkerState()
+{
+    if (!m_FeedbackSoundWorkerStarted.load())
+        return;
+
+    FeedbackSoundWorkerJob job{};
+    job.type = FeedbackSoundWorkerJob::Type::ResetState;
+
+    {
+        std::lock_guard<std::mutex> lock(m_FeedbackSoundWorkerMutex);
+        m_FeedbackSoundWorkerJobs.clear();
+        m_FeedbackSoundWorkerJobs.push_back(std::move(job));
+    }
+
+    m_FeedbackSoundWorkerCv.notify_one();
+}
+
+void VR::FeedbackSoundWorkerMain()
+{
+    for (;;)
+    {
+        FeedbackSoundWorkerJob job{};
+        {
+            std::unique_lock<std::mutex> lock(m_FeedbackSoundWorkerMutex);
+            m_FeedbackSoundWorkerCv.wait(lock, [&]()
+            {
+                return !m_FeedbackSoundWorkerJobs.empty();
+            });
+
+            job = std::move(m_FeedbackSoundWorkerJobs.front());
+            m_FeedbackSoundWorkerJobs.pop_front();
+        }
+
+        switch (job.type)
+        {
+        case FeedbackSoundWorkerJob::Type::PlayFile:
+            if (!job.resolvedPath.empty())
+                TryPlayFeedbackSoundFilePath(job.resolvedPath, job.leftVolume, job.rightVolume, job.preferLoadedPathReuse);
+            break;
+        case FeedbackSoundWorkerJob::Type::WarmupFile:
+            if (!job.resolvedPath.empty())
+            {
+                FeedbackSoundVoiceState& voice = AcquireFeedbackSoundVoice(&job.resolvedPath);
+                EnsureFeedbackSoundVoiceOpen(voice, job.resolvedPath);
+            }
+            break;
+        case FeedbackSoundWorkerJob::Type::ResetState:
+            CloseAllFeedbackSoundVoices();
+            break;
+        }
+    }
 }
 
 void VR::ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVolume, int& outLeftVolume, int& outRightVolume) const
@@ -3460,9 +3629,8 @@ void VR::EnsureFeedbackSoundWarmup()
         if (alreadyWarmed)
             continue;
 
-        FeedbackSoundVoiceState& voice = AcquireFeedbackSoundVoice(&resolvedPath);
-        if (EnsureFeedbackSoundVoiceOpen(voice, resolvedPath))
-            warmedPaths.push_back(resolvedPath);
+        EnqueueFeedbackSoundWarmupPath(resolvedPath);
+        warmedPaths.push_back(resolvedPath);
     }
 }
 
@@ -4313,6 +4481,13 @@ void VR::UpdateKillSoundFeedback()
 {
     auto resetState = [&]()
         {
+            const bool hadFeedbackState = m_HitSoundPending
+                || !m_PendingKillSoundHits.empty()
+                || !m_PendingKillSoundEvents.empty()
+                || !m_FeedbackSoundWarmupSignature.empty();
+            if (hadFeedbackState)
+                ResetFeedbackSoundWorkerState();
+
             TrimExpiredKillIndicators(std::chrono::steady_clock::now(), true);
             m_PendingKillSoundHits.clear();
             m_PendingKillSoundEvents.clear();
