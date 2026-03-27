@@ -643,6 +643,21 @@ namespace
         return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
     }
 
+    static bool TryGetFileLastWriteTime(const std::string& path, FILETIME& outLastWriteTime)
+    {
+        if (path.empty())
+            return false;
+
+        WIN32_FILE_ATTRIBUTE_DATA attrs{};
+        if (!::GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &attrs))
+            return false;
+        if ((attrs.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+            return false;
+
+        outLastWriteTime = attrs.ftLastWriteTime;
+        return true;
+    }
+
     static bool IsAbsoluteWindowsPath(const std::string& path)
     {
         if (!path.empty() && (path[0] == '\\' || path[0] == '/'))
@@ -831,9 +846,13 @@ namespace
             bool wasInGame = false;
             float cachedVolume = 1.0f;
             bool initialized = false;
+            std::string cachedConfigPath;
+            FILETIME cachedWriteTime{};
+            std::chrono::steady_clock::time_point lastRefreshAt{};
         };
 
         static CachedGameVolumeState state{};
+        constexpr float kVolumeConfigRefreshSeconds = 10.0f;
 
         const bool inGame = engine && engine->IsInGame();
         if (!inGame)
@@ -842,17 +861,39 @@ namespace
             return 1.0f;
         }
 
-        if (state.initialized && state.wasInGame)
+        const auto now = std::chrono::steady_clock::now();
+        if (state.initialized && state.wasInGame && state.lastRefreshAt.time_since_epoch().count() != 0)
+        {
+            const float elapsed = std::chrono::duration<float>(now - state.lastRefreshAt).count();
+            if (elapsed < kVolumeConfigRefreshSeconds)
+                return state.cachedVolume;
+        }
+
+        auto updateCachedVolume = [&](float volume, const std::string& configPath, const FILETIME* writeTime)
+        {
+            state.wasInGame = true;
+            state.cachedVolume = std::clamp(volume, 0.0f, 1.0f);
+            state.initialized = true;
+            state.cachedConfigPath = configPath;
+            state.cachedWriteTime = writeTime ? *writeTime : FILETIME{};
+            state.lastRefreshAt = now;
             return state.cachedVolume;
+        };
+
+        if (state.initialized && state.wasInGame && !state.cachedConfigPath.empty())
+        {
+            FILETIME writeTime{};
+            if (TryGetFileLastWriteTime(state.cachedConfigPath, writeTime)
+                && ::CompareFileTime(&writeTime, &state.cachedWriteTime) == 0)
+            {
+                state.lastRefreshAt = now;
+                return state.cachedVolume;
+            }
+        }
 
         const std::string moduleDir = GetModuleDirectoryA();
         if (moduleDir.empty())
-        {
-            state.wasInGame = true;
-            state.cachedVolume = 1.0f;
-            state.initialized = true;
-            return state.cachedVolume;
-        }
+            return updateCachedVolume(1.0f, std::string{}, nullptr);
 
         const std::array<std::string, 2> candidates =
         {
@@ -862,6 +903,10 @@ namespace
 
         for (const auto& candidate : candidates)
         {
+            FILETIME writeTime{};
+            if (!TryGetFileLastWriteTime(candidate, writeTime))
+                continue;
+
             std::ifstream file(candidate);
             if (!file.is_open())
                 continue;
@@ -875,16 +920,10 @@ namespace
                     parsedVolume = value;
             }
 
-            state.wasInGame = true;
-            state.cachedVolume = std::clamp(parsedVolume, 0.0f, 1.0f);
-            state.initialized = true;
-            return state.cachedVolume;
+            return updateCachedVolume(parsedVolume, candidate, &writeTime);
         }
 
-        state.wasInGame = true;
-        state.cachedVolume = 1.0f;
-        state.initialized = true;
-        return state.cachedVolume;
+        return updateCachedVolume(1.0f, std::string{}, nullptr);
     }
 
     static std::string ResolveKillSoundFilePath(const std::string& rawPath)
