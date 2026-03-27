@@ -534,6 +534,13 @@ namespace
         std::string alias;
         std::string loadedPath;
         bool isOpen = false;
+        bool usesWaveOut = false;
+        uint32_t waveSampleRate = 0;
+        std::vector<int16_t> waveMonoSamples;
+        std::vector<int16_t> waveStereoSamples;
+        HWAVEOUT waveOut = nullptr;
+        WAVEHDR waveHeader{};
+        bool wavePrepared = false;
         std::chrono::steady_clock::time_point lastStarted{};
     };
 
@@ -1054,6 +1061,177 @@ namespace
         return escaped;
     }
 
+    static uint16_t ReadLe16(const std::vector<uint8_t>& bytes, size_t offset)
+    {
+        return static_cast<uint16_t>(bytes[offset])
+            | (static_cast<uint16_t>(bytes[offset + 1]) << 8);
+    }
+
+    static uint32_t ReadLe32(const std::vector<uint8_t>& bytes, size_t offset)
+    {
+        return static_cast<uint32_t>(bytes[offset])
+            | (static_cast<uint32_t>(bytes[offset + 1]) << 8)
+            | (static_cast<uint32_t>(bytes[offset + 2]) << 16)
+            | (static_cast<uint32_t>(bytes[offset + 3]) << 24);
+    }
+
+    static int16_t ClampFeedbackSoundSample(int32_t sample)
+    {
+        return static_cast<int16_t>(std::clamp(sample, -32768, 32767));
+    }
+
+    static void CleanupFeedbackSoundWavePlayback(FeedbackSoundVoiceState& voice)
+    {
+        if (voice.waveOut)
+        {
+            ::waveOutReset(voice.waveOut);
+            if (voice.wavePrepared)
+            {
+                ::waveOutUnprepareHeader(voice.waveOut, &voice.waveHeader, sizeof(voice.waveHeader));
+                voice.wavePrepared = false;
+            }
+            ::waveOutClose(voice.waveOut);
+            voice.waveOut = nullptr;
+        }
+
+        voice.waveHeader = {};
+        voice.waveStereoSamples.clear();
+    }
+
+    static bool TryLoadFeedbackSoundWaveMono(const std::string& path, std::vector<int16_t>& outMonoSamples, uint32_t& outSampleRate)
+    {
+        outMonoSamples.clear();
+        outSampleRate = 0;
+
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open())
+            return false;
+
+        const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (bytes.size() < 44)
+            return false;
+
+        if (std::memcmp(bytes.data(), "RIFF", 4) != 0 || std::memcmp(bytes.data() + 8, "WAVE", 4) != 0)
+            return false;
+
+        bool haveFmt = false;
+        size_t dataOffset = 0;
+        size_t dataSize = 0;
+        uint16_t formatTag = 0;
+        uint16_t channels = 0;
+        uint16_t bitsPerSample = 0;
+        uint32_t sampleRate = 0;
+
+        for (size_t pos = 12; pos + 8 <= bytes.size();)
+        {
+            const uint32_t chunkSize = ReadLe32(bytes, pos + 4);
+            const size_t chunkDataOffset = pos + 8;
+            if (chunkDataOffset + chunkSize > bytes.size())
+                break;
+
+            if (std::memcmp(bytes.data() + pos, "fmt ", 4) == 0)
+            {
+                if (chunkSize < 16)
+                    return false;
+
+                formatTag = ReadLe16(bytes, chunkDataOffset + 0);
+                channels = ReadLe16(bytes, chunkDataOffset + 2);
+                sampleRate = ReadLe32(bytes, chunkDataOffset + 4);
+                bitsPerSample = ReadLe16(bytes, chunkDataOffset + 14);
+                haveFmt = true;
+            }
+            else if (std::memcmp(bytes.data() + pos, "data", 4) == 0)
+            {
+                dataOffset = chunkDataOffset;
+                dataSize = static_cast<size_t>(chunkSize);
+            }
+
+            pos = chunkDataOffset + chunkSize;
+            if ((chunkSize & 1u) != 0u)
+                ++pos;
+        }
+
+        if (!haveFmt || dataOffset == 0 || dataSize == 0)
+            return false;
+        if (formatTag != 1 || (channels != 1 && channels != 2) || bitsPerSample != 16 || sampleRate == 0)
+            return false;
+
+        const size_t bytesPerSample = static_cast<size_t>(bitsPerSample / 8);
+        const size_t frameSize = bytesPerSample * static_cast<size_t>(channels);
+        if (frameSize == 0)
+            return false;
+
+        const size_t frameCount = dataSize / frameSize;
+        if (frameCount == 0)
+            return false;
+
+        outMonoSamples.resize(frameCount);
+        for (size_t frameIndex = 0; frameIndex < frameCount; ++frameIndex)
+        {
+            const size_t sampleOffset = dataOffset + frameIndex * frameSize;
+            const int16_t left = static_cast<int16_t>(ReadLe16(bytes, sampleOffset));
+            int32_t mono = static_cast<int32_t>(left);
+            if (channels == 2)
+            {
+                const int16_t right = static_cast<int16_t>(ReadLe16(bytes, sampleOffset + bytesPerSample));
+                mono = (static_cast<int32_t>(left) + static_cast<int32_t>(right)) / 2;
+            }
+
+            outMonoSamples[frameIndex] = ClampFeedbackSoundSample(mono);
+        }
+
+        outSampleRate = sampleRate;
+        return true;
+    }
+
+    static bool TryPlayFeedbackSoundWaveVoice(FeedbackSoundVoiceState& voice, int leftVolume, int rightVolume)
+    {
+        if (voice.waveMonoSamples.empty() || voice.waveSampleRate == 0)
+            return false;
+
+        CleanupFeedbackSoundWavePlayback(voice);
+
+        WAVEFORMATEX format{};
+        format.wFormatTag = WAVE_FORMAT_PCM;
+        format.nChannels = 2;
+        format.nSamplesPerSec = voice.waveSampleRate;
+        format.wBitsPerSample = 16;
+        format.nBlockAlign = static_cast<WORD>((format.nChannels * format.wBitsPerSample) / 8);
+        format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+
+        if (::waveOutOpen(&voice.waveOut, WAVE_MAPPER, &format, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR)
+            return false;
+
+        voice.waveStereoSamples.resize(voice.waveMonoSamples.size() * 2u);
+        for (size_t i = 0; i < voice.waveMonoSamples.size(); ++i)
+        {
+            const int32_t mono = static_cast<int32_t>(voice.waveMonoSamples[i]);
+            const int32_t left = (mono * leftVolume) / 1000;
+            const int32_t right = (mono * rightVolume) / 1000;
+            voice.waveStereoSamples[i * 2u] = ClampFeedbackSoundSample(left);
+            voice.waveStereoSamples[i * 2u + 1u] = ClampFeedbackSoundSample(right);
+        }
+
+        voice.waveHeader = {};
+        voice.waveHeader.lpData = reinterpret_cast<LPSTR>(voice.waveStereoSamples.data());
+        voice.waveHeader.dwBufferLength = static_cast<DWORD>(voice.waveStereoSamples.size() * sizeof(int16_t));
+
+        if (::waveOutPrepareHeader(voice.waveOut, &voice.waveHeader, sizeof(voice.waveHeader)) != MMSYSERR_NOERROR)
+        {
+            CleanupFeedbackSoundWavePlayback(voice);
+            return false;
+        }
+
+        voice.wavePrepared = true;
+        if (::waveOutWrite(voice.waveOut, &voice.waveHeader, sizeof(voice.waveHeader)) != MMSYSERR_NOERROR)
+        {
+            CleanupFeedbackSoundWavePlayback(voice);
+            return false;
+        }
+
+        return true;
+    }
+
     static std::array<FeedbackSoundVoiceState, kFeedbackSoundVoiceCount>& GetFeedbackSoundVoices()
     {
         static std::array<FeedbackSoundVoiceState, kFeedbackSoundVoiceCount> voices{};
@@ -1076,13 +1254,19 @@ namespace
 
     static void CloseFeedbackSoundVoice(FeedbackSoundVoiceState& voice)
     {
-        if (voice.alias.empty())
-            return;
+        CleanupFeedbackSoundWavePlayback(voice);
 
-        const std::string closeCmd = std::string("close ") + voice.alias;
-        ::mciSendStringA(closeCmd.c_str(), nullptr, 0, nullptr);
+        if (!voice.alias.empty())
+        {
+            const std::string closeCmd = std::string("close ") + voice.alias;
+            ::mciSendStringA(closeCmd.c_str(), nullptr, 0, nullptr);
+        }
+
         voice.loadedPath.clear();
         voice.isOpen = false;
+        voice.usesWaveOut = false;
+        voice.waveSampleRate = 0;
+        voice.waveMonoSamples.clear();
     }
 
     static bool EnsureFeedbackSoundVoiceOpen(FeedbackSoundVoiceState& voice, const std::string& resolvedPath)
@@ -1090,16 +1274,45 @@ namespace
         if (resolvedPath.empty())
             return false;
 
+        const bool wantsWaveOut = EndsWithInsensitive(resolvedPath, ".wav");
         if (voice.isOpen && !voice.loadedPath.empty() && IsSameFeedbackSoundPath(voice.loadedPath, resolvedPath))
             return true;
 
         CloseFeedbackSoundVoice(voice);
-        const std::string openCmd = std::string("open \"") + EscapeMciString(resolvedPath) + "\" alias " + voice.alias;
-        if (::mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0)
+        if (wantsWaveOut)
+        {
+            if (!TryLoadFeedbackSoundWaveMono(resolvedPath, voice.waveMonoSamples, voice.waveSampleRate))
+                return false;
+
+            voice.loadedPath = resolvedPath;
+            voice.isOpen = true;
+            voice.usesWaveOut = true;
+            return true;
+        }
+
+        const std::string escapedPath = EscapeMciString(resolvedPath);
+        const std::array<std::string, 2> openCommands =
+        {
+            std::string("open \"") + escapedPath + "\" type mpegvideo alias " + voice.alias,
+            std::string("open \"") + escapedPath + "\" alias " + voice.alias
+        };
+
+        bool opened = false;
+        for (const std::string& openCmd : openCommands)
+        {
+            if (::mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) == 0)
+            {
+                opened = true;
+                break;
+            }
+        }
+
+        if (!opened)
             return false;
 
         voice.loadedPath = resolvedPath;
         voice.isOpen = true;
+        voice.usesWaveOut = false;
         return true;
     }
 
@@ -1176,6 +1389,10 @@ namespace
         leftVolume = std::clamp(leftVolume, 0, 1000);
         rightVolume = std::clamp(rightVolume, 0, 1000);
 
+        const int overallVolume = std::clamp((leftVolume + rightVolume) / 2, 0, 1000);
+        const std::string volumeCmd = "setaudio " + alias + " volume to " + std::to_string(overallVolume);
+        ::mciSendStringA(volumeCmd.c_str(), nullptr, 0, nullptr);
+
         const std::string leftCmd = "setaudio " + alias + " left volume to " + std::to_string(leftVolume);
         ::mciSendStringA(leftCmd.c_str(), nullptr, 0, nullptr);
 
@@ -1189,11 +1406,28 @@ namespace
         if (resolvedPath.empty())
             return false;
 
+        leftVolume = std::clamp(leftVolume, 0, 1000);
+        rightVolume = std::clamp(rightVolume, 0, 1000);
+        if (leftVolume == 0 && rightVolume == 0)
+            return true;
+
         FeedbackSoundVoiceState& voice = preferLoadedPathReuse
             ? AcquireFeedbackSoundVoice(&resolvedPath)
             : AcquireFeedbackSoundVoice();
         if (!EnsureFeedbackSoundVoiceOpen(voice, resolvedPath))
             return false;
+
+        if (voice.usesWaveOut)
+        {
+            if (!TryPlayFeedbackSoundWaveVoice(voice, leftVolume, rightVolume))
+            {
+                CloseFeedbackSoundVoice(voice);
+                return false;
+            }
+
+            voice.lastStarted = std::chrono::steady_clock::now();
+            return true;
+        }
 
         const std::string stopCmd = std::string("stop ") + voice.alias;
         ::mciSendStringA(stopCmd.c_str(), nullptr, 0, nullptr);
@@ -1228,6 +1462,15 @@ namespace
         const float clamped = Clamp01(t);
         const float inv = 1.0f - clamped;
         return 1.0f - inv * inv * inv;
+    }
+
+    static const char* DescribeFeedbackSoundDebugForceChannel(int forceChannel)
+    {
+        if (forceChannel < 0)
+            return "force_left";
+        if (forceChannel > 0)
+            return "force_right";
+        return "normal";
     }
 
     static std::string NormalizeMaterialPathSpec(std::string rawSpec)
@@ -2861,6 +3104,52 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
     if (spec.empty())
         return false;
 
+    auto computeStereoVolumes = [&](int& leftVolume, int& rightVolume)
+        {
+            ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
+            if (!m_FeedbackSoundDebugLog)
+                return;
+            if (ShouldThrottle(m_LastFeedbackSoundDebugLogTime, m_FeedbackSoundDebugLogHz))
+                return;
+
+            if (worldPos)
+            {
+                Game::logMsg(
+                    "[VR][FeedbackSound] mode=%s spec=%s base=%.3f blend=%.3f L=%d R=%d src=(%.1f %.1f %.1f) hmd=(%.1f %.1f %.1f) right=(%.3f %.3f %.3f)",
+                    DescribeFeedbackSoundDebugForceChannel(m_FeedbackSoundDebugForceChannel),
+                    spec.c_str(),
+                    baseVolume,
+                    m_FeedbackSoundSpatialBlend,
+                    leftVolume,
+                    rightVolume,
+                    worldPos->x,
+                    worldPos->y,
+                    worldPos->z,
+                    m_HmdPosAbs.x,
+                    m_HmdPosAbs.y,
+                    m_HmdPosAbs.z,
+                    m_HmdRight.x,
+                    m_HmdRight.y,
+                    m_HmdRight.z);
+                return;
+            }
+
+            Game::logMsg(
+                "[VR][FeedbackSound] mode=%s spec=%s base=%.3f blend=%.3f L=%d R=%d src=(none) hmd=(%.1f %.1f %.1f) right=(%.3f %.3f %.3f)",
+                DescribeFeedbackSoundDebugForceChannel(m_FeedbackSoundDebugForceChannel),
+                spec.c_str(),
+                baseVolume,
+                m_FeedbackSoundSpatialBlend,
+                leftVolume,
+                rightVolume,
+                m_HmdPosAbs.x,
+                m_HmdPosAbs.y,
+                m_HmdPosAbs.z,
+                m_HmdRight.x,
+                m_HmdRight.y,
+                m_HmdRight.z);
+        };
+
     auto getPayload = [&](size_t prefixLen)
         {
             return TrimCopy(spec.substr(prefixLen));
@@ -2881,7 +3170,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
 
         int leftVolume = 1000;
         int rightVolume = 1000;
-        ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
+        computeStereoVolumes(leftVolume, rightVolume);
         return TryPlayFeedbackSoundFilePath(path, leftVolume, rightVolume, preferLoadedPathReuse);
     }
 
@@ -2896,7 +3185,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
         {
             int leftVolume = 1000;
             int rightVolume = 1000;
-            ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
+            computeStereoVolumes(leftVolume, rightVolume);
             if (TryPlayFeedbackSoundFilePath(resolvedPath, leftVolume, rightVolume, false))
                 return true;
         }
@@ -2921,7 +3210,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
         {
             int leftVolume = 1000;
             int rightVolume = 1000;
-            ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
+            computeStereoVolumes(leftVolume, rightVolume);
             if (TryPlayFeedbackSoundFilePath(resolvedPath, leftVolume, rightVolume, false))
                 return true;
         }
@@ -2948,7 +3237,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
     {
         int leftVolume = 1000;
         int rightVolume = 1000;
-        ComputeFeedbackSoundStereoVolumes(worldPos, baseVolume, leftVolume, rightVolume);
+        computeStereoVolumes(leftVolume, rightVolume);
         return TryPlayFeedbackSoundFilePath(spec, leftVolume, rightVolume, preferLoadedPathReuse);
     }
 
@@ -2958,7 +3247,7 @@ bool VR::TryPlayKillSoundSpec(const std::string& rawSpec, float baseVolume, cons
 void VR::ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVolume, int& outLeftVolume, int& outRightVolume) const
 {
     const float gameMasterVolume = ReadGameMasterVolumeFromConfig(m_Game ? m_Game->m_EngineClient : nullptr);
-    const float clampedBaseVolume = std::clamp(baseVolume * gameMasterVolume, 0.0f, 2.0f);
+    const float clampedBaseVolume = std::clamp(baseVolume * std::clamp(gameMasterVolume, 0.0f, 1.0f), 0.0f, 2.0f);
     float leftGain = clampedBaseVolume;
     float rightGain = clampedBaseVolume;
 
@@ -2967,20 +3256,27 @@ void VR::ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVol
         Vector listenerForward{};
         Vector listenerRight{};
         Vector listenerUp{};
-        QAngle::AngleVectors(m_SetupAngles, &listenerForward, &listenerRight, &listenerUp);
-        if (listenerForward.IsZero() || listenerRight.IsZero() || listenerUp.IsZero())
+        Vector listenerOrigin = m_SetupOrigin;
+        if (!m_HmdForward.IsZero() && !m_HmdRight.IsZero() && !m_HmdUp.IsZero())
         {
             listenerForward = m_HmdForward;
             listenerRight = m_HmdRight;
             listenerUp = m_HmdUp;
+        }
+        else
+        {
+            QAngle::AngleVectors(m_SetupAngles, &listenerForward, &listenerRight, &listenerUp);
         }
 
         if (!listenerForward.IsZero() && !listenerRight.IsZero())
         {
             VectorNormalize(listenerForward);
             VectorNormalize(listenerRight);
+            if (!m_HmdForward.IsZero() && !m_HmdRight.IsZero() && !m_HmdUp.IsZero())
+                listenerOrigin = m_HmdPosAbs;
 
-            const Vector delta = *worldPos - m_SetupOrigin;
+            // Feedback sounds should follow the player's actual head pose, not the render camera basis.
+            const Vector delta = *worldPos - listenerOrigin;
             const float distance = delta.Length();
             if (distance > 0.001f)
             {
@@ -2988,7 +3284,7 @@ void VR::ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVol
                 VectorNormalize(dir);
 
                 const float spatialBlend = Clamp01(m_FeedbackSoundSpatialBlend);
-                const float pan = std::clamp(DotProduct(dir, listenerRight), -1.0f, 1.0f) * spatialBlend;
+                const float pan = std::clamp(-DotProduct(dir, listenerRight), -1.0f, 1.0f) * spatialBlend;
                 const float normalizedPan = pan * 0.5f + 0.5f;
                 const float panAngle = normalizedPan * (kPi * 0.5f);
                 const float leftPan = std::cos(panAngle) * 1.41421356f;
@@ -3007,6 +3303,21 @@ void VR::ComputeFeedbackSoundStereoVolumes(const Vector* worldPos, float baseVol
 
     outLeftVolume = std::clamp(static_cast<int>(std::lround(leftGain * 1000.0f)), 0, 1000);
     outRightVolume = std::clamp(static_cast<int>(std::lround(rightGain * 1000.0f)), 0, 1000);
+
+    if (m_FeedbackSoundDebugForceChannel != 0)
+    {
+        const int dominantVolume = (std::max)(outLeftVolume, outRightVolume);
+        if (m_FeedbackSoundDebugForceChannel < 0)
+        {
+            outLeftVolume = dominantVolume;
+            outRightVolume = 0;
+        }
+        else
+        {
+            outLeftVolume = 0;
+            outRightVolume = dominantVolume;
+        }
+    }
 }
 
 void VR::PlayHitSound(const Vector* worldPos)

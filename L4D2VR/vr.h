@@ -1215,6 +1215,9 @@ public:
 	float m_HeadshotSoundVolume = 1.10f;
 	float m_FeedbackSoundSpatialBlend = 0.85f;
 	float m_FeedbackSoundSpatialRange = 1400.0f;
+	int m_FeedbackSoundDebugForceChannel = 0; // -1 = left only, 1 = right only
+	bool m_FeedbackSoundDebugLog = false;
+	float m_FeedbackSoundDebugLogHz = 1.0f;
 	bool m_HitIndicatorEnabled = false;
 	bool m_KillIndicatorEnabled = true;
 	bool m_KillIndicatorDebugLog = false;
@@ -1234,6 +1237,7 @@ public:
 	std::chrono::steady_clock::time_point m_LastKillSoundEventRegisterAttempt{};
 	std::chrono::steady_clock::time_point m_LastKillIndicatorTrimTime{};
 	std::chrono::steady_clock::time_point m_LastKillIndicatorDebugLogTime{};
+	std::chrono::steady_clock::time_point m_LastFeedbackSoundDebugLogTime{};
 	uint32_t m_KillIndicatorStatsHitSpawned = 0;
 	uint32_t m_KillIndicatorStatsKillSpawned = 0;
 	uint32_t m_KillIndicatorStatsHitMerged = 0;
