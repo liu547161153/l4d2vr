@@ -377,14 +377,7 @@ void VR::UpdateHandHudOverlays()
 
     auto DestroyWorldQuadTextures = [&]()
     {
-        SafeReleaseD3D(m_D9LeftWristHudDynSurface);
-        SafeReleaseD3D(m_D9LeftWristHudDynTex);
-        SafeReleaseD3D(m_D9RightAmmoHudDynSurface);
-        SafeReleaseD3D(m_D9RightAmmoHudDynTex);
-        m_D9LeftWristHudDynW = m_D9LeftWristHudDynH = 0;
-        m_D9RightAmmoHudDynW = m_D9RightAmmoHudDynH = 0;
-        std::memset(&m_VKLeftWristHudDyn, 0, sizeof(m_VKLeftWristHudDyn));
-        std::memset(&m_VKRightAmmoHudDyn, 0, sizeof(m_VKRightAmmoHudDyn));
+        DestroyHandHudWorldQuadTextures();
     };
 
     // If world-quad mode was used previously but is now off, free the backing textures.
@@ -527,9 +520,9 @@ void VR::UpdateHandHudOverlays()
 
         tex->UnlockRect(0);
         // Ensure the Vulkan-side resource is updated for OpenVR sampling.
-        g_D3DVR9->TransferSurface(surf, FALSE);
+        const HRESULT transferHr = g_D3DVR9->TransferSurface(surf, FALSE);
         g_D3DVR9->UnlockDevice();
-        return true;
+        return SUCCEEDED(transferHr);
     };
 
 
@@ -1159,9 +1152,9 @@ void VR::UpdateHandHudOverlays()
                             if (okUpload)
                             {
                                 static const vr::VRTextureBounds_t full{ 0.0f, 0.0f, 1.0f, 1.0f };
-                                ov->SetOverlayTextureBounds(m_LeftWristHudHandle, &full);
-                                ov->SetOverlayTexture(m_LeftWristHudHandle, &m_VKLeftWristHudDyn.m_VRTexture);
-                                err = vr::VROverlayError_None;
+                                err = ov ? ov->SetOverlayTextureBounds(m_LeftWristHudHandle, &full) : vr::VROverlayError_RequestFailed;
+                                if (err == vr::VROverlayError_None)
+                                    err = ov ? ov->SetOverlayTexture(m_LeftWristHudHandle, &m_VKLeftWristHudDyn.m_VRTexture) : vr::VROverlayError_RequestFailed;
                             }
                             else
                             {
@@ -1183,7 +1176,13 @@ void VR::UpdateHandHudOverlays()
                     }
                     else
                     {
-                        if (!worldQuad)
+                        if (worldQuad)
+                        {
+                            DestroyWorldQuadTextures();
+                            if (err == vr::VROverlayError_InvalidHandle || err == vr::VROverlayError_RequestFailed)
+                                needHandHudOverlayRecover = true;
+                        }
+                        else
                         {
                             ++m_HandHudLeftConsecutiveRawFails;
                             if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudLeftConsecutiveRawFails >= kHandHudRecoverFailThreshold))
@@ -1200,6 +1199,11 @@ void VR::UpdateHandHudOverlays()
         {
             const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_LeftWristHudHandle);
             m_HandHudDebugLastLeftShowErr = (int)err;
+            if (worldQuad && (err == vr::VROverlayError_InvalidHandle || err == vr::VROverlayError_RequestFailed))
+            {
+                DestroyWorldQuadTextures();
+                needHandHudOverlayRecover = true;
+            }
             if (err != vr::VROverlayError_None && dbgTick)
                 Game::logMsg("[VR][HandHUD] left ShowOverlay failed err=%d", (int)err);
         }
@@ -1491,8 +1495,7 @@ void VR::UpdateHandHudOverlays()
                             const bool okUpload = UploadWorldQuadTextureRGBA(false, pixels.data(), w, h);
                             if (okUpload)
                             {
-                                ov->SetOverlayTexture(m_RightAmmoHudHandle, &m_VKRightAmmoHudDyn.m_VRTexture);
-                                err = vr::VROverlayError_None;
+                                err = ov ? ov->SetOverlayTexture(m_RightAmmoHudHandle, &m_VKRightAmmoHudDyn.m_VRTexture) : vr::VROverlayError_RequestFailed;
                             }
                             else
                             {
@@ -1514,7 +1517,13 @@ void VR::UpdateHandHudOverlays()
                     }
                     else
                     {
-                        if (!worldQuad)
+                        if (worldQuad)
+                        {
+                            DestroyWorldQuadTextures();
+                            if (err == vr::VROverlayError_InvalidHandle || err == vr::VROverlayError_RequestFailed)
+                                needHandHudOverlayRecover = true;
+                        }
+                        else
                         {
                             ++m_HandHudRightConsecutiveRawFails;
                             if (err == vr::VROverlayError_InvalidHandle || (err == vr::VROverlayError_RequestFailed && m_HandHudRightConsecutiveRawFails >= kHandHudRecoverFailThreshold))
@@ -1530,6 +1539,11 @@ void VR::UpdateHandHudOverlays()
         {
             const vr::EVROverlayError err = vr::VROverlay()->ShowOverlay(m_RightAmmoHudHandle);
             m_HandHudDebugLastRightShowErr = (int)err;
+            if (worldQuad && (err == vr::VROverlayError_InvalidHandle || err == vr::VROverlayError_RequestFailed))
+            {
+                DestroyWorldQuadTextures();
+                needHandHudOverlayRecover = true;
+            }
             if (err != vr::VROverlayError_None && dbgTick)
                 Game::logMsg("[VR][HandHUD] right ShowOverlay failed err=%d", (int)err);
         }

@@ -1710,6 +1710,7 @@ public:
 	void UpdateRearMirrorOverlayTransform();
 	void UpdateScopeOverlayTransform();
 	void UpdateHandHudOverlays();
+	void DestroyHandHudWorldQuadTextures();
 	void GetPoses();
 	bool UpdatePosesAndActions();
 	void GetViewParameters();

@@ -135,6 +135,9 @@ void VR::CreateVRTextures()
     if (m_CreatedVRTextures.load(std::memory_order_acquire))
         return;
 
+    DestroyHandHudWorldQuadTextures();
+    DestroyKillIndicatorOverlayTextures();
+
     LogVAS("before CreateVRTextures");
 
     int windowWidth, windowHeight;

@@ -538,7 +538,8 @@ namespace
         bool isOpen = false;
         bool usesWaveOut = false;
         uint32_t waveSampleRate = 0;
-        std::vector<int16_t> waveMonoSamples;
+        uint16_t waveSourceChannels = 0;
+        std::vector<int16_t> waveSourceSamples;
         std::vector<int16_t> waveStereoSamples;
         HWAVEOUT waveOut = nullptr;
         WAVEHDR waveHeader{};
@@ -1100,10 +1101,11 @@ namespace
         voice.waveStereoSamples.clear();
     }
 
-    static bool TryLoadFeedbackSoundWaveMono(const std::string& path, std::vector<int16_t>& outMonoSamples, uint32_t& outSampleRate)
+    static bool TryLoadFeedbackSoundWavePcm(const std::string& path, std::vector<int16_t>& outSamples, uint32_t& outSampleRate, uint16_t& outChannels)
     {
-        outMonoSamples.clear();
+        outSamples.clear();
         outSampleRate = 0;
+        outChannels = 0;
 
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open())
@@ -1167,28 +1169,26 @@ namespace
         if (frameCount == 0)
             return false;
 
-        outMonoSamples.resize(frameCount);
+        outSamples.resize(frameCount * static_cast<size_t>(channels));
         for (size_t frameIndex = 0; frameIndex < frameCount; ++frameIndex)
         {
             const size_t sampleOffset = dataOffset + frameIndex * frameSize;
-            const int16_t left = static_cast<int16_t>(ReadLe16(bytes, sampleOffset));
-            int32_t mono = static_cast<int32_t>(left);
-            if (channels == 2)
+            for (uint16_t channelIndex = 0; channelIndex < channels; ++channelIndex)
             {
-                const int16_t right = static_cast<int16_t>(ReadLe16(bytes, sampleOffset + bytesPerSample));
-                mono = (static_cast<int32_t>(left) + static_cast<int32_t>(right)) / 2;
+                const size_t channelOffset = sampleOffset + static_cast<size_t>(channelIndex) * bytesPerSample;
+                outSamples[frameIndex * static_cast<size_t>(channels) + static_cast<size_t>(channelIndex)] =
+                    static_cast<int16_t>(ReadLe16(bytes, channelOffset));
             }
-
-            outMonoSamples[frameIndex] = ClampFeedbackSoundSample(mono);
         }
 
         outSampleRate = sampleRate;
+        outChannels = channels;
         return true;
     }
 
     static bool TryPlayFeedbackSoundWaveVoice(FeedbackSoundVoiceState& voice, int leftVolume, int rightVolume)
     {
-        if (voice.waveMonoSamples.empty() || voice.waveSampleRate == 0)
+        if (voice.waveSourceSamples.empty() || voice.waveSampleRate == 0 || (voice.waveSourceChannels != 1 && voice.waveSourceChannels != 2))
             return false;
 
         CleanupFeedbackSoundWavePlayback(voice);
@@ -1204,12 +1204,25 @@ namespace
         if (::waveOutOpen(&voice.waveOut, WAVE_MAPPER, &format, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR)
             return false;
 
-        voice.waveStereoSamples.resize(voice.waveMonoSamples.size() * 2u);
-        for (size_t i = 0; i < voice.waveMonoSamples.size(); ++i)
+        const size_t frameCount = voice.waveSourceSamples.size() / static_cast<size_t>(voice.waveSourceChannels);
+        voice.waveStereoSamples.resize(frameCount * 2u);
+        for (size_t i = 0; i < frameCount; ++i)
         {
-            const int32_t mono = static_cast<int32_t>(voice.waveMonoSamples[i]);
-            const int32_t left = (mono * leftVolume) / 1000;
-            const int32_t right = (mono * rightVolume) / 1000;
+            int32_t sourceLeft = 0;
+            int32_t sourceRight = 0;
+            if (voice.waveSourceChannels == 1)
+            {
+                sourceLeft = static_cast<int32_t>(voice.waveSourceSamples[i]);
+                sourceRight = sourceLeft;
+            }
+            else
+            {
+                sourceLeft = static_cast<int32_t>(voice.waveSourceSamples[i * 2u]);
+                sourceRight = static_cast<int32_t>(voice.waveSourceSamples[i * 2u + 1u]);
+            }
+
+            const int32_t left = (sourceLeft * leftVolume) / 1000;
+            const int32_t right = (sourceRight * rightVolume) / 1000;
             voice.waveStereoSamples[i * 2u] = ClampFeedbackSoundSample(left);
             voice.waveStereoSamples[i * 2u + 1u] = ClampFeedbackSoundSample(right);
         }
@@ -1268,7 +1281,8 @@ namespace
         voice.isOpen = false;
         voice.usesWaveOut = false;
         voice.waveSampleRate = 0;
-        voice.waveMonoSamples.clear();
+        voice.waveSourceChannels = 0;
+        voice.waveSourceSamples.clear();
     }
 
     static void CloseAllFeedbackSoundVoices()
@@ -1290,7 +1304,7 @@ namespace
         CloseFeedbackSoundVoice(voice);
         if (wantsWaveOut)
         {
-            if (!TryLoadFeedbackSoundWaveMono(resolvedPath, voice.waveMonoSamples, voice.waveSampleRate))
+            if (!TryLoadFeedbackSoundWavePcm(resolvedPath, voice.waveSourceSamples, voice.waveSampleRate, voice.waveSourceChannels))
                 return false;
 
             voice.loadedPath = resolvedPath;
@@ -3720,6 +3734,26 @@ IMaterial* VR::ResolveKillIndicatorMaterial(bool headshot)
     return cachedMaterial;
 }
 
+void VR::DestroyHandHudWorldQuadTextures()
+{
+    auto SafeReleaseD3D = [](auto*& ptr)
+    {
+        if (!ptr)
+            return;
+        ptr->Release();
+        ptr = nullptr;
+    };
+
+    SafeReleaseD3D(m_D9LeftWristHudDynSurface);
+    SafeReleaseD3D(m_D9LeftWristHudDynTex);
+    SafeReleaseD3D(m_D9RightAmmoHudDynSurface);
+    SafeReleaseD3D(m_D9RightAmmoHudDynTex);
+    m_D9LeftWristHudDynW = m_D9LeftWristHudDynH = 0;
+    m_D9RightAmmoHudDynW = m_D9RightAmmoHudDynH = 0;
+    std::memset(&m_VKLeftWristHudDyn, 0, sizeof(m_VKLeftWristHudDyn));
+    std::memset(&m_VKRightAmmoHudDyn, 0, sizeof(m_VKRightAmmoHudDyn));
+}
+
 void VR::DestroyKillIndicatorOverlayTextures()
 {
     for (int materialIndex = 0; materialIndex < static_cast<int>(m_KillIndicatorOverlayTextures.size()); ++materialIndex)
@@ -3747,6 +3781,15 @@ void VR::DestroyKillIndicatorOverlayTexture(int materialIndex)
     std::memset(&texture.sharedTexture, 0, sizeof(texture.sharedTexture));
     texture.uploadedFrameIndex = UINT32_MAX;
     texture.uploadedFromDecodedFrames = false;
+
+    for (KillIndicatorOverlaySlot& slot : m_KillIndicatorOverlaySlots)
+    {
+        if (slot.materialIndex == materialIndex)
+        {
+            slot.materialIndex = -1;
+            slot.visible = false;
+        }
+    }
 }
 
 bool VR::EnsureKillIndicatorOverlayTexture(int materialIndex, int width, int height)
@@ -3852,8 +3895,13 @@ bool VR::UploadKillIndicatorOverlayTexture(int materialIndex, const uint8_t* rgb
     }
 
     texture.d3dTexture->UnlockRect(0);
-    g_D3DVR9->TransferSurface(texture.d3dSurface, FALSE);
+    const HRESULT transferHr = g_D3DVR9->TransferSurface(texture.d3dSurface, FALSE);
     g_D3DVR9->UnlockDevice();
+    if (FAILED(transferHr))
+    {
+        DestroyKillIndicatorOverlayTexture(materialIndex);
+        return false;
+    }
     texture.uploadedFrameIndex = frameIndex;
     texture.uploadedFromDecodedFrames = fromDecodedFrames;
     return true;
@@ -4162,6 +4210,12 @@ void VR::UpdateKillIndicatorOverlays()
     if (!m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame())
         return;
 
+    {
+        std::lock_guard<std::mutex> lock(m_VROverlayMutex);
+        if (vr::IVROverlay* current = vr::VROverlay())
+            m_Overlay = current;
+    }
+
     vr::IVROverlay* overlay = m_Overlay ? m_Overlay : vr::VROverlay();
     if (!overlay || !m_Compositor)
         return;
@@ -4287,6 +4341,11 @@ void VR::UpdateKillIndicatorOverlays()
             if (textureError != vr::VROverlayError_None)
             {
                 Game::logMsg("[VR][KillIndicator] SetOverlayTexture failed err=%d material=%s", (int)textureError, material->GetName());
+                slot.materialIndex = -1;
+                slot.visible = false;
+                if (textureError == vr::VROverlayError_InvalidHandle)
+                    slot.overlayHandle = vr::k_ulOverlayHandleInvalid;
+                DestroyKillIndicatorOverlayTexture(materialIndex);
                 continue;
             }
             slot.materialIndex = materialIndex;
@@ -4301,6 +4360,9 @@ void VR::UpdateKillIndicatorOverlays()
             if (showError != vr::VROverlayError_None)
             {
                 Game::logMsg("[VR][KillIndicator] ShowOverlay failed err=%d material=%s", (int)showError, material->GetName());
+                slot.visible = false;
+                if (showError == vr::VROverlayError_InvalidHandle)
+                    slot.overlayHandle = vr::k_ulOverlayHandleInvalid;
                 continue;
             }
             slot.visible = true;
