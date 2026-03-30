@@ -201,13 +201,6 @@ void Hooks::dStartMeleeSwingServer(void* ecx, void* edx, void* player, bool a3)
 
 int Hooks::dPrimaryAttackServer(void* ecx, void* edx)
 {
-	if (m_VR)
-	{
-		CUserCmd* decisionCmd = m_RunCommandFromSecondaryPredict
-			? m_RunCommandSecondaryCmd
-			: m_RunCommandCurrentCmd;
-		m_VR->OnPrimaryAttackServerDecision(decisionCmd, m_RunCommandFromSecondaryPredict);
-	}
 	return hkPrimaryAttackServer.fOriginal(ecx);
 }
 
@@ -219,101 +212,6 @@ void Hooks::dItemPostFrameServer(void* ecx, void* edx)
 int Hooks::dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo)
 {
 	return hkGetPrimaryAttackActivity.fOriginal(ecx, meleeInfo);
-}
-
-void Hooks::dRunCommand(void* ecx, void* edx, C_BasePlayer* player, CUserCmd* cmd, void* moveHelper)
-{
-	static thread_local uint32_t s_badCmdStreak = 0;
-	static thread_local bool s_disableRunCommandVRLogic = false;
-	static thread_local std::chrono::steady_clock::time_point s_badCmdLogTs{};
-
-	if (s_disableRunCommandVRLogic)
-	{
-		hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
-		return;
-	}
-
-	// Guard against bad hook arguments (wrong slot / transient bad call path):
-	// if cmd isn't a readable CUserCmd, skip VR-side processing and just forward.
-	const bool cmdReadable = cmd && IsReadableMemoryRange(cmd, sizeof(CUserCmd));
-	if (!cmdReadable)
-	{
-		if (!ShouldThrottleLog(s_badCmdLogTs, 1.0f))
-			Game::logMsg("[VR][RunCommand] invalid cmd ptr, bypassing VR logic (this=%p player=%p cmd=%p move=%p streak=%u)",
-				ecx, player, cmd, moveHelper, s_badCmdStreak + 1u);
-
-		s_badCmdStreak++;
-		if (s_badCmdStreak >= 16u)
-		{
-			s_disableRunCommandVRLogic = true;
-			Game::logMsg("[VR][RunCommand] disabled VR RunCommand detour logic after repeated invalid cmd pointers");
-		}
-
-		hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
-		return;
-	}
-
-	s_badCmdStreak = 0;
-
-	// Keep the active command available to PrimaryAttackServer/Fire path hooks.
-	m_RunCommandCurrentCmd = cmd;
-	m_RunCommandSecondaryCmd = nullptr;
-
-	if (m_VR)
-		m_VR->OnPredictionRunCommand(cmd);
-	// Debug: track whether packed 1:1 delta survives prediction/original RunCommand.
-	static constexpr uint32_t kRSButtonsMask = 0xFC000000u; // bits 26..31
-	uint32_t b_before = (uint32_t)cmd->buttons;
-	Vector b_dm_before;
-	const bool b_has_before = (m_VR && !m_VR->m_ForceNonVRServerMovement && m_VR->m_Roomscale1To1Movement && cmd->weaponselect == 0 && VR::DecodeRoomscale1To1Delta((int)(b_before & kRSButtonsMask), b_dm_before));
-	if (b_has_before && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
-		Game::logMsg("[VR][1to1][runcmd] pre  cmd=%d tick=%d cmdptr=%p buttons=0x%08X dM=(%.3f %.3f)", cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, b_dm_before.x, b_dm_before.y);
-
-	const bool canRunSecondaryPredict =
-		m_VR
-		&& !m_RunCommandInDetour
-		&& !m_RunCommandFromSecondaryPredict
-		&& m_VR->ShouldRunSecondaryPrediction(cmd);
-
-	if (canRunSecondaryPredict)
-	{
-		CUserCmd secondaryCmd = *cmd;
-		m_VR->PrepareSecondaryPredictionCmd(secondaryCmd);
-
-		m_RunCommandInDetour = true;
-		m_RunCommandFromSecondaryPredict = true;
-		m_RunCommandSecondaryCmd = &secondaryCmd;
-		hkRunCommand.fOriginal(ecx, player, &secondaryCmd, moveHelper);
-		m_RunCommandSecondaryCmd = nullptr;
-		m_RunCommandFromSecondaryPredict = false;
-		m_RunCommandInDetour = false;
-	}
-
-	// If we packed a 1:1 room-scale delta into buttons high bits, keep it for networking,
-	// but hide it from the stock prediction/movement code (weapon logic may peek at buttons).
-	const int rsPackedButtons = cmd ? (cmd->buttons & (int)kRSButtonsMask) : 0;
-	bool rsHideButtons = false;
-	if (m_VR && cmd && cmd->weaponselect == 0 && m_VR->m_Roomscale1To1Movement && !m_VR->m_ForceNonVRServerMovement)
-	{
-		Vector _rsTmp;
-		rsHideButtons = m_VR->DecodeRoomscale1To1Delta(rsPackedButtons, _rsTmp);
-		if (rsHideButtons)
-			cmd->buttons &= ~(int)kRSButtonsMask;
-	}
-
-	hkRunCommand.fOriginal(ecx, player, cmd, moveHelper);
-	if (rsHideButtons)
-		cmd->buttons = (cmd->buttons & ~(int)kRSButtonsMask) | rsPackedButtons;
-	if (b_has_before && m_VR && m_VR->m_Roomscale1To1DebugLog && ((cmd->command_number & 31) == 0))
-	{
-		uint32_t b_after = (uint32_t)cmd->buttons;
-		Vector b_dm_after;
-		const bool b_has_after = VR::DecodeRoomscale1To1Delta((int)(b_after & kRSButtonsMask), b_dm_after);
-		Game::logMsg("[VR][1to1][runcmd] post cmd=%d tick=%d cmdptr=%p buttons=0x%08X->0x%08X decoded=%d dM=(%.3f %.3f)",
-			cmd->command_number, cmd->tick_count, (void*)cmd, (unsigned)b_before, (unsigned)b_after, (int)b_has_after, b_dm_after.x, b_dm_after.y);
-	}
-
-	m_RunCommandCurrentCmd = nullptr;
 }
 
 Vector* Hooks::dEyePosition(void* ecx, void* edx, Vector* eyePos)

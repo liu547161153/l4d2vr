@@ -848,7 +848,6 @@ namespace
 
         return reinterpret_cast<std::uintptr_t>(game->GetClientEntity(entityIndex));
     }
-
     static float ReadGameMasterVolumeFromConfig(IEngineClient* engine)
     {
         struct CachedGameVolumeState
@@ -2539,53 +2538,23 @@ void VR::ParseHapticsConfigFile()
     setWeaponOverride("melee", { 0.028f, 105.0f, 0.54f });
     setWeaponOverride("chainsaw", { 0.014f, 175.0f, 0.34f });
 
-    m_DamageFeedbackEnabled = getBool("damage.enabled", m_DamageFeedbackEnabled);
-    m_DamageDirectionalEnabled = getBool("damage.directional_enabled", m_DamageDirectionalEnabled);
-    m_DamageSustainEnabled = getBool("damage.sustain_enabled", m_DamageSustainEnabled);
-    m_LandingHapticsEnabled = getBool("landing.enabled", m_LandingHapticsEnabled);
-    m_CameraShakeHapticsEnabled = getBool("camera_shake.enabled", m_CameraShakeHapticsEnabled);
-
-    m_DamageCommonHapticsProfile = parseProfile("damage.common", m_DamageCommonHapticsProfile);
-    m_DamageSpecialHapticsProfile = parseProfile("damage.special", m_DamageSpecialHapticsProfile);
-    m_DamageHeavyHapticsProfile = parseProfile("damage.heavy", m_DamageHeavyHapticsProfile);
-    m_DamageExplosionHapticsProfile = parseProfile("damage.explosion", m_DamageExplosionHapticsProfile);
-    m_DamageFireHapticsProfile = parseProfile("damage.fire", m_DamageFireHapticsProfile);
-    m_DamageAcidHapticsProfile = parseProfile("damage.acid", m_DamageAcidHapticsProfile);
-    m_DamageScaleStart = getFloat("damage.scale_start", m_DamageScaleStart);
-    m_DamageScalePerPoint = getFloat("damage.scale_per_damage", m_DamageScalePerPoint);
-    m_DamageScaleMaxBonus = getFloat("damage.scale_max_bonus", m_DamageScaleMaxBonus);
-    m_DamageAmplitudeMin = getFloat("damage.amp_min", m_DamageAmplitudeMin);
-    m_DamageAmplitudeMax = getFloat("damage.amp_max", m_DamageAmplitudeMax);
-
-    m_DamageFireSustainSeconds = std::max(0.0f, getFloat("sustain.fire.duration", m_DamageFireSustainSeconds));
-    m_DamageAcidSustainSeconds = std::max(0.0f, getFloat("sustain.acid.duration", m_DamageAcidSustainSeconds));
-    m_DamageFireSustainIntervalSeconds = std::max(0.0f, getFloat("sustain.fire.interval", m_DamageFireSustainIntervalSeconds));
-    m_DamageAcidSustainIntervalSeconds = std::max(0.0f, getFloat("sustain.acid.interval", m_DamageAcidSustainIntervalSeconds));
-    m_DamageFireSustainPulse = parseProfile("sustain.fire.pulse", m_DamageFireSustainPulse);
-    m_DamageAcidSustainPulse = parseProfile("sustain.acid.pulse", m_DamageAcidSustainPulse);
-
-    m_LandingMinFallSpeed = std::max(0.0f, getFloat("landing.min_fall_speed", m_LandingMinFallSpeed));
-    m_LandingMinAirTime = std::max(0.0f, getFloat("landing.min_air_time", m_LandingMinAirTime));
-    m_LandingFallSpeedRange = std::max(1.0f, getFloat("landing.fall_speed_range", m_LandingFallSpeedRange));
-    m_LandingAmpMin = std::clamp(getFloat("landing.amp_min", m_LandingAmpMin), 0.0f, 1.0f);
-    m_LandingAmpMax = std::clamp(getFloat("landing.amp_max", m_LandingAmpMax), 0.0f, 1.0f);
-    m_LandingFreqMin = std::clamp(getFloat("landing.freq_min", m_LandingFreqMin), 0.0f, 320.0f);
-    m_LandingFreqMax = std::clamp(getFloat("landing.freq_max", m_LandingFreqMax), 0.0f, 320.0f);
-    m_LandingDurMin = std::clamp(getFloat("landing.dur_min", m_LandingDurMin), 0.0f, 0.5f);
-    m_LandingDurMax = std::clamp(getFloat("landing.dur_max", m_LandingDurMax), 0.0f, 0.5f);
-
-    m_CameraShakeAngleThreshold = std::max(0.0f, getFloat("camera_shake.angle_threshold", m_CameraShakeAngleThreshold));
-    m_CameraShakeAngleRange = std::max(0.001f, getFloat("camera_shake.angle_range", m_CameraShakeAngleRange));
-    m_CameraShakePosThreshold = std::max(0.0f, getFloat("camera_shake.pos_threshold", m_CameraShakePosThreshold));
-    m_CameraShakePosRange = std::max(0.001f, getFloat("camera_shake.pos_range", m_CameraShakePosRange));
-    m_CameraShakeHmdAngVelMax = std::max(0.0f, getFloat("camera_shake.hmd_angvel_max", m_CameraShakeHmdAngVelMax));
-    m_CameraShakePulseIntervalSeconds = std::max(0.0f, getFloat("camera_shake.pulse_interval", m_CameraShakePulseIntervalSeconds));
-    m_CameraShakePulseAmpMin = std::clamp(getFloat("camera_shake.pulse_amp_min", m_CameraShakePulseAmpMin), 0.0f, 1.0f);
-    m_CameraShakePulseAmpMax = std::clamp(getFloat("camera_shake.pulse_amp_max", m_CameraShakePulseAmpMax), 0.0f, 1.0f);
-    m_CameraShakePulseFreqMin = std::clamp(getFloat("camera_shake.pulse_freq_min", m_CameraShakePulseFreqMin), 0.0f, 320.0f);
-    m_CameraShakePulseFreqMax = std::clamp(getFloat("camera_shake.pulse_freq_max", m_CameraShakePulseFreqMax), 0.0f, 320.0f);
-    m_CameraShakePulseDurMin = std::clamp(getFloat("camera_shake.pulse_dur_min", m_CameraShakePulseDurMin), 0.0f, 0.5f);
-    m_CameraShakePulseDurMax = std::clamp(getFloat("camera_shake.pulse_dur_max", m_CameraShakePulseDurMax), 0.0f, 0.5f);
+    // Removed haptics categories: damage, landing, and camera-shake haptics.
+    m_DamageFeedbackEnabled = false;
+    m_DamageDirectionalEnabled = false;
+    m_DamageSustainEnabled = false;
+    m_LandingHapticsEnabled = false;
+    m_CameraShakeHapticsEnabled = false;
+    m_AcidSustainUntil = {};
+    m_FireSustainUntil = {};
+    m_NextAcidSustainPulse = {};
+    m_NextFireSustainPulse = {};
+    m_LastDamageFeedbackEventRegisterAttempt = {};
+    m_LastCameraShakeHapticsPulse = {};
+    m_LandingAirborneSince = {};
+    m_LandingPeakDownwardSpeedForHaptics = 0.0f;
+    m_CameraShakeStateInitialized = false;
+    m_LastCameraShakeOrigin = { 0, 0, 0 };
+    m_LastCameraShakeAngles = { 0, 0, 0 };
 }
 
 void VR::EnsureDamageFeedbackEventListener()

@@ -1280,12 +1280,12 @@ public:
 	bool m_KillSoundEventListenerRegistered = false;
 	IGameEventManager2* m_DamageFeedbackEventManager = nullptr;
 	IGameEventListener2* m_DamageFeedbackEventListener = nullptr;
-	bool m_DamageFeedbackEventListenerRegistered = false;
-	bool m_DamageFeedbackEnabled = true;
-	bool m_DamageDirectionalEnabled = true;
-	bool m_DamageSustainEnabled = true;
-	bool m_LandingHapticsEnabled = true;
-	bool m_CameraShakeHapticsEnabled = true;
+    bool m_DamageFeedbackEventListenerRegistered = false;
+    bool m_DamageFeedbackEnabled = false;
+    bool m_DamageDirectionalEnabled = false;
+    bool m_DamageSustainEnabled = false;
+    bool m_LandingHapticsEnabled = false;
+    bool m_CameraShakeHapticsEnabled = false;
 	WeaponHapticsProfile m_DamageCommonHapticsProfile = { 0.016f, 135.0f, 0.24f };
 	WeaponHapticsProfile m_DamageSpecialHapticsProfile = { 0.020f, 112.0f, 0.38f };
 	WeaponHapticsProfile m_DamageHeavyHapticsProfile = { 0.030f, 82.0f, 0.62f };
@@ -1514,11 +1514,6 @@ public:
 	float m_SpecialInfectedAutoAimLerp = 0.4f;
 	float m_SpecialInfectedAutoAimCooldown = 0.5f;
 	std::chrono::steady_clock::time_point m_SpecialInfectedAutoAimCooldownEnd{};
-	float m_SpecialInfectedRunCommandShotWindow = 0.10f;
-	float m_SpecialInfectedRunCommandShotLerp = 1.0f;
-	std::chrono::steady_clock::time_point m_SpecialInfectedRunCommandShotAimUntil{};
-	bool m_SpecialInfectedRunCommandSecondaryPredictEnabled = true;
-	bool m_SpecialInfectedRunCommandSecondaryForceAttack = true;
 	std::array<Vector, static_cast<size_t>(SpecialInfectedType::Count)> m_SpecialInfectedPreWarningAimOffsets{
 		Vector{ 0.0f, 0.0f, 0.0f }, // Boomer
 		Vector{ 0.0f, 0.0f, 0.0f }, // Smoker
@@ -1872,8 +1867,6 @@ public:
 	void EncodeRoomscale1To1Move(CUserCmd* cmd);
 	static bool DecodeRoomscale1To1Delta(int weaponsubtype, Vector& outDeltaMeters);
 	void OnPredictionRunCommand(CUserCmd* cmd);
-	bool ShouldRunSecondaryPrediction(const CUserCmd* cmd) const;
-	void PrepareSecondaryPredictionCmd(CUserCmd& cmd) const;
 	void OnPrimaryAttackServerDecision(CUserCmd* cmd, bool fromSecondaryPrediction);
 	void StartSpecialInfectedWarningAction();
 	void UpdateSpecialInfectedWarningAction();

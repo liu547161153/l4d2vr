@@ -674,12 +674,9 @@ void VR::UpdateTracking()
         if (!toTarget.IsZero())
         {
             VectorNormalize(toTarget);
-            float lerpSetting = m_SpecialInfectedAutoAimLerp;
-            if (std::chrono::steady_clock::now() < m_SpecialInfectedRunCommandShotAimUntil)
-                lerpSetting = std::max(lerpSetting, m_SpecialInfectedRunCommandShotLerp);
             const float lerpFactor = m_SpecialInfectedDebug
-                ? std::max(0.0f, lerpSetting)
-                : std::clamp(lerpSetting, 0.0f, 1.0f);
+                ? std::max(0.0f, m_SpecialInfectedAutoAimLerp)
+                : std::clamp(m_SpecialInfectedAutoAimLerp, 0.0f, 1.0f);
             if (m_SpecialInfectedAutoAimDirection.IsZero())
                 m_SpecialInfectedAutoAimDirection = toTarget;
             else

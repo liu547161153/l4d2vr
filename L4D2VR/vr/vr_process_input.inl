@@ -880,7 +880,6 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
         m_SpecialInfectedAutoAimCooldownEnd = {};
-        m_SpecialInfectedRunCommandShotAimUntil = {};
     }
     else if (autoAimToggleJustPressed)
     {
@@ -892,7 +891,6 @@ void VR::ProcessInput()
         m_SpecialInfectedPreWarningTargetDistanceSq = std::numeric_limits<float>::max();
         m_SpecialInfectedAutoAimDirection = {};
         m_SpecialInfectedAutoAimCooldownEnd = {};
-        m_SpecialInfectedRunCommandShotAimUntil = {};
     }
 
     if (nonVrServerMovementToggleJustPressed)
