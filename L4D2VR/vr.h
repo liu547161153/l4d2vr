@@ -335,11 +335,10 @@ public:
 	std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> m_PoseWaiterPoses{};
 
 	HANDLE m_PoseWaiterEvent = NULL;
-	// In queued (mat_queue_mode!=0) rendering, optionally wait a little for the pose-waiter to publish
-	// a newer WaitGetPoses() snapshot before this render call uses HMD/controller poses.
-	// This mainly helps head motion: body/camera deltas already come from the main-thread snapshot and
-	// are smoothed/extrapolated on the render thread, but reused HMD poses freeze the camera for a frame.
-	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
+	// In queued (mat_queue_mode!=0) rendering, this is the explicit minimum wait budget for a fresher pose
+	// snapshot on the render thread. 0 disables fixed waiting, but the render hook may still do a small
+	// adaptive wait during real HMD motion to avoid reusing the same pose sample. -1 = strong sync
+	// (wait up to ~50ms).
 	int m_QueuedRenderPoseWaitMs = 1;
 
 	// Queued rendering: optional render-thread FPS cap, expressed as a percentage of the HMD refresh rate.
@@ -389,10 +388,10 @@ public:
 	}
 
 
-	// Queued rendering: when true, the Max FPS cap is only applied when the render thread is detected
-	// to be outrunning pose updates and reusing the same HMD pose snapshot during body or head motion.
-	// This avoids needlessly capping FPS in already-stable scenes. When false, the cap is always
-	// enforced when QueuedRenderMaxFps>0.
+	// Queued rendering: when true, the Max FPS cap is only applied when instability is detected
+	// (stale pose reuse during body motion or HMD translation/rotation). This avoids needlessly
+	// capping FPS in already-stable scenes. When false, the cap is always enforced when
+	// QueuedRenderMaxFps>0.
 	bool m_QueuedRenderMaxFpsSmart = true;
 	// Queued rendering: limit how many extra render frames may reuse the same WaitGetPoses() snapshot.
 	// -1 = disabled, 0 = never reuse (most stable), 1 = allow 1 reuse (2 frames per pose), etc.
@@ -402,10 +401,10 @@ public:
 	// 0 = off (follow snapshot exactly), 20~80 = typical. Higher = smoother but more latency.
 	int m_QueuedRenderViewSmoothMs = 35;
 
-	// Queued rendering: low-pass smoothing time constant (ms) applied to the render-thread HMD pose.
-	// This can hide small pose-step jitter, but it does NOT create fresher poses; if the render thread is
-	// reusing an old WaitGetPoses() snapshot, smoothing only softens the jump and adds latency.
-	// 0 = off (follow pose exactly). Higher = smoother but more latency between head movement and world.
+	// Queued rendering: HMD pose smoothing time constant (ms) for visual stability.
+	// 0 = off. Higher values can soften visible stepping from stale pose reuse, but they do not fetch
+	// fresher poses and therefore cannot fully remove queued-render ghosting during real head motion.
+	// Higher = smoother but more latency between head movement and world.
 	int m_QueuedRenderHmdSmoothMs = 0;
 
 	// Queued (mat_queue_mode!=0) viewmodel stabilization: prevents first-person viewmodel ghosting

@@ -27,21 +27,12 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// --- Multicore (queued) rendering stabilization ---
 	// When mat_queue_mode!=0, the render thread is decoupled from the main/update thread.
-	// The important split here is:
-	//   - body / engine camera state (cameraAnchor, rotationOffset, setup-origin deltas) comes from the main thread;
-	//   - HMD / controller tracking comes from OpenVR pose snapshots.
+	// If we keep using main-thread-computed m_HmdPosAbs/m_HmdAngAbs/m_RightControllerPosAbs inside rendering,
+	// we get tearing/jitter (data races) and head-turn ghosting (poses sampled on the wrong thread).
 	//
-	// If rendering keeps reading the live main-thread fields directly, we get true cross-thread tearing/data races.
-	// That part is solved by the seqlock snapshots below.
-	//
-	// The remaining queued-render ghosting source is different: the render thread can outrun WaitGetPoses()
-	// and reuse the same pose snapshot across multiple render calls while the user is moving their head.
-	// Body/anchor motion looks better because it is extrapolated/smoothed from main-thread deltas; raw HMD pose
-	// motion is not. So HMD motion reveals stale-pose reuse much more aggressively than stick locomotion/turning.
-	//
-	// This path therefore does two things:
-	//   1) combine a main-thread seqlock snapshot with a queued render-thread pose snapshot, and
-	//   2) optionally pace/wait for fresher poses when the render thread is reusing old HMD poses during motion.
+	// Ported behavior from the old multicore branch: do a render-thread WaitGetPoses(), combine it with a
+	// main-thread seqlock snapshot of camera anchor/scale/offsets, then publish a render-thread snapshot
+	// that all render-time getters can read consistently during this dRenderView.
 	const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
 	struct RenderSnapshotTLSGuard
 	{
@@ -61,9 +52,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		static thread_local std::chrono::steady_clock::time_point s_nextPace{};
 		static thread_local std::chrono::steady_clock::time_point s_smartPaceUntil{};
 
-		// Optional FPS cap: pace the render thread in queued mode to reduce flicker when FPS runs too high.
-		// Smart mode: only engage the cap when instability is detected (pose reuse during motion),
-		// so stable scenes can run uncapped even if QueuedRenderMaxFps is set.
+		// Optional FPS cap: pace the render thread in queued mode when it is outrunning pose updates.
+		// Smart mode only engages the cap after we detect stale pose reuse during real motion
+		// (body locomotion or HMD translation/rotation), so stable scenes can still run uncapped.
 		const int maxFpsEff = m_VR->GetQueuedRenderMaxFpsEffective();
 		const bool smartCap = m_VR->m_QueuedRenderMaxFpsSmart;
 		const auto nowP = std::chrono::steady_clock::now();
@@ -414,8 +405,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 		// For debug: show how \"steppy\" the engine view inputs are (not used for smoothing).
 		const float pendingDeltaSq = pendingOriginDelta.LengthSqr();
 
-		// Heuristic: treat body/camera motion as "active" if we see meaningful anchor delta
-		// or view-rotation offset changes. Used only for optional pose-wait pacing.
+		// Heuristic: treat body locomotion/turn as "active" if we see meaningful anchor delta
+		// or view-rotation offset changes. This is separate from HMD motion detection below.
 		bool locomotionNow = (pendingDeltaSq > (0.05f * 0.05f));
 
 		static thread_local bool s_prevRotValid = false;
@@ -441,39 +432,34 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			uint32_t poseSeq = 0;
 			bool havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq);
 
-			// Heuristic: treat meaningful HMD motion as "active" when deciding whether stale pose reuse
-			// should trigger extra waiting / pacing.
-			//
-			// Important: body locomotion/turn already has its own main-thread delta path above, but pure HMD
-			// translation does not. Without the linear-velocity check here, leaning/ducking can still reuse
-			// the same pose snapshot for multiple render calls and look like queued-render ghosting.
+			// Detect real HMD motion directly from the pose snapshot.
+			// Head rotation and head translation need fresher poses than body/stick movement because
+			// reusing the same WaitGetPoses() sample is far more visible there.
 			bool headTurningNow = false;
-			bool headTranslatingNow = false;
+			bool headMovingNow = false;
 			if (havePoses && renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
 			{
-				const auto& hmdPose = renderPoses[vr::k_unTrackedDeviceIndex_Hmd];
-				const auto& av = hmdPose.vAngularVelocity;
+				const auto& av = renderPoses[vr::k_unTrackedDeviceIndex_Hmd].vAngularVelocity;
+				const auto& lv = renderPoses[vr::k_unTrackedDeviceIndex_Hmd].vVelocity;
 				const double ax = (double)av.v[0];
 				const double ay = (double)av.v[1];
 				const double az = (double)av.v[2];
+				const double lx = (double)lv.v[0];
+				const double ly = (double)lv.v[1];
+				const double lz = (double)lv.v[2];
 				if (std::isfinite(ax) && std::isfinite(ay) && std::isfinite(az))
 				{
 					const double radPerSec = std::sqrt(ax * ax + ay * ay + az * az);
 					const double degPerSec = radPerSec * (180.0 / 3.14159265358979323846);
-					headTurningNow = (degPerSec > 30.0);
+					headTurningNow = (degPerSec > 15.0);
 				}
-
-				const auto& vv = hmdPose.vVelocity;
-				const double vx = (double)vv.v[0];
-				const double vy = (double)vv.v[1];
-				const double vz = (double)vv.v[2];
-				if (std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vz))
+				if (std::isfinite(lx) && std::isfinite(ly) && std::isfinite(lz))
 				{
-					const double metersPerSec = std::sqrt(vx * vx + vy * vy + vz * vz);
-					headTranslatingNow = (metersPerSec > 0.03);
+					const double metersPerSec = std::sqrt(lx * lx + ly * ly + lz * lz);
+					headMovingNow = (metersPerSec > 0.03);
 				}
 			}
-
+			const bool hmdMotionNow = (headTurningNow || headMovingNow);
 
 			// Optional pacing knob: in queued mode the render thread can outrun VR pose updates.
 			// Waiting a bit for a fresh WaitGetPoses() snapshot trades throughput for stability.
@@ -481,13 +467,17 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			int waitMs = waitMsCfg;
 
 			const int maxAheadCfg = std::clamp(m_VR->m_QueuedRenderMaxFramesAhead, -1, 6);
+			const float hmdHzForWait = std::max(1.0f, m_VR->GetHmdDisplayFrequencyHz());
+			const int hmdFrameMs = std::clamp((int)std::lround(1000.0f / hmdHzForWait), 1, 50);
+			const int hmdAutoWaitMs = std::clamp((int)std::lround((double)hmdFrameMs * 0.75), 2, 12);
+			const int bodyAutoWaitMs = std::clamp((int)std::lround((double)hmdFrameMs * 0.25), 1, 4);
 
 			// Pose snapshot reuse tracking (render-thread local). Used by MaxFramesAhead and smart FPS pacing.
 			static thread_local uint32_t s_lastPoseSeq = 0;
 			static thread_local uint32_t s_lastWaitAttemptSeq = 0;
 			static thread_local int s_poseReuseCount = 0;
 
-			const bool motionNow = (locomotionNow || headTurningNow || headTranslatingNow);
+			const bool motionNow = (locomotionNow || hmdMotionNow);
 
 			// Update pose snapshot reuse count early (before optional waiting), so smart pacing can react
 			// even when QueuedRenderPoseWaitMs==0 and MaxFramesAhead is disabled.
@@ -499,7 +489,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 					++s_poseReuseCount;
 			}
 
-			// Smart FPS pacing pre-trigger: if body/HMD motion is active and we're reusing the same pose snapshot,
+			// Smart FPS pacing pre-trigger: if we're moving/turning and reusing the same pose snapshot,
 			// engage the FPS cap for a short window (hysteresis).
 			if (m_VR->GetQueuedRenderMaxFpsEffective() > 0 && m_VR->m_QueuedRenderMaxFpsSmart)
 			{
@@ -512,14 +502,25 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				}
 			}
 
-			// Auto-stabilize: in queued mode, if body/HMD motion is active but the render thread keeps reusing
-			// the same pose snapshot, it feels like "stutter + ghosting". A tiny wait here encourages a fresh pose.
-			if (waitMs == 0 && queueMode == 2 && motionNow)
-				waitMs = 2;
+			// Auto-stabilize stale pose reuse.
+			// Body/stick motion only needs a tiny nudge, but real HMD motion needs a much more meaningful
+			// fraction of the headset frame interval; 2-3 ms often misses the next pose entirely.
+			if (queueMode == 2)
+			{
+				if (hmdMotionNow)
+				{
+					if (waitMs == 0)
+						waitMs = hmdAutoWaitMs;
+					else if (waitMs > 0)
+						waitMs = std::max(waitMs, hmdAutoWaitMs);
+				}
+				else if (waitMs == 0 && locomotionNow)
+				{
+					waitMs = bodyAutoWaitMs;
+				}
+			}
 
 			// Enforced frames-ahead limiter: if enabled, we may need to wait even when waitMs==0.
-			// This matters most for HMD motion, because reused body deltas are smoothed/extrapolated above, while
-			// reused head poses directly freeze the camera for a render call.
 			if ((waitMs != 0 || maxAheadCfg >= 0) && m_VR->m_PoseWaiterEvent)
 			{
 
@@ -576,11 +577,15 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				// If we already consumed this snapshot, optionally wait for the next one.
 				if (havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && effectiveTimeoutMs > 0)
 				{
-					const bool shouldWaitNext = exceededAhead || (timeoutMs > 0 && poseSeq != s_lastWaitAttemptSeq);
+					// Pure HMD motion is sensitive enough that a single failed wait attempt per pose sequence is not
+					// enough. If we're still reusing the same snapshot while the headset is moving, retry on later
+					// render calls instead of waiting only once for that poseSeq.
+					const bool retrySameSeqForHmdMotion = hmdMotionNow && (timeoutMs > 0);
+					const bool shouldWaitNext = exceededAhead || (timeoutMs > 0 && (poseSeq != s_lastWaitAttemptSeq || retrySameSeqForHmdMotion));
 					if (shouldWaitNext)
 					{
-						// If the user didn't opt into waiting but motion is active and we're reusing the same pose,
-						// do a tiny auto-wait to avoid stale-pose ghosting during stick motion or HMD motion.
+						// If the user didn't opt into waiting but we're moving/turning and reusing the same pose,
+						// do a tiny auto-wait to avoid "stutter + ghosting" during thumbstick locomotion / head turns.
 						if (!exceededAhead && waitMsCfg == 0 && waitMs > 0)
 						{
 							static thread_local std::chrono::steady_clock::time_point s_lastAutoWaitLog{};
@@ -588,8 +593,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 							if (s_lastAutoWaitLog.time_since_epoch().count() == 0 ||
 								std::chrono::duration<float>(nowLog - s_lastAutoWaitLog).count() > 1.0f)
 							{
-								Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d headturn=%d headmove=%d) poseSeq=%u",
-									(unsigned)timeoutMs, motionNow ? 1 : 0, headTurningNow ? 1 : 0, headTranslatingNow ? 1 : 0, (unsigned)poseSeq);
+								Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d hmdMove=%d hmdTurn=%d) poseSeq=%u",
+									(unsigned)timeoutMs, motionNow ? 1 : 0, headMovingNow ? 1 : 0, headTurningNow ? 1 : 0, (unsigned)poseSeq);
 								s_lastAutoWaitLog = nowLog;
 							}
 						}
@@ -669,8 +674,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				hmdAngLocal.y += extrapRot;
 				hmdAngLocal.y -= 360.0f * std::floor((hmdAngLocal.y + 180.0f) / 360.0f);
 
-				// Optional HMD pose smoothing (visual-only). Helps when the render thread reuses the same
-				// pose snapshot during head turns (low pose-wait) and you see slight ghosting.
+				// Optional HMD pose smoothing (visual-only). This can soften stepping from stale pose reuse,
+				// but it does not fetch a fresher pose and cannot fully solve queued-render head-motion ghosting.
 				const int hmdSmoothMsCfg = std::max(0, m_VR->m_QueuedRenderHmdSmoothMs);
 				static thread_local bool s_hmdSmoothValid = false;
 				static thread_local Vector s_hmdSmoothPos{};
