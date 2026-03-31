@@ -1112,6 +1112,10 @@ public:
 	static constexpr int kTeamNumOffset = 0xE4; // DT_BaseEntity::m_iTeamNum
 	static constexpr int kObserverModeOffset = 0x1450; // C_BasePlayer::m_iObserverMode
 	static constexpr int kObserverTargetOffset = 0x1454; // C_BasePlayer::m_hObserverTarget
+	static constexpr int kGroundEntityOffset = 0x13C; // DT_BasePlayer::m_hGroundEntity
+	static constexpr int kFlagsOffset = 0xF0; // DT_BasePlayer::m_fFlags
+	static constexpr int kVelocityZOffset = 0x108; // DT_BasePlayer::m_vecVelocity[2]
+	static constexpr int kOnGroundFlag = 0x1; // FL_ONGROUND
 
 	// Common netvars (from offsets.txt) used by hand HUD overlays
 	static constexpr int kHealthOffset = 0xEC;               // DT_BasePlayer::m_iHealth
@@ -1318,7 +1322,7 @@ public:
 	bool m_DamageFeedbackEnabled = false;
 	bool m_DamageDirectionalEnabled = false;
 	bool m_DamageSustainEnabled = false;
-	bool m_LandingHapticsEnabled = false;
+	bool m_LandingHapticsEnabled = true;
 	bool m_CameraShakeHapticsEnabled = false;
 	WeaponHapticsProfile m_DamageCommonHapticsProfile = { 0.016f, 135.0f, 0.24f };
 	WeaponHapticsProfile m_DamageSpecialHapticsProfile = { 0.020f, 112.0f, 0.38f };
@@ -1331,6 +1335,11 @@ public:
 	WeaponHapticsProfile m_DamageJockeyControlHapticsProfile = { 0.016f, 152.0f, 0.30f };
 	WeaponHapticsProfile m_DamageChargerCarryHapticsProfile = { 0.028f, 88.0f, 0.52f };
 	WeaponHapticsProfile m_DamageChargerPummelHapticsProfile = { 0.044f, 66.0f, 0.82f };
+	float m_DamageSmokerControlDirectionalBiasScale = 1.00f;
+	float m_DamageHunterControlDirectionalBiasScale = 0.30f;
+	float m_DamageJockeyControlDirectionalBiasScale = 0.20f;
+	float m_DamageChargerCarryDirectionalBiasScale = 0.10f;
+	float m_DamageChargerPummelDirectionalBiasScale = 0.00f;
 	float m_DamageScaleStart = 6.0f;
 	float m_DamageScalePerPoint = 0.008f;
 	float m_DamageScaleMaxBonus = 0.24f;
@@ -1357,15 +1366,11 @@ public:
 	bool m_WasOnGroundForHaptics = true;
 	float m_LastVerticalSpeedForHaptics = 0.0f;
 	float m_LandingPeakDownwardSpeedForHaptics = 0.0f;
-	float m_LandingMinFallSpeed = 60.0f;
-	float m_LandingMinAirTime = 0.06f;
-	float m_LandingFallSpeedRange = 500.0f;
-	float m_LandingAmpMin = 0.25f;
-	float m_LandingAmpMax = 0.80f;
-	float m_LandingFreqMin = 65.0f;
-	float m_LandingFreqMax = 85.0f;
-	float m_LandingDurMin = 0.018f;
-	float m_LandingDurMax = 0.040f;
+	int m_LastAirborneHealthForHaptics = -1;
+	float m_LandingMinAirTime = 0.08f;
+	float m_LandingMinDownwardSpeed = 140.0f;
+	WeaponHapticsProfile m_LandingMediumHapticsProfile = { 0.028f, 92.0f, 0.52f };
+	WeaponHapticsProfile m_LandingDamageHapticsProfile = { 0.042f, 72.0f, 0.88f };
 	bool m_CameraShakeStateInitialized = false;
 	Vector m_LastCameraShakeOrigin = { 0,0,0 };
 	QAngle m_LastCameraShakeAngles = { 0,0,0 };

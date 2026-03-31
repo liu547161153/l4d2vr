@@ -2489,11 +2489,11 @@ float VR::GetControlledDamageDirectionalBiasScale(ControlledDamageState state) c
 {
     switch (state)
     {
-    case ControlledDamageState::SmokerTongue:  return 1.00f;
-    case ControlledDamageState::HunterPounce:  return 0.30f;
-    case ControlledDamageState::JockeyRide:    return 0.20f;
-    case ControlledDamageState::ChargerCarry:  return 0.10f;
-    case ControlledDamageState::ChargerPummel: return 0.00f;
+    case ControlledDamageState::SmokerTongue:  return m_DamageSmokerControlDirectionalBiasScale;
+    case ControlledDamageState::HunterPounce:  return m_DamageHunterControlDirectionalBiasScale;
+    case ControlledDamageState::JockeyRide:    return m_DamageJockeyControlDirectionalBiasScale;
+    case ControlledDamageState::ChargerCarry:  return m_DamageChargerCarryDirectionalBiasScale;
+    case ControlledDamageState::ChargerPummel: return m_DamageChargerPummelDirectionalBiasScale;
     default:                                   return 1.00f;
     }
 }
@@ -2615,6 +2615,43 @@ void VR::ParseHapticsConfigFile()
     m_MeleeSwingHapticsProfile = parseProfile("melee.swing", m_MeleeSwingHapticsProfile);
     m_ShoveHapticsProfile = parseProfile("melee.shove", m_ShoveHapticsProfile);
 
+    m_DamageFeedbackEnabled = getBool("damage.enabled", true);
+    m_DamageDirectionalEnabled = getBool("damage.directional", true);
+    m_DamageFeedbackMergeWindowSeconds = std::max(0.0f, getFloat("damage.merge_window", m_DamageFeedbackMergeWindowSeconds));
+    m_DamageFeedbackMinTriggerIntervalSeconds = std::max(0.0f, getFloat("damage.min_trigger_interval", m_DamageFeedbackMinTriggerIntervalSeconds));
+    m_DamageFeedbackMergedHitBonus = std::max(0.0f, getFloat("damage.merged_hit_bonus", m_DamageFeedbackMergedHitBonus));
+    m_DamageScaleStart = std::max(0.0f, getFloat("damage.scale_start", m_DamageScaleStart));
+    m_DamageScalePerPoint = std::max(0.0f, getFloat("damage.scale_per_point", m_DamageScalePerPoint));
+    m_DamageScaleMaxBonus = std::max(0.0f, getFloat("damage.scale_max_bonus", m_DamageScaleMaxBonus));
+    m_DamageAmplitudeMin = std::clamp(getFloat("damage.amplitude_min", m_DamageAmplitudeMin), 0.0f, 1.0f);
+    m_DamageAmplitudeMax = std::clamp(getFloat("damage.amplitude_max", m_DamageAmplitudeMax), 0.0f, 1.0f);
+    if (m_DamageAmplitudeMax < m_DamageAmplitudeMin)
+        std::swap(m_DamageAmplitudeMin, m_DamageAmplitudeMax);
+
+    m_DamageCommonHapticsProfile = parseProfile("damage.common", m_DamageCommonHapticsProfile);
+    m_DamageSpecialHapticsProfile = parseProfile("damage.special", m_DamageSpecialHapticsProfile);
+    m_DamageHeavyHapticsProfile = parseProfile("damage.heavy", m_DamageHeavyHapticsProfile);
+    m_DamageExplosionHapticsProfile = parseProfile("damage.explosion", m_DamageExplosionHapticsProfile);
+    m_DamageFireHapticsProfile = parseProfile("damage.fire", m_DamageFireHapticsProfile);
+    m_DamageAcidHapticsProfile = parseProfile("damage.acid", m_DamageAcidHapticsProfile);
+    m_DamageSmokerControlHapticsProfile = parseProfile("damage.control.smoker", m_DamageSmokerControlHapticsProfile);
+    m_DamageHunterControlHapticsProfile = parseProfile("damage.control.hunter", m_DamageHunterControlHapticsProfile);
+    m_DamageJockeyControlHapticsProfile = parseProfile("damage.control.jockey", m_DamageJockeyControlHapticsProfile);
+    m_DamageChargerCarryHapticsProfile = parseProfile("damage.control.charger_carry", m_DamageChargerCarryHapticsProfile);
+    m_DamageChargerPummelHapticsProfile = parseProfile("damage.control.charger_pummel", m_DamageChargerPummelHapticsProfile);
+
+    m_DamageSmokerControlDirectionalBiasScale = std::clamp(getFloat("damage.control.smoker.directional_bias", m_DamageSmokerControlDirectionalBiasScale), 0.0f, 1.0f);
+    m_DamageHunterControlDirectionalBiasScale = std::clamp(getFloat("damage.control.hunter.directional_bias", m_DamageHunterControlDirectionalBiasScale), 0.0f, 1.0f);
+    m_DamageJockeyControlDirectionalBiasScale = std::clamp(getFloat("damage.control.jockey.directional_bias", m_DamageJockeyControlDirectionalBiasScale), 0.0f, 1.0f);
+    m_DamageChargerCarryDirectionalBiasScale = std::clamp(getFloat("damage.control.charger_carry.directional_bias", m_DamageChargerCarryDirectionalBiasScale), 0.0f, 1.0f);
+    m_DamageChargerPummelDirectionalBiasScale = std::clamp(getFloat("damage.control.charger_pummel.directional_bias", m_DamageChargerPummelDirectionalBiasScale), 0.0f, 1.0f);
+
+    m_LandingHapticsEnabled = getBool("landing.enabled", m_LandingHapticsEnabled);
+    m_LandingMinAirTime = std::max(0.0f, getFloat("landing.min_air_time", m_LandingMinAirTime));
+    m_LandingMinDownwardSpeed = std::max(0.0f, getFloat("landing.min_down_speed", m_LandingMinDownwardSpeed));
+    m_LandingMediumHapticsProfile = parseProfile("landing.medium", m_LandingMediumHapticsProfile);
+    m_LandingDamageHapticsProfile = parseProfile("landing.damage", m_LandingDamageHapticsProfile);
+
     setWeaponOverride("pistol", { 0.018f, 165.0f, 0.33f });
     setWeaponOverride("magnum", { 0.032f, 85.0f, 0.66f });
     setWeaponOverride("uzi", { 0.012f, 185.0f, 0.23f });
@@ -2637,12 +2674,10 @@ void VR::ParseHapticsConfigFile()
     setWeaponOverride("melee", { 0.028f, 105.0f, 0.54f });
     setWeaponOverride("chainsaw", { 0.014f, 175.0f, 0.34f });
 
-    // Keep only directional damage haptics active for now.
-    // The older sustain / landing / camera-shake branches remain disabled until they are rebuilt.
-    m_DamageFeedbackEnabled = true;
-    m_DamageDirectionalEnabled = true;
+    // Direct damage-event haptics remain configurable here.
+    // Sustained acid/fire and camera-shake haptics still stay off until their old branches are rebuilt,
+    // but landing haptics are now active again and use raw netvar offsets to detect the airborne->landed transition.
     m_DamageSustainEnabled = false;
-    m_LandingHapticsEnabled = false;
     m_CameraShakeHapticsEnabled = false;
     m_AcidSustainUntil = {};
     m_FireSustainUntil = {};
@@ -2651,7 +2686,10 @@ void VR::ParseHapticsConfigFile()
     m_LastDamageFeedbackEventRegisterAttempt = {};
     m_LastCameraShakeHapticsPulse = {};
     m_LandingAirborneSince = {};
+    m_WasOnGroundForHaptics = true;
+    m_LastVerticalSpeedForHaptics = 0.0f;
     m_LandingPeakDownwardSpeedForHaptics = 0.0f;
+    m_LastAirborneHealthForHaptics = -1;
     m_CameraShakeStateInitialized = false;
     m_LastCameraShakeOrigin = { 0, 0, 0 };
     m_LastCameraShakeAngles = { 0, 0, 0 };
@@ -2921,49 +2959,92 @@ void VR::UpdateDamageFeedback()
         }
     }
 
-    // Landing impact.
+    // Landing impact. Detect the airborne->landed transition from raw netvar offsets instead of
+    // relying on C_BasePlayer field layouts directly, then split the response into:
+    //   - landing.medium: landed without losing health
+    //   - landing.damage: landed and health dropped on the landing frame
     if (m_LandingHapticsEnabled)
     {
-        const bool onGround = localPlayer->m_hGroundEntity != -1;
-        const float verticalSpeed = localPlayer->m_vecVelocity.z;
-        if (onGround)
-        {
-            if (!m_WasOnGroundForHaptics)
+        auto resetLandingState = [&]()
             {
-                const float airTime = (m_LandingAirborneSince.time_since_epoch().count() == 0)
-                    ? 0.0f
-                    : std::chrono::duration<float>(now - m_LandingAirborneSince).count();
-                if (airTime >= m_LandingMinAirTime && m_LandingPeakDownwardSpeedForHaptics >= m_LandingMinFallSpeed)
-                {
-                    const float fallImpact = std::clamp(
-                        (m_LandingPeakDownwardSpeedForHaptics - m_LandingMinFallSpeed) / m_LandingFallSpeedRange,
-                        0.0f,
-                        1.0f);
-                    const float amp = m_LandingAmpMin + (m_LandingAmpMax - m_LandingAmpMin) * fallImpact;
-                    const float freq = m_LandingFreqMax + (m_LandingFreqMin - m_LandingFreqMax) * fallImpact;
-                    const float dur = m_LandingDurMin + (m_LandingDurMax - m_LandingDurMin) * fallImpact;
-                    TriggerImpactHapticsBothHands(amp, freq, dur, 3);
-                }
-            }
+                m_LandingAirborneSince = {};
+                m_WasOnGroundForHaptics = true;
+                m_LastVerticalSpeedForHaptics = 0.0f;
+                m_LandingPeakDownwardSpeedForHaptics = 0.0f;
+                m_LastAirborneHealthForHaptics = -1;
+            };
 
-            m_LandingAirborneSince = {};
-            m_LandingPeakDownwardSpeedForHaptics = 0.0f;
+        const unsigned char* playerBase = reinterpret_cast<const unsigned char*>(localPlayer);
+        unsigned char lifeState = 0;
+        int groundEntity = -1;
+        int flags = 0;
+        float verticalSpeed = 0.0f;
+        int health = 0;
+
+        const bool validLandingRead =
+            SafeReadU8(playerBase, kLifeStateOffset, lifeState) &&
+            SafeReadInt(playerBase, kGroundEntityOffset, groundEntity) &&
+            SafeReadInt(playerBase, kFlagsOffset, flags) &&
+            SafeReadFloat(playerBase, kVelocityZOffset, verticalSpeed) &&
+            SafeReadInt(playerBase, kHealthOffset, health);
+
+        if (!validLandingRead || lifeState != 0 || health <= 0)
+        {
+            resetLandingState();
         }
         else
         {
-            if (m_WasOnGroundForHaptics)
+            const bool onGround = (groundEntity != -1) || ((flags & kOnGroundFlag) != 0);
+            if (onGround)
             {
-                m_LandingAirborneSince = now;
-                m_LandingPeakDownwardSpeedForHaptics = std::max(0.0f, -verticalSpeed);
+                if (!m_WasOnGroundForHaptics)
+                {
+                    const float airTime = (m_LandingAirborneSince.time_since_epoch().count() == 0)
+                        ? 0.0f
+                        : std::chrono::duration<float>(now - m_LandingAirborneSince).count();
+                    const bool hardEnoughLanding = airTime >= m_LandingMinAirTime
+                        && m_LandingPeakDownwardSpeedForHaptics >= m_LandingMinDownwardSpeed;
+
+                    if (hardEnoughLanding)
+                    {
+                        const bool landedWithDamage = m_LastAirborneHealthForHaptics > 0 && health < m_LastAirborneHealthForHaptics;
+                        const WeaponHapticsProfile& landingProfile = landedWithDamage
+                            ? m_LandingDamageHapticsProfile
+                            : m_LandingMediumHapticsProfile;
+                        TriggerImpactHapticsBothHands(
+                            landingProfile.amplitude,
+                            landingProfile.frequency,
+                            landingProfile.durationSeconds,
+                            landedWithDamage ? 4 : 3);
+                    }
+                }
+
+                m_LandingAirborneSince = {};
+                m_LandingPeakDownwardSpeedForHaptics = 0.0f;
+                m_LastAirborneHealthForHaptics = health;
             }
             else
             {
-                m_LandingPeakDownwardSpeedForHaptics = std::max(m_LandingPeakDownwardSpeedForHaptics, std::max(0.0f, -verticalSpeed));
-            }
-        }
+                const float downwardSpeed = std::max(0.0f, -verticalSpeed);
+                if (m_WasOnGroundForHaptics)
+                {
+                    m_LandingAirborneSince = now;
+                    m_LandingPeakDownwardSpeedForHaptics = downwardSpeed;
+                }
+                else
+                {
+                    m_LandingPeakDownwardSpeedForHaptics = std::max(m_LandingPeakDownwardSpeedForHaptics, downwardSpeed);
+                }
 
-        m_WasOnGroundForHaptics = onGround;
-        m_LastVerticalSpeedForHaptics = verticalSpeed;
+                // Keep the last airborne HP sample so the first grounded frame can tell whether
+                // the landing itself caused damage. Mid-air damage that already replicated earlier
+                // will naturally update this baseline and won't be misclassified as fall damage.
+                m_LastAirborneHealthForHaptics = health;
+            }
+
+            m_WasOnGroundForHaptics = onGround;
+            m_LastVerticalSpeedForHaptics = verticalSpeed;
+        }
     }
 
     // Camera shake -> haptics (explosions, tank stomps, etc.).
