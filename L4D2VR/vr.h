@@ -335,7 +335,10 @@ public:
 	std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> m_PoseWaiterPoses{};
 
 	HANDLE m_PoseWaiterEvent = NULL;
-	// In queued (mat_queue_mode!=0) rendering, optionally wait for a fresh pose snapshot on the render thread.
+	// In queued (mat_queue_mode!=0) rendering, optionally wait a little for the pose-waiter to publish
+	// a newer WaitGetPoses() snapshot before this render call uses HMD/controller poses.
+	// This mainly helps head motion: body/camera deltas already come from the main-thread snapshot and
+	// are smoothed/extrapolated on the render thread, but reused HMD poses freeze the camera for a frame.
 	// 0 = no wait (max FPS), >0 = wait up to N ms, -1 = strong sync (wait up to ~50ms).
 	int m_QueuedRenderPoseWaitMs = 1;
 
@@ -386,9 +389,10 @@ public:
 	}
 
 
-	// Queued rendering: when true, the Max FPS cap is only applied when instability is detected
-	// (e.g. pose snapshot reuse during locomotion/head turns). This avoids needlessly capping FPS
-	// in already-stable scenes. When false, the cap is always enforced when QueuedRenderMaxFps>0.
+	// Queued rendering: when true, the Max FPS cap is only applied when the render thread is detected
+	// to be outrunning pose updates and reusing the same HMD pose snapshot during body or head motion.
+	// This avoids needlessly capping FPS in already-stable scenes. When false, the cap is always
+	// enforced when QueuedRenderMaxFps>0.
 	bool m_QueuedRenderMaxFpsSmart = true;
 	// Queued rendering: limit how many extra render frames may reuse the same WaitGetPoses() snapshot.
 	// -1 = disabled, 0 = never reuse (most stable), 1 = allow 1 reuse (2 frames per pose), etc.
@@ -398,9 +402,10 @@ public:
 	// 0 = off (follow snapshot exactly), 20~80 = typical. Higher = smoother but more latency.
 	int m_QueuedRenderViewSmoothMs = 35;
 
-	// Queued rendering: HMD pose smoothing time constant (ms) for visual stability.
-	// 0 = off (follow pose exactly), 10~40 = reduce head-turn ghosting when pose-wait is low.
-	// Higher = smoother but more latency between head movement and world.
+	// Queued rendering: low-pass smoothing time constant (ms) applied to the render-thread HMD pose.
+	// This can hide small pose-step jitter, but it does NOT create fresher poses; if the render thread is
+	// reusing an old WaitGetPoses() snapshot, smoothing only softens the jump and adds latency.
+	// 0 = off (follow pose exactly). Higher = smoother but more latency between head movement and world.
 	int m_QueuedRenderHmdSmoothMs = 0;
 
 	// Queued (mat_queue_mode!=0) viewmodel stabilization: prevents first-person viewmodel ghosting
@@ -1190,17 +1195,6 @@ public:
 		std::chrono::steady_clock::time_point receivedAt{};
 	};
 
-	struct PendingDamageHapticPulse
-	{
-		float amplitude = 0.0f;
-		float frequency = 0.0f;
-		float durationSeconds = 0.0f;
-		float rightBias = 0.0f;
-		int priority = 1;
-		bool hasDirection = false;
-		std::chrono::steady_clock::time_point receivedAt{};
-	};
-
 	enum class DamageFeedbackType
 	{
 		CommonHit,
@@ -1209,6 +1203,28 @@ public:
 		Explosion,
 		Fire,
 		Acid
+	};
+
+	enum class ControlledDamageState
+	{
+		None,
+		SmokerTongue,
+		HunterPounce,
+		JockeyRide,
+		ChargerCarry,
+		ChargerPummel
+	};
+
+	struct PendingDamageFeedback
+	{
+		bool active = false;
+		DamageFeedbackType type = DamageFeedbackType::CommonHit;
+		ControlledDamageState controlState = ControlledDamageState::None;
+		int maxDamage = 0;
+		int mergedCount = 0;
+		float directionalBiasSum = 0.0f;
+		int directionalSampleCount = 0;
+		std::chrono::steady_clock::time_point queuedAt{};
 	};
 
 	bool m_HitSoundEnabled = true;
@@ -1300,10 +1316,6 @@ public:
 	IGameEventManager2* m_DamageFeedbackEventManager = nullptr;
 	IGameEventListener2* m_DamageFeedbackEventListener = nullptr;
 	bool m_DamageFeedbackEventListenerRegistered = false;
-	std::deque<PendingDamageHapticPulse> m_PendingDamageHapticPulses;
-	std::chrono::steady_clock::time_point m_LastDamageHapticPulseTime{};
-	float m_DamagePulseMergeWindowSeconds = 0.035f;
-	float m_DamagePulseMinIntervalSeconds = 0.020f;
 	bool m_DamageFeedbackEnabled = false;
 	bool m_DamageDirectionalEnabled = false;
 	bool m_DamageSustainEnabled = false;
@@ -1315,6 +1327,11 @@ public:
 	WeaponHapticsProfile m_DamageExplosionHapticsProfile = { 0.036f, 72.0f, 0.74f };
 	WeaponHapticsProfile m_DamageFireHapticsProfile = { 0.018f, 106.0f, 0.28f };
 	WeaponHapticsProfile m_DamageAcidHapticsProfile = { 0.014f, 156.0f, 0.32f };
+	WeaponHapticsProfile m_DamageSmokerControlHapticsProfile = { 0.020f, 96.0f, 0.30f };
+	WeaponHapticsProfile m_DamageHunterControlHapticsProfile = { 0.018f, 138.0f, 0.36f };
+	WeaponHapticsProfile m_DamageJockeyControlHapticsProfile = { 0.016f, 152.0f, 0.30f };
+	WeaponHapticsProfile m_DamageChargerCarryHapticsProfile = { 0.028f, 88.0f, 0.52f };
+	WeaponHapticsProfile m_DamageChargerPummelHapticsProfile = { 0.044f, 66.0f, 0.82f };
 	float m_DamageScaleStart = 6.0f;
 	float m_DamageScalePerPoint = 0.008f;
 	float m_DamageScaleMaxBonus = 0.24f;
@@ -1327,6 +1344,11 @@ public:
 	float m_DamageFireSustainIntervalSeconds = 0.11f;
 	float m_DamageAcidSustainIntervalSeconds = 0.08f;
 	std::chrono::steady_clock::time_point m_LastDamageFeedbackEventRegisterAttempt{};
+	PendingDamageFeedback m_PendingDamageFeedback{};
+	std::chrono::steady_clock::time_point m_LastDamageFeedbackTriggerTime{};
+	float m_DamageFeedbackMergeWindowSeconds = 0.045f;
+	float m_DamageFeedbackMinTriggerIntervalSeconds = 0.030f;
+	float m_DamageFeedbackMergedHitBonus = 0.04f;
 	std::chrono::steady_clock::time_point m_AcidSustainUntil{};
 	std::chrono::steady_clock::time_point m_FireSustainUntil{};
 	std::chrono::steady_clock::time_point m_NextAcidSustainPulse{};
@@ -1817,7 +1839,10 @@ public:
 	void HandleDamageFeedbackGameEvent(IGameEvent* event);
 	void UpdateDamageFeedback();
 	DamageFeedbackType ClassifyDamageFeedbackType(const char* weaponName, int damage) const;
+	ControlledDamageState ResolveLocalSpecialControlState(C_BasePlayer* localPlayer, C_BaseEntity** outControllerEntity = nullptr) const;
 	WeaponHapticsProfile GetDamageHapticsProfile(DamageFeedbackType type) const;
+	WeaponHapticsProfile GetControlledDamageHapticsProfile(ControlledDamageState state) const;
+	float GetControlledDamageDirectionalBiasScale(ControlledDamageState state) const;
 	void TriggerImpactHapticsBothHands(float amplitude, float frequency, float durationSeconds, int priority = 1);
 	void TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias, int priority = 1);
 	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot);

@@ -80,6 +80,7 @@ void VR::Update()
     UpdateTracking();
     UpdateKillSoundFeedback();
     UpdateKillIndicatorOverlays();
+    UpdateDamageFeedback();
 
 
     if (!m_Game->m_VguiSurface)

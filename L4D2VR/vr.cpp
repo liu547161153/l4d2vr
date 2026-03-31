@@ -2417,6 +2417,87 @@ WeaponHapticsProfile VR::GetDamageHapticsProfile(DamageFeedbackType type) const
     }
 }
 
+VR::ControlledDamageState VR::ResolveLocalSpecialControlState(C_BasePlayer* localPlayer, C_BaseEntity** outControllerEntity) const
+{
+    if (outControllerEntity)
+        *outControllerEntity = nullptr;
+
+    if (!localPlayer || !m_Game || !m_Game->m_ClientEntityList)
+        return ControlledDamageState::None;
+
+    const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+    auto resolveHandle = [&](int offset) -> C_BaseEntity*
+        {
+            uint32_t handle = 0u;
+            if (!VR_TryReadU32(base, offset, handle) || handle == 0u || handle == 0xFFFFFFFFu)
+                return nullptr;
+            return reinterpret_cast<C_BaseEntity*>(m_Game->m_ClientEntityList->GetClientEntityFromHandle(handle));
+        };
+
+    if (C_BaseEntity* attacker = resolveHandle(kPummelAttackerOffset))
+    {
+        if (outControllerEntity)
+            *outControllerEntity = attacker;
+        return ControlledDamageState::ChargerPummel;
+    }
+
+    if (C_BaseEntity* attacker = resolveHandle(kCarryAttackerOffset))
+    {
+        if (outControllerEntity)
+            *outControllerEntity = attacker;
+        return ControlledDamageState::ChargerCarry;
+    }
+
+    if (C_BaseEntity* attacker = resolveHandle(kPounceAttackerOffset))
+    {
+        if (outControllerEntity)
+            *outControllerEntity = attacker;
+        return ControlledDamageState::HunterPounce;
+    }
+
+    if (C_BaseEntity* attacker = resolveHandle(kJockeyAttackerOffset))
+    {
+        if (outControllerEntity)
+            *outControllerEntity = attacker;
+        return ControlledDamageState::JockeyRide;
+    }
+
+    if (C_BaseEntity* attacker = resolveHandle(kTongueOwnerOffset))
+    {
+        if (outControllerEntity)
+            *outControllerEntity = attacker;
+        return ControlledDamageState::SmokerTongue;
+    }
+
+    return ControlledDamageState::None;
+}
+
+WeaponHapticsProfile VR::GetControlledDamageHapticsProfile(ControlledDamageState state) const
+{
+    switch (state)
+    {
+    case ControlledDamageState::SmokerTongue:  return m_DamageSmokerControlHapticsProfile;
+    case ControlledDamageState::HunterPounce:  return m_DamageHunterControlHapticsProfile;
+    case ControlledDamageState::JockeyRide:    return m_DamageJockeyControlHapticsProfile;
+    case ControlledDamageState::ChargerCarry:  return m_DamageChargerCarryHapticsProfile;
+    case ControlledDamageState::ChargerPummel: return m_DamageChargerPummelHapticsProfile;
+    default:                                   return m_DamageSpecialHapticsProfile;
+    }
+}
+
+float VR::GetControlledDamageDirectionalBiasScale(ControlledDamageState state) const
+{
+    switch (state)
+    {
+    case ControlledDamageState::SmokerTongue:  return 1.00f;
+    case ControlledDamageState::HunterPounce:  return 0.30f;
+    case ControlledDamageState::JockeyRide:    return 0.20f;
+    case ControlledDamageState::ChargerCarry:  return 0.10f;
+    case ControlledDamageState::ChargerPummel: return 0.00f;
+    default:                                   return 1.00f;
+    }
+}
+
 void VR::ParseHapticsConfigFile()
 {
     std::ifstream configStream("VR\\haptics_config.txt");
@@ -2556,9 +2637,10 @@ void VR::ParseHapticsConfigFile()
     setWeaponOverride("melee", { 0.028f, 105.0f, 0.54f });
     setWeaponOverride("chainsaw", { 0.014f, 175.0f, 0.34f });
 
-    // Removed haptics categories: damage, landing, and camera-shake haptics.
-    m_DamageFeedbackEnabled = false;
-    m_DamageDirectionalEnabled = false;
+    // Keep only directional damage haptics active for now.
+    // The older sustain / landing / camera-shake branches remain disabled until they are rebuilt.
+    m_DamageFeedbackEnabled = true;
+    m_DamageDirectionalEnabled = true;
     m_DamageSustainEnabled = false;
     m_LandingHapticsEnabled = false;
     m_CameraShakeHapticsEnabled = false;
@@ -2597,7 +2679,7 @@ void VR::EnsureDamageFeedbackEventListener()
     if (!m_DamageFeedbackEventListener)
         m_DamageFeedbackEventListener = new VRDamageFeedbackEventListener(this);
 
-    static constexpr const char* kDamageEvents[] = { "player_hurt", "player_incapacitated" };
+    static constexpr const char* kDamageEvents[] = { "player_hurt" };
     bool registeredAll = true;
     for (const char* eventName : kDamageEvents)
     {
@@ -2619,74 +2701,120 @@ void VR::HandleDamageFeedbackGameEvent(IGameEvent* event)
         return;
 
     const std::string eventName = ToLowerCopy(eventNameRaw);
-    if (eventName != "player_hurt" && eventName != "player_incapacitated")
+    if (eventName != "player_hurt")
         return;
 
     const int localUserId = GetLocalPlayerUserId(m_Game);
-    if (localUserId <= 0)
+    const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+    if (localUserId <= 0 || localPlayerIndex <= 0)
         return;
 
     const int victimUserId = event->GetInt("userid", 0);
     if (victimUserId != localUserId)
         return;
 
+    C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(localPlayerIndex);
+    if (!localPlayer)
+        return;
+
     const int damage = (std::max)(1, event->GetInt("dmg_health", event->GetInt("amount", 1)));
     const char* weapon = event->GetString("weapon", "");
-    const DamageFeedbackType type = ClassifyDamageFeedbackType(weapon, damage);
+    const DamageFeedbackType baseType = ClassifyDamageFeedbackType(weapon, damage);
 
-    const WeaponHapticsProfile damageProfile = GetDamageHapticsProfile(type);
-    float amplitude = damageProfile.amplitude;
-    const float frequency = damageProfile.frequency;
-    const float duration = damageProfile.durationSeconds;
-    const float damageBonus = std::clamp((damage - m_DamageScaleStart) * m_DamageScalePerPoint, 0.0f, m_DamageScaleMaxBonus);
-    amplitude = std::clamp(amplitude + damageBonus, m_DamageAmplitudeMin, m_DamageAmplitudeMax);
-    int damagePriority = 2;
-    if (type == DamageFeedbackType::SpecialHit)
-        damagePriority = 3;
-    else if (type == DamageFeedbackType::HeavyHit || type == DamageFeedbackType::Explosion)
-        damagePriority = 4;
+    C_BaseEntity* controllerEntity = nullptr;
+    const ControlledDamageState controlState = ResolveLocalSpecialControlState(localPlayer, &controllerEntity);
+    const bool useControlledProfile = controlState != ControlledDamageState::None
+        && baseType != DamageFeedbackType::Fire
+        && baseType != DamageFeedbackType::Acid
+        && baseType != DamageFeedbackType::Explosion;
 
-    float rightBias = 0.0f;
+    float directionalBias = 0.0f;
+    bool hasDirectionalBias = false;
+
     if (m_DamageDirectionalEnabled)
     {
-        const int attackerUserId = event->GetInt("attacker", 0);
-        int attackerIndex = 0;
-        if (attackerUserId > 0)
-            attackerIndex = m_Game->m_EngineClient->GetPlayerForUserID(attackerUserId);
-        if (attackerIndex <= 0)
-            attackerIndex = event->GetInt("attackerentid", 0);
+        C_BaseEntity* directionSource = nullptr;
+        if (useControlledProfile)
+        {
+            directionSource = controllerEntity;
+        }
+        else
+        {
+            int attackerIndex = 0;
+            const int attackerUserId = event->GetInt("attacker", 0);
+            if (attackerUserId > 0)
+                attackerIndex = m_Game->m_EngineClient->GetPlayerForUserID(attackerUserId);
+            if (attackerIndex <= 0)
+                attackerIndex = event->GetInt("attackerentid", 0);
+            if (attackerIndex > 0)
+                directionSource = m_Game->GetClientEntity(attackerIndex);
+        }
 
-        const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
-        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(localPlayerIndex);
-        C_BaseEntity* attacker = attackerIndex > 0 ? m_Game->GetClientEntity(attackerIndex) : nullptr;
-        if (localPlayer && attacker)
+        if (directionSource)
         {
             Vector localPos = localPlayer->GetAbsOrigin();
-            Vector attackerPos = attacker->GetAbsOrigin();
+            Vector attackerPos = directionSource->GetAbsOrigin();
             Vector toAttacker = attackerPos - localPos;
-            if (!toAttacker.IsZero() && !m_HmdRight.IsZero())
+            toAttacker.z = 0.0f;
+
+            Vector right = m_HmdRight;
+            right.z = 0.0f;
+
+            if (!toAttacker.IsZero() && !right.IsZero())
             {
                 VectorNormalize(toAttacker);
-                Vector right = m_HmdRight;
                 VectorNormalize(right);
-                rightBias = std::clamp(DotProduct(toAttacker, right), -1.0f, 1.0f);
+                directionalBias = std::clamp(DotProduct(toAttacker, right), -1.0f, 1.0f);
+                hasDirectionalBias = true;
             }
         }
     }
 
-    TriggerDirectionalDamageHaptics(amplitude, frequency, duration, rightBias, damagePriority);
-
     const auto now = std::chrono::steady_clock::now();
-    if (m_DamageSustainEnabled)
+    PendingDamageFeedback& pending = m_PendingDamageFeedback;
+    const ControlledDamageState pendingControlState = useControlledProfile ? controlState : ControlledDamageState::None;
+
+    const bool sameBurst = pending.active
+        && pending.queuedAt.time_since_epoch().count() != 0
+        && pending.controlState == pendingControlState
+        && std::chrono::duration<float>(now - pending.queuedAt).count() <= (std::max)(0.0f, m_DamageFeedbackMergeWindowSeconds);
+
+    auto damageSeverity = [](DamageFeedbackType feedbackType)
+        {
+            switch (feedbackType)
+            {
+            case DamageFeedbackType::CommonHit: return 0;
+            case DamageFeedbackType::SpecialHit: return 1;
+            case DamageFeedbackType::Fire:      return 2;
+            case DamageFeedbackType::Acid:      return 3;
+            case DamageFeedbackType::HeavyHit:  return 4;
+            case DamageFeedbackType::Explosion: return 5;
+            default:                            return 0;
+            }
+        };
+
+    if (!sameBurst)
     {
-        if (type == DamageFeedbackType::Fire)
-            m_FireSustainUntil = (std::max)(
-                m_FireSustainUntil,
-                now + std::chrono::milliseconds((int)std::round(m_DamageFireSustainSeconds * 1000.0f)));
-        else if (type == DamageFeedbackType::Acid)
-            m_AcidSustainUntil = (std::max)(
-                m_AcidSustainUntil,
-                now + std::chrono::milliseconds((int)std::round(m_DamageAcidSustainSeconds * 1000.0f)));
+        pending = {};
+        pending.active = true;
+        pending.type = baseType;
+        pending.controlState = pendingControlState;
+        pending.maxDamage = damage;
+        pending.mergedCount = 1;
+        pending.queuedAt = now;
+    }
+    else
+    {
+        pending.maxDamage = (std::max)(pending.maxDamage, damage);
+        pending.mergedCount = (std::min)(pending.mergedCount + 1, 8);
+        if (pending.controlState == ControlledDamageState::None && damageSeverity(baseType) > damageSeverity(pending.type))
+            pending.type = baseType;
+    }
+
+    if (hasDirectionalBias)
+    {
+        pending.directionalBiasSum += directionalBias;
+        pending.directionalSampleCount += 1;
     }
 }
 
@@ -2703,6 +2831,72 @@ void VR::UpdateDamageFeedback()
         return;
 
     const auto now = std::chrono::steady_clock::now();
+
+    if (m_PendingDamageFeedback.active)
+    {
+        const bool mergeWindowElapsed = m_PendingDamageFeedback.queuedAt.time_since_epoch().count() == 0
+            || std::chrono::duration<float>(now - m_PendingDamageFeedback.queuedAt).count() >= (std::max)(0.0f, m_DamageFeedbackMergeWindowSeconds);
+
+        const bool triggerIntervalElapsed = m_LastDamageFeedbackTriggerTime.time_since_epoch().count() == 0
+            || std::chrono::duration<float>(now - m_LastDamageFeedbackTriggerTime).count() >= (std::max)(0.0f, m_DamageFeedbackMinTriggerIntervalSeconds);
+
+        if (mergeWindowElapsed && triggerIntervalElapsed)
+        {
+            const bool controlled = m_PendingDamageFeedback.controlState != ControlledDamageState::None;
+            const WeaponHapticsProfile damageProfile = controlled
+                ? GetControlledDamageHapticsProfile(m_PendingDamageFeedback.controlState)
+                : GetDamageHapticsProfile(m_PendingDamageFeedback.type);
+            float amplitude = damageProfile.amplitude;
+            const float frequency = damageProfile.frequency;
+            const float duration = damageProfile.durationSeconds;
+            const float damageBonus = std::clamp((m_PendingDamageFeedback.maxDamage - m_DamageScaleStart) * m_DamageScalePerPoint, 0.0f, m_DamageScaleMaxBonus);
+            const float mergedBonus = (std::max)(0, m_PendingDamageFeedback.mergedCount - 1) * (std::max)(0.0f, m_DamageFeedbackMergedHitBonus);
+            amplitude = std::clamp(amplitude + damageBonus + mergedBonus, m_DamageAmplitudeMin, m_DamageAmplitudeMax);
+
+            int damagePriority = 2;
+            if (controlled)
+            {
+                switch (m_PendingDamageFeedback.controlState)
+                {
+                case ControlledDamageState::SmokerTongue:
+                case ControlledDamageState::HunterPounce:
+                case ControlledDamageState::JockeyRide:
+                    damagePriority = 3;
+                    break;
+                case ControlledDamageState::ChargerCarry:
+                    damagePriority = 4;
+                    break;
+                case ControlledDamageState::ChargerPummel:
+                    damagePriority = 5;
+                    break;
+                default:
+                    break;
+                }
+            }
+            else
+            {
+                if (m_PendingDamageFeedback.type == DamageFeedbackType::SpecialHit)
+                    damagePriority = 3;
+                else if (m_PendingDamageFeedback.type == DamageFeedbackType::HeavyHit || m_PendingDamageFeedback.type == DamageFeedbackType::Explosion)
+                    damagePriority = 4;
+            }
+
+            float rightBias = 0.0f;
+            if (m_PendingDamageFeedback.directionalSampleCount > 0)
+            {
+                rightBias = std::clamp(
+                    m_PendingDamageFeedback.directionalBiasSum / (float)m_PendingDamageFeedback.directionalSampleCount,
+                    -1.0f,
+                    1.0f);
+            }
+            if (controlled)
+                rightBias *= std::clamp(GetControlledDamageDirectionalBiasScale(m_PendingDamageFeedback.controlState), 0.0f, 1.0f);
+
+            TriggerDirectionalDamageHaptics(amplitude, frequency, duration, rightBias, damagePriority);
+            m_LastDamageFeedbackTriggerTime = now;
+            m_PendingDamageFeedback = {};
+        }
+    }
 
     // Sustained damage envelopes (acid / fire).
     if (m_DamageSustainEnabled)
