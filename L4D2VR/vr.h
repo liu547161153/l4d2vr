@@ -256,37 +256,37 @@ public:
 	std::atomic<float> m_RenderViewmodelAngOffsetY{ 0.0f };
 	std::atomic<float> m_RenderViewmodelAngOffsetZ{ 0.0f };
 
-		// Local-player & camera state snapshot for the render thread (mat_queue_mode!=0).
-		// NOTE: These are written under the same seqlock as m_RenderViewParamsSeq.
-		std::atomic<uint32_t> m_RenderHasLocalPlayer{ 0 };
-		std::atomic<float> m_RenderLocalEyePosX{ 0.0f };
-		std::atomic<float> m_RenderLocalEyePosY{ 0.0f };
-		std::atomic<float> m_RenderLocalEyePosZ{ 0.0f };
-		std::atomic<uint32_t> m_RenderHasViewEntityOverride{ 0 };
-		std::atomic<int> m_RenderViewEntityHandle{ 0 };
-		std::atomic<uint32_t> m_RenderBeingRevived{ 0 };
-		std::atomic<uint32_t> m_RenderRevivingOther{ 0 };
-		std::atomic<uint32_t> m_RenderUsingMountedGun{ 0 };
-		std::atomic<uint32_t> m_RenderPlayerIncap{ 0 };
-		std::atomic<uint32_t> m_RenderPlayerControlledBySI{ 0 };
-		std::atomic<uint32_t> m_RenderInThirdPersonMapLoadCooldown{ 0 };
+	// Local-player & camera state snapshot for the render thread (mat_queue_mode!=0).
+	// NOTE: These are written under the same seqlock as m_RenderViewParamsSeq.
+	std::atomic<uint32_t> m_RenderHasLocalPlayer{ 0 };
+	std::atomic<float> m_RenderLocalEyePosX{ 0.0f };
+	std::atomic<float> m_RenderLocalEyePosY{ 0.0f };
+	std::atomic<float> m_RenderLocalEyePosZ{ 0.0f };
+	std::atomic<uint32_t> m_RenderHasViewEntityOverride{ 0 };
+	std::atomic<int> m_RenderViewEntityHandle{ 0 };
+	std::atomic<uint32_t> m_RenderBeingRevived{ 0 };
+	std::atomic<uint32_t> m_RenderRevivingOther{ 0 };
+	std::atomic<uint32_t> m_RenderUsingMountedGun{ 0 };
+	std::atomic<uint32_t> m_RenderPlayerIncap{ 0 };
+	std::atomic<uint32_t> m_RenderPlayerControlledBySI{ 0 };
+	std::atomic<uint32_t> m_RenderInThirdPersonMapLoadCooldown{ 0 };
 
-		// Third-person state debug snapshot (subset used by the render hook).
-		std::atomic<uint32_t> m_RenderTpWantsThirdPerson{ 0 };
-		std::atomic<uint32_t> m_RenderTpObserver{ 0 };
-		std::atomic<uint32_t> m_RenderTpDead{ 0 };
-		std::atomic<int> m_RenderTpLifeState{ 0 };
-		std::atomic<int> m_RenderTpObserverMode{ 0 };
-		std::atomic<int> m_RenderTpObserverTarget{ 0 };
-		std::atomic<uint32_t> m_RenderTpIncap{ 0 };
-		std::atomic<uint32_t> m_RenderTpLedge{ 0 };
-		std::atomic<uint32_t> m_RenderTpTongue{ 0 };
-		std::atomic<uint32_t> m_RenderTpPinned{ 0 };
-		std::atomic<uint32_t> m_RenderTpSelfMedkit{ 0 };
+	// Third-person state debug snapshot (subset used by the render hook).
+	std::atomic<uint32_t> m_RenderTpWantsThirdPerson{ 0 };
+	std::atomic<uint32_t> m_RenderTpObserver{ 0 };
+	std::atomic<uint32_t> m_RenderTpDead{ 0 };
+	std::atomic<int> m_RenderTpLifeState{ 0 };
+	std::atomic<int> m_RenderTpObserverMode{ 0 };
+	std::atomic<int> m_RenderTpObserverTarget{ 0 };
+	std::atomic<uint32_t> m_RenderTpIncap{ 0 };
+	std::atomic<uint32_t> m_RenderTpLedge{ 0 };
+	std::atomic<uint32_t> m_RenderTpTongue{ 0 };
+	std::atomic<uint32_t> m_RenderTpPinned{ 0 };
+	std::atomic<uint32_t> m_RenderTpSelfMedkit{ 0 };
 
-		// Aim-line gating computed on the update thread; render thread only consumes.
-		std::atomic<uint32_t> m_RenderAimLineAllowed{ 0 };
-		std::atomic<uint32_t> m_RenderAimLineShow{ 0 };
+	// Aim-line gating computed on the update thread; render thread only consumes.
+	std::atomic<uint32_t> m_RenderAimLineAllowed{ 0 };
+	std::atomic<uint32_t> m_RenderAimLineShow{ 0 };
 
 
 	// Render-thread computed snapshot (updated once per dRenderView call).
@@ -349,40 +349,40 @@ public:
 
 	inline float GetHmdDisplayFrequencyHz(bool forceRefresh = false)
 	{
-	    float hz = m_HmdDisplayFrequencyHz.load(std::memory_order_relaxed);
-	    const uint32_t nowMs = static_cast<uint32_t>(::GetTickCount());
-	    const uint32_t lastMs = m_HmdDisplayFrequencyHzLastUpdateMs.load(std::memory_order_relaxed);
+		float hz = m_HmdDisplayFrequencyHz.load(std::memory_order_relaxed);
+		const uint32_t nowMs = static_cast<uint32_t>(::GetTickCount());
+		const uint32_t lastMs = m_HmdDisplayFrequencyHzLastUpdateMs.load(std::memory_order_relaxed);
 
-	    const bool stale = (hz <= 1.0f) || (lastMs == 0) || ((nowMs - lastMs) > 2000u);
-	    if ((forceRefresh || stale) && m_System)
-	    {
-	        vr::ETrackedPropertyError err = vr::TrackedProp_Success;
-	        const float v = m_System->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &err);
-	        if (err == vr::TrackedProp_Success && std::isfinite(v) && v > 1.0f && v < 1000.0f)
-	        {
-	            hz = v;
-	            m_HmdDisplayFrequencyHz.store(hz, std::memory_order_relaxed);
-	        }
-	        // Always mark an update attempt so we don't spam the runtime if it fails.
-	        m_HmdDisplayFrequencyHzLastUpdateMs.store(nowMs, std::memory_order_relaxed);
-	    }
-	    return hz;
+		const bool stale = (hz <= 1.0f) || (lastMs == 0) || ((nowMs - lastMs) > 2000u);
+		if ((forceRefresh || stale) && m_System)
+		{
+			vr::ETrackedPropertyError err = vr::TrackedProp_Success;
+			const float v = m_System->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &err);
+			if (err == vr::TrackedProp_Success && std::isfinite(v) && v > 1.0f && v < 1000.0f)
+			{
+				hz = v;
+				m_HmdDisplayFrequencyHz.store(hz, std::memory_order_relaxed);
+			}
+			// Always mark an update attempt so we don't spam the runtime if it fails.
+			m_HmdDisplayFrequencyHzLastUpdateMs.store(nowMs, std::memory_order_relaxed);
+		}
+		return hz;
 	}
 
 	inline int GetQueuedRenderMaxFpsEffective(bool forceRefreshHz = false)
 	{
-	    const int pct = std::max(0, m_QueuedRenderMaxFps);
-	    if (pct <= 0)
-	        return 0;
+		const int pct = std::max(0, m_QueuedRenderMaxFps);
+		if (pct <= 0)
+			return 0;
 
-	    float hz = GetHmdDisplayFrequencyHz(forceRefreshHz);
-	    if (!(hz > 1.0f))
-	        hz = 90.0f; // safe fallback
+		float hz = GetHmdDisplayFrequencyHz(forceRefreshHz);
+		if (!(hz > 1.0f))
+			hz = 90.0f; // safe fallback
 
-	    const double cap = (double)hz * ((double)pct / 100.0);
-	    int capI = (int)std::lround(cap);
-	    capI = std::clamp(capI, 1, 360);
-	    return capI;
+		const double cap = (double)hz * ((double)pct / 100.0);
+		int capI = (int)std::lround(cap);
+		capI = std::clamp(capI, 1, 360);
+		return capI;
 	}
 
 
@@ -415,10 +415,10 @@ public:
 	// Bullet FX alignment: optional visual-only offset applied to
 		// client-side bullet tracers/impact effects so they can be tuned to match the aim line.
 		// Units: meters in aim-ray space (X=forward, Y=right, Z=up). Applies in all render modes.
-		Vector m_BulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
-		// Additional offset only when queued rendering is enabled (mat_queue_mode!=0).
-		// Lets you apply extra correction for render-thread decoupling without affecting single-thread.
-		Vector m_QueuedBulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
+	Vector m_BulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
+	// Additional offset only when queued rendering is enabled (mat_queue_mode!=0).
+	// Lets you apply extra correction for render-thread decoupling without affecting single-thread.
+	Vector m_QueuedBulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
 
 	Vector m_ViewmodelPosAdjust = { 0,0,0 };
 	QAngle m_ViewmodelAngAdjust = { 0,0,0 };
@@ -555,12 +555,12 @@ public:
 	// Main menu only needs one blank stereo submit to clear the last scene frame.
 	// After that, keep driving the menu with IVROverlay to avoid hammering the compositor.
 	bool m_MenuBlankSubmitted = false;
-    // Guard against duplicate compositor submits in the same pose frame.
-    // Updated by UpdatePosesAndActions(), consumed by SubmitVRTextures().
-    std::atomic<uint32_t> m_SubmitPoseToken{ 0 };
-    std::atomic<uint32_t> m_LastSubmittedPoseToken{ 0 };
-    std::atomic<bool> m_SubmitInFlight{ false };
-    std::atomic<uint32_t> m_LastSubmittedCompositorFrameIndex{ 0 };
+	// Guard against duplicate compositor submits in the same pose frame.
+	// Updated by UpdatePosesAndActions(), consumed by SubmitVRTextures().
+	std::atomic<uint32_t> m_SubmitPoseToken{ 0 };
+	std::atomic<uint32_t> m_LastSubmittedPoseToken{ 0 };
+	std::atomic<bool> m_SubmitInFlight{ false };
+	std::atomic<uint32_t> m_LastSubmittedCompositorFrameIndex{ 0 };
 	// Render-thread -> submit-thread frame handoff (queued/multicore mode).
 	// dRenderView increments m_RenderCompletedFrameId and signals m_RenderFrameReadyEvent
 	// when a full stereo frame is rendered into eye textures.
@@ -1111,7 +1111,7 @@ public:
 
 	// Common netvars (from offsets.txt) used by hand HUD overlays
 	static constexpr int kHealthOffset = 0xEC;               // DT_BasePlayer::m_iHealth
-    static constexpr int kMaxHealthOffset = 0x1FDC;           // DT_TerrorPlayer::m_iMaxHealth (also used by special infected players)
+	static constexpr int kMaxHealthOffset = 0x1FDC;           // DT_TerrorPlayer::m_iMaxHealth (also used by special infected players)
 	static constexpr int kAmmoArrayOffset = 0xF24;            // DT_BasePlayer::m_iAmmo (int array)
 	static constexpr int kHealthBufferOffset = 0x1FAC;        // DT_TerrorPlayer::m_healthBuffer (temporary HP)
 	static constexpr int kHealthBufferTimeOffset = 0x1FB0;    // DT_TerrorPlayer::m_healthBufferTime
@@ -1190,6 +1190,17 @@ public:
 		std::chrono::steady_clock::time_point receivedAt{};
 	};
 
+	struct PendingDamageHapticPulse
+	{
+		float amplitude = 0.0f;
+		float frequency = 0.0f;
+		float durationSeconds = 0.0f;
+		float rightBias = 0.0f;
+		int priority = 1;
+		bool hasDirection = false;
+		std::chrono::steady_clock::time_point receivedAt{};
+	};
+
 	enum class DamageFeedbackType
 	{
 		CommonHit,
@@ -1234,6 +1245,14 @@ public:
 	std::vector<ActiveKillIndicator> m_ActiveKillIndicators;
 	int m_LastKillSoundCommonKills = -1;
 	int m_LastKillSoundSpecialKills = -1;
+	float m_PredictedHitFeedbackDedupWindowSeconds = 0.015f;
+	Vector m_LastPredictedHitFeedbackStart = { 0,0,0 };
+	Vector m_LastPredictedHitFeedbackDir = { 0,0,0 };
+	std::uintptr_t m_LastPredictedHitFeedbackEntityTag = 0;
+	std::chrono::steady_clock::time_point m_LastPredictedHitFeedbackTime{};
+	uint32_t m_PredictedHitFeedbackShotSerial = 0;
+	uint32_t m_LastPredictedHitSoundShotSerial = 0;
+	std::chrono::steady_clock::time_point m_LastPredictedHitFeedbackShotTime{};
 	std::chrono::steady_clock::time_point m_LastHitSoundPlaybackTime{};
 	std::chrono::steady_clock::time_point m_LastKillSoundPlaybackTime{};
 	std::chrono::steady_clock::time_point m_LastKillSoundEventRegisterAttempt{};
@@ -1280,12 +1299,16 @@ public:
 	bool m_KillSoundEventListenerRegistered = false;
 	IGameEventManager2* m_DamageFeedbackEventManager = nullptr;
 	IGameEventListener2* m_DamageFeedbackEventListener = nullptr;
-    bool m_DamageFeedbackEventListenerRegistered = false;
-    bool m_DamageFeedbackEnabled = false;
-    bool m_DamageDirectionalEnabled = false;
-    bool m_DamageSustainEnabled = false;
-    bool m_LandingHapticsEnabled = false;
-    bool m_CameraShakeHapticsEnabled = false;
+	bool m_DamageFeedbackEventListenerRegistered = false;
+	std::deque<PendingDamageHapticPulse> m_PendingDamageHapticPulses;
+	std::chrono::steady_clock::time_point m_LastDamageHapticPulseTime{};
+	float m_DamagePulseMergeWindowSeconds = 0.035f;
+	float m_DamagePulseMinIntervalSeconds = 0.020f;
+	bool m_DamageFeedbackEnabled = false;
+	bool m_DamageDirectionalEnabled = false;
+	bool m_DamageSustainEnabled = false;
+	bool m_LandingHapticsEnabled = false;
+	bool m_CameraShakeHapticsEnabled = false;
 	WeaponHapticsProfile m_DamageCommonHapticsProfile = { 0.016f, 135.0f, 0.24f };
 	WeaponHapticsProfile m_DamageSpecialHapticsProfile = { 0.020f, 112.0f, 0.38f };
 	WeaponHapticsProfile m_DamageHeavyHapticsProfile = { 0.030f, 82.0f, 0.62f };
@@ -1785,6 +1808,7 @@ public:
 	void UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& start, const Vector& end, bool aimLineActive);
 	bool GetAimTeammateHudInfo(int& outPlayerIndex, int& outPercent, char* outName, size_t outNameSize);
 	int GetIncapMaxHealth() const;
+	void BeginPredictedHitFeedbackShot();
 	void RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles);
 	void UpdateKillSoundFeedback();
 	void EnsureKillSoundEventListener();
@@ -1803,6 +1827,7 @@ public:
 	bool ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) const;
 	bool IsKillSoundTargetEntity(const C_BaseEntity* entity) const;
 	bool ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
+	bool FindPendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
 	void PlayHitSound(const Vector* worldPos = nullptr);
 	void PlayKillSound(bool headshot, const Vector* worldPos = nullptr);
 	bool TryPlayKillSoundSpec(const std::string& spec, float baseVolume = 1.0f, const Vector* worldPos = nullptr, bool preferLoadedPathReuse = true);

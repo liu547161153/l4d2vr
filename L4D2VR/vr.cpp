@@ -830,6 +830,14 @@ namespace
         {
             entityIndex = event->GetInt("infected_id", 0);
         }
+        else if (eventName == "infected_hurt")
+        {
+            entityIndex = event->GetInt("entityid", 0);
+            if (entityIndex <= 0)
+                entityIndex = event->GetInt("entindex", 0);
+            if (entityIndex <= 0)
+                entityIndex = event->GetInt("infected_id", 0);
+        }
         else if (eventName == "witch_killed")
         {
             entityIndex = event->GetInt("witchid", 0);
@@ -841,6 +849,16 @@ namespace
                 entityIndex = game->m_EngineClient->GetPlayerForUserID(victimUserId);
             if (entityIndex <= 0)
                 entityIndex = event->GetInt("entityid", 0);
+        }
+        else if (eventName == "player_hurt")
+        {
+            const int victimUserId = event->GetInt("userid", 0);
+            if (victimUserId > 0 && game->m_EngineClient)
+                entityIndex = game->m_EngineClient->GetPlayerForUserID(victimUserId);
+            if (entityIndex <= 0)
+                entityIndex = event->GetInt("entityid", 0);
+            if (entityIndex <= 0)
+                entityIndex = event->GetInt("entindex", 0);
         }
 
         if (entityIndex <= 0)
@@ -879,15 +897,15 @@ namespace
         }
 
         auto updateCachedVolume = [&](float volume, const std::string& configPath, const FILETIME* writeTime)
-        {
-            state.wasInGame = true;
-            state.cachedVolume = std::clamp(volume, 0.0f, 1.0f);
-            state.initialized = true;
-            state.cachedConfigPath = configPath;
-            state.cachedWriteTime = writeTime ? *writeTime : FILETIME{};
-            state.lastRefreshAt = now;
-            return state.cachedVolume;
-        };
+            {
+                state.wasInGame = true;
+                state.cachedVolume = std::clamp(volume, 0.0f, 1.0f);
+                state.initialized = true;
+                state.cachedConfigPath = configPath;
+                state.cachedWriteTime = writeTime ? *writeTime : FILETIME{};
+                state.lastRefreshAt = now;
+                return state.cachedVolume;
+            };
 
         if (state.initialized && state.wasInGame && !state.cachedConfigPath.empty())
         {
@@ -1974,16 +1992,16 @@ namespace
             return false;
 
         auto readU16 = [&](size_t offset) -> uint16_t
-        {
-            return static_cast<uint16_t>(bytes[offset] | (static_cast<uint16_t>(bytes[offset + 1]) << 8));
-        };
+            {
+                return static_cast<uint16_t>(bytes[offset] | (static_cast<uint16_t>(bytes[offset + 1]) << 8));
+            };
         auto readU32 = [&](size_t offset) -> uint32_t
-        {
-            return static_cast<uint32_t>(bytes[offset]
-                | (static_cast<uint32_t>(bytes[offset + 1]) << 8)
-                | (static_cast<uint32_t>(bytes[offset + 2]) << 16)
-                | (static_cast<uint32_t>(bytes[offset + 3]) << 24));
-        };
+            {
+                return static_cast<uint32_t>(bytes[offset]
+                    | (static_cast<uint32_t>(bytes[offset + 1]) << 8)
+                    | (static_cast<uint32_t>(bytes[offset + 2]) << 16)
+                    | (static_cast<uint32_t>(bytes[offset + 3]) << 24));
+            };
 
         const uint32_t headerSize = readU32(12);
         const uint32_t width = readU16(16);
@@ -2828,7 +2846,7 @@ void VR::EnsureKillSoundEventListener()
     if (!m_KillSoundEventListener)
         m_KillSoundEventListener = new VRKillSoundEventListener(this);
 
-    static constexpr const char* kKillSoundEvents[] = { "player_death", "infected_death", "witch_killed" };
+    static constexpr const char* kKillSoundEvents[] = { "player_hurt", "infected_hurt", "player_death", "infected_death", "witch_killed" };
     bool registeredAll = true;
     for (const char* eventName : kKillSoundEvents)
     {
@@ -2853,24 +2871,67 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
 
     const std::string eventName(rawEventName);
     const int localUserId = GetLocalPlayerUserId(m_Game);
-    if (localUserId <= 0)
+    const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+    if (localPlayerIndex <= 0)
         return;
 
+    if (eventName == "player_hurt" || eventName == "infected_hurt")
+    {
+        const int attackerUserId = event->GetInt("attacker", 0);
+        int attackerIndex = 0;
+        if (attackerUserId > 0)
+            attackerIndex = m_Game->m_EngineClient->GetPlayerForUserID(attackerUserId);
+        if (attackerIndex <= 0)
+            attackerIndex = event->GetInt("attackerentid", 0);
+
+        const bool attackerMatchesLocalUser = localUserId > 0 && attackerUserId == localUserId;
+        const bool attackerMatchesLocalIndex = attackerIndex > 0 && attackerIndex == localPlayerIndex;
+
+        const auto now = std::chrono::steady_clock::now();
+        const std::uintptr_t entityTag = ResolveKillEventEntityTag(m_Game, event, eventName);
+        Vector impactPos{};
+        bool matchedImpact = false;
+        if (entityTag != 0)
+            matchedImpact = FindPendingKillSoundHit(entityTag, now, &impactPos);
+        if (!matchedImpact)
+            matchedImpact = FindPendingKillSoundHit(0, now, &impactPos);
+
+        if (!attackerMatchesLocalUser && !attackerMatchesLocalIndex && !matchedImpact)
+            return;
+
+        if (m_HitSoundEnabled)
+            QueueHitSoundPlayback(matchedImpact ? &impactPos : nullptr);
+        if (m_HitIndicatorEnabled && matchedImpact)
+            SpawnHitIndicator(impactPos);
+        return;
+    }
+
     int attackerUserId = 0;
+    int attackerIndex = 0;
     bool headshot = false;
     if (eventName == "player_death")
     {
         attackerUserId = event->GetInt("attacker", 0);
+        if (attackerUserId > 0)
+            attackerIndex = m_Game->m_EngineClient->GetPlayerForUserID(attackerUserId);
+        if (attackerIndex <= 0)
+            attackerIndex = event->GetInt("attackerentid", 0);
         headshot = event->GetBool("headshot", false);
     }
     else if (eventName == "infected_death")
     {
         attackerUserId = event->GetInt("attacker", 0);
+        if (attackerUserId > 0)
+            attackerIndex = m_Game->m_EngineClient->GetPlayerForUserID(attackerUserId);
+        if (attackerIndex <= 0)
+            attackerIndex = event->GetInt("attackerentid", 0);
         headshot = event->GetBool("headshot", false);
     }
     else if (eventName == "witch_killed")
     {
         attackerUserId = event->GetInt("userid", 0);
+        if (attackerUserId > 0)
+            attackerIndex = m_Game->m_EngineClient->GetPlayerForUserID(attackerUserId);
         headshot = false;
     }
     else
@@ -2878,10 +2939,22 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
         return;
     }
 
-    if (attackerUserId != localUserId)
-        return;
-
+    const bool attackerMatchesLocalUser = localUserId > 0 && attackerUserId == localUserId;
+    const bool attackerMatchesLocalIndex = attackerIndex > 0 && attackerIndex == localPlayerIndex;
     const std::uintptr_t entityTag = ResolveKillEventEntityTag(m_Game, event, eventName);
+
+    if (!attackerMatchesLocalUser && !attackerMatchesLocalIndex)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        bool matchedImpact = false;
+        if (entityTag != 0)
+            matchedImpact = FindPendingKillSoundHit(entityTag, now, nullptr);
+        if (!matchedImpact)
+            matchedImpact = FindPendingKillSoundHit(0, now, nullptr);
+        if (!matchedImpact)
+            return;
+    }
+
     QueuePendingKillSoundEvent(entityTag, headshot);
 }
 
@@ -2964,6 +3037,15 @@ bool VR::IsKillSoundTargetEntity(const C_BaseEntity* entity) const
     return false;
 }
 
+void VR::BeginPredictedHitFeedbackShot()
+{
+    const auto now = std::chrono::steady_clock::now();
+    ++m_PredictedHitFeedbackShotSerial;
+    if (m_PredictedHitFeedbackShotSerial == 0)
+        m_PredictedHitFeedbackShotSerial = 1;
+    m_LastPredictedHitFeedbackShotTime = now;
+}
+
 void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles)
 {
     const bool wantsHitFeedback = m_HitSoundEnabled || m_HitIndicatorEnabled;
@@ -2995,16 +3077,49 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
     if (!entity || !IsKillSoundTargetEntity(entity))
         return;
 
-    if (m_HitSoundEnabled)
-        QueueHitSoundPlayback(&trace.endpos);
-
-    if (m_HitIndicatorEnabled)
-        SpawnHitIndicator(trace.endpos);
-
-    if (!wantsKillFeedback)
-        return;
-
     const auto now = std::chrono::steady_clock::now();
+    bool triggerDirectHitFeedback = true;
+    if (m_PredictedHitFeedbackDedupWindowSeconds > 0.0f)
+    {
+        const auto elapsed = std::chrono::duration<float>(now - m_LastPredictedHitFeedbackTime).count();
+        if (m_LastPredictedHitFeedbackTime.time_since_epoch().count() != 0
+            && elapsed >= 0.0f
+            && elapsed <= m_PredictedHitFeedbackDedupWindowSeconds)
+        {
+            const Vector deltaStart = start - m_LastPredictedHitFeedbackStart;
+            const float startDistSq = deltaStart.LengthSqr();
+            const float aimDot = DotProduct(forward, m_LastPredictedHitFeedbackDir);
+            if (startDistSq <= 16.0f && aimDot >= 0.9995f)
+                triggerDirectHitFeedback = false;
+        }
+    }
+
+    if (triggerDirectHitFeedback)
+    {
+        const uint32_t shotSerial = m_PredictedHitFeedbackShotSerial;
+        const bool canUseShotGate = shotSerial != 0
+            && m_LastPredictedHitFeedbackShotTime.time_since_epoch().count() != 0
+            && std::chrono::duration<float>(now - m_LastPredictedHitFeedbackShotTime).count() <= 0.35f;
+
+        if (m_HitSoundEnabled)
+        {
+            const bool shouldQueueHitSound = !canUseShotGate || m_LastPredictedHitSoundShotSerial != shotSerial;
+            if (shouldQueueHitSound)
+            {
+                QueueHitSoundPlayback(&trace.endpos);
+                if (canUseShotGate)
+                    m_LastPredictedHitSoundShotSerial = shotSerial;
+            }
+        }
+        if (m_HitIndicatorEnabled)
+            SpawnHitIndicator(trace.endpos);
+
+        m_LastPredictedHitFeedbackStart = start;
+        m_LastPredictedHitFeedbackDir = forward;
+        m_LastPredictedHitFeedbackEntityTag = reinterpret_cast<std::uintptr_t>(entity);
+        m_LastPredictedHitFeedbackTime = now;
+    }
+
     const auto expiresAt = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
         std::chrono::duration<float>(m_KillSoundDetectionWindowSeconds));
     const std::uintptr_t entityTag = reinterpret_cast<std::uintptr_t>(entity);
@@ -3080,6 +3195,36 @@ bool VR::ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chro
         if (outImpactPos)
             *outImpactPos = m_PendingKillSoundHits.back().impactPos;
         m_PendingKillSoundHits.pop_back();
+        return true;
+    }
+
+    return false;
+}
+
+bool VR::FindPendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos)
+{
+    m_PendingKillSoundHits.erase(
+        std::remove_if(
+            m_PendingKillSoundHits.begin(),
+            m_PendingKillSoundHits.end(),
+            [&](const PendingKillSoundHit& hit)
+            {
+                return hit.entityTag == 0 || hit.expiresAt < now;
+            }),
+        m_PendingKillSoundHits.end());
+
+    auto matchesTag = [&](const PendingKillSoundHit& hit)
+        {
+            return preferredEntityTag == 0 || hit.entityTag == preferredEntityTag;
+        };
+
+    for (auto it = m_PendingKillSoundHits.rbegin(); it != m_PendingKillSoundHits.rend(); ++it)
+    {
+        if (!matchesTag(*it))
+            continue;
+
+        if (outImpactPos)
+            *outImpactPos = it->impactPos;
         return true;
     }
 
@@ -3368,9 +3513,9 @@ void VR::FeedbackSoundWorkerMain()
         {
             std::unique_lock<std::mutex> lock(m_FeedbackSoundWorkerMutex);
             m_FeedbackSoundWorkerCv.wait(lock, [&]()
-            {
-                return !m_FeedbackSoundWorkerJobs.empty();
-            });
+                {
+                    return !m_FeedbackSoundWorkerJobs.empty();
+                });
 
             job = std::move(m_FeedbackSoundWorkerJobs.front());
             m_FeedbackSoundWorkerJobs.pop_front();
@@ -3706,12 +3851,12 @@ IMaterial* VR::ResolveKillIndicatorMaterial(bool headshot)
 void VR::DestroyHandHudWorldQuadTextures()
 {
     auto SafeReleaseD3D = [](auto*& ptr)
-    {
-        if (!ptr)
-            return;
-        ptr->Release();
-        ptr = nullptr;
-    };
+        {
+            if (!ptr)
+                return;
+            ptr->Release();
+            ptr = nullptr;
+        };
 
     SafeReleaseD3D(m_D9LeftWristHudDynSurface);
     SafeReleaseD3D(m_D9LeftWristHudDynTex);
@@ -3735,12 +3880,12 @@ void VR::DestroyKillIndicatorOverlayTexture(int materialIndex)
         return;
 
     auto SafeReleaseD3D = [](auto*& ptr)
-    {
-        if (!ptr)
-            return;
-        ptr->Release();
-        ptr = nullptr;
-    };
+        {
+            if (!ptr)
+                return;
+            ptr->Release();
+            ptr = nullptr;
+        };
 
     KillIndicatorOverlayTexture& texture = m_KillIndicatorOverlayTextures[materialIndex];
     SafeReleaseD3D(texture.d3dSurface);
@@ -4341,7 +4486,7 @@ void VR::UpdateKillIndicatorOverlays()
 
 void VR::SpawnHitIndicator(const Vector& worldPos)
 {
-    if (!m_KillIndicatorEnabled)
+    if (!m_HitIndicatorEnabled)
         return;
 
     const auto now = std::chrono::steady_clock::now();
@@ -4528,10 +4673,15 @@ void VR::UpdateKillSoundFeedback()
             m_HitSoundPendingQueuedAt = {};
             m_LastKillSoundCommonKills = -1;
             m_LastKillSoundSpecialKills = -1;
+            m_PredictedHitFeedbackShotSerial = 0;
+            m_LastPredictedHitSoundShotSerial = 0;
+            m_LastPredictedHitFeedbackShotTime = {};
             m_FeedbackSoundWarmupSignature.clear();
         };
 
-    const bool wantsAnyFeedback = m_HitSoundEnabled || m_HitIndicatorEnabled || m_KillSoundEnabled || m_KillIndicatorEnabled;
+    const bool wantsHitFeedback = m_HitSoundEnabled || m_HitIndicatorEnabled;
+    const bool wantsKillFeedback = m_KillSoundEnabled || m_KillIndicatorEnabled;
+    const bool wantsAnyFeedback = wantsHitFeedback || wantsKillFeedback;
     if (!wantsAnyFeedback || !m_Game || !m_Game->m_EngineClient)
     {
         resetState();
@@ -4554,14 +4704,6 @@ void VR::UpdateKillSoundFeedback()
 
     EnsureFeedbackSoundWarmup();
 
-    int commonKills = 0;
-    int specialKills = 0;
-    if (!ReadLocalKillCounters(localPlayer, commonKills, specialKills))
-    {
-        resetState();
-        return;
-    }
-
     const auto now = std::chrono::steady_clock::now();
     FlushPendingHitSound(now);
     EnsureKillSoundEventListener();
@@ -4574,6 +4716,18 @@ void VR::UpdateKillSoundFeedback()
                 return hit.entityTag == 0 || hit.expiresAt < now;
             }),
         m_PendingKillSoundHits.end());
+
+    if (!wantsKillFeedback)
+        return;
+
+    int commonKills = 0;
+    int specialKills = 0;
+    if (!ReadLocalKillCounters(localPlayer, commonKills, specialKills))
+    {
+        m_LastKillSoundCommonKills = -1;
+        m_LastKillSoundSpecialKills = -1;
+        return;
+    }
 
     if (m_LastKillSoundCommonKills < 0 || m_LastKillSoundSpecialKills < 0)
     {

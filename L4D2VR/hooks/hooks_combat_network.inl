@@ -337,144 +337,153 @@ int Hooks::dClientFireTerrorBullets(
 					vecNewOrigin = m_VR->m_MouseModeEnabled ? GetMouseModeGunOriginAbs(m_VR) : m_VR->GetRightControllerAbsPos();
 				}
 
-			// 开关决定：要不要把 angles 替换成“控制器纯角度/汇聚角度”
-			// - true  : 覆盖 angles（通常会让本地弹道更“直/更跟手”，但只是本地表现）
-			// - false : 保持 vecAngles（通常包含引擎/服务器那套散布偏转 → 看起来更“标准散布”）
-			if (m_VR->m_NonVRServerMovementAngleOverride)
-			{
-				// Prefer the solved eye-based aim. This keeps client prediction + hit feedback
-				// consistent with what the non-VR server will do.
-				if (m_VR->m_HasNonVRAimSolution)
+				// 开关决定：要不要把 angles 替换成“控制器纯角度/汇聚角度”
+				// - true  : 覆盖 angles（通常会让本地弹道更“直/更跟手”，但只是本地表现）
+				// - false : 保持 vecAngles（通常包含引擎/服务器那套散布偏转 → 看起来更“标准散布”）
+				if (m_VR->m_NonVRServerMovementAngleOverride)
 				{
-					vecNewAngles = m_VR->m_NonVRAimAngles;
-				}
-				else
-				{
-					if (!scopeActive && m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
+					// Prefer the solved eye-based aim. This keeps client prediction + hit feedback
+					// consistent with what the non-VR server will do.
+					if (m_VR->m_HasNonVRAimSolution)
 					{
-						Vector to = m_VR->m_AimConvergePoint - vecNewOrigin; // 注意：这里是 vecOrigin
-						if (!to.IsZero())
+						vecNewAngles = m_VR->m_NonVRAimAngles;
+					}
+					else
+					{
+						if (!scopeActive && m_VR->IsThirdPersonCameraActive() && m_VR->m_HasAimConvergePoint)
 						{
-							VectorNormalize(to);
-							QAngle ang;
-							QAngle::VectorAngles(to, ang);
-							NormalizeAndClampViewAngles(ang);
-							vecNewAngles = ang;
+							Vector to = m_VR->m_AimConvergePoint - vecNewOrigin; // 注意：这里是 vecOrigin
+							if (!to.IsZero())
+							{
+								VectorNormalize(to);
+								QAngle ang;
+								QAngle::VectorAngles(to, ang);
+								NormalizeAndClampViewAngles(ang);
+								vecNewAngles = ang;
+							}
+							else
+							{
+								vecNewAngles = m_VR->GetRightControllerAbsAngle();
+							}
 						}
 						else
 						{
 							vecNewAngles = m_VR->GetRightControllerAbsAngle();
 						}
 					}
-					else
+				}
+				// else：不动 vecNewAngles = vecAngles（保留“标准散布”的那套）
+			}
+		}
+
+		// Final bullet FX alignment: apply hit-point offset AFTER all angle overrides.
+		// This is intentionally visual-only (client FX). It does not affect server hit registration.
+		if (m_VR->m_IsVREnabled
+			&& m_VR->m_ForceNonVRServerMovement
+			&& m_VR->m_HasNonVRAimSolution)
+		{
+			const int qmode = (m_Game ? m_Game->GetMatQueueMode() : 0);
+			Vector visualOff = m_VR->m_BulletVisualHitOffset;
+			if (qmode != 0)
+			{
+				visualOff.x += m_VR->m_QueuedBulletVisualHitOffset.x;
+				visualOff.y += m_VR->m_QueuedBulletVisualHitOffset.y;
+				visualOff.z += m_VR->m_QueuedBulletVisualHitOffset.z;
+			}
+
+			if (!visualOff.IsZero())
+			{
+				Vector originForDir = vecNewOrigin;
+				Vector targetH = m_VR->m_NonVRAimHitPoint;
+
+				Vector fwd = targetH - originForDir;
+				if (!fwd.IsZero())
+				{
+					VectorNormalize(fwd);
+					Vector worldUp(0.0f, 0.0f, 1.0f);
+					Vector right;
+					CrossProduct(worldUp, fwd, right);
+					if (right.LengthSqr() < 1e-6f)
 					{
-						vecNewAngles = m_VR->GetRightControllerAbsAngle();
+						worldUp = Vector(0.0f, 1.0f, 0.0f);
+						CrossProduct(worldUp, fwd, right);
+					}
+					VectorNormalize(right);
+					Vector up;
+					CrossProduct(fwd, right, up);
+					VectorNormalize(up);
+
+					const float su = m_VR->m_VRScale;
+					const Vector offSu = visualOff * su;
+					targetH += (fwd * offSu.x) + (right * offSu.y) + (up * offSu.z);
+
+					Vector to = targetH - originForDir;
+					if (!to.IsZero())
+					{
+						VectorNormalize(to);
+						QAngle ang;
+						QAngle::VectorAngles(to, ang);
+						NormalizeAndClampViewAngles(ang);
+						vecNewAngles = ang;
+
+						if (m_VR->m_NonVRServerMovementEffectsDebugLog)
+						{
+							static thread_local std::chrono::steady_clock::time_point s_lastOff{};
+							if (!ShouldThrottleLog(s_lastOff, m_VR->m_NonVRServerMovementEffectsDebugLogHz))
+							{
+								const uint32_t tid = (uint32_t)GetCurrentThreadId();
+								const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
+								Game::logMsg(
+									"[VR][FX][bullets][offset] tid=%u qmode=%d seq=%u offTotal=(%.3f %.3f %.3f)m base=(%.3f %.3f %.3f)m qExtra=(%.3f %.3f %.3f)m origin=(%.2f %.2f %.2f) H=(%.2f %.2f %.2f)",
+									tid, qmode, seq,
+									visualOff.x, visualOff.y, visualOff.z,
+									m_VR->m_BulletVisualHitOffset.x, m_VR->m_BulletVisualHitOffset.y, m_VR->m_BulletVisualHitOffset.z,
+									m_VR->m_QueuedBulletVisualHitOffset.x, m_VR->m_QueuedBulletVisualHitOffset.y, m_VR->m_QueuedBulletVisualHitOffset.z,
+									originForDir.x, originForDir.y, originForDir.z,
+									targetH.x, targetH.y, targetH.z);
+							}
+						}
 					}
 				}
 			}
-			// else：不动 vecNewAngles = vecAngles（保留“标准散布”的那套）
 		}
+
+
+
+		if (m_VR->m_IsVREnabled && m_Game && m_Game->m_EngineClient
+			&& playerId == m_Game->m_EngineClient->GetLocalPlayer())
+		{
+			int weaponId = (int)C_WeaponCSBase::WeaponID::NONE;
+			C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerId);
+			if (localPlayer)
+			{
+				C_WeaponCSBase* activeWeapon = (C_WeaponCSBase*)localPlayer->GetActiveWeapon();
+				if (activeWeapon)
+					weaponId = (int)activeWeapon->GetWeaponID();
+			}
+			m_VR->TriggerWeaponFireHaptics(weaponId, false);
+		}
+
+		// RightAmmoHUD: hit-based target HP bar has been removed.
+	// The ammo HUD now shows HP%% for the *aimed* special infected (and Witch) and hides instantly on leave.
+		if (m_VR->m_IsVREnabled && m_Game && m_Game->m_EngineClient
+			&& playerId == m_Game->m_EngineClient->GetLocalPlayer())
+		{
+			// Start a fresh shot window once per FireTerrorBullets call.
+			// RegisterPotentialKillSoundHit still does the strict Trace-to-target check,
+			// but the shot serial prevents multiple hit sounds from the same shot path.
+			m_VR->BeginPredictedHitFeedbackShot();
+			// Use the final VR-corrected shot ray for predicted hit feedback so the
+			// hit sound / hit indicator matches the actual VR muzzle origin and aim.
+			m_VR->RegisterPotentialKillSoundHit(vecNewOrigin, vecNewAngles);
+		}
+
+		const auto original = hkClientFireTerrorBullets.fOriginal;
+		if (!original)
+			return 0;
+
+		return original(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
 	}
-
-    // Final bullet FX alignment: apply hit-point offset AFTER all angle overrides.
-    // This is intentionally visual-only (client FX). It does not affect server hit registration.
-    if (m_VR->m_IsVREnabled
-        && m_VR->m_ForceNonVRServerMovement
-        && m_VR->m_HasNonVRAimSolution)
-    {
-        const int qmode = (m_Game ? m_Game->GetMatQueueMode() : 0);
-        Vector visualOff = m_VR->m_BulletVisualHitOffset;
-        if (qmode != 0)
-        {
-            visualOff.x += m_VR->m_QueuedBulletVisualHitOffset.x;
-            visualOff.y += m_VR->m_QueuedBulletVisualHitOffset.y;
-            visualOff.z += m_VR->m_QueuedBulletVisualHitOffset.z;
-        }
-
-        if (!visualOff.IsZero())
-        {
-            Vector originForDir = vecNewOrigin;
-            Vector targetH = m_VR->m_NonVRAimHitPoint;
-
-            Vector fwd = targetH - originForDir;
-            if (!fwd.IsZero())
-            {
-                VectorNormalize(fwd);
-                Vector worldUp(0.0f, 0.0f, 1.0f);
-                Vector right;
-                CrossProduct(worldUp, fwd, right);
-                if (right.LengthSqr() < 1e-6f)
-                {
-                    worldUp = Vector(0.0f, 1.0f, 0.0f);
-                    CrossProduct(worldUp, fwd, right);
-                }
-                VectorNormalize(right);
-                Vector up;
-                CrossProduct(fwd, right, up);
-                VectorNormalize(up);
-
-                const float su = m_VR->m_VRScale;
-                const Vector offSu = visualOff * su;
-                targetH += (fwd * offSu.x) + (right * offSu.y) + (up * offSu.z);
-
-                Vector to = targetH - originForDir;
-                if (!to.IsZero())
-                {
-                    VectorNormalize(to);
-                    QAngle ang;
-                    QAngle::VectorAngles(to, ang);
-                    NormalizeAndClampViewAngles(ang);
-                    vecNewAngles = ang;
-
-                    if (m_VR->m_NonVRServerMovementEffectsDebugLog)
-                    {
-                        static thread_local std::chrono::steady_clock::time_point s_lastOff{};
-                        if (!ShouldThrottleLog(s_lastOff, m_VR->m_NonVRServerMovementEffectsDebugLogHz))
-                        {
-                            const uint32_t tid = (uint32_t)GetCurrentThreadId();
-                            const uint32_t seq = m_VR->m_RenderFrameSeq.load(std::memory_order_relaxed);
-                            Game::logMsg(
-                                "[VR][FX][bullets][offset] tid=%u qmode=%d seq=%u offTotal=(%.3f %.3f %.3f)m base=(%.3f %.3f %.3f)m qExtra=(%.3f %.3f %.3f)m origin=(%.2f %.2f %.2f) H=(%.2f %.2f %.2f)",
-                                tid, qmode, seq,
-                                visualOff.x, visualOff.y, visualOff.z,
-                                m_VR->m_BulletVisualHitOffset.x, m_VR->m_BulletVisualHitOffset.y, m_VR->m_BulletVisualHitOffset.z,
-                                m_VR->m_QueuedBulletVisualHitOffset.x, m_VR->m_QueuedBulletVisualHitOffset.y, m_VR->m_QueuedBulletVisualHitOffset.z,
-                                originForDir.x, originForDir.y, originForDir.z,
-                                targetH.x, targetH.y, targetH.z);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-
-
-    if (m_VR->m_IsVREnabled && m_Game && m_Game->m_EngineClient
-        && playerId == m_Game->m_EngineClient->GetLocalPlayer())
-    {
-        int weaponId = (int)C_WeaponCSBase::WeaponID::NONE;
-        C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerId);
-        if (localPlayer)
-        {
-            C_WeaponCSBase* activeWeapon = (C_WeaponCSBase*)localPlayer->GetActiveWeapon();
-            if (activeWeapon)
-                weaponId = (int)activeWeapon->GetWeaponID();
-        }
-        m_VR->TriggerWeaponFireHaptics(weaponId, false);
-    }
-
-    // RightAmmoHUD: hit-based target HP bar has been removed.
-// The ammo HUD now shows HP%% for the *aimed* special infected (and Witch) and hides instantly on leave.
-    if (m_VR->m_IsVREnabled)
-        m_VR->RegisterPotentialKillSoundHit(vecNewOrigin, vecNewAngles);
-
-    const auto original = hkClientFireTerrorBullets.fOriginal;
-    if (!original)
-        return 0;
-
-    return original(playerId, vecNewOrigin, vecNewAngles, a4, a5, a6, a7);
-}
 }
 
 
