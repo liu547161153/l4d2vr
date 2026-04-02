@@ -1352,8 +1352,10 @@ public:
 	float m_DamageFireSustainIntervalSeconds = 0.11f;
 	float m_DamageAcidSustainIntervalSeconds = 0.08f;
 	std::chrono::steady_clock::time_point m_LastDamageFeedbackEventRegisterAttempt{};
+	std::chrono::steady_clock::time_point m_LastDamageFeedbackEventSeenTime{};
 	PendingDamageFeedback m_PendingDamageFeedback{};
 	std::chrono::steady_clock::time_point m_LastDamageFeedbackTriggerTime{};
+	int m_LastObservedDamageHealth = -1;
 	float m_DamageFeedbackMergeWindowSeconds = 0.045f;
 	float m_DamageFeedbackMinTriggerIntervalSeconds = 0.030f;
 	float m_DamageFeedbackMergedHitBonus = 0.04f;

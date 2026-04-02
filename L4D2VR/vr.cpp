@@ -2684,6 +2684,8 @@ void VR::ParseHapticsConfigFile()
     m_NextAcidSustainPulse = {};
     m_NextFireSustainPulse = {};
     m_LastDamageFeedbackEventRegisterAttempt = {};
+    m_LastDamageFeedbackEventSeenTime = {};
+    m_LastObservedDamageHealth = -1;
     m_LastCameraShakeHapticsPulse = {};
     m_LandingAirborneSince = {};
     m_WasOnGroundForHaptics = true;
@@ -2711,8 +2713,32 @@ void VR::EnsureDamageFeedbackEventListener()
 
     if (!m_DamageFeedbackEventManager)
         m_DamageFeedbackEventManager = m_Game->m_GameEventManager;
+
     if (!m_DamageFeedbackEventManager)
+    {
+        HMODULE engineModule = GetModuleHandleA("engine.dll");
+        if (engineModule)
+        {
+            using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
+            const auto createInterface = reinterpret_cast<tCreateInterface>(GetProcAddress(engineModule, "CreateInterface"));
+            if (createInterface)
+            {
+                int returnCode = 0;
+                void* iface = createInterface("GAMEEVENTSMANAGER002", &returnCode);
+                if (!iface)
+                    iface = createInterface("GAMEEVENTSMANAGER001", &returnCode);
+                m_DamageFeedbackEventManager = static_cast<IGameEventManager2*>(iface);
+                if (m_DamageFeedbackEventManager && !m_Game->m_GameEventManager)
+                    m_Game->m_GameEventManager = m_DamageFeedbackEventManager;
+            }
+        }
+    }
+
+    if (!m_DamageFeedbackEventManager)
+    {
+        Game::logMsg("[VR][DamageFeedback][listener] missing game event manager");
         return;
+    }
 
     if (!m_DamageFeedbackEventListener)
         m_DamageFeedbackEventListener = new VRDamageFeedbackEventListener(this);
@@ -2723,8 +2749,13 @@ void VR::EnsureDamageFeedbackEventListener()
     {
         const bool alreadyRegistered = m_DamageFeedbackEventManager->FindListener(m_DamageFeedbackEventListener, eventName);
         const bool registered = alreadyRegistered || m_DamageFeedbackEventManager->AddListener(m_DamageFeedbackEventListener, eventName, false);
+        if (!registered)
+            Game::logMsg("[VR][DamageFeedback][listener] failed to register event=%s", eventName);
         registeredAll = registeredAll && registered;
     }
+
+    if (registeredAll)
+        Game::logMsg("[VR][DamageFeedback][listener] registered player_hurt");
 
     m_DamageFeedbackEventListenerRegistered = registeredAll;
 }
@@ -2742,18 +2773,35 @@ void VR::HandleDamageFeedbackGameEvent(IGameEvent* event)
     if (eventName != "player_hurt")
         return;
 
-    const int localUserId = GetLocalPlayerUserId(m_Game);
     const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
-    if (localUserId <= 0 || localPlayerIndex <= 0)
+    if (localPlayerIndex <= 0)
         return;
 
     const int victimUserId = event->GetInt("userid", 0);
-    if (victimUserId != localUserId)
+    int victimIndex = 0;
+    if (victimUserId > 0)
+        victimIndex = m_Game->m_EngineClient->GetPlayerForUserID(victimUserId);
+    if (victimIndex <= 0)
+        victimIndex = event->GetInt("victimentid", 0);
+    if (victimIndex <= 0)
+        victimIndex = event->GetInt("entityid", 0);
+    if (victimIndex <= 0)
+        victimIndex = event->GetInt("entindex", 0);
+
+    bool eventIsForLocalPlayer = victimIndex > 0 && victimIndex == localPlayerIndex;
+    if (!eventIsForLocalPlayer)
+    {
+        const int localUserId = GetLocalPlayerUserId(m_Game);
+        eventIsForLocalPlayer = localUserId > 0 && victimUserId > 0 && victimUserId == localUserId;
+    }
+    if (!eventIsForLocalPlayer)
         return;
 
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(localPlayerIndex);
     if (!localPlayer)
         return;
+
+    m_LastDamageFeedbackEventSeenTime = std::chrono::steady_clock::now();
 
     const int damage = (std::max)(1, event->GetInt("dmg_health", event->GetInt("amount", 1)));
     const char* weapon = event->GetString("weapon", "");
@@ -2859,16 +2907,52 @@ void VR::HandleDamageFeedbackGameEvent(IGameEvent* event)
 void VR::UpdateDamageFeedback()
 {
     if (!m_DamageFeedbackEnabled || !m_IsVREnabled || !m_Game || !m_Game->m_EngineClient)
+    {
+        m_LastObservedDamageHealth = -1;
         return;
+    }
 
     EnsureDamageFeedbackEventListener();
 
     const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
     C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(localPlayerIndex);
     if (!localPlayer)
+    {
+        m_LastObservedDamageHealth = -1;
         return;
+    }
 
     const auto now = std::chrono::steady_clock::now();
+
+    const int currentHealth = (std::max)(0, *reinterpret_cast<int*>(reinterpret_cast<std::uintptr_t>(localPlayer) + kHealthOffset));
+    if (m_LastObservedDamageHealth < 0)
+    {
+        m_LastObservedDamageHealth = currentHealth;
+    }
+    else
+    {
+        if (currentHealth < m_LastObservedDamageHealth)
+        {
+            const int healthDelta = m_LastObservedDamageHealth - currentHealth;
+            const bool recentDamageEvent = m_LastDamageFeedbackEventSeenTime.time_since_epoch().count() != 0
+                && std::chrono::duration<float>(now - m_LastDamageFeedbackEventSeenTime).count() <= 0.20f;
+
+            if (!recentDamageEvent && healthDelta > 0)
+            {
+                PendingDamageFeedback& pending = m_PendingDamageFeedback;
+                pending = {};
+                pending.active = true;
+                pending.type = ClassifyDamageFeedbackType("", healthDelta);
+                pending.controlState = ResolveLocalSpecialControlState(localPlayer, nullptr);
+                pending.maxDamage = healthDelta;
+                pending.mergedCount = 1;
+                pending.queuedAt = now;
+                Game::logMsg("[VR][DamageFeedback][fallback] health drop %d -> %d (delta=%d)", m_LastObservedDamageHealth, currentHealth, healthDelta);
+            }
+        }
+
+        m_LastObservedDamageHealth = currentHealth;
+    }
 
     if (m_PendingDamageFeedback.active)
     {
