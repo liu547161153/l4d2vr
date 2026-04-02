@@ -470,8 +470,9 @@ int Hooks::dClientFireTerrorBullets(
 			&& playerId == m_Game->m_EngineClient->GetLocalPlayer())
 		{
 			// Start a fresh shot window once per FireTerrorBullets call.
-			// RegisterPotentialKillSoundHit still does the strict Trace-to-target check,
-			// but the shot serial prevents multiple hit sounds from the same shot path.
+			// RegisterPotentialKillSoundHit keeps a VR-corrected impact candidate for
+			// later hurt/death events and also serves as the fallback path for
+			// common-infected hit feedback when local hurt events are unavailable.
 			m_VR->BeginPredictedHitFeedbackShot();
 			// Use the final VR-corrected shot ray for predicted hit feedback so the
 			// hit sound / hit indicator matches the actual VR muzzle origin and aim.

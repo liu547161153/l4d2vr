@@ -919,11 +919,11 @@ void VR::ParseConfigFile()
 
     // Hand HUD alpha (legacy): used as an extra BACKGROUND opacity multiplier (0..1).
     // We no longer apply IVROverlay::SetOverlayAlpha to the whole overlay because it makes text/bars fade too.
-    const float leftBgMul  = std::clamp(getFloat("LeftWristHudAlpha", m_LeftWristHudAlpha), 0.0f, 1.0f);
+    const float leftBgMul = std::clamp(getFloat("LeftWristHudAlpha", m_LeftWristHudAlpha), 0.0f, 1.0f);
     const float rightBgMul = std::clamp(getFloat("RightAmmoHudAlpha", m_RightAmmoHudAlpha), 0.0f, 1.0f);
-    m_LeftWristHudBgAlpha  = std::clamp(m_LeftWristHudBgAlpha * leftBgMul, 0.0f, 1.0f);
-    m_RightAmmoHudBgAlpha  = std::clamp(m_RightAmmoHudBgAlpha * rightBgMul, 0.0f, 1.0f);
-    m_LeftWristHudAlpha  = 1.0f;
+    m_LeftWristHudBgAlpha = std::clamp(m_LeftWristHudBgAlpha * leftBgMul, 0.0f, 1.0f);
+    m_RightAmmoHudBgAlpha = std::clamp(m_RightAmmoHudBgAlpha * rightBgMul, 0.0f, 1.0f);
+    m_LeftWristHudAlpha = 1.0f;
     m_RightAmmoHudAlpha = 1.0f;
 
     // Left wrist HUD: battery label font scale (1..4)
@@ -1062,15 +1062,15 @@ void VR::ParseConfigFile()
     m_LazyScopeRearMirrorRTT = getBool("LazyScopeRearMirrorRTT", m_LazyScopeRearMirrorRTT);
     if (!prevVASLog && m_DebugVASLog)
         LogVAS("DebugVASLog enabled");
-   const bool prevAutoMatQueueMode = m_AutoMatQueueMode;
-   m_AutoMatQueueMode = getBool("AutoMatQueueMode", m_AutoMatQueueMode);
-   if (m_AutoMatQueueMode != prevAutoMatQueueMode)
-   {
-       m_AutoMatQueueModeLastRequested = -999;
-       m_AutoMatQueueModeLastCmdTime = {};
-       m_MenuFpsMaxSent = false;
-       m_MenuFpsMaxLastHz = 0;
-   }
+    const bool prevAutoMatQueueMode = m_AutoMatQueueMode;
+    m_AutoMatQueueMode = getBool("AutoMatQueueMode", m_AutoMatQueueMode);
+    if (m_AutoMatQueueMode != prevAutoMatQueueMode)
+    {
+        m_AutoMatQueueModeLastRequested = -999;
+        m_AutoMatQueueModeLastCmdTime = {};
+        m_MenuFpsMaxSent = false;
+        m_MenuFpsMaxLastHz = 0;
+    }
 
     // Multicore rendering: explicit minimum render-thread wait budget (ms) for a fresher
     // WaitGetPoses() snapshot in queued mode. 0 disables fixed waiting, but the render hook can
@@ -1291,6 +1291,13 @@ void VR::ParseConfigFile()
     m_AutoResetPositionAfterLoadSeconds = std::clamp(
         getFloat("AutoResetPositionAfterLoadSeconds", m_AutoResetPositionAfterLoadSeconds),
         0.0f, 60.0f);
+
+    // Damage feedback overall amplitude scale (0..1).
+    // Applies after profile/merge/damage scaling so you can globally tame or mute hurt haptics
+    // without re-tuning each individual damage profile.
+    m_DamageFeedbackOverallScale = std::clamp(
+        getFloat("DamageFeedbackOverallScale", m_DamageFeedbackOverallScale),
+        0.0f, 1.0f);
 
     m_ForceNonVRServerMovement = getBool("ForceNonVRServerMovement", m_ForceNonVRServerMovement);
 

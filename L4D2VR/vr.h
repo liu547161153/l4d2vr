@@ -1226,6 +1226,7 @@ public:
 		int maxDamage = 0;
 		int mergedCount = 0;
 		float directionalBiasSum = 0.0f;
+		float directionalBiasPeak = 0.0f;
 		int directionalSampleCount = 0;
 		std::chrono::steady_clock::time_point queuedAt{};
 	};
@@ -1336,15 +1337,16 @@ public:
 	WeaponHapticsProfile m_DamageChargerCarryHapticsProfile = { 0.028f, 88.0f, 0.52f };
 	WeaponHapticsProfile m_DamageChargerPummelHapticsProfile = { 0.044f, 66.0f, 0.82f };
 	float m_DamageSmokerControlDirectionalBiasScale = 1.00f;
-	float m_DamageHunterControlDirectionalBiasScale = 0.30f;
-	float m_DamageJockeyControlDirectionalBiasScale = 0.20f;
-	float m_DamageChargerCarryDirectionalBiasScale = 0.10f;
-	float m_DamageChargerPummelDirectionalBiasScale = 0.00f;
+	float m_DamageHunterControlDirectionalBiasScale = 0.85f;
+	float m_DamageJockeyControlDirectionalBiasScale = 0.75f;
+	float m_DamageChargerCarryDirectionalBiasScale = 0.65f;
+	float m_DamageChargerPummelDirectionalBiasScale = 0.55f;
 	float m_DamageScaleStart = 6.0f;
 	float m_DamageScalePerPoint = 0.008f;
 	float m_DamageScaleMaxBonus = 0.24f;
 	float m_DamageAmplitudeMin = 0.05f;
 	float m_DamageAmplitudeMax = 1.0f;
+	float m_DamageFeedbackOverallScale = 1.0f;
 	float m_DamageFireSustainSeconds = 1.4f;
 	float m_DamageAcidSustainSeconds = 1.6f;
 	WeaponHapticsProfile m_DamageFireSustainPulse = { 0.016f, 110.0f, 0.20f };

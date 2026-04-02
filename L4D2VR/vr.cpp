@@ -2370,15 +2370,25 @@ void VR::TriggerImpactHapticsBothHands(float amplitude, float frequency, float d
 
 void VR::TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias, int priority)
 {
-    const float amp = std::clamp(amplitude, 0.0f, 1.0f);
+    const float amp = std::clamp(amplitude * std::clamp(m_DamageFeedbackOverallScale, 0.0f, 1.0f), 0.0f, 1.0f);
     if (amp <= 0.0f)
         return;
 
-    const float bias = std::clamp(rightBias, -1.0f, 1.0f);
-    const float leftWeight = 0.25f + 0.75f * ((1.0f - bias) * 0.5f);
-    const float rightWeight = 0.25f + 0.75f * ((1.0f + bias) * 0.5f);
-    TriggerPhysicalHandHapticPulse(true, durationSeconds, frequency, amp * std::clamp(leftWeight, 0.0f, 1.0f), priority);
-    TriggerPhysicalHandHapticPulse(false, durationSeconds, frequency, amp * std::clamp(rightWeight, 0.0f, 1.0f), priority);
+    float bias = std::clamp(rightBias, -1.0f, 1.0f);
+    if (bias != 0.0f)
+    {
+        // Sharpen mid-strength directional samples so they do not collapse into a near-even
+        // two-hand buzz. This keeps the dominant hand clearly stronger without requiring
+        // a perfectly side-on attacker position.
+        bias = std::copysign(std::pow(std::abs(bias), 0.65f), bias);
+    }
+
+    constexpr float kOppositeHandFloor = 0.05f;
+    const float rightBlend = (bias + 1.0f) * 0.5f;
+    const float leftWeight = std::clamp(1.0f - (1.0f - kOppositeHandFloor) * rightBlend, kOppositeHandFloor, 1.0f);
+    const float rightWeight = std::clamp(kOppositeHandFloor + (1.0f - kOppositeHandFloor) * rightBlend, kOppositeHandFloor, 1.0f);
+    TriggerPhysicalHandHapticPulse(true, durationSeconds, frequency, amp * leftWeight, priority);
+    TriggerPhysicalHandHapticPulse(false, durationSeconds, frequency, amp * rightWeight, priority);
 }
 
 VR::DamageFeedbackType VR::ClassifyDamageFeedbackType(const char* weaponName, int damage) const
@@ -2901,6 +2911,8 @@ void VR::HandleDamageFeedbackGameEvent(IGameEvent* event)
     {
         pending.directionalBiasSum += directionalBias;
         pending.directionalSampleCount += 1;
+        if (std::abs(directionalBias) > std::abs(pending.directionalBiasPeak))
+            pending.directionalBiasPeak = directionalBias;
     }
 }
 
@@ -3006,10 +3018,14 @@ void VR::UpdateDamageFeedback()
             float rightBias = 0.0f;
             if (m_PendingDamageFeedback.directionalSampleCount > 0)
             {
-                rightBias = std::clamp(
+                const float averageBias = std::clamp(
                     m_PendingDamageFeedback.directionalBiasSum / (float)m_PendingDamageFeedback.directionalSampleCount,
                     -1.0f,
                     1.0f);
+                const float dominantBias = std::clamp(m_PendingDamageFeedback.directionalBiasPeak, -1.0f, 1.0f);
+                // Keep the strongest sample in the burst dominant so rapid multi-hit merges
+                // do not wash the direction back toward center.
+                rightBias = std::clamp(averageBias * 0.35f + dominantBias * 0.65f, -1.0f, 1.0f);
             }
             if (controlled)
                 rightBias *= std::clamp(GetControlledDamageDirectionalBiasScale(m_PendingDamageFeedback.controlState), 0.0f, 1.0f);
@@ -3255,12 +3271,22 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
         if (!matchedImpact)
             matchedImpact = FindPendingKillSoundHit(0, now, &impactPos);
 
-        if (!attackerMatchesLocalUser && !attackerMatchesLocalIndex && !matchedImpact)
+        const bool attackerMatchesLocal = attackerMatchesLocalUser || attackerMatchesLocalIndex;
+        const bool recentShotWindowActive =
+            m_LastPredictedHitFeedbackShotTime.time_since_epoch().count() != 0
+            && std::chrono::duration<float>(now - m_LastPredictedHitFeedbackShotTime).count() <= 0.35f;
+
+        // Hurt events alone are not a reliable hit-confirm source here:
+        // they can arrive without a usable impact match, or be unrelated to the
+        // current shot (DOT / lingering damage / other local-side quirks). Only
+        // emit hit feedback when the event can still be tied back to a recent
+        // predicted shot impact.
+        if (!attackerMatchesLocal || !matchedImpact || !recentShotWindowActive)
             return;
 
         if (m_HitSoundEnabled)
-            QueueHitSoundPlayback(matchedImpact ? &impactPos : nullptr);
-        if (m_HitIndicatorEnabled && matchedImpact)
+            QueueHitSoundPlayback(&impactPos);
+        if (m_HitIndicatorEnabled)
             SpawnHitIndicator(impactPos);
         return;
     }
