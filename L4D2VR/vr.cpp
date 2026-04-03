@@ -3265,16 +3265,44 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
         const auto now = std::chrono::steady_clock::now();
         const std::uintptr_t entityTag = ResolveKillEventEntityTag(m_Game, event, eventName);
         Vector impactPos{};
-        bool matchedImpact = false;
-        if (entityTag != 0)
-            matchedImpact = FindPendingKillSoundHit(entityTag, now, &impactPos);
-        if (!matchedImpact)
-            matchedImpact = FindPendingKillSoundHit(0, now, &impactPos);
-
         const bool attackerMatchesLocal = attackerMatchesLocalUser || attackerMatchesLocalIndex;
+        const uint32_t shotSerial = m_PredictedHitFeedbackShotSerial;
+        const float shotAgeSeconds =
+            m_LastPredictedHitFeedbackShotTime.time_since_epoch().count() != 0
+            ? std::chrono::duration<float>(now - m_LastPredictedHitFeedbackShotTime).count()
+            : -1.0f;
         const bool recentShotWindowActive =
             m_LastPredictedHitFeedbackShotTime.time_since_epoch().count() != 0
-            && std::chrono::duration<float>(now - m_LastPredictedHitFeedbackShotTime).count() <= 0.35f;
+            && shotAgeSeconds >= 0.0f
+            && shotAgeSeconds <= 0.35f;
+
+        bool matchedImpactByEntityTag = false;
+        bool matchedImpactByShotFallback = false;
+        if (recentShotWindowActive && shotSerial != 0)
+        {
+            if (entityTag != 0)
+                matchedImpactByEntityTag = FindPendingKillSoundHit(entityTag, now, &impactPos, shotSerial);
+            if (!matchedImpactByEntityTag)
+                matchedImpactByShotFallback = FindPendingKillSoundHit(0, now, &impactPos, shotSerial);
+        }
+        const bool matchedImpact = matchedImpactByEntityTag || matchedImpactByShotFallback;
+
+        if (attackerMatchesLocal || recentShotWindowActive || matchedImpact)
+        {
+            Game::logMsg(
+                "[VR][KillSound][hurt] event=%s attackerUid=%d attackerIdx=%d local=%d entity=%p shot=%u age=%.3f matchedTag=%d matchedShot=%d accept=%d pending=%zu",
+                eventName.c_str(),
+                attackerUserId,
+                attackerIndex,
+                attackerMatchesLocal ? 1 : 0,
+                reinterpret_cast<void*>(entityTag),
+                shotSerial,
+                shotAgeSeconds,
+                matchedImpactByEntityTag ? 1 : 0,
+                matchedImpactByShotFallback ? 1 : 0,
+                (attackerMatchesLocal && matchedImpact && recentShotWindowActive) ? 1 : 0,
+                m_PendingKillSoundHits.size());
+        }
 
         // Hurt events alone are not a reliable hit-confirm source here:
         // they can arrive without a usable impact match, or be unrelated to the
@@ -3508,6 +3536,18 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
     const auto expiresAt = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
         std::chrono::duration<float>(m_KillSoundDetectionWindowSeconds));
     const std::uintptr_t entityTag = reinterpret_cast<std::uintptr_t>(entity);
+    const uint32_t shotSerial = m_PredictedHitFeedbackShotSerial;
+    const char* className = m_Game ? m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity)) : nullptr;
+
+    Game::logMsg(
+        "[VR][KillSound][predicted-hit] shot=%u entity=%p class=%s direct=%d pos=(%.1f %.1f %.1f)",
+        shotSerial,
+        reinterpret_cast<void*>(entityTag),
+        className ? className : "<unknown>",
+        triggerDirectHitFeedback ? 1 : 0,
+        trace.endpos.x,
+        trace.endpos.y,
+        trace.endpos.z);
 
     m_PendingKillSoundHits.erase(
         std::remove_if(
@@ -3524,6 +3564,7 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
         if (hit.entityTag == entityTag)
         {
             hit.expiresAt = expiresAt;
+            hit.shotSerial = shotSerial;
             hit.impactPos = trace.endpos;
             return;
         }
@@ -3532,6 +3573,7 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
     PendingKillSoundHit hit{};
     hit.entityTag = entityTag;
     hit.expiresAt = expiresAt;
+    hit.shotSerial = shotSerial;
     hit.impactPos = trace.endpos;
     m_PendingKillSoundHits.push_back(hit);
     if (m_PendingKillSoundHits.size() > 24)
@@ -3586,7 +3628,7 @@ bool VR::ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chro
     return false;
 }
 
-bool VR::FindPendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos)
+bool VR::FindPendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos, uint32_t preferredShotSerial)
 {
     m_PendingKillSoundHits.erase(
         std::remove_if(
@@ -3602,10 +3644,14 @@ bool VR::FindPendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono:
         {
             return preferredEntityTag == 0 || hit.entityTag == preferredEntityTag;
         };
+    auto matchesShotSerial = [&](const PendingKillSoundHit& hit)
+        {
+            return preferredShotSerial == 0 || hit.shotSerial == preferredShotSerial;
+        };
 
     for (auto it = m_PendingKillSoundHits.rbegin(); it != m_PendingKillSoundHits.rend(); ++it)
     {
-        if (!matchesTag(*it))
+        if (!matchesTag(*it) || !matchesShotSerial(*it))
             continue;
 
         if (outImpactPos)

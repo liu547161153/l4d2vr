@@ -1160,6 +1160,7 @@ public:
 	{
 		std::uintptr_t entityTag = 0;
 		std::chrono::steady_clock::time_point expiresAt{};
+		uint32_t shotSerial = 0;
 		bool headshot = false;
 		Vector impactPos = { 0,0,0 };
 	};
@@ -1860,7 +1861,7 @@ public:
 	bool ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) const;
 	bool IsKillSoundTargetEntity(const C_BaseEntity* entity) const;
 	bool ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
-	bool FindPendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
+	bool FindPendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr, uint32_t preferredShotSerial = 0);
 	void PlayHitSound(const Vector* worldPos = nullptr);
 	void PlayKillSound(bool headshot, const Vector* worldPos = nullptr);
 	bool TryPlayKillSoundSpec(const std::string& spec, float baseVolume = 1.0f, const Vector* worldPos = nullptr, bool preferLoadedPathReuse = true);
