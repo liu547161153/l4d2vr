@@ -1099,6 +1099,8 @@ void VR::ParseConfigFile()
     // 0 = off. Higher values can soften stale-pose stepping a bit, but they do not produce fresher
     // poses, so they are not a full fix for queued-render ghosting during real head motion.
     m_QueuedRenderHmdSmoothMs = std::clamp(getInt("QueuedRenderHmdSmoothMs", m_QueuedRenderHmdSmoothMs), 0, 250);
+    // Queued rendering: feed HMD yaw through the same rotationOffset path used by thumbstick turns.
+    m_QueuedRenderHmdYawUsesTurnPath = getBool("QueuedRenderHmdYawUsesTurnPath", m_QueuedRenderHmdYawUsesTurnPath);
 
     // Queued rendering: stabilize first-person viewmodel (disable engine bob/lag in queued mode).
     m_QueuedViewmodelStabilize = getBool("QueuedViewmodelStabilize", m_QueuedViewmodelStabilize);

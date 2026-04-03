@@ -406,6 +406,10 @@ public:
 	// fresher poses and therefore cannot fully remove queued-render ghosting during real head motion.
 	// Higher = smoother but more latency between head movement and world.
 	int m_QueuedRenderHmdSmoothMs = 0;
+	// Queued rendering: optionally route HMD yaw deltas through m_RotationOffset as if they were
+	// stick turns. Final view direction stays the same, but multicore render smoothing/snapshots
+	// now see head-yaw turns on the same path as thumbstick turning, which can reduce ghosting.
+	bool m_QueuedRenderHmdYawUsesTurnPath = false;
 
 	// Queued (mat_queue_mode!=0) viewmodel stabilization: prevents first-person viewmodel ghosting
 	// when engine viewmodel bob/lag runs on a decoupled thread. 
@@ -945,6 +949,8 @@ public:
 	bool m_HeadSmoothingInitialized = false;
 	Vector m_HmdPosSmoothed = { 0,0,0 };
 	QAngle m_HmdAngSmoothed = { 0,0,0 };
+	bool m_QueuedRenderHmdYawTurnPathInitialized = false;
+	float m_QueuedRenderHmdYawTurnPathPrevLocalYaw = 0.0f;
 	CustomActionBinding m_CustomAction1Binding{};
 	CustomActionBinding m_CustomAction2Binding{};
 	CustomActionBinding m_CustomAction3Binding{};

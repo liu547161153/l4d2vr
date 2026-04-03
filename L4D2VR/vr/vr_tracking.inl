@@ -355,6 +355,40 @@ void VR::UpdateTracking()
 
     // HMD tracking
     QAngle hmdAngLocal = m_HmdPose.TrackedDeviceAng;
+    const float rawHmdLocalYaw = hmdAngLocal.y;
+    const bool routeHmdYawThroughTurnPath =
+        m_QueuedRenderHmdYawUsesTurnPath &&
+        (m_Game != nullptr) &&
+        (m_Game->GetMatQueueMode() != 0) &&
+        !m_MouseModeEnabled;
+    if (routeHmdYawThroughTurnPath)
+    {
+        if (!m_QueuedRenderHmdYawTurnPathInitialized)
+        {
+            m_QueuedRenderHmdYawTurnPathPrevLocalYaw = hmdAngLocal.y;
+            m_QueuedRenderHmdYawTurnPathInitialized = true;
+        }
+        else
+        {
+            float yawDelta = rawHmdLocalYaw - m_QueuedRenderHmdYawTurnPathPrevLocalYaw;
+            yawDelta -= 360.0f * std::floor((yawDelta + 180.0f) / 360.0f);
+
+            m_RotationOffset += yawDelta;
+            m_RotationOffset -= 360.0f * std::floor(m_RotationOffset / 360.0f);
+
+            // Cancel the local-pose yaw change so the final view is unchanged, but the body/render
+            // path now matches thumbstick turning under queued rendering.
+            hmdAngLocal.y -= yawDelta;
+            hmdAngLocal.y -= 360.0f * std::floor((hmdAngLocal.y + 180.0f) / 360.0f);
+
+            m_QueuedRenderHmdYawTurnPathPrevLocalYaw = rawHmdLocalYaw;
+        }
+    }
+    else
+    {
+        m_QueuedRenderHmdYawTurnPathInitialized = false;
+        m_QueuedRenderHmdYawTurnPathPrevLocalYaw = rawHmdLocalYaw;
+    }
     Vector hmdPosLocal = m_HmdPose.TrackedDevicePos;
 
     Vector deltaPosition = hmdPosLocal - m_HmdPosLocalPrev;
