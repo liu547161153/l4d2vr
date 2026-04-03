@@ -66,6 +66,25 @@ namespace
         return 1.0f / std::max(1.0f, maxHz);
     }
 
+    inline int FindClientEntityIndexByPointer(IClientEntityList* entityList, const void* ptr)
+    {
+        if (!entityList || !ptr)
+            return -1;
+
+        int highestIndex = entityList->GetHighestEntityIndex();
+        if (highestIndex < 1)
+            return -1;
+
+        highestIndex = (std::min)(highestIndex, 4096);
+        for (int i = 1; i <= highestIndex; ++i)
+        {
+            if (entityList->GetClientEntity(i) == ptr)
+                return i;
+        }
+
+        return -1;
+    }
+
     // Roomscale 1:1 delta packing.
     //
     // We originally used a 32-bit payload stored in CUserCmd::weaponsubtype. In practice,
@@ -3420,32 +3439,35 @@ bool VR::ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now,
 
 bool VR::IsKillSoundTargetEntity(const C_BaseEntity* entity) const
 {
-    if (!entity)
+    if (!entity || !m_Game)
         return false;
 
     const auto* base = reinterpret_cast<const unsigned char*>(entity);
     unsigned char lifeState = 1;
     int team = 0;
-    if (VR_TryReadU8(base, kLifeStateOffset, lifeState) && VR_TryReadI32(base, kTeamNumOffset, team))
+    const bool hasLifeState = VR_TryReadU8(base, kLifeStateOffset, lifeState);
+    const bool hasTeam = VR_TryReadI32(base, kTeamNumOffset, team);
+    const bool isAlive = hasLifeState && lifeState == 0;
+
+    const SpecialInfectedType specialType = GetSpecialInfectedType(entity);
+
+    const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
+    if (className && *className)
     {
-        if (lifeState == 0 && team == 3)
+        const std::string lowered = ToLowerCopy(className);
+        if ((lowered.find("infected") != std::string::npos || lowered.find("witch") != std::string::npos) && isAlive)
+            return true;
+
+        const bool isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
+        if (isPlayerClass && hasTeam && team == 3 && isAlive && specialType != SpecialInfectedType::None)
             return true;
     }
 
-    if (GetSpecialInfectedType(entity) != SpecialInfectedType::None)
+    if (hasTeam && team == 3 && isAlive && specialType != SpecialInfectedType::None)
         return true;
 
-    if (m_Game)
-    {
-        const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
-        if (className)
-        {
-            std::string lowered = className;
-            std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-            if (lowered.find("infected") != std::string::npos || lowered.find("witch") != std::string::npos)
-                return true;
-        }
-    }
+    if (hasTeam && team == 3 && isAlive)
+        return true;
 
     return false;
 }
@@ -3484,11 +3506,38 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
 
     CTraceFilterSkipSelf traceFilter(reinterpret_cast<IHandleEntity*>(localPlayer), 0);
     CGameTrace trace{};
-    m_Game->m_EngineTrace->TraceRay(ray, MASK_SHOT, &traceFilter, &trace);
+    if (!VR_SafeTraceRay(m_Game->m_EngineTrace, ray, MASK_SHOT, &traceFilter, trace))
+        return;
 
     C_BaseEntity* entity = reinterpret_cast<C_BaseEntity*>(trace.m_pEnt);
+    const int entityIndex = FindClientEntityIndexByPointer(m_Game->m_ClientEntityList, entity);
+    const auto* base = reinterpret_cast<const unsigned char*>(entity);
+    unsigned char lifeState = 1;
+    int team = 0;
+    int zombieClass = 0;
+    const bool hasLifeState = entity && VR_TryReadU8(base, kLifeStateOffset, lifeState);
+    const bool hasTeam = entity && VR_TryReadI32(base, kTeamNumOffset, team);
+    const bool hasZombieClass = entity && VR_TryReadI32(base, kZombieClassOffset, zombieClass);
+    const char* className = (entity && m_Game) ? m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity)) : nullptr;
     if (!entity || !IsKillSoundTargetEntity(entity))
+    {
+        if (entity)
+        {
+            Game::logMsg(
+                "[VR][KillSound][predicted-reject] idx=%d entity=%p class=%s frac=%.3f team=%d life=%d z=%d contents=%d hitgroup=%d hitbox=%d",
+                entityIndex,
+                reinterpret_cast<void*>(entity),
+                className ? className : "<unknown>",
+                trace.fraction,
+                hasTeam ? team : -1,
+                hasLifeState ? static_cast<int>(lifeState) : -1,
+                hasZombieClass ? zombieClass : -1,
+                trace.contents,
+                trace.hitgroup,
+                trace.hitbox);
+        }
         return;
+    }
 
     const auto now = std::chrono::steady_clock::now();
     bool triggerDirectHitFeedback = true;
@@ -3537,13 +3586,18 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
         std::chrono::duration<float>(m_KillSoundDetectionWindowSeconds));
     const std::uintptr_t entityTag = reinterpret_cast<std::uintptr_t>(entity);
     const uint32_t shotSerial = m_PredictedHitFeedbackShotSerial;
-    const char* className = m_Game ? m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity)) : nullptr;
+    const SpecialInfectedType specialType = GetSpecialInfectedType(entity);
 
     Game::logMsg(
-        "[VR][KillSound][predicted-hit] shot=%u entity=%p class=%s direct=%d pos=(%.1f %.1f %.1f)",
+        "[VR][KillSound][predicted-hit] shot=%u idx=%d entity=%p class=%s team=%d life=%d z=%d si=%d direct=%d pos=(%.1f %.1f %.1f)",
         shotSerial,
+        entityIndex,
         reinterpret_cast<void*>(entityTag),
         className ? className : "<unknown>",
+        hasTeam ? team : -1,
+        hasLifeState ? static_cast<int>(lifeState) : -1,
+        hasZombieClass ? zombieClass : -1,
+        static_cast<int>(specialType),
         triggerDirectHitFeedback ? 1 : 0,
         trace.endpos.x,
         trace.endpos.y,
