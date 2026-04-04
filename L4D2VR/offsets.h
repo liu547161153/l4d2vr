@@ -75,6 +75,27 @@ public:
     Offset AdjustEngineViewport =        { "client.dll", 0x31A890, "55 8B EC 8B 0D ? ? ? ? 85 C9 74 17" };
     Offset TestMeleeSwingClient =        { "client.dll", 0x30C040, "55 8B EC 81 EC ? ? ? ? A1 ? ? ? ? 33 C5 89 45 FC 53 56 8B 75 08 57 8B D9 E8 ? ? ? ? 8B" };
     Offset GetMeleeWeaponInfoClient =    { "client.dll", 0x30B570, "8B 81 ? ? ? ? 50 B9 ? ? ? ? E8 ? ? ? ? C3" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_1003c380.
+    // Kept as an RVA-backed offset because derived animating classes do not share one stable vtable slot.
+    Offset SetupBones =                  { "client.dll", 0x3C380, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_100321f0.
+    // This is the global per-frame client animation update loop.
+    Offset UpdateClientSideAnimations =  { "client.dll", 0x321F0, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_10085f10.
+    // Per-particle-system client think path ("Particle Simulation" / "C_ParticleSystem::ClientThink SkipToTime").
+    Offset ParticleSystemClientThink =   { "client.dll", 0x85F10, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_10051860.
+    // C_BaseFlex::AddSceneEvent scene-event entry point.
+    Offset BaseFlexAddSceneEvent =       { "client.dll", 0x51860, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_1002dbd0.
+    // Base animating muzzle-effect dispatch path.
+    Offset DispatchMuzzleEffect =        { "client.dll", 0x2DBD0, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_1002db00.
+    // Base animating muzzle-flash temp-entity dispatch path.
+    Offset ProcessMuzzleFlashEvent =     { "client.dll", 0x2DB00, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_1036db80.
+    // Deep per-collection particle simulation path ("CParticleCollection::Simulate").
+    Offset ParticleCollectionSimulate =  { "client.dll", 0x36DB80, "" };
     Offset IsSplitScreen =               { "client.dll", 0x1B2A60, "33 C0 83 3D ? ? ? ? ? 0F 9D C0" };
     Offset PrePushRenderTarget =         { "client.dll", 0xA8C80, "55 8B EC 8B C1 56 8B 75 08 8B 0E 89 08 8B 56 04 89" };
 

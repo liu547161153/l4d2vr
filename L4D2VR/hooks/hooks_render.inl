@@ -24,6 +24,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	// Reset "HUD painted" flag once per VR frame (prevents double HUD captures across eyes).
 	m_VR->m_HudPaintedThisFrame.store(false, std::memory_order_release);
+	m_VR->BeginContentCpuFrame(setup.origin);
 
 	// --- Multicore (queued) rendering stabilization ---
 	// When mat_queue_mode!=0, the render thread is decoupled from the main/update thread.

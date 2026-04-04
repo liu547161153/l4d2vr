@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <condition_variable>
+#include <cctype>
 #include <deque>
 #include <limits>
 #include <optional>
@@ -94,6 +95,29 @@ struct HapticMixState
 	float weight = 0.0f;
 	int priority = -1;
 	std::chrono::steady_clock::time_point lastSubmit{};
+};
+
+enum class ContentCpuClass : uint8_t
+{
+	Unknown = 0,
+	Critical,
+	CommonInfected,
+	SpecialInfected,
+	Ragdoll,
+	ParticleEffect,
+	DecorDynamic,
+	DecorStatic,
+};
+
+struct ContentCpuEntityState
+{
+	ContentCpuClass classification = ContentCpuClass::Unknown;
+	uint32_t lastSeenFrame = 0;
+	uint32_t lastTouchedFrame = 0;
+	float lastSeenDistanceSq = std::numeric_limits<float>::max();
+	float lastKnownDistanceSq = std::numeric_limits<float>::max();
+	uintptr_t modelKey = 0;
+	uintptr_t entityKey = 0;
 };
 
 
@@ -508,6 +532,40 @@ public:
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedOverlayTime{};
 	mutable std::unordered_map<int, std::chrono::steady_clock::time_point> m_LastSpecialInfectedTraceTime{};
 	mutable std::unordered_map<int, bool> m_LastSpecialInfectedTraceResult{};
+
+	// Content CPU optimization groundwork:
+	// - dRenderView increments a frame counter once per rendered VR frame.
+	// - dDrawModelExecute records which entities were actually seen recently.
+	// Future content-only CPU hooks (SetupBones / animation / interpolation) can use this
+	// to reduce work for common infected, ragdolls, and decor without touching VR features.
+	mutable std::mutex m_ContentCpuMutex;
+	std::atomic<uint32_t> m_ContentCpuFrameCounter{ 0 };
+	uint32_t m_ContentCpuLastPruneFrame = 0;
+	Vector m_ContentCpuLastViewOrigin = { 0.0f, 0.0f, 0.0f };
+	std::unordered_map<int, ContentCpuEntityState> m_ContentCpuEntityStates{};
+	std::unordered_map<uintptr_t, ContentCpuClass> m_ContentCpuModelClassCache{};
+	std::unordered_map<uintptr_t, int> m_ContentCpuEntityPointerIndex{};
+	bool m_ContentCpuInterpolateCullEnabled = true;
+	bool m_ContentCpuClientAnimCullEnabled = true;
+	bool m_ContentCpuClientAnimCullCommon = true;
+	bool m_ContentCpuClientAnimCullRagdoll = true;
+	bool m_ContentCpuClientAnimCullDecor = true;
+	bool m_ContentCpuSetupBonesCullEnabled = true;
+	bool m_ContentCpuSetupBonesCullCommon = false;
+	bool m_ContentCpuSetupBonesCullRagdoll = true;
+	bool m_ContentCpuSetupBonesCullDecor = true;
+	int m_ContentCpuRecentlySeenFrames = 3;
+	float m_ContentCpuCommonNoInterpDistance = 900.0f;
+	float m_ContentCpuRagdollNoInterpDistance = 550.0f;
+	float m_ContentCpuDecorNoInterpDistance = 0.0f;
+	bool m_ContentCpuParticleClientThinkCullEnabled = true;
+	bool m_ContentCpuMuzzleEffectCullEnabled = true;
+	bool m_ContentCpuFlexSceneCullEnabled = true;
+	bool m_ContentCpuParticleCollectionThrottleEnabled = true;
+	float m_ContentCpuParticleCollectionMaxHz = 30.0f;
+	float m_ContentCpuLocalFxKeepDistance = 96.0f;
+	bool m_ContentCpuDebugLog = false;
+	float m_ContentCpuDebugLogHz = 1.0f;
 
 	float m_Ipd;
 	float m_EyeZ;
@@ -1919,6 +1977,33 @@ public:
 	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
+	void BeginContentCpuFrame(const Vector& viewOrigin);
+	ContentCpuClass ClassifyContentCpuRenderable(int entityIndex,
+		uintptr_t modelKey,
+		const C_BaseEntity* entity,
+		const char* className,
+		const std::string& modelName,
+		bool isPlayerClass,
+		bool isSpecialInfected);
+	void MarkContentCpuRenderableSeen(int entityIndex,
+		uintptr_t modelKey,
+		const C_BaseEntity* entity,
+		ContentCpuClass classification,
+		const Vector& origin);
+	void TouchContentCpuEntity(int entityIndex,
+		uintptr_t modelKey,
+		const C_BaseEntity* entity,
+		ContentCpuClass classification,
+		const Vector& origin);
+	bool TryGetContentCpuEntityState(int entityIndex, ContentCpuEntityState& outState) const;
+	bool GetContentCpuEntityIndexForPointer(const C_BaseEntity* entity, int& outIndex) const;
+	bool IsLocalPlayerEntityIndex(int entityIndex) const;
+	bool ShouldCullContentCpuLocalFx(int entityIndex, const Vector& origin) const;
+	bool WasContentCpuEntityRecentlySeen(int entityIndex, uint32_t frameWindow = 2) const;
+	bool ShouldCullContentCpuInterpolation(int entityIndex) const;
+	bool ShouldCullContentCpuClientAnimation(int entityIndex) const;
+	bool ShouldCullContentCpuSetupBones(int entityIndex) const;
+	uint32_t GetContentCpuFrameId() const;
 	SpecialInfectedType GetSpecialInfectedType(const C_BaseEntity* entity) const;
 	SpecialInfectedType GetSpecialInfectedTypeFromModel(const std::string& modelName) const;
 	bool IsEntityAlive(const C_BaseEntity* entity) const;
@@ -1940,3 +2025,349 @@ public:
 	void FinishFrame();
 	void ConfigureExplicitTiming();
 };
+
+inline bool ContentCpuContainsInsensitive(const std::string& haystack, const char* needle)
+{
+	if (!needle || !*needle || haystack.empty())
+		return false;
+
+	const size_t needleLen = std::strlen(needle);
+	for (size_t i = 0; i + needleLen <= haystack.size(); ++i)
+	{
+		size_t j = 0;
+		for (; j < needleLen; ++j)
+		{
+			const unsigned char hc = static_cast<unsigned char>(haystack[i + j]);
+			const unsigned char nc = static_cast<unsigned char>(needle[j]);
+			if (std::tolower(hc) != std::tolower(nc))
+				break;
+		}
+		if (j == needleLen)
+			return true;
+	}
+	return false;
+}
+
+inline void VR::BeginContentCpuFrame(const Vector& viewOrigin)
+{
+	const uint32_t frame = m_ContentCpuFrameCounter.fetch_add(1, std::memory_order_relaxed) + 1;
+
+	std::lock_guard<std::mutex> lock(m_ContentCpuMutex);
+	m_ContentCpuLastViewOrigin = viewOrigin;
+
+	if (frame - m_ContentCpuLastPruneFrame < 180)
+		return;
+
+	m_ContentCpuLastPruneFrame = frame;
+	for (auto it = m_ContentCpuEntityStates.begin(); it != m_ContentCpuEntityStates.end();)
+	{
+		const ContentCpuEntityState& state = it->second;
+		if (frame - state.lastTouchedFrame > 900)
+		{
+			if (state.entityKey != 0)
+			{
+				auto pointerIt = m_ContentCpuEntityPointerIndex.find(state.entityKey);
+				if (pointerIt != m_ContentCpuEntityPointerIndex.end() && pointerIt->second == it->first)
+					m_ContentCpuEntityPointerIndex.erase(pointerIt);
+			}
+			it = m_ContentCpuEntityStates.erase(it);
+		}
+		else
+			++it;
+	}
+
+	// Keep the model-class cache bounded. We only need a lightweight memoization layer here.
+	if (m_ContentCpuModelClassCache.size() > 8192)
+		m_ContentCpuModelClassCache.clear();
+	if (m_ContentCpuEntityPointerIndex.size() > 8192)
+		m_ContentCpuEntityPointerIndex.clear();
+}
+
+inline ContentCpuClass VR::ClassifyContentCpuRenderable(int entityIndex,
+	uintptr_t modelKey,
+	const C_BaseEntity* entity,
+	const char* className,
+	const std::string& modelName,
+	bool isPlayerClass,
+	bool isSpecialInfected)
+{
+	(void)entity;
+	(void)entityIndex;
+
+	if (isPlayerClass)
+		return isSpecialInfected ? ContentCpuClass::SpecialInfected : ContentCpuClass::Critical;
+
+	if (modelKey != 0)
+	{
+		std::lock_guard<std::mutex> lock(m_ContentCpuMutex);
+		auto it = m_ContentCpuModelClassCache.find(modelKey);
+		if (it != m_ContentCpuModelClassCache.end())
+			return it->second;
+	}
+
+	ContentCpuClass result = ContentCpuClass::Unknown;
+	const std::string loweredModel = modelName;
+	std::string loweredClass = className ? className : "";
+	std::transform(loweredClass.begin(), loweredClass.end(), loweredClass.begin(),
+		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+	const bool hasInteractiveKeyword =
+		ContentCpuContainsInsensitive(loweredModel, "weapon") ||
+		ContentCpuContainsInsensitive(loweredModel, "ammo") ||
+		ContentCpuContainsInsensitive(loweredModel, "upgrade") ||
+		ContentCpuContainsInsensitive(loweredModel, "door") ||
+		ContentCpuContainsInsensitive(loweredModel, "gascan") ||
+		ContentCpuContainsInsensitive(loweredModel, "propane") ||
+		ContentCpuContainsInsensitive(loweredModel, "oxygen") ||
+		ContentCpuContainsInsensitive(loweredModel, "molotov") ||
+		ContentCpuContainsInsensitive(loweredModel, "pipe_bomb") ||
+		ContentCpuContainsInsensitive(loweredModel, "vomitjar") ||
+		ContentCpuContainsInsensitive(loweredModel, "pills") ||
+		ContentCpuContainsInsensitive(loweredModel, "adrenaline") ||
+		ContentCpuContainsInsensitive(loweredModel, "defibrillator") ||
+		ContentCpuContainsInsensitive(loweredModel, "medkit") ||
+		ContentCpuContainsInsensitive(loweredModel, "first_aid") ||
+		ContentCpuContainsInsensitive(loweredModel, "ammo_stack") ||
+		ContentCpuContainsInsensitive(loweredModel, "minigun") ||
+		ContentCpuContainsInsensitive(loweredModel, "turret") ||
+		ContentCpuContainsInsensitive(loweredModel, "generator") ||
+		ContentCpuContainsInsensitive(loweredModel, "cola") ||
+		ContentCpuContainsInsensitive(loweredModel, "car_") ||
+		ContentCpuContainsInsensitive(loweredModel, "alarm");
+
+	const bool classIsCritical =
+		loweredClass.find("weapon") != std::string::npos ||
+		loweredClass.find("item") != std::string::npos ||
+		loweredClass.find("upgrade") != std::string::npos ||
+		loweredClass.find("ammo") != std::string::npos ||
+		loweredClass.find("door") != std::string::npos;
+
+	if (hasInteractiveKeyword || classIsCritical)
+	{
+		result = ContentCpuClass::Critical;
+	}
+	else if (ContentCpuContainsInsensitive(loweredModel, "ragdoll") ||
+		ContentCpuContainsInsensitive(loweredModel, "gib") ||
+		ContentCpuContainsInsensitive(loweredModel, "debris") ||
+		ContentCpuContainsInsensitive(loweredModel, "deadbody") ||
+		ContentCpuContainsInsensitive(loweredModel, "corpse") ||
+		loweredClass.find("ragdoll") != std::string::npos ||
+		loweredClass.find("corpse") != std::string::npos)
+	{
+		result = ContentCpuClass::Ragdoll;
+	}
+	else if (ContentCpuContainsInsensitive(loweredModel, "models/infected/"))
+	{
+		result = isSpecialInfected ? ContentCpuClass::SpecialInfected : ContentCpuClass::CommonInfected;
+	}
+	else if (!isPlayerClass &&
+		(loweredClass.find("infected") != std::string::npos ||
+		 loweredClass.find("zombie") != std::string::npos))
+	{
+		result = isSpecialInfected ? ContentCpuClass::SpecialInfected : ContentCpuClass::CommonInfected;
+	}
+	else if (loweredClass.find("particle") != std::string::npos ||
+		ContentCpuContainsInsensitive(loweredModel, "particle/") ||
+		ContentCpuContainsInsensitive(loweredModel, "particles/"))
+	{
+		result = ContentCpuClass::ParticleEffect;
+	}
+	else if (loweredClass.find("physicsprop") != std::string::npos ||
+		loweredClass.find("dynamicprop") != std::string::npos ||
+		loweredClass.find("breakable") != std::string::npos)
+	{
+		result = ContentCpuClass::DecorDynamic;
+	}
+	else if (ContentCpuContainsInsensitive(loweredModel, "models/props_"))
+	{
+		result = ContentCpuClass::DecorStatic;
+	}
+
+	if (modelKey != 0 && result != ContentCpuClass::Unknown && !isPlayerClass)
+	{
+		std::lock_guard<std::mutex> lock(m_ContentCpuMutex);
+		m_ContentCpuModelClassCache[modelKey] = result;
+	}
+
+	return result;
+}
+
+inline void VR::MarkContentCpuRenderableSeen(int entityIndex,
+	uintptr_t modelKey,
+	const C_BaseEntity* entity,
+	ContentCpuClass classification,
+	const Vector& origin)
+{
+	if (entityIndex <= 0)
+		return;
+
+	const uint32_t frame = m_ContentCpuFrameCounter.load(std::memory_order_relaxed);
+	std::lock_guard<std::mutex> lock(m_ContentCpuMutex);
+
+	ContentCpuEntityState& state = m_ContentCpuEntityStates[entityIndex];
+	state.lastSeenFrame = frame;
+	state.lastTouchedFrame = frame;
+	state.lastSeenDistanceSq = (origin - m_ContentCpuLastViewOrigin).LengthSqr();
+	state.lastKnownDistanceSq = state.lastSeenDistanceSq;
+	state.modelKey = modelKey;
+	state.entityKey = reinterpret_cast<uintptr_t>(entity);
+	if (classification != ContentCpuClass::Unknown)
+		state.classification = classification;
+	if (state.entityKey != 0)
+		m_ContentCpuEntityPointerIndex[state.entityKey] = entityIndex;
+}
+
+inline void VR::TouchContentCpuEntity(int entityIndex,
+	uintptr_t modelKey,
+	const C_BaseEntity* entity,
+	ContentCpuClass classification,
+	const Vector& origin)
+{
+	if (entityIndex <= 0)
+		return;
+
+	const uint32_t frame = m_ContentCpuFrameCounter.load(std::memory_order_relaxed);
+	std::lock_guard<std::mutex> lock(m_ContentCpuMutex);
+
+	ContentCpuEntityState& state = m_ContentCpuEntityStates[entityIndex];
+	state.lastTouchedFrame = frame;
+	state.lastKnownDistanceSq = (origin - m_ContentCpuLastViewOrigin).LengthSqr();
+	if (modelKey != 0)
+		state.modelKey = modelKey;
+	state.entityKey = reinterpret_cast<uintptr_t>(entity);
+	if (classification != ContentCpuClass::Unknown)
+		state.classification = classification;
+	if (state.entityKey != 0)
+		m_ContentCpuEntityPointerIndex[state.entityKey] = entityIndex;
+}
+
+inline bool VR::TryGetContentCpuEntityState(int entityIndex, ContentCpuEntityState& outState) const
+{
+	if (entityIndex <= 0)
+		return false;
+
+	std::lock_guard<std::mutex> lock(m_ContentCpuMutex);
+	auto it = m_ContentCpuEntityStates.find(entityIndex);
+	if (it == m_ContentCpuEntityStates.end())
+		return false;
+
+	outState = it->second;
+	return true;
+}
+
+inline bool VR::GetContentCpuEntityIndexForPointer(const C_BaseEntity* entity, int& outIndex) const
+{
+	outIndex = -1;
+	if (!entity)
+		return false;
+
+	std::lock_guard<std::mutex> lock(m_ContentCpuMutex);
+	auto it = m_ContentCpuEntityPointerIndex.find(reinterpret_cast<uintptr_t>(entity));
+	if (it == m_ContentCpuEntityPointerIndex.end())
+		return false;
+
+	outIndex = it->second;
+	return true;
+}
+
+inline bool VR::WasContentCpuEntityRecentlySeen(int entityIndex, uint32_t frameWindow) const
+{
+	ContentCpuEntityState state{};
+	if (!TryGetContentCpuEntityState(entityIndex, state))
+		return false;
+
+	const uint32_t curFrame = m_ContentCpuFrameCounter.load(std::memory_order_relaxed);
+	if (state.lastSeenFrame == 0 || curFrame < state.lastSeenFrame)
+		return false;
+
+	return (curFrame - state.lastSeenFrame) <= frameWindow;
+}
+
+inline bool VR::ShouldCullContentCpuInterpolation(int entityIndex) const
+{
+	if (!m_ContentCpuInterpolateCullEnabled)
+		return false;
+
+	ContentCpuEntityState state{};
+	if (!TryGetContentCpuEntityState(entityIndex, state))
+		return false;
+
+	const uint32_t curFrame = m_ContentCpuFrameCounter.load(std::memory_order_relaxed);
+	if (state.lastSeenFrame != 0 &&
+		curFrame >= state.lastSeenFrame &&
+		(curFrame - state.lastSeenFrame) <= static_cast<uint32_t>(std::max(0, m_ContentCpuRecentlySeenFrames)))
+	{
+		return false;
+	}
+
+	switch (state.classification)
+	{
+	case ContentCpuClass::CommonInfected:
+		return state.lastKnownDistanceSq >= (m_ContentCpuCommonNoInterpDistance * m_ContentCpuCommonNoInterpDistance);
+	case ContentCpuClass::Ragdoll:
+		return state.lastKnownDistanceSq >= (m_ContentCpuRagdollNoInterpDistance * m_ContentCpuRagdollNoInterpDistance);
+	case ContentCpuClass::DecorDynamic:
+	case ContentCpuClass::DecorStatic:
+		return m_ContentCpuDecorNoInterpDistance > 0.0f &&
+			state.lastKnownDistanceSq >= (m_ContentCpuDecorNoInterpDistance * m_ContentCpuDecorNoInterpDistance);
+	default:
+		return false;
+	}
+}
+
+inline bool VR::ShouldCullContentCpuClientAnimation(int entityIndex) const
+{
+	if (!m_ContentCpuClientAnimCullEnabled)
+		return false;
+
+	ContentCpuEntityState state{};
+	if (!TryGetContentCpuEntityState(entityIndex, state))
+		return false;
+
+	if (!ShouldCullContentCpuInterpolation(entityIndex))
+		return false;
+
+	switch (state.classification)
+	{
+	case ContentCpuClass::CommonInfected:
+		return m_ContentCpuClientAnimCullCommon;
+	case ContentCpuClass::Ragdoll:
+		return m_ContentCpuClientAnimCullRagdoll;
+	case ContentCpuClass::DecorDynamic:
+	case ContentCpuClass::DecorStatic:
+		return m_ContentCpuClientAnimCullDecor;
+	default:
+		return false;
+	}
+}
+
+inline bool VR::ShouldCullContentCpuSetupBones(int entityIndex) const
+{
+	if (!m_ContentCpuSetupBonesCullEnabled)
+		return false;
+
+	ContentCpuEntityState state{};
+	if (!TryGetContentCpuEntityState(entityIndex, state))
+		return false;
+
+	if (!ShouldCullContentCpuInterpolation(entityIndex))
+		return false;
+
+	switch (state.classification)
+	{
+	case ContentCpuClass::CommonInfected:
+		return m_ContentCpuSetupBonesCullCommon;
+	case ContentCpuClass::Ragdoll:
+		return m_ContentCpuSetupBonesCullRagdoll;
+	case ContentCpuClass::DecorDynamic:
+	case ContentCpuClass::DecorStatic:
+		return m_ContentCpuSetupBonesCullDecor;
+	default:
+		return false;
+	}
+}
+
+inline uint32_t VR::GetContentCpuFrameId() const
+{
+	return m_ContentCpuFrameCounter.load(std::memory_order_relaxed);
+}

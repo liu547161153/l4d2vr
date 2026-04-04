@@ -35,6 +35,18 @@ Hooks::Hooks(Game* game)
 	hkGetPrimaryAttackActivity.enableHook();
 	hkEyePosition.enableHook();
 	hkDrawModelExecute.enableHook();
+	if (hkUpdateClientSideAnimations.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled UpdateClientSideAnimations hook at %p", hkUpdateClientSideAnimations.pTarget);
+	if (hkParticleSystemClientThink.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled ParticleSystemClientThink hook at %p", hkParticleSystemClientThink.pTarget);
+	if (hkBaseFlexAddSceneEvent.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled BaseFlexAddSceneEvent hook at %p", hkBaseFlexAddSceneEvent.pTarget);
+	if (hkDispatchMuzzleEffect.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled DispatchMuzzleEffect hook at %p", hkDispatchMuzzleEffect.pTarget);
+	if (hkProcessMuzzleFlashEvent.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled ProcessMuzzleFlashEvent hook at %p", hkProcessMuzzleFlashEvent.pTarget);
+	if (hkParticleCollectionSimulate.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled ParticleCollectionSimulate hook at %p", hkParticleCollectionSimulate.pTarget);
 	hkRenderView.enableHook();
 	hkPushRenderTargetAndViewport.enableHook();
 	hkPopRenderTargetAndViewport.enableHook();
@@ -116,6 +128,24 @@ int Hooks::initSourceHooks()
 
 	LPVOID DrawModelExecuteAddr = (LPVOID)(m_Game->m_Offsets->DrawModelExecute.address);
 	hkDrawModelExecute.createHook(DrawModelExecuteAddr, &dDrawModelExecute);
+
+	LPVOID UpdateClientSideAnimationsAddr = (LPVOID)(m_Game->m_Offsets->UpdateClientSideAnimations.address);
+	hkUpdateClientSideAnimations.createHook(UpdateClientSideAnimationsAddr, &dUpdateClientSideAnimations);
+
+	LPVOID ParticleSystemClientThinkAddr = (LPVOID)(m_Game->m_Offsets->ParticleSystemClientThink.address);
+	hkParticleSystemClientThink.createHook(ParticleSystemClientThinkAddr, &dParticleSystemClientThink);
+
+	LPVOID BaseFlexAddSceneEventAddr = (LPVOID)(m_Game->m_Offsets->BaseFlexAddSceneEvent.address);
+	hkBaseFlexAddSceneEvent.createHook(BaseFlexAddSceneEventAddr, &dBaseFlexAddSceneEvent);
+
+	LPVOID DispatchMuzzleEffectAddr = (LPVOID)(m_Game->m_Offsets->DispatchMuzzleEffect.address);
+	hkDispatchMuzzleEffect.createHook(DispatchMuzzleEffectAddr, &dDispatchMuzzleEffect);
+
+	LPVOID ProcessMuzzleFlashEventAddr = (LPVOID)(m_Game->m_Offsets->ProcessMuzzleFlashEvent.address);
+	hkProcessMuzzleFlashEvent.createHook(ProcessMuzzleFlashEventAddr, &dProcessMuzzleFlashEvent);
+
+	LPVOID ParticleCollectionSimulateAddr = (LPVOID)(m_Game->m_Offsets->ParticleCollectionSimulate.address);
+	hkParticleCollectionSimulate.createHook(ParticleCollectionSimulateAddr, &dParticleCollectionSimulate);
 
 	LPVOID PushRenderTargetAddr = (LPVOID)(m_Game->m_Offsets->PushRenderTargetAndViewport.address);
 	hkPushRenderTargetAndViewport.createHook(PushRenderTargetAddr, &dPushRenderTargetAndViewport);

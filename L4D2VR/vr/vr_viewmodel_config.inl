@@ -1055,6 +1055,27 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
+    m_ContentCpuInterpolateCullEnabled = getBool("ContentCpuInterpolateCullEnabled", m_ContentCpuInterpolateCullEnabled);
+    m_ContentCpuClientAnimCullEnabled = getBool("ContentCpuClientAnimCullEnabled", m_ContentCpuClientAnimCullEnabled);
+    m_ContentCpuClientAnimCullCommon = getBool("ContentCpuClientAnimCullCommon", m_ContentCpuClientAnimCullCommon);
+    m_ContentCpuClientAnimCullRagdoll = getBool("ContentCpuClientAnimCullRagdoll", m_ContentCpuClientAnimCullRagdoll);
+    m_ContentCpuClientAnimCullDecor = getBool("ContentCpuClientAnimCullDecor", m_ContentCpuClientAnimCullDecor);
+    m_ContentCpuSetupBonesCullEnabled = getBool("ContentCpuSetupBonesCullEnabled", m_ContentCpuSetupBonesCullEnabled);
+    m_ContentCpuSetupBonesCullCommon = getBool("ContentCpuSetupBonesCullCommon", m_ContentCpuSetupBonesCullCommon);
+    m_ContentCpuSetupBonesCullRagdoll = getBool("ContentCpuSetupBonesCullRagdoll", m_ContentCpuSetupBonesCullRagdoll);
+    m_ContentCpuSetupBonesCullDecor = getBool("ContentCpuSetupBonesCullDecor", m_ContentCpuSetupBonesCullDecor);
+    m_ContentCpuRecentlySeenFrames = std::clamp(getInt("ContentCpuRecentlySeenFrames", m_ContentCpuRecentlySeenFrames), 0, 16);
+    m_ContentCpuCommonNoInterpDistance = std::clamp(getFloat("ContentCpuCommonNoInterpDistance", m_ContentCpuCommonNoInterpDistance), 0.0f, 8192.0f);
+    m_ContentCpuRagdollNoInterpDistance = std::clamp(getFloat("ContentCpuRagdollNoInterpDistance", m_ContentCpuRagdollNoInterpDistance), 0.0f, 8192.0f);
+    m_ContentCpuDecorNoInterpDistance = std::clamp(getFloat("ContentCpuDecorNoInterpDistance", m_ContentCpuDecorNoInterpDistance), 0.0f, 8192.0f);
+    m_ContentCpuParticleClientThinkCullEnabled = getBool("ContentCpuParticleClientThinkCullEnabled", m_ContentCpuParticleClientThinkCullEnabled);
+    m_ContentCpuMuzzleEffectCullEnabled = getBool("ContentCpuMuzzleEffectCullEnabled", m_ContentCpuMuzzleEffectCullEnabled);
+    m_ContentCpuFlexSceneCullEnabled = getBool("ContentCpuFlexSceneCullEnabled", m_ContentCpuFlexSceneCullEnabled);
+    m_ContentCpuParticleCollectionThrottleEnabled = getBool("ContentCpuParticleCollectionThrottleEnabled", m_ContentCpuParticleCollectionThrottleEnabled);
+    m_ContentCpuParticleCollectionMaxHz = std::clamp(getFloat("ContentCpuParticleCollectionMaxHz", m_ContentCpuParticleCollectionMaxHz), 1.0f, 240.0f);
+    m_ContentCpuLocalFxKeepDistance = std::clamp(getFloat("ContentCpuLocalFxKeepDistance", m_ContentCpuLocalFxKeepDistance), 0.0f, 1024.0f);
+    m_ContentCpuDebugLog = getBool("ContentCpuDebugLog", m_ContentCpuDebugLog);
+    m_ContentCpuDebugLogHz = std::clamp(getFloat("ContentCpuDebugLogHz", m_ContentCpuDebugLogHz), 0.0f, 20.0f);
 
     // Debug / memory
     const bool prevVASLog = m_DebugVASLog;
