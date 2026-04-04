@@ -432,34 +432,21 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			uint32_t poseSeq = 0;
 			bool havePoses = m_VR->ReadPoseWaiterSnapshot(renderPoses.data(), &poseSeq);
 
-			// Detect real HMD motion directly from the pose snapshot.
-			// Head rotation and head translation need fresher poses than body/stick movement because
-			// reusing the same WaitGetPoses() sample is far more visible there.
+			// Heuristic: treat fast HMD rotation as "active" (helps decide whether to nudge pose waiting).
 			bool headTurningNow = false;
-			bool headMovingNow = false;
 			if (havePoses && renderPoses[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid)
 			{
 				const auto& av = renderPoses[vr::k_unTrackedDeviceIndex_Hmd].vAngularVelocity;
-				const auto& lv = renderPoses[vr::k_unTrackedDeviceIndex_Hmd].vVelocity;
 				const double ax = (double)av.v[0];
 				const double ay = (double)av.v[1];
 				const double az = (double)av.v[2];
-				const double lx = (double)lv.v[0];
-				const double ly = (double)lv.v[1];
-				const double lz = (double)lv.v[2];
 				if (std::isfinite(ax) && std::isfinite(ay) && std::isfinite(az))
 				{
 					const double radPerSec = std::sqrt(ax * ax + ay * ay + az * az);
 					const double degPerSec = radPerSec * (180.0 / 3.14159265358979323846);
-					headTurningNow = (degPerSec > 15.0);
-				}
-				if (std::isfinite(lx) && std::isfinite(ly) && std::isfinite(lz))
-				{
-					const double metersPerSec = std::sqrt(lx * lx + ly * ly + lz * lz);
-					headMovingNow = (metersPerSec > 0.03);
+					headTurningNow = (degPerSec > 50.0);
 				}
 			}
-			const bool hmdMotionNow = (headTurningNow || headMovingNow);
 
 			// Optional pacing knob: in queued mode the render thread can outrun VR pose updates.
 			// Waiting a bit for a fresh WaitGetPoses() snapshot trades throughput for stability.
@@ -467,17 +454,13 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 			int waitMs = waitMsCfg;
 
 			const int maxAheadCfg = std::clamp(m_VR->m_QueuedRenderMaxFramesAhead, -1, 6);
-			const float hmdHzForWait = std::max(1.0f, m_VR->GetHmdDisplayFrequencyHz());
-			const int hmdFrameMs = std::clamp((int)std::lround(1000.0f / hmdHzForWait), 1, 50);
-			const int hmdAutoWaitMs = std::clamp((int)std::lround((double)hmdFrameMs * 0.75), 2, 12);
-			const int bodyAutoWaitMs = std::clamp((int)std::lround((double)hmdFrameMs * 0.25), 1, 4);
 
 			// Pose snapshot reuse tracking (render-thread local). Used by MaxFramesAhead and smart FPS pacing.
 			static thread_local uint32_t s_lastPoseSeq = 0;
 			static thread_local uint32_t s_lastWaitAttemptSeq = 0;
 			static thread_local int s_poseReuseCount = 0;
 
-			const bool motionNow = (locomotionNow || hmdMotionNow);
+			const bool motionNow = (locomotionNow || headTurningNow);
 
 			// Update pose snapshot reuse count early (before optional waiting), so smart pacing can react
 			// even when QueuedRenderPoseWaitMs==0 and MaxFramesAhead is disabled.
@@ -502,23 +485,10 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				}
 			}
 
-			// Auto-stabilize stale pose reuse.
-			// Body/stick motion only needs a tiny nudge, but real HMD motion needs a much more meaningful
-			// fraction of the headset frame interval; 2-3 ms often misses the next pose entirely.
-			if (queueMode == 2)
-			{
-				if (hmdMotionNow)
-				{
-					if (waitMs == 0)
-						waitMs = hmdAutoWaitMs;
-					else if (waitMs > 0)
-						waitMs = std::max(waitMs, hmdAutoWaitMs);
-				}
-				else if (waitMs == 0 && locomotionNow)
-				{
-					waitMs = bodyAutoWaitMs;
-				}
-			}
+			// Auto-stabilize: in queued mode, if we're locomoting/turning but the render thread keeps reusing
+			// the same pose snapshot, it feels like "stutter + ghosting". A tiny wait here encourages a fresh pose.
+			if (waitMs == 0 && queueMode == 2 && motionNow)
+				waitMs = 2;
 
 			// Enforced frames-ahead limiter: if enabled, we may need to wait even when waitMs==0.
 			if ((waitMs != 0 || maxAheadCfg >= 0) && m_VR->m_PoseWaiterEvent)
@@ -577,11 +547,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				// If we already consumed this snapshot, optionally wait for the next one.
 				if (havePoses && poseSeq != 0 && poseSeq == s_lastPoseSeq && effectiveTimeoutMs > 0)
 				{
-					// Pure HMD motion is sensitive enough that a single failed wait attempt per pose sequence is not
-					// enough. If we're still reusing the same snapshot while the headset is moving, retry on later
-					// render calls instead of waiting only once for that poseSeq.
-					const bool retrySameSeqForHmdMotion = hmdMotionNow && (timeoutMs > 0);
-					const bool shouldWaitNext = exceededAhead || (timeoutMs > 0 && (poseSeq != s_lastWaitAttemptSeq || retrySameSeqForHmdMotion));
+					const bool shouldWaitNext = exceededAhead || (timeoutMs > 0 && poseSeq != s_lastWaitAttemptSeq);
 					if (shouldWaitNext)
 					{
 						// If the user didn't opt into waiting but we're moving/turning and reusing the same pose,
@@ -593,8 +559,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 							if (s_lastAutoWaitLog.time_since_epoch().count() == 0 ||
 								std::chrono::duration<float>(nowLog - s_lastAutoWaitLog).count() > 1.0f)
 							{
-								Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d hmdMove=%d hmdTurn=%d) poseSeq=%u",
-									(unsigned)timeoutMs, motionNow ? 1 : 0, headMovingNow ? 1 : 0, headTurningNow ? 1 : 0, (unsigned)poseSeq);
+								Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d headturn=%d) poseSeq=%u",
+									(unsigned)timeoutMs, motionNow ? 1 : 0, headTurningNow ? 1 : 0, (unsigned)poseSeq);
 								s_lastAutoWaitLog = nowLog;
 							}
 						}

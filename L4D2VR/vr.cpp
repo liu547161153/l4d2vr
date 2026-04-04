@@ -3331,8 +3331,6 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
         if (!attackerMatchesLocal || !matchedImpact || !recentShotWindowActive)
             return;
 
-        if (m_HitSoundEnabled)
-            QueueHitSoundPlayback(&impactPos);
         if (m_HitIndicatorEnabled)
             SpawnHitIndicator(impactPos);
         return;
