@@ -92,16 +92,6 @@ typedef void(__thiscall* tItemPostFrame)(void* thisptr);
 typedef int(__thiscall* tGetPrimaryAttackActivity)(void* thisptr, void* meleeInfo);
 typedef Vector* (__thiscall* tEyePosition)(void* thisptr, Vector* eyePos);
 typedef void(__thiscall* tDrawModelExecute)(void* thisptr, void* state, const ModelRenderInfo_t& info, void* pCustomBoneToWorld);
-typedef bool(__thiscall* tSetupBones)(void* thisptr, matrix3x4_t* pBoneToWorldOut, int nMaxBones, int boneMask, float currentTime);
-typedef bool(__thiscall* tShouldInterpolate)(C_BaseEntity* thisptr);
-typedef void(__thiscall* tDispatchClientThink)(void* thisptr, uint32_t* entry, uint32_t serial);
-typedef void(__cdecl* tUpdateClientSideAnimations)();
-typedef float(__thiscall* tStudioFrameAdvance)(void* thisptr, float flInterval);
-typedef void(__thiscall* tParticleSystemClientThink)(void* thisptr);
-typedef void(__thiscall* tBaseFlexAddSceneEvent)(void* thisptr, void* scene, void* event, void* actor, char flags, void* target);
-typedef void(__thiscall* tDispatchMuzzleEffect)(void* thisptr, void* arg1, void* arg2);
-typedef void(__thiscall* tProcessMuzzleFlashEvent)(void* thisptr);
-typedef void(__thiscall* tParticleCollectionSimulate)(void* thisptr, float dt);
 typedef void(__thiscall* tPushRenderTargetAndViewport)(void* thisptr, ITexture* pTexture, ITexture* pDepthTexture, int nViewX, int nViewY, int nViewW, int nViewH);
 typedef void(__thiscall* tPopRenderTargetAndViewport)(void* thisptr);
 typedef void(__thiscall* tVgui_Paint)(void* thisptr, int mode);
@@ -138,16 +128,6 @@ public:
 	static inline Hook<tGetPrimaryAttackActivity> hkGetPrimaryAttackActivity;
 	static inline Hook<tEyePosition> hkEyePosition;
 	static inline Hook<tDrawModelExecute> hkDrawModelExecute;
-	static inline Hook<tSetupBones> hkSetupBones;
-	static inline Hook<tShouldInterpolate> hkShouldInterpolate;
-	static inline Hook<tDispatchClientThink> hkDispatchClientThink;
-	static inline Hook<tUpdateClientSideAnimations> hkUpdateClientSideAnimations;
-	static inline Hook<tStudioFrameAdvance> hkStudioFrameAdvance;
-	static inline Hook<tParticleSystemClientThink> hkParticleSystemClientThink;
-	static inline Hook<tBaseFlexAddSceneEvent> hkBaseFlexAddSceneEvent;
-	static inline Hook<tDispatchMuzzleEffect> hkDispatchMuzzleEffect;
-	static inline Hook<tProcessMuzzleFlashEvent> hkProcessMuzzleFlashEvent;
-	static inline Hook<tParticleCollectionSimulate> hkParticleCollectionSimulate;
 	static inline Hook<tPushRenderTargetAndViewport> hkPushRenderTargetAndViewport;
 	static inline Hook<tPopRenderTargetAndViewport> hkPopRenderTargetAndViewport;
 	static inline Hook<tVgui_Paint> hkVgui_Paint;
@@ -186,22 +166,11 @@ public:
 	static int __fastcall dGetPrimaryAttackActivity(void* ecx, void* edx, void* meleeInfo);
 	static Vector* __fastcall dEyePosition(void* ecx, void* edx, Vector* eyePos);
 	static void __fastcall dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRenderInfo_t& info, void* pCustomBoneToWorld);
-	static bool __fastcall dSetupBones(void* ecx, void* edx, matrix3x4_t* pBoneToWorldOut, int nMaxBones, int boneMask, float currentTime);
-	static bool __fastcall dShouldInterpolate(C_BaseEntity* ecx, void* edx);
-	static void __fastcall dDispatchClientThink(void* ecx, void* edx, uint32_t* entry, uint32_t serial);
-	static void dUpdateClientSideAnimations();
-	static float __fastcall dStudioFrameAdvance(void* ecx, void* edx, float flInterval);
-	static void __fastcall dParticleSystemClientThink(void* ecx, void* edx);
-	static void __fastcall dBaseFlexAddSceneEvent(void* ecx, void* edx, void* scene, void* event, void* actor, char flags, void* target);
-	static void __fastcall dDispatchMuzzleEffect(void* ecx, void* edx, void* arg1, void* arg2);
-	static void __fastcall dProcessMuzzleFlashEvent(void* ecx, void* edx);
-	static void __fastcall dParticleCollectionSimulate(void* ecx, void* edx, float dt);
 	static void __fastcall dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTexture, ITexture* pDepthTexture, int nViewX, int nViewY, int nViewW, int nViewH);
 	static void __fastcall dPopRenderTargetAndViewport(void* ecx, void* edx);
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
-	static void TryInstallContentCpuHooksFromEntity(C_BaseEntity* entity);
 
 	// HUD render-target interception uses a small state machine to detect the
 	// engine's "push HUD RT" sequence:

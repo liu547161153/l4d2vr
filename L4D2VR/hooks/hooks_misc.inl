@@ -534,27 +534,6 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 				infectedType = modelType;
 		}
 
-		if (info.entity_index > 0)
-		{
-			const uintptr_t modelKey = reinterpret_cast<uintptr_t>(info.pModel);
-			const ContentCpuClass contentCpuClass = m_VR->ClassifyContentCpuRenderable(
-				info.entity_index,
-				modelKey,
-				entity,
-				className,
-				modelName,
-				isPlayerClass,
-				infectedType != VR::SpecialInfectedType::None);
-			m_VR->MarkContentCpuRenderableSeen(info.entity_index, modelKey, entity, contentCpuClass, info.origin);
-			if (contentCpuClass == ContentCpuClass::CommonInfected ||
-				contentCpuClass == ContentCpuClass::Ragdoll ||
-				contentCpuClass == ContentCpuClass::DecorDynamic ||
-				contentCpuClass == ContentCpuClass::DecorStatic)
-			{
-				Hooks::TryInstallContentCpuHooksFromEntity(const_cast<C_BaseEntity*>(entity));
-			}
-		}
-
 		if (isAlive && infectedType != VR::SpecialInfectedType::None)
 		{
 			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
