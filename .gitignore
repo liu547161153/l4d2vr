@@ -404,3 +404,5 @@ FodyWeavers.xsd
 /L4D2VR/special_infected_feaatures.cpp
 *.so
 /.workbuddy
+/.ghidra
+/.ghidra

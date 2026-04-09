@@ -15,6 +15,7 @@ class CViewSetup;
 class CUserCmd;
 class QAngle;
 class Vector;
+class matrix3x4_t;
 class edict_t;
 class ModelRenderInfo_t;
 class C_BasePlayer;

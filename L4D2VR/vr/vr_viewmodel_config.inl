@@ -516,12 +516,20 @@ void VR::ParseConfigFile()
     auto getFloat = [&](const char* k, float defVal)->float {
         auto it = userConfig.find(k);
         if (it == userConfig.end() || it->second.empty()) return defVal;
+        std::string v = it->second;
+        std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return std::tolower(c); });
+        if (v == "true" || v == "on" || v == "yes") return 1.0f;
+        if (v == "false" || v == "off" || v == "no") return 0.0f;
         try { return std::stof(it->second); }
         catch (...) { return defVal; }
         };
     auto getInt = [&](const char* k, int defVal)->int {
         auto it = userConfig.find(k);
         if (it == userConfig.end() || it->second.empty()) return defVal;
+        std::string v = it->second;
+        std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c) { return std::tolower(c); });
+        if (v == "true" || v == "on" || v == "yes") return 1;
+        if (v == "false" || v == "off" || v == "no") return 0;
         try { return std::stoi(it->second); }
         catch (...) { return defVal; }
         };
@@ -1055,7 +1063,6 @@ void VR::ParseConfigFile()
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
-
     // Debug / memory
     const bool prevVASLog = m_DebugVASLog;
     m_DebugVASLog = getBool("DebugVASLog", m_DebugVASLog);
@@ -1360,6 +1367,7 @@ void VR::ParseConfigFile()
     m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));
     m_NonVRMeleeSwingCooldown = std::max(0.0f, getFloat("NonVRMeleeSwingCooldown", m_NonVRMeleeSwingCooldown));
     m_NonVRMeleeHoldTime = std::max(0.0f, getFloat("NonVRMeleeHoldTime", m_NonVRMeleeHoldTime));
+    m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_NonVRMeleeAttackDelay = std::max(0.0f, getFloat("NonVRMeleeAttackDelay", m_NonVRMeleeAttackDelay));
     m_NonVRMeleeAimLockTime = std::max(0.0f, getFloat("NonVRMeleeAimLockTime", m_NonVRMeleeAimLockTime));
     m_NonVRMeleeHysteresis = std::clamp(getFloat("NonVRMeleeHysteresis", m_NonVRMeleeHysteresis), 0.1f, 0.95f);
@@ -1471,7 +1479,395 @@ void VR::ParseConfigFile()
         std::string key = std::string("SpecialInfectedPreWarningAimOffset") + suffix;
         m_SpecialInfectedPreWarningAimOffsets[typeIndex] = getVector3(key.c_str(), m_SpecialInfectedPreWarningAimOffsets[typeIndex]);
     }
+
+    // Client shadow manager / flashlight shadow controls discovered from client.dll.
+    m_ShadowTweaksEnabled = getBool("ShadowTweaksEnabled", m_ShadowTweaksEnabled);
+    m_ShadowCvarShadows = std::clamp(getInt("r_shadows", m_ShadowCvarShadows), 0, 1);
+    m_ShadowCvarRenderToTexture = std::clamp(getInt("r_shadowrendertotexture", m_ShadowCvarRenderToTexture), 0, 1);
+    m_ShadowCvarFlashlightDepthTexture = std::clamp(getInt("r_flashlightdepthtexture", m_ShadowCvarFlashlightDepthTexture), 0, 1);
+    m_ShadowCvarFlashlightDepthRes = std::clamp(getInt("r_flashlightdepthres", m_ShadowCvarFlashlightDepthRes), 64, 2048);
+    m_ShadowCvarHalfUpdateRate = std::clamp(getInt("r_shadow_half_update_rate", m_ShadowCvarHalfUpdateRate), 0, 1);
+    m_ShadowCvarMaxRendered = std::clamp(getInt("r_shadowmaxrendered", m_ShadowCvarMaxRendered), 0, 32);
+    m_ShadowCvarMaxRenderableDist = std::clamp(getFloat("cl_max_shadow_renderable_dist", m_ShadowCvarMaxRenderableDist), 0.0f, 8192.0f);
+    m_ShadowCvarFlashlightDetailProps = std::clamp(getInt("r_FlashlightDetailProps", m_ShadowCvarFlashlightDetailProps), 0, 2);
+    m_ShadowCvarMobSimpleShadows = std::clamp(getInt("z_mob_simple_shadows", m_ShadowCvarMobSimpleShadows), 0, 2);
+    m_ShadowCvarWorldLightShadows = std::clamp(getInt("r_shadowfromworldlights", m_ShadowCvarWorldLightShadows), 0, 1);
+    m_ShadowCvarFlashlightModels = std::clamp(getInt("r_flashlightmodels", m_ShadowCvarFlashlightModels), 0, 1);
+    m_ShadowCvarShadowsOnRenderables = std::clamp(getInt("r_shadows_on_renderables_enable", m_ShadowCvarShadowsOnRenderables), 0, 1);
+    m_ShadowCvarFlashlightRenderModels = std::clamp(getInt("r_flashlightrendermodels", m_ShadowCvarFlashlightRenderModels), 0, 1);
+    m_ShadowCvarPlayerShadowDist = std::clamp(getFloat("cl_player_shadow_dist", m_ShadowCvarPlayerShadowDist), 0.0f, 8192.0f);
+    m_ShadowCvarInfectedShadows = std::clamp(getInt("z_infected_shadows", m_ShadowCvarInfectedShadows), 0, 1);
+    m_ShadowCvarNbShadowBlobbyDist = std::clamp(getFloat("nb_shadow_blobby_dist", m_ShadowCvarNbShadowBlobbyDist), 0.0f, 8192.0f);
+    m_ShadowCvarNbShadowCullDist = std::clamp(getFloat("nb_shadow_cull_dist", m_ShadowCvarNbShadowCullDist), 0.0f, 8192.0f);
+    m_ShadowCvarFlashlightInfectedShadows = std::clamp(getInt("r_flashlightinfectedshadows", m_ShadowCvarFlashlightInfectedShadows), 0, 1);
+    m_ShadowEntityTweaksEnabled = getBool("ShadowEntityTweaksEnabled", m_ShadowEntityTweaksEnabled);
+    m_ShadowEntityDisableShadows = getBool("ShadowControlDisableShadows", m_ShadowEntityDisableShadows);
+    m_ShadowEntityMaxDist = std::clamp(getFloat("ShadowControlMaxDist", m_ShadowEntityMaxDist), 0.0f, 8192.0f);
+    m_ShadowEntityLocalLightShadows = getBool("ShadowControlLocalLightShadows", m_ShadowEntityLocalLightShadows);
+    m_ShadowProjectedTextureEnableShadows = getBool("ProjectedTextureEnableShadows", m_ShadowProjectedTextureEnableShadows);
+    m_ShadowProjectedTextureQuality = std::clamp(getInt("ProjectedTextureShadowQuality", m_ShadowProjectedTextureQuality), 0, 3);
+    if (m_ShadowEntityTweaksEnabled)
+    {
+        Game::logMsg("[VR][ShadowTweaks] Entity shadow overrides are temporarily disabled for stability.");
+        m_ShadowEntityTweaksEnabled = false;
+        ResetShadowEntityOverrideTracking();
+    }
+    m_ShadowSettingsDirty.store(true, std::memory_order_release);
+
     ParseHapticsConfigFile();
+}
+
+template <typename T>
+static inline T VR_ReadShadowEntityField(const void* entity, int offset, T fallback)
+{
+    if (!entity || offset < 0)
+        return fallback;
+
+    __try
+    {
+        return *reinterpret_cast<const T*>(reinterpret_cast<const uint8_t*>(entity) + offset);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return fallback;
+    }
+}
+
+template <typename T>
+static inline void VR_WriteShadowEntityField(void* entity, int offset, T value)
+{
+    if (!entity || offset < 0)
+        return;
+
+    __try
+    {
+        *reinterpret_cast<T*>(reinterpret_cast<uint8_t*>(entity) + offset) = value;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+void VR::CaptureShadowCvarDefaults()
+{
+    if (!m_Game)
+        return;
+
+    m_ShadowOrigShadows = m_Game->GetConVarInt("r_shadows", m_ShadowOrigShadows);
+    m_ShadowOrigRenderToTexture = m_Game->GetConVarInt("r_shadowrendertotexture", m_ShadowOrigRenderToTexture);
+    m_ShadowOrigFlashlightDepthTexture = m_Game->GetConVarInt("r_flashlightdepthtexture", m_ShadowOrigFlashlightDepthTexture);
+    m_ShadowOrigFlashlightDepthRes = m_Game->GetConVarInt("r_flashlightdepthres", m_ShadowOrigFlashlightDepthRes);
+    m_ShadowOrigHalfUpdateRate = m_Game->GetConVarInt("r_shadow_half_update_rate", m_ShadowOrigHalfUpdateRate);
+    m_ShadowOrigMaxRendered = m_Game->GetConVarInt("r_shadowmaxrendered", m_ShadowOrigMaxRendered);
+    m_ShadowOrigMaxRenderableDist = m_Game->GetConVarFloat("cl_max_shadow_renderable_dist", m_ShadowOrigMaxRenderableDist);
+    m_ShadowOrigFlashlightDetailProps = m_Game->GetConVarInt("r_FlashlightDetailProps", m_ShadowOrigFlashlightDetailProps);
+    m_ShadowOrigMobSimpleShadows = m_Game->GetConVarInt("z_mob_simple_shadows", m_ShadowOrigMobSimpleShadows);
+    m_ShadowOrigWorldLightShadows = m_Game->GetConVarInt("r_shadowfromworldlights", m_ShadowOrigWorldLightShadows);
+    m_ShadowOrigFlashlightModels = m_Game->GetConVarInt("r_flashlightmodels", m_ShadowOrigFlashlightModels);
+    m_ShadowOrigShadowsOnRenderables = m_Game->GetConVarInt("r_shadows_on_renderables_enable", m_ShadowOrigShadowsOnRenderables);
+    m_ShadowOrigFlashlightRenderModels = m_Game->GetConVarInt("r_flashlightrendermodels", m_ShadowOrigFlashlightRenderModels);
+    m_ShadowOrigPlayerShadowDist = m_Game->GetConVarFloat("cl_player_shadow_dist", m_ShadowOrigPlayerShadowDist);
+    m_ShadowOrigInfectedShadows = m_Game->GetConVarInt("z_infected_shadows", m_ShadowOrigInfectedShadows);
+    m_ShadowOrigNbShadowBlobbyDist = m_Game->GetConVarFloat("nb_shadow_blobby_dist", m_ShadowOrigNbShadowBlobbyDist);
+    m_ShadowOrigNbShadowCullDist = m_Game->GetConVarFloat("nb_shadow_cull_dist", m_ShadowOrigNbShadowCullDist);
+    m_ShadowOrigFlashlightInfectedShadows = m_Game->GetConVarInt("r_flashlightinfectedshadows", m_ShadowOrigFlashlightInfectedShadows);
+    m_ShadowOriginalsCaptured = true;
+}
+
+void VR::RestoreShadowCvarDefaults()
+{
+    if (!m_Game || !m_ShadowOriginalsCaptured)
+        return;
+
+    m_Game->SetConVarInt("r_shadows", m_ShadowOrigShadows);
+    m_Game->SetConVarInt("r_shadowrendertotexture", m_ShadowOrigRenderToTexture);
+    m_Game->SetConVarInt("r_flashlightdepthtexture", m_ShadowOrigFlashlightDepthTexture);
+    m_Game->SetConVarInt("r_flashlightdepthres", m_ShadowOrigFlashlightDepthRes);
+    m_Game->SetConVarInt("r_shadow_half_update_rate", m_ShadowOrigHalfUpdateRate);
+    m_Game->SetConVarInt("r_shadowmaxrendered", m_ShadowOrigMaxRendered);
+    m_Game->SetConVarFloat("cl_max_shadow_renderable_dist", m_ShadowOrigMaxRenderableDist);
+    m_Game->SetConVarInt("r_FlashlightDetailProps", m_ShadowOrigFlashlightDetailProps);
+    m_Game->SetConVarInt("z_mob_simple_shadows", m_ShadowOrigMobSimpleShadows);
+    m_Game->SetConVarInt("r_shadowfromworldlights", m_ShadowOrigWorldLightShadows);
+    m_Game->SetConVarInt("r_flashlightmodels", m_ShadowOrigFlashlightModels);
+    m_Game->SetConVarInt("r_shadows_on_renderables_enable", m_ShadowOrigShadowsOnRenderables);
+    m_Game->SetConVarInt("r_flashlightrendermodels", m_ShadowOrigFlashlightRenderModels);
+    m_Game->SetConVarFloat("cl_player_shadow_dist", m_ShadowOrigPlayerShadowDist);
+    m_Game->SetConVarInt("z_infected_shadows", m_ShadowOrigInfectedShadows);
+    m_Game->SetConVarFloat("nb_shadow_blobby_dist", m_ShadowOrigNbShadowBlobbyDist);
+    m_Game->SetConVarFloat("nb_shadow_cull_dist", m_ShadowOrigNbShadowCullDist);
+    m_Game->SetConVarInt("r_flashlightinfectedshadows", m_ShadowOrigFlashlightInfectedShadows);
+}
+
+void VR::ResetShadowEntityOverrideTracking()
+{
+    m_ShadowEntityOverridesApplied = false;
+    m_ShadowEntityLastRefreshTime = {};
+    m_ShadowEntityOffsetsLogged = false;
+    m_ShadowControlEntityDefaults.clear();
+    m_EnvProjectedTextureEntityDefaults.clear();
+}
+
+void VR::RestoreShadowEntityDefaults()
+{
+    if (!m_Game || !m_Game->m_ClientEntityList)
+    {
+        ResetShadowEntityOverrideTracking();
+        return;
+    }
+
+    const int shadowControlDisableOffset = m_Game->FindRecvPropOffset("CShadowControl", "m_bDisableShadows");
+    const int shadowControlMaxDistOffset = m_Game->FindRecvPropOffset("CShadowControl", "m_flShadowMaxDist");
+    const int shadowControlLocalLightOffset = m_Game->FindRecvPropOffset("CShadowControl", "m_bEnableLocalLightShadows");
+    const int projectedTextureEnableOffset = m_Game->FindRecvPropOffset("CEnvProjectedTexture", "m_bEnableShadows");
+    const int projectedTextureQualityOffset = m_Game->FindRecvPropOffset("CEnvProjectedTexture", "m_nShadowQuality");
+
+    int restoredShadowControls = 0;
+    for (const auto& [entityIndex, defaults] : m_ShadowControlEntityDefaults)
+    {
+        C_BaseEntity* entity = m_Game->GetClientEntity(entityIndex);
+        if (!entity)
+            continue;
+
+        VR_WriteShadowEntityField<bool>(entity, shadowControlDisableOffset, defaults.disableShadows);
+        VR_WriteShadowEntityField<float>(entity, shadowControlMaxDistOffset, defaults.maxDist);
+        VR_WriteShadowEntityField<bool>(entity, shadowControlLocalLightOffset, defaults.enableLocalLightShadows);
+        ++restoredShadowControls;
+    }
+
+    int restoredProjectedTextures = 0;
+    for (const auto& [entityIndex, defaults] : m_EnvProjectedTextureEntityDefaults)
+    {
+        C_BaseEntity* entity = m_Game->GetClientEntity(entityIndex);
+        if (!entity)
+            continue;
+
+        VR_WriteShadowEntityField<bool>(entity, projectedTextureEnableOffset, defaults.enableShadows);
+        VR_WriteShadowEntityField<int>(entity, projectedTextureQualityOffset, defaults.shadowQuality);
+        ++restoredProjectedTextures;
+    }
+
+    if (restoredShadowControls > 0 || restoredProjectedTextures > 0)
+    {
+        Game::logMsg(
+            "[VR][ShadowTweaks] Restored entity shadow defaults for %d ShadowControl and %d EnvProjectedTexture entities.",
+            restoredShadowControls,
+            restoredProjectedTextures);
+    }
+
+    ResetShadowEntityOverrideTracking();
+}
+
+void VR::ApplyShadowEntityOverrides(bool forceRefresh)
+{
+    if (!m_Game || !m_Game->m_ClientEntityList || !m_Game->m_EngineClient)
+        return;
+
+    if (!m_Game->m_EngineClient->IsInGame())
+    {
+        ResetShadowEntityOverrideTracking();
+        return;
+    }
+
+    if (!m_ShadowEntityTweaksEnabled)
+    {
+        if (m_ShadowEntityOverridesApplied)
+            RestoreShadowEntityDefaults();
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (!forceRefresh && m_ShadowEntityLastRefreshTime != std::chrono::steady_clock::time_point{} &&
+        now - m_ShadowEntityLastRefreshTime < std::chrono::milliseconds(250))
+    {
+        return;
+    }
+
+    const int shadowControlDisableOffset = m_Game->FindRecvPropOffset("CShadowControl", "m_bDisableShadows");
+    const int shadowControlMaxDistOffset = m_Game->FindRecvPropOffset("CShadowControl", "m_flShadowMaxDist");
+    const int shadowControlLocalLightOffset = m_Game->FindRecvPropOffset("CShadowControl", "m_bEnableLocalLightShadows");
+    const int projectedTextureEnableOffset = m_Game->FindRecvPropOffset("CEnvProjectedTexture", "m_bEnableShadows");
+    const int projectedTextureQualityOffset = m_Game->FindRecvPropOffset("CEnvProjectedTexture", "m_nShadowQuality");
+
+    const bool hasShadowControlOffsets =
+        shadowControlDisableOffset >= 0 && shadowControlMaxDistOffset >= 0 && shadowControlLocalLightOffset >= 0;
+    const bool hasProjectedTextureOffsets =
+        projectedTextureEnableOffset >= 0 && projectedTextureQualityOffset >= 0;
+
+    if (!hasShadowControlOffsets && !hasProjectedTextureOffsets)
+    {
+        if (!m_ShadowEntityOffsetsLogged)
+        {
+            Game::logMsg("[VR][ShadowTweaks] Failed to resolve ShadowControl / EnvProjectedTexture recv props from client.dll.");
+            m_ShadowEntityOffsetsLogged = true;
+        }
+        m_ShadowEntityTweaksEnabled = false;
+        return;
+    }
+
+    const int highestEntityIndex = m_Game->m_ClientEntityList->GetHighestEntityIndex();
+    int touchedShadowControls = 0;
+    int touchedProjectedTextures = 0;
+
+    for (int entityIndex = 0; entityIndex <= highestEntityIndex; ++entityIndex)
+    {
+        C_BaseEntity* entity = m_Game->GetClientEntity(entityIndex);
+        if (!entity)
+            continue;
+
+        const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity));
+        if (!className || !*className)
+            continue;
+
+        if (hasShadowControlOffsets &&
+            (std::strcmp(className, "CShadowControl") == 0 || std::strcmp(className, "C_ShadowControl") == 0))
+        {
+            auto [it, inserted] = m_ShadowControlEntityDefaults.try_emplace(entityIndex);
+            if (inserted)
+            {
+                it->second.disableShadows = VR_ReadShadowEntityField<bool>(entity, shadowControlDisableOffset, false);
+                it->second.maxDist = VR_ReadShadowEntityField<float>(entity, shadowControlMaxDistOffset, 0.0f);
+                it->second.enableLocalLightShadows =
+                    VR_ReadShadowEntityField<bool>(entity, shadowControlLocalLightOffset, false);
+            }
+
+            VR_WriteShadowEntityField<bool>(entity, shadowControlDisableOffset, m_ShadowEntityDisableShadows);
+            VR_WriteShadowEntityField<float>(entity, shadowControlMaxDistOffset, m_ShadowEntityMaxDist);
+            VR_WriteShadowEntityField<bool>(entity, shadowControlLocalLightOffset, m_ShadowEntityLocalLightShadows);
+            ++touchedShadowControls;
+            continue;
+        }
+
+        if (hasProjectedTextureOffsets &&
+            (std::strcmp(className, "CEnvProjectedTexture") == 0 || std::strcmp(className, "C_EnvProjectedTexture") == 0))
+        {
+            auto [it, inserted] = m_EnvProjectedTextureEntityDefaults.try_emplace(entityIndex);
+            if (inserted)
+            {
+                it->second.enableShadows = VR_ReadShadowEntityField<bool>(entity, projectedTextureEnableOffset, true);
+                it->second.shadowQuality = VR_ReadShadowEntityField<int>(entity, projectedTextureQualityOffset, 0);
+            }
+
+            VR_WriteShadowEntityField<bool>(entity, projectedTextureEnableOffset, m_ShadowProjectedTextureEnableShadows);
+            VR_WriteShadowEntityField<int>(entity, projectedTextureQualityOffset, m_ShadowProjectedTextureQuality);
+            ++touchedProjectedTextures;
+        }
+    }
+
+    m_ShadowEntityLastRefreshTime = now;
+    m_ShadowEntityOffsetsLogged = false;
+    m_ShadowEntityOverridesApplied = (touchedShadowControls > 0 || touchedProjectedTextures > 0);
+
+    if (forceRefresh || touchedShadowControls > 0 || touchedProjectedTextures > 0)
+    {
+        Game::logMsg(
+            "[VR][ShadowTweaks] Applied entity shadow overrides: ShadowControl=%d EnvProjectedTexture=%d "
+            "disable=%d maxdist=%.1f localLight=%d projectedShadows=%d projectedQuality=%d",
+            touchedShadowControls,
+            touchedProjectedTextures,
+            m_ShadowEntityDisableShadows ? 1 : 0,
+            m_ShadowEntityMaxDist,
+            m_ShadowEntityLocalLightShadows ? 1 : 0,
+            m_ShadowProjectedTextureEnableShadows ? 1 : 0,
+            m_ShadowProjectedTextureQuality);
+    }
+}
+
+void VR::ApplyShadowSettingsIfNeeded()
+{
+    const bool dirty = m_ShadowSettingsDirty.exchange(false, std::memory_order_acq_rel);
+    const bool wantsEntityRefresh = false;
+    const bool needsEntityRefresh =
+        wantsEntityRefresh &&
+        (dirty ||
+            m_ShadowEntityLastRefreshTime == std::chrono::steady_clock::time_point{} ||
+            (std::chrono::steady_clock::now() - m_ShadowEntityLastRefreshTime) >= std::chrono::milliseconds(250));
+
+    if (!dirty && !needsEntityRefresh)
+        return;
+
+    if (!m_Game || !m_Game->m_Initialized)
+    {
+        m_ShadowSettingsDirty.store(true, std::memory_order_release);
+        return;
+    }
+
+    if (!dirty)
+        return;
+
+    if (!m_ShadowTweaksEnabled)
+    {
+        if (m_ShadowTweaksApplied)
+        {
+            RestoreShadowCvarDefaults();
+            Game::logMsg("[VR][ShadowTweaks] Restored original shadow cvars.");
+        }
+
+        m_ShadowTweaksApplied = false;
+        return;
+    }
+
+    if (!m_ShadowOriginalsCaptured)
+        CaptureShadowCvarDefaults();
+
+    int appliedCount = 0;
+    auto applyInt = [&](const char* name, int value)
+        {
+            if (m_Game->SetConVarInt(name, value))
+                ++appliedCount;
+        };
+
+    applyInt("r_shadows", m_ShadowCvarShadows);
+    applyInt("r_shadowrendertotexture", m_ShadowCvarRenderToTexture);
+    applyInt("r_flashlightdepthtexture", m_ShadowCvarFlashlightDepthTexture);
+    applyInt("r_flashlightdepthres", m_ShadowCvarFlashlightDepthRes);
+    applyInt("r_shadow_half_update_rate", m_ShadowCvarHalfUpdateRate);
+    applyInt("r_shadowmaxrendered", m_ShadowCvarMaxRendered);
+    if (m_Game->SetConVarFloat("cl_max_shadow_renderable_dist", m_ShadowCvarMaxRenderableDist))
+        ++appliedCount;
+    applyInt("r_FlashlightDetailProps", m_ShadowCvarFlashlightDetailProps);
+    applyInt("z_mob_simple_shadows", m_ShadowCvarMobSimpleShadows);
+    applyInt("r_shadowfromworldlights", m_ShadowCvarWorldLightShadows);
+    applyInt("r_flashlightmodels", m_ShadowCvarFlashlightModels);
+    applyInt("r_shadows_on_renderables_enable", m_ShadowCvarShadowsOnRenderables);
+    applyInt("r_flashlightrendermodels", m_ShadowCvarFlashlightRenderModels);
+    if (m_Game->SetConVarFloat("cl_player_shadow_dist", m_ShadowCvarPlayerShadowDist))
+        ++appliedCount;
+    applyInt("z_infected_shadows", m_ShadowCvarInfectedShadows);
+    if (m_Game->SetConVarFloat("nb_shadow_blobby_dist", m_ShadowCvarNbShadowBlobbyDist))
+        ++appliedCount;
+    if (m_Game->SetConVarFloat("nb_shadow_cull_dist", m_ShadowCvarNbShadowCullDist))
+        ++appliedCount;
+    applyInt("r_flashlightinfectedshadows", m_ShadowCvarFlashlightInfectedShadows);
+
+    m_ShadowTweaksApplied = (appliedCount > 0);
+    Game::logMsg(
+        "[VR][ShadowTweaks] Applied %d shadow controls: r_shadows=%d r_shadowrendertotexture=%d "
+        "r_flashlightdepthtexture=%d r_flashlightdepthres=%d r_shadow_half_update_rate=%d "
+        "r_shadowmaxrendered=%d cl_max_shadow_renderable_dist=%.1f r_FlashlightDetailProps=%d "
+        "z_mob_simple_shadows=%d r_shadowfromworldlights=%d r_flashlightmodels=%d "
+        "r_shadows_on_renderables_enable=%d r_flashlightrendermodels=%d cl_player_shadow_dist=%.1f "
+        "z_infected_shadows=%d nb_shadow_blobby_dist=%.1f nb_shadow_cull_dist=%.1f "
+        "r_flashlightinfectedshadows=%d",
+        appliedCount,
+        m_ShadowCvarShadows,
+        m_ShadowCvarRenderToTexture,
+        m_ShadowCvarFlashlightDepthTexture,
+        m_ShadowCvarFlashlightDepthRes,
+        m_ShadowCvarHalfUpdateRate,
+        m_ShadowCvarMaxRendered,
+        m_ShadowCvarMaxRenderableDist,
+        m_ShadowCvarFlashlightDetailProps,
+        m_ShadowCvarMobSimpleShadows,
+        m_ShadowCvarWorldLightShadows,
+        m_ShadowCvarFlashlightModels,
+        m_ShadowCvarShadowsOnRenderables,
+        m_ShadowCvarFlashlightRenderModels,
+        m_ShadowCvarPlayerShadowDist,
+        m_ShadowCvarInfectedShadows,
+        m_ShadowCvarNbShadowBlobbyDist,
+        m_ShadowCvarNbShadowCullDist,
+        m_ShadowCvarFlashlightInfectedShadows);
 }
 
 void VR::WaitForConfigUpdate()

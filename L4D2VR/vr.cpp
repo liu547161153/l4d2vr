@@ -3306,7 +3306,9 @@ void VR::HandleKillSoundGameEvent(IGameEvent* event)
         }
         const bool matchedImpact = matchedImpactByEntityTag || matchedImpactByShotFallback;
 
-        if (attackerMatchesLocal || recentShotWindowActive || matchedImpact)
+        if (m_FeedbackSoundDebugLog &&
+            !ShouldThrottle(m_LastFeedbackSoundDebugLogTime, m_FeedbackSoundDebugLogHz) &&
+            (attackerMatchesLocal || recentShotWindowActive || matchedImpact))
         {
             Game::logMsg(
                 "[VR][KillSound][hurt] event=%s attackerUid=%d attackerIdx=%d local=%d entity=%p shot=%u age=%.3f matchedTag=%d matchedShot=%d accept=%d pending=%zu",
@@ -3519,7 +3521,9 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
     const char* className = (entity && m_Game) ? m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity)) : nullptr;
     if (!entity || !IsKillSoundTargetEntity(entity))
     {
-        if (entity)
+        if (entity &&
+            m_FeedbackSoundDebugLog &&
+            !ShouldThrottle(m_LastFeedbackSoundDebugLogTime, m_FeedbackSoundDebugLogHz))
         {
             Game::logMsg(
                 "[VR][KillSound][predicted-reject] idx=%d entity=%p class=%s frac=%.3f team=%d life=%d z=%d contents=%d hitgroup=%d hitbox=%d",
@@ -3586,20 +3590,24 @@ void VR::RegisterPotentialKillSoundHit(const Vector& start, const QAngle& angles
     const uint32_t shotSerial = m_PredictedHitFeedbackShotSerial;
     const SpecialInfectedType specialType = GetSpecialInfectedType(entity);
 
-    Game::logMsg(
-        "[VR][KillSound][predicted-hit] shot=%u idx=%d entity=%p class=%s team=%d life=%d z=%d si=%d direct=%d pos=(%.1f %.1f %.1f)",
-        shotSerial,
-        entityIndex,
-        reinterpret_cast<void*>(entityTag),
-        className ? className : "<unknown>",
-        hasTeam ? team : -1,
-        hasLifeState ? static_cast<int>(lifeState) : -1,
-        hasZombieClass ? zombieClass : -1,
-        static_cast<int>(specialType),
-        triggerDirectHitFeedback ? 1 : 0,
-        trace.endpos.x,
-        trace.endpos.y,
-        trace.endpos.z);
+    if (m_FeedbackSoundDebugLog &&
+        !ShouldThrottle(m_LastFeedbackSoundDebugLogTime, m_FeedbackSoundDebugLogHz))
+    {
+        Game::logMsg(
+            "[VR][KillSound][predicted-hit] shot=%u idx=%d entity=%p class=%s team=%d life=%d z=%d si=%d direct=%d pos=(%.1f %.1f %.1f)",
+            shotSerial,
+            entityIndex,
+            reinterpret_cast<void*>(entityTag),
+            className ? className : "<unknown>",
+            hasTeam ? team : -1,
+            hasLifeState ? static_cast<int>(lifeState) : -1,
+            hasZombieClass ? zombieClass : -1,
+            static_cast<int>(specialType),
+            triggerDirectHitFeedback ? 1 : 0,
+            trace.endpos.x,
+            trace.endpos.y,
+            trace.endpos.z);
+    }
 
     m_PendingKillSoundHits.erase(
         std::remove_if(

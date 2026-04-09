@@ -32,6 +32,7 @@ void VR::Update()
 
     bool posesValid = UpdatePosesAndActions();
     UpdateAutoMatQueueMode();
+    ApplyShadowSettingsIfNeeded();
     if (!posesValid)
     {
         // Continue using the last known poses so smoothing and aim helpers stay active.

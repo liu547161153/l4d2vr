@@ -201,6 +201,51 @@ static bool IsOptionVisible(const Option& opt)
     if (StartsWith(key, "QueuedRender"))
         return IsEnabled("AutoMatQueueMode");
 
+    if (std::strcmp(key, "r_shadows") == 0 ||
+        std::strcmp(key, "ShadowEntityTweaksEnabled") == 0 ||
+        std::strcmp(key, "r_shadowrendertotexture") == 0 ||
+        std::strcmp(key, "r_flashlightdepthtexture") == 0 ||
+        std::strcmp(key, "r_flashlightdepthres") == 0 ||
+        std::strcmp(key, "r_shadow_half_update_rate") == 0 ||
+        std::strcmp(key, "r_shadowmaxrendered") == 0 ||
+        std::strcmp(key, "cl_max_shadow_renderable_dist") == 0 ||
+        std::strcmp(key, "r_FlashlightDetailProps") == 0 ||
+        std::strcmp(key, "z_mob_simple_shadows") == 0 ||
+        std::strcmp(key, "r_shadowfromworldlights") == 0 ||
+        std::strcmp(key, "r_flashlightmodels") == 0 ||
+        std::strcmp(key, "r_shadows_on_renderables_enable") == 0 ||
+        std::strcmp(key, "r_flashlightrendermodels") == 0 ||
+        std::strcmp(key, "cl_player_shadow_dist") == 0 ||
+        std::strcmp(key, "z_infected_shadows") == 0 ||
+        std::strcmp(key, "nb_shadow_blobby_dist") == 0 ||
+        std::strcmp(key, "nb_shadow_cull_dist") == 0 ||
+        std::strcmp(key, "r_flashlightinfectedshadows") == 0 ||
+        std::strcmp(key, "ShadowControlDisableShadows") == 0 ||
+        std::strcmp(key, "ShadowControlMaxDist") == 0 ||
+        std::strcmp(key, "ShadowControlLocalLightShadows") == 0 ||
+        std::strcmp(key, "ProjectedTextureEnableShadows") == 0 ||
+        std::strcmp(key, "ProjectedTextureShadowQuality") == 0)
+    {
+        if (!IsEnabled("ShadowTweaksEnabled"))
+            return false;
+
+        if (std::strcmp(key, "r_flashlightdepthres") == 0)
+            return IsEnabled("r_flashlightdepthtexture", true);
+
+        if ((std::strcmp(key, "ShadowControlDisableShadows") == 0 ||
+             std::strcmp(key, "ShadowControlMaxDist") == 0 ||
+             std::strcmp(key, "ShadowControlLocalLightShadows") == 0 ||
+             std::strcmp(key, "ProjectedTextureEnableShadows") == 0 ||
+             std::strcmp(key, "ProjectedTextureShadowQuality") == 0) &&
+            !IsEnabled("ShadowEntityTweaksEnabled"))
+        {
+            return false;
+        }
+
+        if (std::strcmp(key, "ProjectedTextureShadowQuality") == 0)
+            return IsEnabled("ProjectedTextureEnableShadows", true);
+    }
+
     if (std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0 ||
         std::strcmp(key, "AutoRepeatSprayPushEnabled") == 0)
         return IsEnabled("AutoRepeatSemiAutoFire");
@@ -641,6 +686,306 @@ Option g_Options[] =
           u8"建议用于多核渲染。开启后将显示 QueuedRender* 相关调节项。" },
         0.0f, 0.0f,
         "false"
+    },
+    {
+        "ShadowTweaksEnabled",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Enable Shadow Optimization Controls", u8"启用阴影优化控制" },
+        { u8"Applies shadow-related client cvars directly through the engine instead of sending console commands.",
+          u8"通过引擎内部直接写入阴影相关客户端变量，而不是发送控制台命令。" },
+        { u8"Turn this on to expose the shadow controls below and use the recommended reduced-shadow defaults.",
+          u8"开启后会显示下面的阴影控制项，并使用推荐的降阴影默认值。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "r_shadows",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Enable Dynamic Shadows", u8"启用动态阴影" },
+        { u8"Master switch for dynamic shadows.",
+          u8"动态阴影总开关。" },
+        { u8"Disable only if you want the biggest frametime savings.",
+          u8"只有在追求最大帧时间收益时才建议关闭。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "r_shadowrendertotexture",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Render Shadows To Texture", u8"阴影渲染到纹理" },
+        { u8"Controls render-to-texture shadow maps used by the client shadow manager.",
+          u8"控制客户端阴影管理器使用的阴影贴图渲染路径。" },
+        { u8"Keeping this on preserves higher quality shadows, but it costs GPU time.",
+          u8"保持开启能保留较高质量阴影，但会增加 GPU 开销。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "r_flashlightdepthtexture",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Flashlight Depth Shadows", u8"手电深度阴影" },
+        { u8"Enables depth-texture shadows for flashlights and projected lights.",
+          u8"启用手电和投射光使用的深度纹理阴影。" },
+        { u8"Turning this off is a strong performance cut when flashlight shadows are expensive.",
+          u8"当手电阴影很吃性能时，关闭它能明显减负。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "r_flashlightdepthres",
+        OptionType::Int,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Flashlight Shadow Resolution", u8"手电阴影分辨率" },
+        { u8"Resolution of the flashlight shadow depth texture.",
+          u8"手电阴影深度纹理的分辨率。" },
+        { u8"Lower values reduce GPU cost and VRAM use. 512 is a good balance in VR.",
+          u8"越低越省 GPU 和显存。VR 下 512 通常是不错的平衡点。" },
+        64.0f, 2048.0f,
+        "256"
+    },
+    {
+        "r_shadow_half_update_rate",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Half-Rate Shadow Updates", u8"阴影半速更新" },
+        { u8"Updates client shadows at half the frame rate.",
+          u8"让客户端阴影按半帧率更新。" },
+        { u8"Usually one of the safest ways to shave shadow frametime.",
+          u8"通常是最安全、最划算的阴影减负方式之一。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "r_shadowmaxrendered",
+        OptionType::Int,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Max Rendered Shadows", u8"每帧最大阴影数量" },
+        { u8"Caps how many shadows the client renders.",
+          u8"限制客户端实际渲染的阴影数量。" },
+        { u8"Lowering this can smooth frametime spikes in busy scenes.",
+          u8"在复杂场景里调低它可以减少帧时间尖峰。" },
+        0.0f, 32.0f,
+        "0"
+    },
+    {
+        "cl_max_shadow_renderable_dist",
+        OptionType::Float,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Shadow Render Distance", u8"阴影渲染距离" },
+        { u8"Maximum distance from the camera for rendering shadow casters/receivers.",
+          u8"相机周围参与阴影渲染的最大距离。" },
+        { u8"Lower values help most on large outdoor maps.",
+          u8"在大场景或室外地图里，降低它往往最有效。" },
+        0.0f, 8192.0f,
+        "0"
+    },
+    {
+        "r_FlashlightDetailProps",
+        OptionType::Int,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Flashlight Detail Props", u8"手电影响细节物件" },
+        { u8"Controls whether flashlight lighting/shadow passes affect detail props.",
+          u8"控制手电光照/阴影是否作用到细节物件。" },
+        { u8"0 = off, 1 = single-pass, 2 = multi-pass. 0 is the cheapest.",
+          u8"0=关闭，1=单通道，2=多通道。0 最省性能。" },
+        0.0f, 2.0f,
+        "0"
+    },
+    {
+        "z_mob_simple_shadows",
+        OptionType::Int,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Infected Shadow Quality", u8"尸群阴影质量" },
+        { u8"Controls common infected shadow quality: 0 = full, 1 = blob, 2 = off.",
+          u8"控制普通感染者阴影质量：0=完整，1=团块，2=关闭。" },
+        { u8"1 usually keeps readability while cutting a lot of shadow work.",
+          u8"通常设为 1 就能保住可读性，同时明显减负。" },
+        0.0f, 2.0f,
+        "2"
+    },
+    {
+        "r_shadowfromworldlights",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"World-Light Shadows", u8"世界光源阴影" },
+        { u8"Allows dynamic shadows to be cast from world lights.",
+          u8"允许世界光源投射动态阴影。" },
+        { u8"Disable this for a noticeable GPU win if you mostly care about direct readability.",
+          u8"如果更看重帧时间而不是环境层次，关掉它通常会有明显收益。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "r_flashlightmodels",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Flashlight On Models", u8"手电影响模型" },
+        { u8"Allows flashlight shadowing/lighting work on renderable models.",
+          u8"允许手电对可渲染模型进行光照/阴影处理。" },
+        { u8"Disable this if model-heavy scenes are your bottleneck.",
+          u8"如果卡在大量模型场景，关闭它会更划算。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "r_shadows_on_renderables_enable",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Shadows On Renderables", u8"阴影投到可渲染物" },
+        { u8"Controls whether RTT shadows are allowed to cast onto other renderables.",
+          u8"控制 RTT 阴影是否允许投射到其他可渲染物体上。" },
+        { u8"Turn this off if character and prop shadows are still showing up on models or the ground.",
+          u8"如果角色或道具阴影还会投到模型或地面上，先关这个。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "r_flashlightrendermodels",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Flashlight Render Models", u8"手电渲染模型" },
+        { u8"Engine-side switch for flashlight rendering on models.",
+          u8"控制手电是否在模型上走渲染路径的引擎侧开关。" },
+        { u8"If r_flashlightmodels is not enough, this is usually the next one to cut.",
+          u8"如果只关 r_flashlightmodels 还不够，通常下一步就砍这个。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "cl_player_shadow_dist",
+        OptionType::Float,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Player Shadow Distance", u8"玩家阴影距离" },
+        { u8"Maximum distance for player shadow rendering.",
+          u8"玩家阴影的最大渲染距离。" },
+        { u8"Set this to 0 if you want the nearby player shadow to disappear completely.",
+          u8"想把近处玩家阴影彻底压掉，就把它设成 0。" },
+        0.0f, 8192.0f,
+        "0"
+    },
+    {
+        "z_infected_shadows",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Infected Dynamic Shadows", u8"感染者动态阴影" },
+        { u8"Controls dynamic shadows on infected.",
+          u8"控制感染者的动态阴影。" },
+        { u8"If commons and specials are still casting shadows, disable this next.",
+          u8"如果普通/特殊感染者还在投阴影，下一步就关它。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "nb_shadow_blobby_dist",
+        OptionType::Float,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"NPC Blob Shadow Distance", u8"NPC 团块阴影距离" },
+        { u8"Distance budget for blob-style shadows used by NPCs.",
+          u8"NPC 团块式阴影的距离预算。" },
+        { u8"0 is the strongest cut if simple blob shadows are still visible.",
+          u8"如果简化团块阴影还看得见，设 0 是最狠的一刀。" },
+        0.0f, 8192.0f,
+        "0"
+    },
+    {
+        "nb_shadow_cull_dist",
+        OptionType::Float,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"NPC Shadow Cull Distance", u8"NPC 阴影裁剪距离" },
+        { u8"Cull distance for NPC shadows.",
+          u8"NPC 阴影的裁剪距离。" },
+        { u8"Lowering this trims map-wide NPC shadow work without touching lighting itself.",
+          u8"调低它可以砍掉更远处的 NPC 阴影开销，而不直接动光照本身。" },
+        0.0f, 8192.0f,
+        "0"
+    },
+    {
+        "r_flashlightinfectedshadows",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Flashlight Infected Shadows", u8"手电感染者阴影" },
+        { u8"Controls flashlight shadowing on infected.",
+          u8"控制手电对感染者产生的阴影。" },
+        { u8"Useful when flashlight scenes still spike because infected are receiving/casting shadow work.",
+          u8"如果开手电时感染者相关阴影仍然拖帧，这一项通常很有用。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "ShadowEntityTweaksEnabled",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Enable Entity Shadow Overrides", u8"启用实体阴影覆盖" },
+        { u8"Overrides ShadowControl / EnvProjectedTexture netvars discovered from client.dll.",
+          u8"覆盖从 client.dll 里找到的 ShadowControl / EnvProjectedTexture 网络字段。" },
+        { u8"Use this when you want map-level shadow entities trimmed in addition to cvars.",
+          u8"如果你想连地图里的阴影实体也一起压缩，就开启它。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "ShadowControlDisableShadows",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"ShadowControl Disable Shadows", u8"ShadowControl 禁用阴影" },
+        { u8"Writes m_bDisableShadows on CShadowControl entities.",
+          u8"直接写入 CShadowControl 实体上的 m_bDisableShadows。" },
+        { u8"Strongest visual cut for maps that rely on ShadowControl.",
+          u8"对依赖 ShadowControl 的地图来说，这是最狠的一刀。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "ShadowControlMaxDist",
+        OptionType::Float,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"ShadowControl Max Distance", u8"ShadowControl 最大距离" },
+        { u8"Writes m_flShadowMaxDist on CShadowControl entities.",
+          u8"直接写入 CShadowControl 实体上的 m_flShadowMaxDist。" },
+        { u8"Lowering this usually saves frametime with less damage than fully disabling shadows.",
+          u8"相比直接关掉阴影，先砍这个通常更容易保住观感。" },
+        0.0f, 8192.0f,
+        "1200"
+    },
+    {
+        "ShadowControlLocalLightShadows",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"ShadowControl Local Lights", u8"ShadowControl 局部光阴影" },
+        { u8"Writes m_bEnableLocalLightShadows on CShadowControl entities.",
+          u8"直接写入 CShadowControl 实体上的 m_bEnableLocalLightShadows。" },
+        { u8"Disable this first if point/spot lights are the expensive part.",
+          u8"如果贵在点光/聚光阴影，先关这个最合适。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "ProjectedTextureEnableShadows",
+        OptionType::Bool,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Projected Texture Shadows", u8"投射纹理阴影" },
+        { u8"Writes m_bEnableShadows on CEnvProjectedTexture entities.",
+          u8"直接写入 CEnvProjectedTexture 实体上的 m_bEnableShadows。" },
+        { u8"Useful for trimming flashlight-like projected shadow casters without touching every other light path.",
+          u8"适合单独压掉类似手电这类投射光阴影，而不动其他光照路径。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "ProjectedTextureShadowQuality",
+        OptionType::Int,
+        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Projected Texture Quality", u8"投射纹理阴影质量" },
+        { u8"Writes m_nShadowQuality on CEnvProjectedTexture entities.",
+          u8"直接写入 CEnvProjectedTexture 实体上的 m_nShadowQuality。" },
+        { u8"Lower values are cheaper. Start at 0 or 1 and compare frametime.",
+          u8"值越低越省。建议先从 0 或 1 开始比对帧时间。" },
+        0.0f, 3.0f,
+        "0"
     },
     // HUD (Main)
     {
