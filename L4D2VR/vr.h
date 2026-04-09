@@ -1086,6 +1086,73 @@ public:
 	bool m_MenuFpsMaxSent = false;
 	int  m_MenuFpsMaxLastHz = 0;
 
+	struct ShadowControlEntityDefaults
+	{
+		bool disableShadows = false;
+		float maxDist = 0.0f;
+		bool enableLocalLightShadows = false;
+	};
+
+	struct EnvProjectedTextureEntityDefaults
+	{
+		bool enableShadows = true;
+		int shadowQuality = 0;
+	};
+
+	// Shadow controls discovered from L4D2's client-side shadow manager / flashlight paths.
+	// We stage config changes here and apply them on the main update thread via VEngineCvar007.
+	bool m_ShadowTweaksEnabled = false;
+	int m_ShadowCvarShadows = 0;
+	int m_ShadowCvarRenderToTexture = 0;
+	int m_ShadowCvarFlashlightDepthTexture = 0;
+	int m_ShadowCvarFlashlightDepthRes = 256;
+	int m_ShadowCvarHalfUpdateRate = 1;
+	int m_ShadowCvarMaxRendered = 0;
+	float m_ShadowCvarMaxRenderableDist = 0.0f;
+	int m_ShadowCvarFlashlightDetailProps = 0;
+	int m_ShadowCvarMobSimpleShadows = 2;
+	int m_ShadowCvarWorldLightShadows = 0;
+	int m_ShadowCvarFlashlightModels = 0;
+	int m_ShadowCvarShadowsOnRenderables = 0;
+	int m_ShadowCvarFlashlightRenderModels = 0;
+	float m_ShadowCvarPlayerShadowDist = 0.0f;
+	int m_ShadowCvarInfectedShadows = 0;
+	float m_ShadowCvarNbShadowBlobbyDist = 0.0f;
+	float m_ShadowCvarNbShadowCullDist = 0.0f;
+	int m_ShadowCvarFlashlightInfectedShadows = 0;
+	bool m_ShadowTweaksApplied = false;
+	bool m_ShadowOriginalsCaptured = false;
+	int m_ShadowOrigShadows = 1;
+	int m_ShadowOrigRenderToTexture = 1;
+	int m_ShadowOrigFlashlightDepthTexture = 1;
+	int m_ShadowOrigFlashlightDepthRes = 1024;
+	int m_ShadowOrigHalfUpdateRate = 0;
+	int m_ShadowOrigMaxRendered = 32;
+	float m_ShadowOrigMaxRenderableDist = 3000.0f;
+	int m_ShadowOrigFlashlightDetailProps = 0;
+	int m_ShadowOrigMobSimpleShadows = 0;
+	int m_ShadowOrigWorldLightShadows = 1;
+	int m_ShadowOrigFlashlightModels = 1;
+	int m_ShadowOrigShadowsOnRenderables = 1;
+	int m_ShadowOrigFlashlightRenderModels = 1;
+	float m_ShadowOrigPlayerShadowDist = 3000.0f;
+	int m_ShadowOrigInfectedShadows = 1;
+	float m_ShadowOrigNbShadowBlobbyDist = 3000.0f;
+	float m_ShadowOrigNbShadowCullDist = 3000.0f;
+	int m_ShadowOrigFlashlightInfectedShadows = 1;
+	bool m_ShadowEntityTweaksEnabled = false;
+	bool m_ShadowEntityDisableShadows = false;
+	float m_ShadowEntityMaxDist = 1200.0f;
+	bool m_ShadowEntityLocalLightShadows = false;
+	bool m_ShadowProjectedTextureEnableShadows = true;
+	int m_ShadowProjectedTextureQuality = 0;
+	bool m_ShadowEntityOffsetsLogged = false;
+	bool m_ShadowEntityOverridesApplied = false;
+	std::chrono::steady_clock::time_point m_ShadowEntityLastRefreshTime{};
+	std::unordered_map<int, ShadowControlEntityDefaults> m_ShadowControlEntityDefaults;
+	std::unordered_map<int, EnvProjectedTextureEntityDefaults> m_EnvProjectedTextureEntityDefaults;
+	std::atomic<bool> m_ShadowSettingsDirty{ true };
+
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;
 	int m_InventoryAnchorColorG = 255;
@@ -1820,6 +1887,12 @@ public:
 	int SetActionManifest(const char* fileName);
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
+	void ApplyShadowSettingsIfNeeded();
+	void CaptureShadowCvarDefaults();
+	void RestoreShadowCvarDefaults();
+	void ApplyShadowEntityOverrides(bool forceRefresh);
+	void RestoreShadowEntityDefaults();
+	void ResetShadowEntityOverrideTracking();
 	void UpdateAutoMatQueueMode();
 	void CreateVRTextures();
 	void EnsureOpticsRTTTextures();

@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <chrono>
 #include <ctime>
+#include <cstring>
 #include <mutex>
+#include <string>
 
 #include "sdk.h"
 #include "vr.h"
@@ -17,6 +19,181 @@
 
 static std::mutex logMutex;
 using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
+
+namespace
+{
+    static_assert(sizeof(void*) == 4, "L4D2VR ConVar bridge assumes 32-bit Source DLL layout.");
+
+    // Source SDK 2007/2009 style ConVar layout used by L4D2.
+    // We only depend on the vtable order for SetValue(...) and the cached numeric fields for reads.
+    class SourceConCommandBase
+    {
+    public:
+        virtual ~SourceConCommandBase() = default;
+        virtual bool IsCommand(void) const = 0;
+        virtual bool IsFlagSet(int flag) const = 0;
+        virtual void AddFlags(int flags) = 0;
+        virtual const char* GetName(void) const = 0;
+        virtual const char* GetHelpText(void) const = 0;
+        virtual bool IsRegistered(void) const = 0;
+        virtual int GetDLLIdentifier() const = 0;
+
+    protected:
+        virtual void CreateBase(const char* pName, const char* pHelpString = nullptr, int flags = 0) = 0;
+        virtual void Init() = 0;
+
+    public:
+        SourceConCommandBase* m_pNext = nullptr;
+        bool m_bRegistered = false;
+        char m_PaddingRegistered[3] = {};
+        const char* m_pszName = nullptr;
+        const char* m_pszHelpString = nullptr;
+        int m_nFlags = 0;
+    };
+
+    class SourceConVar : public SourceConCommandBase
+    {
+    public:
+        virtual ~SourceConVar() = default;
+        virtual bool IsFlagSet(int flag) const = 0;
+        virtual const char* GetHelpText(void) const = 0;
+        virtual bool IsRegistered(void) const = 0;
+        virtual const char* GetName(void) const = 0;
+        virtual void AddFlags(int flags) = 0;
+        virtual bool IsCommand(void) const = 0;
+        virtual void SetValue(const char* value) = 0;
+        virtual void SetValue(float value) = 0;
+        virtual void SetValue(int value) = 0;
+
+    private:
+        virtual void InternalSetValue(const char* value) = 0;
+        virtual void InternalSetFloatValue(float value) = 0;
+        virtual void InternalSetIntValue(int value) = 0;
+        virtual bool ClampValue(float& value) = 0;
+        virtual void ChangeStringValue(const char* value, float oldValue) = 0;
+        virtual void Create_Vtbl(const char* pName, const char* pDefaultValue, int flags = 0,
+            const char* pHelpString = nullptr, bool bMin = false, float fMin = 0.0f,
+            bool bMax = false, float fMax = 0.0f, void* callback = nullptr) = 0;
+        virtual void Init() = 0;
+        virtual void InternalSetFloatValue2(float value, bool force = false) = 0;
+
+    public:
+        SourceConVar* m_pParent = nullptr;
+        const char* m_pszDefaultValue = nullptr;
+        char* m_pszString = nullptr;
+        int m_StringLength = 0;
+        float m_fValue = 0.0f;
+        int m_nValue = 0;
+        bool m_bHasMin = false;
+        char m_PaddingHasMin[3] = {};
+        float m_fMinVal = 0.0f;
+        bool m_bHasMax = false;
+        char m_PaddingHasMax[3] = {};
+        float m_fMaxVal = 0.0f;
+        void* m_fnChangeCallback = nullptr;
+
+        int GetIntValue() const
+        {
+            const SourceConVar* parent = (m_pParent != nullptr) ? m_pParent : this;
+            return parent->m_nValue;
+        }
+
+        float GetFloatValue() const
+        {
+            const SourceConVar* parent = (m_pParent != nullptr) ? m_pParent : this;
+            return parent->m_fValue;
+        }
+    };
+
+    class SourceIConVar
+    {
+    public:
+        virtual void SetValue(const char* value) = 0;
+        virtual void SetValue(float value) = 0;
+        virtual void SetValue(int value) = 0;
+        virtual const char* GetName(void) const = 0;
+        virtual bool IsFlagSet(int flag) const = 0;
+    };
+
+    class SourceICvar
+    {
+    public:
+        virtual bool Connect(void* factory) = 0;
+        virtual void Disconnect() = 0;
+        virtual void* QueryInterface(const char* pInterfaceName) = 0;
+        virtual int Init() = 0;
+        virtual void Shutdown() = 0;
+        virtual int AllocateDLLIdentifier() = 0;
+        virtual void RegisterConCommand(SourceConCommandBase* pCommandBase) = 0;
+        virtual void UnregisterConCommand(SourceConCommandBase* pCommandBase) = 0;
+        virtual void UnregisterConCommands(int id) = 0;
+        virtual const char* GetCommandLineValue(const char* pVariableName) = 0;
+        virtual SourceConCommandBase* FindCommandBase(const char* name) = 0;
+        virtual const SourceConCommandBase* FindCommandBase(const char* name) const = 0;
+        virtual SourceConVar* FindVar(const char* varName) = 0;
+    };
+
+    struct SourceRecvTable;
+
+    struct SourceRecvProp
+    {
+        const char* m_pVarName = nullptr;
+        int m_RecvType = 0;
+        int m_Flags = 0;
+        int m_StringBufferSize = 0;
+        bool m_bInsideArray = false;
+        const void* m_pExtraData = nullptr;
+        SourceRecvProp* m_pArrayProp = nullptr;
+        void* m_ArrayLengthProxy = nullptr;
+        void* m_ProxyFn = nullptr;
+        void* m_DataTableProxyFn = nullptr;
+        SourceRecvTable* m_pDataTable = nullptr;
+        int m_Offset = 0;
+        int m_ElementStride = 0;
+        int m_nElements = 0;
+        const char* m_pParentArrayPropName = nullptr;
+    };
+
+    struct SourceRecvTable
+    {
+        SourceRecvProp* m_pProps = nullptr;
+        int m_nProps = 0;
+        void* m_pDecoder = nullptr;
+        const char* m_pNetTableName = nullptr;
+        bool m_bInitialized = false;
+        bool m_bInMainList = false;
+    };
+
+    struct SourceClientClass
+    {
+        void* m_pCreateFn = nullptr;
+        void* m_pCreateEventFn = nullptr;
+        const char* m_pNetworkName = nullptr;
+        SourceRecvTable* m_pRecvTable = nullptr;
+        SourceClientClass* m_pNext = nullptr;
+        int m_ClassID = 0;
+    };
+
+    class SourceBaseClientDLL
+    {
+    public:
+        virtual int Connect(void* appSystemFactory, void* pGlobals) = 0;
+        virtual int Disconnect(void) = 0;
+        virtual int Init(void* appSystemFactory, void* pGlobals) = 0;
+        virtual void PostInit() = 0;
+        virtual void Shutdown(void) = 0;
+        virtual void LevelInitPreEntity(char const* pMapName) = 0;
+        virtual void LevelInitPostEntity() = 0;
+        virtual void LevelFastReload(void) = 0;
+        virtual void LevelShutdown(void) = 0;
+        virtual void* GetAllClasses(void) = 0;
+    };
+}
+
+static_assert(sizeof(SourceConCommandBase) == 24, "Unexpected ConCommandBase size for Source IConVar bridge.");
+
+static int FindRecvPropOffsetRecursive(const SourceRecvTable* table, const char* propName, int accumulatedOffset);
+static int FindRecvPropOffsetSafe(void* baseClientDll, const char* networkName, const char* propName);
 
 // === Utility: Retry module load with logging ===
 static HMODULE GetModuleWithRetry(const char* dllname, std::chrono::milliseconds timeout = std::chrono::seconds(30), int delayMs = 50)
@@ -98,6 +275,7 @@ Game::Game()
     m_BaseServer = reinterpret_cast<uintptr_t>(GetModuleWithRetry("server.dll"));
     m_BaseVgui2 = reinterpret_cast<uintptr_t>(GetModuleWithRetry("vgui2.dll"));
 
+    m_BaseClientDll = static_cast<IBaseClientDLL*>(GetInterfaceSafe("client.dll", "VClient016"));
     m_ClientEntityList = static_cast<IClientEntityList*>(GetInterfaceSafe("client.dll", "VClientEntityList003"));
     m_EngineTrace = static_cast<IEngineTrace*>(GetInterfaceSafe("engine.dll", "EngineTraceClient003"));
     m_EngineClient = static_cast<IEngineClient*>(GetInterfaceSafe("engine.dll", "VEngineClient013"));
@@ -112,6 +290,11 @@ Game::Game()
     m_DebugOverlay = static_cast<IVDebugOverlay*>(TryInterfaceNoError("engine.dll", "VDebugOverlay004"));
     if (!m_DebugOverlay)
         m_DebugOverlay = static_cast<IVDebugOverlay*>(TryInterfaceNoError("engine.dll", "VDebugOverlay003"));
+    m_Cvar = TryInterfaceNoError("vstdlib.dll", "VEngineCvar007");
+    if (!m_Cvar)
+        m_Cvar = TryInterfaceNoError("vstdlib.dll", "VEngineCvar006");
+    if (!m_Cvar)
+        m_Cvar = TryInterfaceNoError("vstdlib.dll", "VEngineCvar004");
 
     m_Offsets = new Offsets();
     m_VR = new VR(this);
@@ -197,44 +380,74 @@ C_BaseEntity* Game::GetClientEntity(int entityIndex)
 // === Network Name Utility ===
 char* Game::getNetworkName(uintptr_t* entity)
 {
-    if (!entity)
-        return nullptr;
+    __try
+    {
+        if (!entity)
+            return nullptr;
 
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
-    if (!vtable)
-        return nullptr;
+        uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
+        if (!vtable)
+            return nullptr;
 
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return nullptr;
+        uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
+        if (!getClientClassFn)
+            return nullptr;
 
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
-    if (!clientClass)
-        return nullptr;
+        uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
+        if (!clientClass)
+            return nullptr;
 
-    char* name = reinterpret_cast<char*>(*(clientClass + 0x8));
-    int classID = static_cast<int>(*(clientClass + 0x10));
-    return name;
+        return reinterpret_cast<char*>(*(clientClass + 0x8));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
 }
 
 const char* Game::GetNetworkClassName(uintptr_t* entity) const
 {
-    if (!entity)
-        return nullptr;
+    __try
+    {
+        if (!entity)
+            return nullptr;
 
-    uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
-    if (!vtable)
-        return nullptr;
+        uintptr_t* vtable = reinterpret_cast<uintptr_t*>(*(entity + 0x8));
+        if (!vtable)
+            return nullptr;
 
-    uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
-    if (!getClientClassFn)
-        return nullptr;
+        uintptr_t* getClientClassFn = reinterpret_cast<uintptr_t*>(*(vtable + 0x8));
+        if (!getClientClassFn)
+            return nullptr;
 
-    uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
-    if (!clientClass)
-        return nullptr;
+        uintptr_t* clientClass = reinterpret_cast<uintptr_t*>(*(getClientClassFn + 0x1));
+        if (!clientClass)
+            return nullptr;
 
-    return reinterpret_cast<const char*>(*(clientClass + 0x8));
+        return reinterpret_cast<const char*>(*(clientClass + 0x8));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
+int Game::FindRecvPropOffset(const char* networkName, const char* propName) const
+{
+    if (!m_BaseClientDll || !networkName || !*networkName || !propName || !*propName)
+        return -1;
+
+    static std::unordered_map<std::string, int> cache;
+    const std::string key = std::string(networkName) + "::" + propName;
+    auto cached = cache.find(key);
+    if (cached != cache.end())
+        return cached->second;
+
+    const int offset = FindRecvPropOffsetSafe(m_BaseClientDll, networkName, propName);
+    if (offset >= 0)
+        cache[key] = offset;
+
+    return offset;
 }
 
 // === Commands ===
@@ -248,6 +461,153 @@ void Game::ClientCmd_Unrestricted(const char* szCmdString)
 {
     if (m_EngineClient)
         m_EngineClient->ClientCmd_Unrestricted(szCmdString);
+}
+
+static SourceConVar* FindConVarInternal(void* cvarIface, const char* name)
+{
+    if (!cvarIface || !name || !*name)
+        return nullptr;
+
+    return reinterpret_cast<SourceICvar*>(cvarIface)->FindVar(name);
+}
+
+static int FindRecvPropOffsetRecursive(const SourceRecvTable* table, const char* propName, int accumulatedOffset)
+{
+    if (!table || !propName || !*propName || !table->m_pProps || table->m_nProps <= 0)
+        return -1;
+
+    for (int i = 0; i < table->m_nProps; ++i)
+    {
+        const SourceRecvProp& prop = table->m_pProps[i];
+        if (prop.m_pVarName && std::strcmp(prop.m_pVarName, propName) == 0)
+            return accumulatedOffset + prop.m_Offset;
+
+        if (prop.m_pDataTable && prop.m_pDataTable->m_pProps && prop.m_pDataTable->m_nProps > 0)
+        {
+            const int nestedOffset =
+                FindRecvPropOffsetRecursive(prop.m_pDataTable, propName, accumulatedOffset + prop.m_Offset);
+            if (nestedOffset >= 0)
+                return nestedOffset;
+        }
+    }
+
+    return -1;
+}
+
+static int FindRecvPropOffsetSafe(void* baseClientDll, const char* networkName, const char* propName)
+{
+    __try
+    {
+        auto* clientDll = reinterpret_cast<SourceBaseClientDLL*>(baseClientDll);
+        if (!clientDll || !networkName || !*networkName || !propName || !*propName)
+            return -1;
+
+        auto* clientClass = reinterpret_cast<SourceClientClass*>(clientDll->GetAllClasses());
+        while (clientClass)
+        {
+            if (clientClass->m_pNetworkName && std::strcmp(clientClass->m_pNetworkName, networkName) == 0)
+                return FindRecvPropOffsetRecursive(clientClass->m_pRecvTable, propName, 0);
+
+            clientClass = clientClass->m_pNext;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return -1;
+    }
+
+    return -1;
+}
+
+static SourceIConVar* AsIConVar(SourceConVar* cvar)
+{
+    if (!cvar)
+        return nullptr;
+
+    return reinterpret_cast<SourceIConVar*>(reinterpret_cast<uint8_t*>(cvar) + sizeof(SourceConCommandBase));
+}
+
+int Game::GetConVarInt(const char* name, int fallback) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return fallback;
+
+    __try
+    {
+        return cvar->GetIntValue();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] GetConVarInt failed for %s", name ? name : "<null>");
+        return fallback;
+    }
+}
+
+float Game::GetConVarFloat(const char* name, float fallback) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return fallback;
+
+    __try
+    {
+        return cvar->GetFloatValue();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] GetConVarFloat failed for %s", name ? name : "<null>");
+        return fallback;
+    }
+}
+
+bool Game::SetConVarInt(const char* name, int value) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return false;
+
+    SourceIConVar* iconvar = AsIConVar(cvar);
+    if (!iconvar)
+        return false;
+
+    __try
+    {
+        iconvar->SetValue(value);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] SetConVarInt failed for %s=%d", name ? name : "<null>", value);
+        return false;
+    }
+}
+
+bool Game::SetConVarFloat(const char* name, float value) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return false;
+
+    SourceIConVar* iconvar = AsIConVar(cvar);
+    if (!iconvar)
+        return false;
+
+    __try
+    {
+        iconvar->SetValue(value);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] SetConVarFloat failed for %s=%.3f", name ? name : "<null>", value);
+        return false;
+    }
+}
+
+bool Game::SetConVarBool(const char* name, bool value) const
+{
+    return SetConVarInt(name, value ? 1 : 0);
 }
 
 // === Rendering Thread Mode ===

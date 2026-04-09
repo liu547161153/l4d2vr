@@ -276,15 +276,26 @@ namespace
 		if (!entry || !Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->ResolveClientThinkHandle.valid)
 			return nullptr;
 
+		const uint32_t thinkHandle = entry[0];
+		if (thinkHandle == 0 || thinkHandle == 0xffffu || thinkHandle == 0xffffffffu)
+			return nullptr;
+
 		using tResolveClientThinkHandle = void* (__cdecl*)(uint32_t thinkHandle);
 		auto resolve = reinterpret_cast<tResolveClientThinkHandle>(Hooks::m_Game->m_Offsets->ResolveClientThinkHandle.address);
 		if (!resolve)
 			return nullptr;
 
-		void* thinkable = resolve(entry[0]);
-		if (!thinkable)
-			thinkable = resolve(entry[0]);
-		return thinkable;
+		__try
+		{
+			void* thinkable = resolve(thinkHandle);
+			if (!thinkable)
+				thinkable = resolve(thinkHandle);
+			return thinkable;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return nullptr;
+		}
 	}
 
 	inline bool TryResolveEntityFromThinkable(void* thinkable, C_BaseEntity*& outEntity, int& outEntityIndex)
@@ -621,6 +632,12 @@ bool VR::ShouldCullContentCpuLocalFx(int entityIndex, const Vector& origin) cons
 
 void Hooks::TryInstallContentCpuHooksFromEntity(C_BaseEntity* entity)
 {
+	(void)entity;
+
+	// The client-side ContentCPU hook set is temporarily disabled for stability.
+	// Leave the discovery callsites intact, but do not install any dynamic hooks.
+	return;
+
 	if (!entity || !m_VR)
 		return;
 
@@ -716,26 +733,9 @@ void Hooks::dDispatchClientThink(uint32_t* entry, uint32_t serial)
 
 	GetContentCpuDebugCounters().clientThinkCalls.fetch_add(1, std::memory_order_relaxed);
 
-	if (!entry ||
-		!m_VR ||
-		!m_Game ||
-		(!m_VR->m_ContentCpuClientThinkCullEnabled && !m_VR->m_ContentCpuParticleClientThinkCullEnabled))
-	{
-		hkDispatchClientThink.fOriginal(entry, serial);
-		MaybeLogContentCpuDebugStats();
-		return;
-	}
-
-	void* thinkable = ResolveClientThinkableFromEntry(entry);
-	if (!thinkable || !ShouldCullClientThinkableDispatch(thinkable))
-	{
-		hkDispatchClientThink.fOriginal(entry, serial);
-		MaybeLogContentCpuDebugStats();
-		return;
-	}
-
-	GetContentCpuDebugCounters().clientThinkCulled.fetch_add(1, std::memory_order_relaxed);
-	SkipClientThinkDispatchEntry(entry, serial);
+	// Client-think culling is temporarily bypassed for stability. The hook stays installed so
+	// we can keep debug counters/logging without touching fragile client think-handle resolution.
+	hkDispatchClientThink.fOriginal(entry, serial);
 	MaybeLogContentCpuDebugStats();
 }
 

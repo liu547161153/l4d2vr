@@ -65,6 +65,7 @@ public:
     ISurface* m_VguiSurface = nullptr;
     IVDebugOverlay* m_DebugOverlay = nullptr;
     IGameEventManager2* m_GameEventManager = nullptr;
+    void* m_Cvar = nullptr;
 
     // === Module Base Addresses ===
     uintptr_t m_BaseEngine = 0;
@@ -104,6 +105,7 @@ public:
     C_BaseEntity* GetClientEntity(int entityIndex);
     char* getNetworkName(uintptr_t* entity);
     const char* GetNetworkClassName(uintptr_t* entity) const;
+    int FindRecvPropOffset(const char* networkName, const char* propName) const;
 
     // === Rendering Thread Mode ===
     // Returns material system thread mode (0 = single-threaded, >0 = queued/multicore).
@@ -112,6 +114,11 @@ public:
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);
     void ClientCmd_Unrestricted(const char* szCmdString);
+    int GetConVarInt(const char* name, int fallback = 0) const;
+    float GetConVarFloat(const char* name, float fallback = 0.0f) const;
+    bool SetConVarInt(const char* name, int value) const;
+    bool SetConVarFloat(const char* name, float value) const;
+    bool SetConVarBool(const char* name, bool value) const;
 
     // === Logging ===
     static void logMsg(const char* fmt, ...);
