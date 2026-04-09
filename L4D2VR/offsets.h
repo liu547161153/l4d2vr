@@ -81,6 +81,18 @@ public:
     // Ghidra-confirmed from current L4D2 client.dll: FUN_100321f0.
     // This is the global per-frame client animation update loop.
     Offset UpdateClientSideAnimations =  { "client.dll", 0x321F0, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_100b81b0.
+    // Per-entry dispatcher reached from CClientThinkList::PerformThinkFunctions.
+    Offset DispatchClientThink =         { "client.dll", 0xB81B0, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_100b8f40.
+    // Resolves an internal client-think handle to an IClientThinkable instance.
+    Offset ResolveClientThinkHandle =    { "client.dll", 0xB8F40, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_100b8170.
+    // Helper used by the think list to unschedule a thinkable when it moves to "never think".
+    Offset UnregisterClientThink =       { "client.dll", 0xB8170, "" };
+    // Ghidra-confirmed from current L4D2 client.dll: FUN_100314e0.
+    // C_BaseAnimating::StudioFrameAdvance upstream animation advance path.
+    Offset StudioFrameAdvance =          { "client.dll", 0x314E0, "" };
     // Ghidra-confirmed from current L4D2 client.dll: FUN_10085f10.
     // Per-particle-system client think path ("Particle Simulation" / "C_ParticleSystem::ClientThink SkipToTime").
     Offset ParticleSystemClientThink =   { "client.dll", 0x85F10, "" };

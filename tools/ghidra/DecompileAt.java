@@ -17,9 +17,14 @@ public class DecompileAt extends GhidraScript {
 
 		int maxLines = 80;
 		java.util.List<String> addresses = new java.util.ArrayList<>();
-		for (String arg : getScriptArgs()) {
+		for (int i = 0; i < getScriptArgs().length; ++i) {
+			String arg = getScriptArgs()[i];
 			if (arg.startsWith("--maxLines=")) {
 				maxLines = Integer.parseInt(arg.substring("--maxLines=".length()));
+				continue;
+			}
+			if ("--maxLines".equals(arg) && i + 1 < getScriptArgs().length) {
+				maxLines = Integer.parseInt(getScriptArgs()[++i]);
 				continue;
 			}
 			addresses.add(arg);
@@ -38,6 +43,10 @@ public class DecompileAt extends GhidraScript {
 		FunctionManager fm = currentProgram.getFunctionManager();
 		for (String addrText : addresses) {
 			Address address = toAddr(addrText);
+			if (address == null) {
+				println("Invalid address: " + addrText);
+				continue;
+			}
 			Function fn = fm.getFunctionContaining(address);
 			if (fn == null) {
 				println("No function contains address: " + address);

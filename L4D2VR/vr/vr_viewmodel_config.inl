@@ -1056,10 +1056,18 @@ void VR::ParseConfigFile()
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     m_ContentCpuInterpolateCullEnabled = getBool("ContentCpuInterpolateCullEnabled", m_ContentCpuInterpolateCullEnabled);
+    m_ContentCpuClientThinkCullEnabled = getBool("ContentCpuClientThinkCullEnabled", m_ContentCpuClientThinkCullEnabled);
+    m_ContentCpuClientThinkCullCommon = getBool("ContentCpuClientThinkCullCommon", m_ContentCpuClientThinkCullCommon);
+    m_ContentCpuClientThinkCullRagdoll = getBool("ContentCpuClientThinkCullRagdoll", m_ContentCpuClientThinkCullRagdoll);
+    m_ContentCpuClientThinkCullDecor = getBool("ContentCpuClientThinkCullDecor", m_ContentCpuClientThinkCullDecor);
     m_ContentCpuClientAnimCullEnabled = getBool("ContentCpuClientAnimCullEnabled", m_ContentCpuClientAnimCullEnabled);
     m_ContentCpuClientAnimCullCommon = getBool("ContentCpuClientAnimCullCommon", m_ContentCpuClientAnimCullCommon);
     m_ContentCpuClientAnimCullRagdoll = getBool("ContentCpuClientAnimCullRagdoll", m_ContentCpuClientAnimCullRagdoll);
     m_ContentCpuClientAnimCullDecor = getBool("ContentCpuClientAnimCullDecor", m_ContentCpuClientAnimCullDecor);
+    m_ContentCpuStudioFrameAdvanceCullEnabled = getBool("ContentCpuStudioFrameAdvanceCullEnabled", m_ContentCpuStudioFrameAdvanceCullEnabled);
+    m_ContentCpuStudioFrameAdvanceCullCommon = getBool("ContentCpuStudioFrameAdvanceCullCommon", m_ContentCpuStudioFrameAdvanceCullCommon);
+    m_ContentCpuStudioFrameAdvanceCullRagdoll = getBool("ContentCpuStudioFrameAdvanceCullRagdoll", m_ContentCpuStudioFrameAdvanceCullRagdoll);
+    m_ContentCpuStudioFrameAdvanceCullDecor = getBool("ContentCpuStudioFrameAdvanceCullDecor", m_ContentCpuStudioFrameAdvanceCullDecor);
     m_ContentCpuSetupBonesCullEnabled = getBool("ContentCpuSetupBonesCullEnabled", m_ContentCpuSetupBonesCullEnabled);
     m_ContentCpuSetupBonesCullCommon = getBool("ContentCpuSetupBonesCullCommon", m_ContentCpuSetupBonesCullCommon);
     m_ContentCpuSetupBonesCullRagdoll = getBool("ContentCpuSetupBonesCullRagdoll", m_ContentCpuSetupBonesCullRagdoll);
@@ -1381,6 +1389,7 @@ void VR::ParseConfigFile()
     m_NonVRMeleeSwingThreshold = std::max(0.0f, getFloat("NonVRMeleeSwingThreshold", m_NonVRMeleeSwingThreshold));
     m_NonVRMeleeSwingCooldown = std::max(0.0f, getFloat("NonVRMeleeSwingCooldown", m_NonVRMeleeSwingCooldown));
     m_NonVRMeleeHoldTime = std::max(0.0f, getFloat("NonVRMeleeHoldTime", m_NonVRMeleeHoldTime));
+    m_SnapTurning = getBool("SnapTurning", m_SnapTurning);
     m_NonVRMeleeAttackDelay = std::max(0.0f, getFloat("NonVRMeleeAttackDelay", m_NonVRMeleeAttackDelay));
     m_NonVRMeleeAimLockTime = std::max(0.0f, getFloat("NonVRMeleeAimLockTime", m_NonVRMeleeAimLockTime));
     m_NonVRMeleeHysteresis = std::clamp(getFloat("NonVRMeleeHysteresis", m_NonVRMeleeHysteresis), 0.1f, 0.95f);

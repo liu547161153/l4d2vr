@@ -546,10 +546,18 @@ public:
 	std::unordered_map<uintptr_t, ContentCpuClass> m_ContentCpuModelClassCache{};
 	std::unordered_map<uintptr_t, int> m_ContentCpuEntityPointerIndex{};
 	bool m_ContentCpuInterpolateCullEnabled = true;
+	bool m_ContentCpuClientThinkCullEnabled = true;
+	bool m_ContentCpuClientThinkCullCommon = true;
+	bool m_ContentCpuClientThinkCullRagdoll = true;
+	bool m_ContentCpuClientThinkCullDecor = true;
 	bool m_ContentCpuClientAnimCullEnabled = true;
 	bool m_ContentCpuClientAnimCullCommon = true;
 	bool m_ContentCpuClientAnimCullRagdoll = true;
 	bool m_ContentCpuClientAnimCullDecor = true;
+	bool m_ContentCpuStudioFrameAdvanceCullEnabled = true;
+	bool m_ContentCpuStudioFrameAdvanceCullCommon = true;
+	bool m_ContentCpuStudioFrameAdvanceCullRagdoll = true;
+	bool m_ContentCpuStudioFrameAdvanceCullDecor = true;
 	bool m_ContentCpuSetupBonesCullEnabled = true;
 	bool m_ContentCpuSetupBonesCullCommon = false;
 	bool m_ContentCpuSetupBonesCullRagdoll = true;
@@ -2001,7 +2009,9 @@ public:
 	bool ShouldCullContentCpuLocalFx(int entityIndex, const Vector& origin) const;
 	bool WasContentCpuEntityRecentlySeen(int entityIndex, uint32_t frameWindow = 2) const;
 	bool ShouldCullContentCpuInterpolation(int entityIndex) const;
+	bool ShouldCullContentCpuClientThink(int entityIndex) const;
 	bool ShouldCullContentCpuClientAnimation(int entityIndex) const;
+	bool ShouldCullContentCpuStudioFrameAdvance(int entityIndex) const;
 	bool ShouldCullContentCpuSetupBones(int entityIndex) const;
 	uint32_t GetContentCpuFrameId() const;
 	SpecialInfectedType GetSpecialInfectedType(const C_BaseEntity* entity) const;
@@ -2315,6 +2325,32 @@ inline bool VR::ShouldCullContentCpuInterpolation(int entityIndex) const
 	}
 }
 
+inline bool VR::ShouldCullContentCpuClientThink(int entityIndex) const
+{
+	if (!m_ContentCpuClientThinkCullEnabled)
+		return false;
+
+	ContentCpuEntityState state{};
+	if (!TryGetContentCpuEntityState(entityIndex, state))
+		return false;
+
+	if (!ShouldCullContentCpuInterpolation(entityIndex))
+		return false;
+
+	switch (state.classification)
+	{
+	case ContentCpuClass::CommonInfected:
+		return m_ContentCpuClientThinkCullCommon;
+	case ContentCpuClass::Ragdoll:
+		return m_ContentCpuClientThinkCullRagdoll;
+	case ContentCpuClass::DecorDynamic:
+	case ContentCpuClass::DecorStatic:
+		return m_ContentCpuClientThinkCullDecor;
+	default:
+		return false;
+	}
+}
+
 inline bool VR::ShouldCullContentCpuClientAnimation(int entityIndex) const
 {
 	if (!m_ContentCpuClientAnimCullEnabled)
@@ -2336,6 +2372,32 @@ inline bool VR::ShouldCullContentCpuClientAnimation(int entityIndex) const
 	case ContentCpuClass::DecorDynamic:
 	case ContentCpuClass::DecorStatic:
 		return m_ContentCpuClientAnimCullDecor;
+	default:
+		return false;
+	}
+}
+
+inline bool VR::ShouldCullContentCpuStudioFrameAdvance(int entityIndex) const
+{
+	if (!m_ContentCpuStudioFrameAdvanceCullEnabled)
+		return false;
+
+	ContentCpuEntityState state{};
+	if (!TryGetContentCpuEntityState(entityIndex, state))
+		return false;
+
+	if (!ShouldCullContentCpuInterpolation(entityIndex))
+		return false;
+
+	switch (state.classification)
+	{
+	case ContentCpuClass::CommonInfected:
+		return m_ContentCpuStudioFrameAdvanceCullCommon;
+	case ContentCpuClass::Ragdoll:
+		return m_ContentCpuStudioFrameAdvanceCullRagdoll;
+	case ContentCpuClass::DecorDynamic:
+	case ContentCpuClass::DecorStatic:
+		return m_ContentCpuStudioFrameAdvanceCullDecor;
 	default:
 		return false;
 	}

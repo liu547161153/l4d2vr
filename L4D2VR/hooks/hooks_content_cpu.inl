@@ -3,11 +3,17 @@ namespace
 	constexpr size_t kCBaseEntityShouldInterpolateVtableIndex = 165;
 	constexpr size_t kIHandleEntityGetRefEHandleVtableIndex = 2;
 	constexpr size_t kIClientRenderableGetModelVtableIndex = 8;
+	constexpr size_t kIClientThinkableClientThinkVtableIndex = 1;
+	constexpr size_t kIClientThinkableGetClientHandleVtableIndex = 2;
 	constexpr size_t kUpdateClientSideAnimationVtableIndex = (0x328 / sizeof(void*));
 	constexpr uintptr_t kClientSideAnimationListRva = 0x72213C;
 	constexpr uintptr_t kClientSideAnimationCountRva = 0x722148;
 	constexpr int kPrimaryEntityHandleMask = 0x1FFF;
 	constexpr int kFallbackEntityHandleMask = 0x0FFF;
+	constexpr uintptr_t kParticleSystemControlPointHandleOffset = 0x678;
+	constexpr size_t kParticleSystemControlPointHandleCount = 63;
+	constexpr uint32_t kClientThinkNeverThinkBits = 0x7f7fffff;
+	constexpr float kClientThinkImmediateSentinel = -1293.0f;
 
 	struct ClientSideAnimationEntry
 	{
@@ -19,10 +25,14 @@ namespace
 
 	struct ContentCpuDebugCounters
 	{
+		std::atomic<uint32_t> clientThinkCalls{ 0 };
+		std::atomic<uint32_t> clientThinkCulled{ 0 };
 		std::atomic<uint32_t> setupBonesCalls{ 0 };
 		std::atomic<uint32_t> setupBonesCulled{ 0 };
 		std::atomic<uint32_t> clientAnimEntities{ 0 };
 		std::atomic<uint32_t> clientAnimCulled{ 0 };
+		std::atomic<uint32_t> studioFrameAdvanceCalls{ 0 };
+		std::atomic<uint32_t> studioFrameAdvanceCulled{ 0 };
 		std::atomic<uint32_t> particleCollectionCalls{ 0 };
 		std::atomic<uint32_t> particleCollectionCulled{ 0 };
 		std::atomic<uint32_t> particleThinkCalls{ 0 };
@@ -70,10 +80,14 @@ namespace
 		if (ShouldThrottleLog(counters.lastLog, Hooks::m_VR->m_ContentCpuDebugLogHz))
 			return;
 
+		const uint32_t clientThinkCalls = counters.clientThinkCalls.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkCulled = counters.clientThinkCulled.exchange(0, std::memory_order_relaxed);
 		const uint32_t setupBonesCalls = counters.setupBonesCalls.exchange(0, std::memory_order_relaxed);
 		const uint32_t setupBonesCulled = counters.setupBonesCulled.exchange(0, std::memory_order_relaxed);
 		const uint32_t clientAnimEntities = counters.clientAnimEntities.exchange(0, std::memory_order_relaxed);
 		const uint32_t clientAnimCulled = counters.clientAnimCulled.exchange(0, std::memory_order_relaxed);
+		const uint32_t studioFrameAdvanceCalls = counters.studioFrameAdvanceCalls.exchange(0, std::memory_order_relaxed);
+		const uint32_t studioFrameAdvanceCulled = counters.studioFrameAdvanceCulled.exchange(0, std::memory_order_relaxed);
 		const uint32_t particleCollectionCalls = counters.particleCollectionCalls.exchange(0, std::memory_order_relaxed);
 		const uint32_t particleCollectionCulled = counters.particleCollectionCulled.exchange(0, std::memory_order_relaxed);
 		const uint32_t particleThinkCalls = counters.particleThinkCalls.exchange(0, std::memory_order_relaxed);
@@ -86,9 +100,11 @@ namespace
 		const uint32_t muzzleFlashCulled = counters.muzzleFlashCulled.exchange(0, std::memory_order_relaxed);
 
 		Game::logMsg(
-			"[ContentCPU][stats] setupBones=%u/%u clientAnim=%u/%u particleCollection=%u/%u particleThink=%u/%u flexScene=%u/%u muzzleFx=%u/%u muzzleFlash=%u/%u",
+			"[ContentCPU][stats] clientThink=%u/%u setupBones=%u/%u clientAnim=%u/%u studioAdvance=%u/%u particleCollection=%u/%u particleThink=%u/%u flexScene=%u/%u muzzleFx=%u/%u muzzleFlash=%u/%u",
+			clientThinkCulled, clientThinkCalls,
 			setupBonesCulled, setupBonesCalls,
 			clientAnimCulled, clientAnimEntities,
+			studioFrameAdvanceCulled, studioFrameAdvanceCalls,
 			particleCollectionCulled, particleCollectionCalls,
 			particleThinkCulled, particleThinkCalls,
 			flexSceneCulled, flexSceneCalls,
@@ -140,6 +156,24 @@ namespace
 	{
 		return className &&
 			(std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
+	}
+
+	inline bool TryGetObjectVtableFunction(const void* object, size_t vtableIndex, void*& outFnAddr)
+	{
+		outFnAddr = nullptr;
+		if (!object)
+			return false;
+
+		void*** objectPtr = reinterpret_cast<void***>(const_cast<void*>(object));
+		if (!objectPtr || !IsReadableMemoryRange(objectPtr, sizeof(void**)))
+			return false;
+
+		void** vtable = *objectPtr;
+		if (!vtable || !IsReadableMemoryRange(vtable, (vtableIndex + 1) * sizeof(void*)))
+			return false;
+
+		outFnAddr = vtable[vtableIndex];
+		return outFnAddr != nullptr && IsReadableMemoryRange(outFnAddr, 8);
 	}
 
 	inline bool TryGetRenderableModel(const C_BaseEntity* entity, model_t*& outModel)
@@ -218,6 +252,60 @@ namespace
 		return false;
 	}
 
+	inline bool TryResolveClientEntityFromHandle(uint32_t handle, C_BaseEntity*& outEntity, int& outEntityIndex)
+	{
+		outEntity = nullptr;
+		outEntityIndex = -1;
+		if (!Hooks::m_Game || !Hooks::m_Game->m_ClientEntityList)
+			return false;
+
+		if (handle == 0 || handle == 0xffffu || handle == 0xffffffffu)
+			return false;
+
+		outEntity = reinterpret_cast<C_BaseEntity*>(Hooks::m_Game->m_ClientEntityList->GetClientEntityFromHandle(static_cast<int>(handle)));
+		if (!outEntity)
+			return false;
+
+		if (!Hooks::m_VR->GetContentCpuEntityIndexForPointer(outEntity, outEntityIndex))
+			TryGetEntityIndexFromPointerSlow(outEntity, outEntityIndex);
+		return true;
+	}
+
+	inline void* ResolveClientThinkableFromEntry(uint32_t* entry)
+	{
+		if (!entry || !Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->ResolveClientThinkHandle.valid)
+			return nullptr;
+
+		using tResolveClientThinkHandle = void* (__cdecl*)(uint32_t thinkHandle);
+		auto resolve = reinterpret_cast<tResolveClientThinkHandle>(Hooks::m_Game->m_Offsets->ResolveClientThinkHandle.address);
+		if (!resolve)
+			return nullptr;
+
+		void* thinkable = resolve(entry[0]);
+		if (!thinkable)
+			thinkable = resolve(entry[0]);
+		return thinkable;
+	}
+
+	inline bool TryResolveEntityFromThinkable(void* thinkable, C_BaseEntity*& outEntity, int& outEntityIndex)
+	{
+		outEntity = nullptr;
+		outEntityIndex = -1;
+		if (!thinkable)
+			return false;
+
+		void* fnAddr = nullptr;
+		if (!TryGetObjectVtableFunction(thinkable, kIClientThinkableGetClientHandleVtableIndex, fnAddr))
+			return false;
+
+		using tGetClientHandle = int(__thiscall*)(void* thisptr);
+		const int handle = reinterpret_cast<tGetClientHandle>(fnAddr)(thinkable);
+		if (handle == -1 || handle == 0xffff)
+			return false;
+
+		return TryResolveClientEntityFromHandle(static_cast<uint32_t>(handle), outEntity, outEntityIndex);
+	}
+
 	inline void TouchContentCpuEntityFromPointer(const C_BaseEntity* entity,
 		int entityIndex,
 		ContentCpuClass preferredClass = ContentCpuClass::Unknown,
@@ -279,6 +367,188 @@ namespace
 	inline void TouchContentCpuEntityFromClientAnim(const C_BaseEntity* entity, int entityIndex)
 	{
 		TouchContentCpuEntityFromPointer(entity, entityIndex);
+	}
+
+	inline int GetContentCpuClassificationPriority(ContentCpuClass classification)
+	{
+		switch (classification)
+		{
+		case ContentCpuClass::Critical:
+			return 5;
+		case ContentCpuClass::SpecialInfected:
+			return 4;
+		case ContentCpuClass::CommonInfected:
+			return 3;
+		case ContentCpuClass::Ragdoll:
+			return 2;
+		case ContentCpuClass::DecorDynamic:
+		case ContentCpuClass::DecorStatic:
+			return 1;
+		default:
+			return 0;
+		}
+	}
+
+	inline bool TryResolveParticleSystemRepresentativeEntity(void* particleSystem,
+		C_BaseEntity*& outEntity,
+		int& outEntityIndex,
+		Vector& outOrigin)
+	{
+		outEntity = nullptr;
+		outEntityIndex = -1;
+		outOrigin = { 0.0f, 0.0f, 0.0f };
+		if (!particleSystem || !Hooks::m_Game || !Hooks::m_VR)
+			return false;
+
+		int bestScore = -1;
+		C_BaseEntity* directEntity = nullptr;
+		int directEntityIndex = -1;
+		if (TryResolveEntityFromThinkable(particleSystem, directEntity, directEntityIndex) &&
+			directEntity &&
+			directEntityIndex > 0)
+		{
+			TouchContentCpuEntityFromPointer(directEntity, directEntityIndex);
+
+			ContentCpuEntityState state{};
+			bestScore = Hooks::m_VR->IsLocalPlayerEntityIndex(directEntityIndex)
+				? 100
+				: (Hooks::m_VR->TryGetContentCpuEntityState(directEntityIndex, state)
+					? 10 + GetContentCpuClassificationPriority(state.classification)
+					: 1);
+			outEntity = directEntity;
+			outEntityIndex = directEntityIndex;
+			outOrigin = directEntity->GetAbsOrigin();
+			if (bestScore >= 100)
+				return true;
+		}
+
+		auto* controlPointHandles = reinterpret_cast<const uint32_t*>(reinterpret_cast<uintptr_t>(particleSystem) + kParticleSystemControlPointHandleOffset);
+		if (!IsReadableMemoryRange(controlPointHandles, sizeof(uint32_t) * kParticleSystemControlPointHandleCount))
+			return outEntity != nullptr;
+
+		for (size_t i = 0; i < kParticleSystemControlPointHandleCount; ++i)
+		{
+			C_BaseEntity* entity = nullptr;
+			int entityIndex = -1;
+			if (!TryResolveClientEntityFromHandle(controlPointHandles[i], entity, entityIndex) || !entity)
+				continue;
+
+			const Vector origin = entity->GetAbsOrigin();
+			if (entityIndex > 0)
+				TouchContentCpuEntityFromPointer(entity, entityIndex);
+
+			int score = 1;
+			if (entityIndex > 0)
+			{
+				if (Hooks::m_VR->IsLocalPlayerEntityIndex(entityIndex))
+					score = 100;
+				else
+				{
+					ContentCpuEntityState state{};
+					if (Hooks::m_VR->TryGetContentCpuEntityState(entityIndex, state))
+						score = 10 + GetContentCpuClassificationPriority(state.classification);
+				}
+			}
+
+			if (score > bestScore)
+			{
+				bestScore = score;
+				outEntity = entity;
+				outEntityIndex = entityIndex;
+				outOrigin = origin;
+				if (score >= 100)
+					break;
+			}
+		}
+
+		return outEntity != nullptr;
+	}
+
+	inline bool ShouldCullParticleSystemClientThink(void* particleSystem)
+	{
+		if (!particleSystem || !Hooks::m_VR || !Hooks::m_Game || !Hooks::m_VR->m_ContentCpuParticleClientThinkCullEnabled)
+			return false;
+
+		C_BaseEntity* entity = nullptr;
+		int entityIndex = -1;
+		Vector origin{};
+		if (!TryResolveParticleSystemRepresentativeEntity(particleSystem, entity, entityIndex, origin) ||
+			!entity ||
+			entityIndex <= 0)
+		{
+			return false;
+		}
+
+		TouchContentCpuEntityFromPointer(entity, entityIndex);
+		if (Hooks::m_VR->IsLocalPlayerEntityIndex(entityIndex))
+			return false;
+
+		if (Hooks::m_VR->ShouldCullContentCpuClientThink(entityIndex))
+			return true;
+
+		if (Hooks::m_VR->WasContentCpuEntityRecentlySeen(entityIndex, static_cast<uint32_t>(std::max(0, Hooks::m_VR->m_ContentCpuRecentlySeenFrames))))
+			return false;
+
+		return Hooks::m_VR->ShouldCullContentCpuLocalFx(entityIndex, origin);
+	}
+
+	inline bool ShouldCullClientThinkableDispatch(void* thinkable)
+	{
+		if (!thinkable || !Hooks::m_VR || !Hooks::m_Game)
+			return false;
+
+		void* clientThinkFn = nullptr;
+		if (!TryGetObjectVtableFunction(thinkable, kIClientThinkableClientThinkVtableIndex, clientThinkFn))
+			return false;
+
+		const void* particleThinkAddr =
+			(Hooks::m_Game->m_Offsets && Hooks::m_Game->m_Offsets->ParticleSystemClientThink.valid)
+			? reinterpret_cast<void*>(Hooks::m_Game->m_Offsets->ParticleSystemClientThink.address)
+			: nullptr;
+		if (particleThinkAddr && clientThinkFn == particleThinkAddr)
+			return ShouldCullParticleSystemClientThink(thinkable);
+
+		if (!Hooks::m_VR->m_ContentCpuClientThinkCullEnabled)
+			return false;
+
+		C_BaseEntity* entity = nullptr;
+		int entityIndex = -1;
+		if (!TryResolveEntityFromThinkable(thinkable, entity, entityIndex) || !entity || entityIndex <= 0)
+			return false;
+
+		TouchContentCpuEntityFromPointer(entity, entityIndex);
+		return Hooks::m_VR->ShouldCullContentCpuClientThink(entityIndex);
+	}
+
+	inline void CallClientThinkUnregister(uint32_t thinkHandle)
+	{
+		if (!Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->UnregisterClientThink.valid)
+			return;
+
+		using tClientThinkUnregister = void(__cdecl*)(uint32_t thinkHandle);
+		reinterpret_cast<tClientThinkUnregister>(Hooks::m_Game->m_Offsets->UnregisterClientThink.address)(thinkHandle);
+	}
+
+	inline void SkipClientThinkDispatchEntry(uint32_t* entry, uint32_t serial)
+	{
+		if (!entry)
+			return;
+
+		float scheduledThink = 0.0f;
+		std::memcpy(&scheduledThink, &entry[1], sizeof(float));
+		if (scheduledThink != kClientThinkImmediateSentinel)
+		{
+			if (entry[1] == kClientThinkNeverThinkBits)
+			{
+				CallClientThinkUnregister(entry[0]);
+				entry[2] = serial;
+				return;
+			}
+
+			entry[1] = kClientThinkNeverThinkBits;
+		}
+
+		entry[2] = serial;
 	}
 
 	inline int TrackContentCpuEntity(C_BaseEntity* entity,
@@ -439,6 +709,36 @@ bool Hooks::dShouldInterpolate(C_BaseEntity* ecx, void* edx)
 	return false;
 }
 
+void Hooks::dDispatchClientThink(uint32_t* entry, uint32_t serial)
+{
+	if (!hkDispatchClientThink.fOriginal)
+		return;
+
+	GetContentCpuDebugCounters().clientThinkCalls.fetch_add(1, std::memory_order_relaxed);
+
+	if (!entry ||
+		!m_VR ||
+		!m_Game ||
+		(!m_VR->m_ContentCpuClientThinkCullEnabled && !m_VR->m_ContentCpuParticleClientThinkCullEnabled))
+	{
+		hkDispatchClientThink.fOriginal(entry, serial);
+		MaybeLogContentCpuDebugStats();
+		return;
+	}
+
+	void* thinkable = ResolveClientThinkableFromEntry(entry);
+	if (!thinkable || !ShouldCullClientThinkableDispatch(thinkable))
+	{
+		hkDispatchClientThink.fOriginal(entry, serial);
+		MaybeLogContentCpuDebugStats();
+		return;
+	}
+
+	GetContentCpuDebugCounters().clientThinkCulled.fetch_add(1, std::memory_order_relaxed);
+	SkipClientThinkDispatchEntry(entry, serial);
+	MaybeLogContentCpuDebugStats();
+}
+
 void __fastcall Hooks::dParticleCollectionSimulate(void* ecx, void* edx, float dt)
 {
 	(void)edx;
@@ -475,6 +775,13 @@ void __fastcall Hooks::dParticleSystemClientThink(void* ecx, void* edx)
 		return;
 
 	GetContentCpuDebugCounters().particleThinkCalls.fetch_add(1, std::memory_order_relaxed);
+
+	if (ShouldCullParticleSystemClientThink(ecx))
+	{
+		GetContentCpuDebugCounters().particleThinkCulled.fetch_add(1, std::memory_order_relaxed);
+		MaybeLogContentCpuDebugStats();
+		return;
+	}
 
 	hkParticleSystemClientThink.fOriginal(ecx);
 	MaybeLogContentCpuDebugStats();
@@ -566,6 +873,45 @@ void __fastcall Hooks::dProcessMuzzleFlashEvent(void* ecx, void* edx)
 
 	hkProcessMuzzleFlashEvent.fOriginal(ecx);
 	MaybeLogContentCpuDebugStats();
+}
+
+float __fastcall Hooks::dStudioFrameAdvance(void* ecx, void* edx, float flInterval)
+{
+	(void)edx;
+
+	if (!hkStudioFrameAdvance.fOriginal)
+		return 0.0f;
+
+	GetContentCpuDebugCounters().studioFrameAdvanceCalls.fetch_add(1, std::memory_order_relaxed);
+
+	if (!ecx || !m_VR || !m_Game || !m_VR->m_ContentCpuStudioFrameAdvanceCullEnabled)
+	{
+		const float result = hkStudioFrameAdvance.fOriginal(ecx, flInterval);
+		MaybeLogContentCpuDebugStats();
+		return result;
+	}
+
+	C_BaseEntity* const entity = reinterpret_cast<C_BaseEntity*>(ecx);
+	int entityIndex = -1;
+	if (!m_VR->GetContentCpuEntityIndexForPointer(entity, entityIndex) &&
+		!TryGetEntityIndexFromPointerSlow(entity, entityIndex))
+	{
+		const float result = hkStudioFrameAdvance.fOriginal(ecx, flInterval);
+		MaybeLogContentCpuDebugStats();
+		return result;
+	}
+
+	TouchContentCpuEntityFromPointer(entity, entityIndex);
+	if (!m_VR->ShouldCullContentCpuStudioFrameAdvance(entityIndex))
+	{
+		const float result = hkStudioFrameAdvance.fOriginal(ecx, flInterval);
+		MaybeLogContentCpuDebugStats();
+		return result;
+	}
+
+	GetContentCpuDebugCounters().studioFrameAdvanceCulled.fetch_add(1, std::memory_order_relaxed);
+	MaybeLogContentCpuDebugStats();
+	return 0.0f;
 }
 
 void Hooks::dUpdateClientSideAnimations()

@@ -35,8 +35,12 @@ Hooks::Hooks(Game* game)
 	hkGetPrimaryAttackActivity.enableHook();
 	hkEyePosition.enableHook();
 	hkDrawModelExecute.enableHook();
+	if (hkDispatchClientThink.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled DispatchClientThink hook at %p", hkDispatchClientThink.pTarget);
 	if (hkUpdateClientSideAnimations.enableHook() == 0)
 		Game::logMsg("[ContentCPU] Enabled UpdateClientSideAnimations hook at %p", hkUpdateClientSideAnimations.pTarget);
+	if (hkStudioFrameAdvance.enableHook() == 0)
+		Game::logMsg("[ContentCPU] Enabled StudioFrameAdvance hook at %p", hkStudioFrameAdvance.pTarget);
 	if (hkParticleSystemClientThink.enableHook() == 0)
 		Game::logMsg("[ContentCPU] Enabled ParticleSystemClientThink hook at %p", hkParticleSystemClientThink.pTarget);
 	if (hkBaseFlexAddSceneEvent.enableHook() == 0)
@@ -129,8 +133,14 @@ int Hooks::initSourceHooks()
 	LPVOID DrawModelExecuteAddr = (LPVOID)(m_Game->m_Offsets->DrawModelExecute.address);
 	hkDrawModelExecute.createHook(DrawModelExecuteAddr, &dDrawModelExecute);
 
+	LPVOID DispatchClientThinkAddr = (LPVOID)(m_Game->m_Offsets->DispatchClientThink.address);
+	hkDispatchClientThink.createHook(DispatchClientThinkAddr, &dDispatchClientThink);
+
 	LPVOID UpdateClientSideAnimationsAddr = (LPVOID)(m_Game->m_Offsets->UpdateClientSideAnimations.address);
 	hkUpdateClientSideAnimations.createHook(UpdateClientSideAnimationsAddr, &dUpdateClientSideAnimations);
+
+	LPVOID StudioFrameAdvanceAddr = (LPVOID)(m_Game->m_Offsets->StudioFrameAdvance.address);
+	hkStudioFrameAdvance.createHook(StudioFrameAdvanceAddr, &dStudioFrameAdvance);
 
 	LPVOID ParticleSystemClientThinkAddr = (LPVOID)(m_Game->m_Offsets->ParticleSystemClientThink.address);
 	hkParticleSystemClientThink.createHook(ParticleSystemClientThinkAddr, &dParticleSystemClientThink);
