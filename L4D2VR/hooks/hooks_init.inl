@@ -1,7 +1,8 @@
 bool Hooks::s_ServerUnderstandsVR = false;
 namespace
 {
-	constexpr bool kEnableExperimentalContentCpuHooks = false;
+	constexpr bool kEnableExperimentalContentCpuHooks = true;
+	constexpr bool kEnableDispatchClientThinkHook = true;
 }
 
 Hooks::Hooks(Game* game)
@@ -42,8 +43,11 @@ Hooks::Hooks(Game* game)
 	hkDrawModelExecute.enableHook();
 	if (kEnableExperimentalContentCpuHooks)
 	{
-		if (hkDispatchClientThink.enableHook() == 0)
-			Game::logMsg("[ContentCPU] Enabled DispatchClientThink hook at %p", hkDispatchClientThink.pTarget);
+		if (kEnableDispatchClientThinkHook)
+		{
+			if (hkDispatchClientThink.enableHook() == 0)
+				Game::logMsg("[ContentCPU] Enabled DispatchClientThink hook at %p", hkDispatchClientThink.pTarget);
+		}
 		if (hkUpdateClientSideAnimations.enableHook() == 0)
 			Game::logMsg("[ContentCPU] Enabled UpdateClientSideAnimations hook at %p", hkUpdateClientSideAnimations.pTarget);
 		if (hkStudioFrameAdvance.enableHook() == 0)
@@ -146,8 +150,11 @@ int Hooks::initSourceHooks()
 	hkDrawModelExecute.createHook(DrawModelExecuteAddr, &dDrawModelExecute);
 	if (kEnableExperimentalContentCpuHooks)
 	{
-		LPVOID DispatchClientThinkAddr = (LPVOID)(m_Game->m_Offsets->DispatchClientThink.address);
-		hkDispatchClientThink.createHook(DispatchClientThinkAddr, &dDispatchClientThink);
+		if (kEnableDispatchClientThinkHook)
+		{
+			LPVOID DispatchClientThinkAddr = (LPVOID)(m_Game->m_Offsets->DispatchClientThink.address);
+			hkDispatchClientThink.createHook(DispatchClientThinkAddr, &dDispatchClientThink);
+		}
 
 		LPVOID UpdateClientSideAnimationsAddr = (LPVOID)(m_Game->m_Offsets->UpdateClientSideAnimations.address);
 		hkUpdateClientSideAnimations.createHook(UpdateClientSideAnimationsAddr, &dUpdateClientSideAnimations);

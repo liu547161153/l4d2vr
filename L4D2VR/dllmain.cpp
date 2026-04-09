@@ -14,6 +14,8 @@
 
 namespace
 {
+    constexpr wchar_t kDesiredVrWindowTitle[] = L"Left 4 Dead 2 VR - Vulkan";
+
     struct WindowSearchContext
     {
         DWORD processId = 0;
@@ -48,6 +50,21 @@ namespace
         ctx.processId = GetCurrentProcessId();
         EnumWindows(FindMainWindowProc, reinterpret_cast<LPARAM>(&ctx));
         return ctx.hwnd;
+    }
+
+    bool EnsureDesiredWindowTitle(HWND hwnd)
+    {
+        if (!IsWindow(hwnd))
+            return false;
+
+        wchar_t currentTitle[256] = {};
+        if (GetWindowTextW(hwnd, currentTitle, _countof(currentTitle)) > 0 &&
+            lstrcmpW(currentTitle, kDesiredVrWindowTitle) == 0)
+        {
+            return true;
+        }
+
+        return SetWindowTextW(hwnd, kDesiredVrWindowTitle) != FALSE;
     }
 
     bool ForceWindowForeground(HWND hwnd)
@@ -99,6 +116,23 @@ namespace
             {
                 stableForegroundCount = 0;
             }
+
+            Sleep(kRetryDelayMs);
+        }
+
+        return 0;
+    }
+
+    DWORD WINAPI MaintainWindowTitleWorker(LPVOID)
+    {
+        constexpr int kMaxRetries = 60;
+        constexpr DWORD kRetryDelayMs = 1000;
+
+        for (int i = 0; i < kMaxRetries; ++i)
+        {
+            HWND window = FindCurrentProcessMainWindow();
+            if (window)
+                EnsureDesiredWindowTitle(window);
 
             Sleep(kRetryDelayMs);
         }
@@ -404,6 +438,7 @@ DWORD WINAPI InitL4D2VR(HMODULE hModule)
     }
 
     CreateThread(nullptr, 0, FocusGameWindowWorker, nullptr, 0, nullptr);
+    CreateThread(nullptr, 0, MaintainWindowTitleWorker, nullptr, 0, nullptr);
     EnsureVideoCfgSettings();
 
     g_Game = new Game();

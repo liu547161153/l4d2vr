@@ -3,8 +3,11 @@ namespace
 	constexpr size_t kCBaseEntityShouldInterpolateVtableIndex = 165;
 	constexpr size_t kIHandleEntityGetRefEHandleVtableIndex = 2;
 	constexpr size_t kIClientRenderableGetModelVtableIndex = 8;
+	constexpr size_t kIClientThinkableGetIClientUnknownVtableIndex = 0;
 	constexpr size_t kIClientThinkableClientThinkVtableIndex = 1;
-	constexpr size_t kIClientThinkableGetClientHandleVtableIndex = 2;
+	constexpr size_t kIClientThinkableGetThinkHandleVtableIndex = 2;
+	constexpr size_t kIClientUnknownGetIClientEntityVtableIndex = 6;
+	constexpr size_t kIClientUnknownGetBaseEntityVtableIndex = 7;
 	constexpr size_t kUpdateClientSideAnimationVtableIndex = (0x328 / sizeof(void*));
 	constexpr uintptr_t kClientSideAnimationListRva = 0x72213C;
 	constexpr uintptr_t kClientSideAnimationCountRva = 0x722148;
@@ -27,6 +30,14 @@ namespace
 	{
 		std::atomic<uint32_t> clientThinkCalls{ 0 };
 		std::atomic<uint32_t> clientThinkCulled{ 0 };
+		std::atomic<uint32_t> clientThinkEntityMiss{ 0 };
+		std::atomic<uint32_t> clientThinkPointerFallback{ 0 };
+		std::atomic<uint32_t> clientThinkInterpRejected{ 0 };
+		std::atomic<uint32_t> clientThinkClassRejected{ 0 };
+		std::atomic<uint32_t> clientThinkCommonCandidates{ 0 };
+		std::atomic<uint32_t> clientThinkRagdollCandidates{ 0 };
+		std::atomic<uint32_t> clientThinkDecorCandidates{ 0 };
+		std::atomic<uint32_t> clientThinkOtherCandidates{ 0 };
 		std::atomic<uint32_t> setupBonesCalls{ 0 };
 		std::atomic<uint32_t> setupBonesCulled{ 0 };
 		std::atomic<uint32_t> clientAnimEntities{ 0 };
@@ -46,10 +57,22 @@ namespace
 		std::chrono::steady_clock::time_point lastLog{};
 	};
 
+	struct ClientThinkResolverState
+	{
+		std::atomic<uintptr_t> resolverContextSlot{ 0 };
+		std::atomic<bool> loggedResolverSlot{ false };
+	};
+
 	inline ContentCpuDebugCounters& GetContentCpuDebugCounters()
 	{
 		static ContentCpuDebugCounters counters{};
 		return counters;
+	}
+
+	inline ClientThinkResolverState& GetClientThinkResolverState()
+	{
+		static ClientThinkResolverState state{};
+		return state;
 	}
 
 	struct ParticleCollectionThrottleState
@@ -82,6 +105,14 @@ namespace
 
 		const uint32_t clientThinkCalls = counters.clientThinkCalls.exchange(0, std::memory_order_relaxed);
 		const uint32_t clientThinkCulled = counters.clientThinkCulled.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkEntityMiss = counters.clientThinkEntityMiss.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkPointerFallback = counters.clientThinkPointerFallback.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkInterpRejected = counters.clientThinkInterpRejected.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkClassRejected = counters.clientThinkClassRejected.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkCommonCandidates = counters.clientThinkCommonCandidates.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkRagdollCandidates = counters.clientThinkRagdollCandidates.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkDecorCandidates = counters.clientThinkDecorCandidates.exchange(0, std::memory_order_relaxed);
+		const uint32_t clientThinkOtherCandidates = counters.clientThinkOtherCandidates.exchange(0, std::memory_order_relaxed);
 		const uint32_t setupBonesCalls = counters.setupBonesCalls.exchange(0, std::memory_order_relaxed);
 		const uint32_t setupBonesCulled = counters.setupBonesCulled.exchange(0, std::memory_order_relaxed);
 		const uint32_t clientAnimEntities = counters.clientAnimEntities.exchange(0, std::memory_order_relaxed);
@@ -100,8 +131,16 @@ namespace
 		const uint32_t muzzleFlashCulled = counters.muzzleFlashCulled.exchange(0, std::memory_order_relaxed);
 
 		Game::logMsg(
-			"[ContentCPU][stats] clientThink=%u/%u setupBones=%u/%u clientAnim=%u/%u studioAdvance=%u/%u particleCollection=%u/%u particleThink=%u/%u flexScene=%u/%u muzzleFx=%u/%u muzzleFlash=%u/%u",
+			"[ContentCPU][stats] clientThink=%u/%u miss=%u fallback=%u interp=%u class=%u cand=%u/%u/%u/%u setupBones=%u/%u clientAnim=%u/%u studioAdvance=%u/%u particleCollection=%u/%u particleThink=%u/%u flexScene=%u/%u muzzleFx=%u/%u muzzleFlash=%u/%u",
 			clientThinkCulled, clientThinkCalls,
+			clientThinkEntityMiss,
+			clientThinkPointerFallback,
+			clientThinkInterpRejected,
+			clientThinkClassRejected,
+			clientThinkCommonCandidates,
+			clientThinkRagdollCandidates,
+			clientThinkDecorCandidates,
+			clientThinkOtherCandidates,
 			setupBonesCulled, setupBonesCalls,
 			clientAnimCulled, clientAnimEntities,
 			studioFrameAdvanceCulled, studioFrameAdvanceCalls,
@@ -271,6 +310,137 @@ namespace
 		return true;
 	}
 
+	inline bool TryResolveClientEntityFromPointer(const void* candidate, C_BaseEntity*& outEntity, int& outEntityIndex)
+	{
+		outEntity = nullptr;
+		outEntityIndex = -1;
+		if (!candidate || !Hooks::m_Game || !Hooks::m_Game->m_ClientEntityList || !Hooks::m_VR)
+			return false;
+
+		if (!Hooks::m_VR->GetContentCpuEntityIndexForPointer(reinterpret_cast<const C_BaseEntity*>(candidate), outEntityIndex))
+		{
+			const int maxEntityIndex = (std::min)(Hooks::m_Game->m_ClientEntityList->GetHighestEntityIndex(), 4096);
+			for (int index = 1; index <= maxEntityIndex; ++index)
+			{
+				if (Hooks::m_Game->GetClientEntity(index) == candidate)
+				{
+					outEntityIndex = index;
+					break;
+				}
+			}
+		}
+
+		if (outEntityIndex <= 0)
+			return false;
+
+		outEntity = reinterpret_cast<C_BaseEntity*>(const_cast<void*>(candidate));
+		return true;
+	}
+
+	inline bool TryResolveEntityFromClientUnknown(void* clientUnknown, C_BaseEntity*& outEntity, int& outEntityIndex)
+	{
+		outEntity = nullptr;
+		outEntityIndex = -1;
+		if (!clientUnknown)
+			return false;
+
+		void* fnAddr = nullptr;
+		if (TryGetObjectVtableFunction(clientUnknown, kIClientUnknownGetBaseEntityVtableIndex, fnAddr))
+		{
+			using tGetBaseEntity = void* (__thiscall*)(void* thisptr);
+			__try
+			{
+				void* entityPtr = reinterpret_cast<tGetBaseEntity>(fnAddr)(clientUnknown);
+				if (entityPtr && TryResolveClientEntityFromPointer(entityPtr, outEntity, outEntityIndex))
+					return true;
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER)
+			{
+			}
+		}
+
+		if (TryGetObjectVtableFunction(clientUnknown, kIClientUnknownGetIClientEntityVtableIndex, fnAddr))
+		{
+			using tGetIClientEntity = void* (__thiscall*)(void* thisptr);
+			__try
+			{
+				void* entityPtr = reinterpret_cast<tGetIClientEntity>(fnAddr)(clientUnknown);
+				if (entityPtr && TryResolveClientEntityFromPointer(entityPtr, outEntity, outEntityIndex))
+					return true;
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER)
+			{
+			}
+		}
+
+		return false;
+	}
+
+	inline uintptr_t FindClientThinkResolverContextSlotAddress()
+	{
+		if (!Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->UnregisterClientThink.valid)
+			return 0;
+
+		const auto* unregisterFn = reinterpret_cast<const uint8_t*>(Hooks::m_Game->m_Offsets->UnregisterClientThink.address);
+		if (!IsReadableMemoryRange(unregisterFn, 96))
+			return 0;
+
+		for (size_t i = 0; i + 6 <= 96; ++i)
+		{
+			if (unregisterFn[i] != 0x8B || unregisterFn[i + 1] != 0x0D)
+				continue;
+
+			uint32_t slot32 = 0;
+			std::memcpy(&slot32, unregisterFn + i + 2, sizeof(slot32));
+			if (slot32 == 0)
+				continue;
+
+			const uintptr_t slot = static_cast<uintptr_t>(slot32);
+			auto** resolverSlot = reinterpret_cast<void**>(slot);
+			if (!IsReadableMemoryRange(resolverSlot, sizeof(void*)))
+				continue;
+
+			void* resolverContext = *resolverSlot;
+			if (!resolverContext || !IsReadableMemoryRange(resolverContext, sizeof(void*)))
+				continue;
+
+			return slot;
+		}
+
+		return 0;
+	}
+
+	inline void* GetClientThinkResolverContext()
+	{
+		ClientThinkResolverState& state = GetClientThinkResolverState();
+		uintptr_t slot = state.resolverContextSlot.load(std::memory_order_acquire);
+		if (slot == 0)
+		{
+			slot = FindClientThinkResolverContextSlotAddress();
+			if (slot != 0)
+			{
+				state.resolverContextSlot.store(slot, std::memory_order_release);
+				if (!state.loggedResolverSlot.exchange(true, std::memory_order_relaxed))
+				{
+					Game::logMsg("[ContentCPU] DispatchClientThink resolver context slot at %p", reinterpret_cast<void*>(slot));
+				}
+			}
+		}
+
+		if (slot == 0)
+			return nullptr;
+
+		auto** resolverSlot = reinterpret_cast<void**>(slot);
+		if (!IsReadableMemoryRange(resolverSlot, sizeof(void*)))
+			return nullptr;
+
+		void* resolverContext = *resolverSlot;
+		if (!resolverContext || !IsReadableMemoryRange(resolverContext, sizeof(void*)))
+			return nullptr;
+
+		return resolverContext;
+	}
+
 	inline void* ResolveClientThinkableFromEntry(uint32_t* entry)
 	{
 		if (!entry || !Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->ResolveClientThinkHandle.valid)
@@ -280,16 +450,21 @@ namespace
 		if (thinkHandle == 0 || thinkHandle == 0xffffu || thinkHandle == 0xffffffffu)
 			return nullptr;
 
-		using tResolveClientThinkHandle = void* (__cdecl*)(uint32_t thinkHandle);
+		void* resolverContext = GetClientThinkResolverContext();
+		if (!resolverContext)
+			return nullptr;
+
+		using tResolveClientThinkHandle = void* (__thiscall*)(void* thisptr, uint32_t thinkHandle);
 		auto resolve = reinterpret_cast<tResolveClientThinkHandle>(Hooks::m_Game->m_Offsets->ResolveClientThinkHandle.address);
 		if (!resolve)
 			return nullptr;
 
 		__try
 		{
-			void* thinkable = resolve(thinkHandle);
-			if (!thinkable)
-				thinkable = resolve(thinkHandle);
+			void* thinkable = resolve(resolverContext, thinkHandle);
+			if (!thinkable || !IsReadableMemoryRange(thinkable, sizeof(void*)))
+				return nullptr;
+
 			return thinkable;
 		}
 		__except (EXCEPTION_EXECUTE_HANDLER)
@@ -298,23 +473,52 @@ namespace
 		}
 	}
 
-	inline bool TryResolveEntityFromThinkable(void* thinkable, C_BaseEntity*& outEntity, int& outEntityIndex)
+	inline bool TryResolveEntityFromThinkable(void* thinkable, C_BaseEntity*& outEntity, int& outEntityIndex, bool* outUsedPointerFallback = nullptr)
 	{
 		outEntity = nullptr;
 		outEntityIndex = -1;
+		if (outUsedPointerFallback)
+			*outUsedPointerFallback = false;
 		if (!thinkable)
 			return false;
 
 		void* fnAddr = nullptr;
-		if (!TryGetObjectVtableFunction(thinkable, kIClientThinkableGetClientHandleVtableIndex, fnAddr))
-			return false;
+		if (TryGetObjectVtableFunction(thinkable, kIClientThinkableGetIClientUnknownVtableIndex, fnAddr))
+		{
+			using tGetIClientUnknown = void* (__thiscall*)(void* thisptr);
+			__try
+			{
+				void* clientUnknown = reinterpret_cast<tGetIClientUnknown>(fnAddr)(thinkable);
+				if (clientUnknown && TryResolveEntityFromClientUnknown(clientUnknown, outEntity, outEntityIndex))
+					return true;
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER)
+			{
+			}
+		}
 
-		using tGetClientHandle = int(__thiscall*)(void* thisptr);
-		const int handle = reinterpret_cast<tGetClientHandle>(fnAddr)(thinkable);
-		if (handle == -1 || handle == 0xffff)
-			return false;
+		if (TryGetObjectVtableFunction(thinkable, kIClientThinkableGetThinkHandleVtableIndex, fnAddr))
+		{
+			using tGetThinkHandle = int(__thiscall*)(void* thisptr);
+			__try
+			{
+				const int handle = reinterpret_cast<tGetThinkHandle>(fnAddr)(thinkable);
+				if (handle != -1 && handle != 0xffff && TryResolveClientEntityFromHandle(static_cast<uint32_t>(handle), outEntity, outEntityIndex))
+					return true;
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER)
+			{
+			}
+		}
 
-		return TryResolveClientEntityFromHandle(static_cast<uint32_t>(handle), outEntity, outEntityIndex);
+		if (TryResolveClientEntityFromPointer(thinkable, outEntity, outEntityIndex))
+		{
+			if (outUsedPointerFallback)
+				*outUsedPointerFallback = true;
+			return true;
+		}
+
+		return false;
 	}
 
 	inline void TouchContentCpuEntityFromPointer(const C_BaseEntity* entity,
@@ -524,23 +728,83 @@ namespace
 
 		C_BaseEntity* entity = nullptr;
 		int entityIndex = -1;
-		if (!TryResolveEntityFromThinkable(thinkable, entity, entityIndex) || !entity || entityIndex <= 0)
+		bool usedPointerFallback = false;
+		if (!TryResolveEntityFromThinkable(thinkable, entity, entityIndex, &usedPointerFallback) || !entity || entityIndex <= 0)
+		{
+			GetContentCpuDebugCounters().clientThinkEntityMiss.fetch_add(1, std::memory_order_relaxed);
 			return false;
+		}
+
+		if (usedPointerFallback)
+			GetContentCpuDebugCounters().clientThinkPointerFallback.fetch_add(1, std::memory_order_relaxed);
 
 		TouchContentCpuEntityFromPointer(entity, entityIndex);
-		return Hooks::m_VR->ShouldCullContentCpuClientThink(entityIndex);
+
+		ContentCpuEntityState state{};
+		if (!Hooks::m_VR->TryGetContentCpuEntityState(entityIndex, state))
+		{
+			GetContentCpuDebugCounters().clientThinkEntityMiss.fetch_add(1, std::memory_order_relaxed);
+			return false;
+		}
+
+		switch (state.classification)
+		{
+		case ContentCpuClass::CommonInfected:
+			GetContentCpuDebugCounters().clientThinkCommonCandidates.fetch_add(1, std::memory_order_relaxed);
+			break;
+		case ContentCpuClass::Ragdoll:
+			GetContentCpuDebugCounters().clientThinkRagdollCandidates.fetch_add(1, std::memory_order_relaxed);
+			break;
+		case ContentCpuClass::DecorDynamic:
+		case ContentCpuClass::DecorStatic:
+			GetContentCpuDebugCounters().clientThinkDecorCandidates.fetch_add(1, std::memory_order_relaxed);
+			break;
+		default:
+			GetContentCpuDebugCounters().clientThinkOtherCandidates.fetch_add(1, std::memory_order_relaxed);
+			break;
+		}
+
+		if (!Hooks::m_VR->ShouldCullContentCpuInterpolation(entityIndex))
+		{
+			GetContentCpuDebugCounters().clientThinkInterpRejected.fetch_add(1, std::memory_order_relaxed);
+			return false;
+		}
+
+		switch (state.classification)
+		{
+		case ContentCpuClass::CommonInfected:
+			return Hooks::m_VR->m_ContentCpuClientThinkCullCommon;
+		case ContentCpuClass::Ragdoll:
+			return Hooks::m_VR->m_ContentCpuClientThinkCullRagdoll;
+		case ContentCpuClass::DecorDynamic:
+		case ContentCpuClass::DecorStatic:
+			return Hooks::m_VR->m_ContentCpuClientThinkCullDecor;
+		default:
+			GetContentCpuDebugCounters().clientThinkClassRejected.fetch_add(1, std::memory_order_relaxed);
+			return false;
+		}
 	}
 
-	inline void CallClientThinkUnregister(uint32_t thinkHandle)
+	inline void CallClientThinkUnregister(void* thinkList, uint32_t thinkHandle)
 	{
-		if (!Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->UnregisterClientThink.valid)
+		if (!thinkList || !Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->UnregisterClientThink.valid)
 			return;
 
-		using tClientThinkUnregister = void(__cdecl*)(uint32_t thinkHandle);
-		reinterpret_cast<tClientThinkUnregister>(Hooks::m_Game->m_Offsets->UnregisterClientThink.address)(thinkHandle);
+		using tClientThinkUnregister = void(__thiscall*)(void* thisptr, uint32_t thinkHandle);
+		auto unregisterFn = reinterpret_cast<tClientThinkUnregister>(Hooks::m_Game->m_Offsets->UnregisterClientThink.address);
+		if (!unregisterFn)
+			return;
+
+		__try
+		{
+			unregisterFn(thinkList, thinkHandle);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+		}
 	}
 
-	inline void SkipClientThinkDispatchEntry(uint32_t* entry, uint32_t serial)
+	inline void SkipClientThinkDispatchEntry(void* thinkList, uint32_t* entry, uint32_t serial)
 	{
 		if (!entry)
 			return;
@@ -551,7 +815,7 @@ namespace
 		{
 			if (entry[1] == kClientThinkNeverThinkBits)
 			{
-				CallClientThinkUnregister(entry[0]);
+				CallClientThinkUnregister(thinkList, entry[0]);
 				entry[2] = serial;
 				return;
 			}
@@ -632,12 +896,6 @@ bool VR::ShouldCullContentCpuLocalFx(int entityIndex, const Vector& origin) cons
 
 void Hooks::TryInstallContentCpuHooksFromEntity(C_BaseEntity* entity)
 {
-	(void)entity;
-
-	// The client-side ContentCPU hook set is temporarily disabled for stability.
-	// Leave the discovery callsites intact, but do not install any dynamic hooks.
-	return;
-
 	if (!entity || !m_VR)
 		return;
 
@@ -726,16 +984,41 @@ bool Hooks::dShouldInterpolate(C_BaseEntity* ecx, void* edx)
 	return false;
 }
 
-void Hooks::dDispatchClientThink(uint32_t* entry, uint32_t serial)
+void __fastcall Hooks::dDispatchClientThink(void* ecx, void* edx, uint32_t* entry, uint32_t serial)
 {
+	(void)edx;
+
 	if (!hkDispatchClientThink.fOriginal)
 		return;
 
 	GetContentCpuDebugCounters().clientThinkCalls.fetch_add(1, std::memory_order_relaxed);
 
-	// Client-think culling is temporarily bypassed for stability. The hook stays installed so
-	// we can keep debug counters/logging without touching fragile client think-handle resolution.
-	hkDispatchClientThink.fOriginal(entry, serial);
+	bool culled = false;
+	if (ecx &&
+		entry &&
+		IsReadableMemoryRange(entry, sizeof(uint32_t) * 3) &&
+		m_VR &&
+		m_Game)
+	{
+		__try
+		{
+			void* thinkable = ResolveClientThinkableFromEntry(entry);
+			if (thinkable && ShouldCullClientThinkableDispatch(thinkable))
+			{
+				SkipClientThinkDispatchEntry(ecx, entry, serial);
+				GetContentCpuDebugCounters().clientThinkCulled.fetch_add(1, std::memory_order_relaxed);
+				culled = true;
+			}
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			culled = false;
+		}
+	}
+
+	if (!culled)
+		hkDispatchClientThink.fOriginal(ecx, entry, serial);
+
 	MaybeLogContentCpuDebugStats();
 }
 

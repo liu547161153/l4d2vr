@@ -94,7 +94,7 @@ typedef Vector* (__thiscall* tEyePosition)(void* thisptr, Vector* eyePos);
 typedef void(__thiscall* tDrawModelExecute)(void* thisptr, void* state, const ModelRenderInfo_t& info, void* pCustomBoneToWorld);
 typedef bool(__thiscall* tSetupBones)(void* thisptr, matrix3x4_t* pBoneToWorldOut, int nMaxBones, int boneMask, float currentTime);
 typedef bool(__thiscall* tShouldInterpolate)(C_BaseEntity* thisptr);
-typedef void(__cdecl* tDispatchClientThink)(uint32_t* entry, uint32_t serial);
+typedef void(__thiscall* tDispatchClientThink)(void* thisptr, uint32_t* entry, uint32_t serial);
 typedef void(__cdecl* tUpdateClientSideAnimations)();
 typedef float(__thiscall* tStudioFrameAdvance)(void* thisptr, float flInterval);
 typedef void(__thiscall* tParticleSystemClientThink)(void* thisptr);
@@ -188,7 +188,7 @@ public:
 	static void __fastcall dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRenderInfo_t& info, void* pCustomBoneToWorld);
 	static bool __fastcall dSetupBones(void* ecx, void* edx, matrix3x4_t* pBoneToWorldOut, int nMaxBones, int boneMask, float currentTime);
 	static bool __fastcall dShouldInterpolate(C_BaseEntity* ecx, void* edx);
-	static void dDispatchClientThink(uint32_t* entry, uint32_t serial);
+	static void __fastcall dDispatchClientThink(void* ecx, void* edx, uint32_t* entry, uint32_t serial);
 	static void dUpdateClientSideAnimations();
 	static float __fastcall dStudioFrameAdvance(void* ecx, void* edx, float flInterval);
 	static void __fastcall dParticleSystemClientThink(void* ecx, void* edx);

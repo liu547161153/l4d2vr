@@ -1088,27 +1088,6 @@ void VR::ParseConfigFile()
     m_ContentCpuMuzzleEffectCullEnabled = getBool("ContentCpuMuzzleEffectCullEnabled", m_ContentCpuMuzzleEffectCullEnabled);
     m_ContentCpuFlexSceneCullEnabled = getBool("ContentCpuFlexSceneCullEnabled", m_ContentCpuFlexSceneCullEnabled);
     m_ContentCpuParticleCollectionThrottleEnabled = getBool("ContentCpuParticleCollectionThrottleEnabled", m_ContentCpuParticleCollectionThrottleEnabled);
-    if (m_ContentCpuInterpolateCullEnabled ||
-        m_ContentCpuClientThinkCullEnabled ||
-        m_ContentCpuClientAnimCullEnabled ||
-        m_ContentCpuStudioFrameAdvanceCullEnabled ||
-        m_ContentCpuSetupBonesCullEnabled ||
-        m_ContentCpuParticleClientThinkCullEnabled ||
-        m_ContentCpuMuzzleEffectCullEnabled ||
-        m_ContentCpuFlexSceneCullEnabled ||
-        m_ContentCpuParticleCollectionThrottleEnabled)
-    {
-        Game::logMsg("[ContentCPU] All client-side ContentCPU optimizations are temporarily disabled for stability.");
-        m_ContentCpuInterpolateCullEnabled = false;
-        m_ContentCpuClientThinkCullEnabled = false;
-        m_ContentCpuClientAnimCullEnabled = false;
-        m_ContentCpuStudioFrameAdvanceCullEnabled = false;
-        m_ContentCpuSetupBonesCullEnabled = false;
-        m_ContentCpuParticleClientThinkCullEnabled = false;
-        m_ContentCpuMuzzleEffectCullEnabled = false;
-        m_ContentCpuFlexSceneCullEnabled = false;
-        m_ContentCpuParticleCollectionThrottleEnabled = false;
-    }
     m_ContentCpuParticleCollectionMaxHz = std::clamp(getFloat("ContentCpuParticleCollectionMaxHz", m_ContentCpuParticleCollectionMaxHz), 1.0f, 240.0f);
     m_ContentCpuLocalFxKeepDistance = std::clamp(getFloat("ContentCpuLocalFxKeepDistance", m_ContentCpuLocalFxKeepDistance), 0.0f, 1024.0f);
     m_ContentCpuDebugLog = getBool("ContentCpuDebugLog", m_ContentCpuDebugLog);
