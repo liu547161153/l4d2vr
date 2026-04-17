@@ -42,6 +42,8 @@ Hooks::Hooks(Game* game)
 	hkVgui_Paint.enableHook();
 	hkIsSplitScreen.enableHook();
 	hkPrePushRenderTarget.enableHook();
+	if (hkUpdateLaserSight.pTarget)
+		hkUpdateLaserSight.enableHook();
 }
 
 Hooks::~Hooks()
@@ -132,6 +134,12 @@ int Hooks::initSourceHooks()
 
 	LPVOID PrePushRenderTargetAddr = (LPVOID)(m_Game->m_Offsets->PrePushRenderTarget.address);
 	hkPrePushRenderTarget.createHook(PrePushRenderTargetAddr, &dPrePushRenderTarget);
+
+	if (m_Game->m_Offsets->UpdateLaserSight.valid)
+	{
+		LPVOID UpdateLaserSightAddr = (LPVOID)(m_Game->m_Offsets->UpdateLaserSight.address);
+		hkUpdateLaserSight.createHook(UpdateLaserSightAddr, &dUpdateLaserSight);
+	}
 
 	uintptr_t clientModeAddress = m_Game->m_Offsets->g_pClientMode.address;
 	if (!clientModeAddress)

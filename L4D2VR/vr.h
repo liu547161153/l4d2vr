@@ -287,6 +287,7 @@ public:
 	// Aim-line gating computed on the update thread; render thread only consumes.
 	std::atomic<uint32_t> m_RenderAimLineAllowed{ 0 };
 	std::atomic<uint32_t> m_RenderAimLineShow{ 0 };
+	std::atomic<uint32_t> m_RenderWeaponLaserSightActive{ 0 };
 
 
 	// Render-thread computed snapshot (updated once per dRenderView call).
@@ -482,6 +483,14 @@ public:
 	int m_AimLineColorG = 255;
 	int m_AimLineColorB = 0;
 	int m_AimLineColorA = 192;
+	bool m_GameLaserSightBeamEnabled = true;
+	bool m_GameLaserSightReplaceParticle = false;
+	float m_GameLaserSightThickness = 1.5f;
+	int m_GameLaserSightColorR = 255;
+	int m_GameLaserSightColorG = 0;
+	int m_GameLaserSightColorB = 0;
+	int m_GameLaserSightColorA = 255;
+	Vector m_GameLaserSightEndOffset = { 0.0f, 0.0f, 0.0f };
 	static constexpr int THROW_ARC_SEGMENTS = 16;
 	std::array<Vector, THROW_ARC_SEGMENTS + 1> m_LastThrowArcPoints{};
 	bool m_HasThrowArc = false;
@@ -1983,12 +1992,14 @@ public:
 	// In queued (multicore) rendering, the render thread uses a render-frame pose snapshot.
 	// Draw the aim line from the render hook (dRenderView) using that snapshot to avoid head-turn ghosting.
 	void RenderDrawAimLineQueued(C_BasePlayer* localPlayer);
+	bool BuildRenderAimLineSegment(C_BasePlayer* localPlayer, Vector& start, Vector& end);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
 	bool ShouldDrawAimLine(C_WeaponCSBase* weapon) const;
 	bool IsWeaponLaserSightActive(C_WeaponCSBase* weapon) const;
 	float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
 	void DrawAimLine(const Vector& start, const Vector& end);
+	void RenderDrawGameLaserSight(C_BasePlayer* localPlayer);
 	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);

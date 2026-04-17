@@ -1570,6 +1570,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudLeft.origin = leftEyeView.origin;
 	hudLeft.angles = renderViewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
+	if (m_VR->m_IsVREnabled)
+		m_VR->RenderDrawGameLaserSight(localPlayer);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
 	m_PushedHud = false;
 
@@ -1705,6 +1707,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_VR->DrawAimLine(m_VR->m_AimLineStart, m_VR->m_AimLineEnd);
 			}
 		}
+		if (m_VR->m_IsVREnabled)
+			m_VR->RenderDrawGameLaserSight(localPlayer);
 
 		renderToTexture_SetRT(m_VR->m_ScopeTexture,
 			m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,

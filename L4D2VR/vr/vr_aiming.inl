@@ -73,6 +73,119 @@ namespace
             return false;
         }
     }
+
+    using VR_CreateParticleEffectFn = void* (__thiscall*)(void* thisptr, const char* particleName, int attachType, int attachment, Vector originOffset, int unknown);
+    using VR_StopParticleEffectFn = void(__thiscall*)(void* thisptr, void* effect);
+    using VR_SetParticleControlPointPositionFn = void(__thiscall*)(void* thisptr, int controlPoint, const Vector& position);
+    using VR_SetParticleControlPointForwardVectorFn = void(__thiscall*)(void* thisptr, int controlPoint, const Vector& forward);
+
+    struct VR_GameLaserParticleState
+    {
+        void* effect = nullptr;
+        void* particleProperty = nullptr;
+        C_BaseCombatWeapon* weapon = nullptr;
+        void* owner = nullptr;
+    };
+
+    static VR_GameLaserParticleState g_GameLaserParticle;
+
+    static inline void* VR_CreateParticleEffect(Game* game, void* particleProperty, const char* particleName, int attachType, int attachment)
+    {
+        if (!game || !game->m_Offsets || !game->m_Offsets->CreateParticleEffect.valid)
+            return nullptr;
+        if (!particleProperty || !particleName || !particleName[0])
+            return nullptr;
+
+        auto createParticleEffect = reinterpret_cast<VR_CreateParticleEffectFn>(
+            game->m_Offsets->CreateParticleEffect.address);
+        if (!createParticleEffect)
+            return nullptr;
+
+        const Vector originOffset{ 0.0f, 0.0f, 0.0f };
+        __try
+        {
+            return createParticleEffect(particleProperty, particleName, attachType, attachment, originOffset, 0);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return nullptr;
+        }
+    }
+
+    static inline void VR_StopParticleEffect(Game* game, void* particleProperty, void* effect)
+    {
+        if (!game || !game->m_Offsets || !game->m_Offsets->StopParticleEffect.valid || !particleProperty || !effect)
+            return;
+
+        auto stopParticleEffect = reinterpret_cast<VR_StopParticleEffectFn>(
+            game->m_Offsets->StopParticleEffect.address);
+        if (!stopParticleEffect)
+            return;
+
+        __try
+        {
+            stopParticleEffect(particleProperty, effect);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
+    static inline void VR_ClearGameLaserParticle(Game* game)
+    {
+        if (g_GameLaserParticle.effect && g_GameLaserParticle.particleProperty)
+            VR_StopParticleEffect(game, g_GameLaserParticle.particleProperty, g_GameLaserParticle.effect);
+
+        g_GameLaserParticle = {};
+    }
+
+    static inline bool VR_SetParticleControlPoint(Game* game, void* effect, int controlPoint, const Vector& position)
+    {
+        if (!game || !game->m_Offsets || !game->m_Offsets->ParticleSetControlPointPosition.valid || !effect)
+            return false;
+
+        auto setControlPoint = reinterpret_cast<VR_SetParticleControlPointPositionFn>(
+            game->m_Offsets->ParticleSetControlPointPosition.address);
+        if (!setControlPoint)
+            return false;
+
+        __try
+        {
+            setControlPoint(effect, controlPoint, position);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    static inline bool VR_SetParticleForward(Game* game, void* effect, int controlPoint, const Vector& forward)
+    {
+        if (!game || !game->m_Offsets || !game->m_Offsets->ParticleSetControlPointForwardVector.valid || !effect)
+            return false;
+
+        Vector normalizedForward = forward;
+        if (normalizedForward.IsZero())
+            return false;
+        VectorNormalize(normalizedForward);
+
+        auto setForward = reinterpret_cast<VR_SetParticleControlPointForwardVectorFn>(
+            game->m_Offsets->ParticleSetControlPointForwardVector.address);
+        if (!setForward)
+            return false;
+
+        __try
+        {
+            setForward(effect, controlPoint, normalizedForward);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
 }
 
 bool VR::IsUsingMountedGun(const C_BasePlayer* localPlayer) const
@@ -446,7 +559,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
         const float speed2D_mps = localPlayer->m_vecVelocity.Length2D() / m_VRScale;
         // Ramp extra radius from ~0 when almost-still to max when running.
         const float startMps = 0.2f;
-        const float fullMps  = 3.0f;
+        const float fullMps = 3.0f;
         float t = (speed2D_mps - startMps) / (fullMps - startMps);
         if (t < 0.0f) t = 0.0f;
         if (t > 1.0f) t = 1.0f;
@@ -459,38 +572,38 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
         : 0.0f;
     const bool useHull = (hullRadiusUnits > 0.01f);
     const Vector hullMins = { -hullRadiusUnits, -hullRadiusUnits, -hullRadiusUnits };
-    const Vector hullMaxs = {  hullRadiusUnits,  hullRadiusUnits,  hullRadiusUnits };
+    const Vector hullMaxs = { hullRadiusUnits,  hullRadiusUnits,  hullRadiusUnits };
 
-	// IMPORTANT: Some Source builds are unstable/crashy if you request CONTENTS_HITBOX in a *hull* trace.
-	// For hull traces we therefore switch to MASK_SHOT_HULL (no CONTENTS_HITBOX).
-	const unsigned int traceMask = useHull ? (unsigned int)MASK_SHOT_HULL : (unsigned int)STANDARD_TRACE_MASK;
+    // IMPORTANT: Some Source builds are unstable/crashy if you request CONTENTS_HITBOX in a *hull* trace.
+    // For hull traces we therefore switch to MASK_SHOT_HULL (no CONTENTS_HITBOX).
+    const unsigned int traceMask = useHull ? (unsigned int)MASK_SHOT_HULL : (unsigned int)STANDARD_TRACE_MASK;
 
     // Filters (shared across traces): Skip self + mounted gun use entity + active weapon.
     // This prevents the aim ray from being blocked by your own weapon and flickering on/off.
     CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, safeMountedUseEnt, safeActiveWeapon, 0);
     CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
 
-	auto SafeTraceRay = [&](Ray_t& ray, unsigned int mask, CTraceFilter* filter, CGameTrace& out) -> bool
-		{
-			if (!m_Game || !m_Game->m_EngineTrace)
-			{
-				out.fraction = 1.0f;
-				out.m_pEnt = nullptr;
-				return false;
-			}
-			__try
-			{
-				m_Game->m_EngineTrace->TraceRay(ray, mask, filter, &out);
-				return true;
-			}
-			__except (EXCEPTION_EXECUTE_HANDLER)
-			{
-				// Fail closed (no hit) rather than crash the game.
-				out.fraction = 1.0f;
-				out.m_pEnt = nullptr;
-				return false;
-			}
-		};
+    auto SafeTraceRay = [&](Ray_t& ray, unsigned int mask, CTraceFilter* filter, CGameTrace& out) -> bool
+        {
+            if (!m_Game || !m_Game->m_EngineTrace)
+            {
+                out.fraction = 1.0f;
+                out.m_pEnt = nullptr;
+                return false;
+            }
+            __try
+            {
+                m_Game->m_EngineTrace->TraceRay(ray, mask, filter, &out);
+                return true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                // Fail closed (no hit) rather than crash the game.
+                out.fraction = 1.0f;
+                out.m_pEnt = nullptr;
+                return false;
+            }
+        };
 
     auto hasValidHandle = [](uint32_t h) -> bool
         {
@@ -619,7 +732,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
         rayGun.Init(gunStart, gunEnd, hullMins, hullMaxs);
     else
         rayGun.Init(gunStart, gunEnd);
-	SafeTraceRay(rayGun, traceMask, pTraceFilter, traceGun);
+    SafeTraceRay(rayGun, traceMask, pTraceFilter, traceGun);
     const bool friendlyGun = evalFriendlyHitForTrace(traceGun, gunStart, gunEnd);
 
     // 2) Eye ray (closer to authoritative server bullets, esp. with lag compensation)
@@ -663,7 +776,7 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
             rayEye.Init(eyeStart, eyeEnd, hullMins, hullMaxs);
         else
             rayEye.Init(eyeStart, eyeEnd);
-		SafeTraceRay(rayEye, traceMask, pTraceFilter, traceEye);
+        SafeTraceRay(rayEye, traceMask, pTraceFilter, traceEye);
 
         const bool friendlyEye = evalFriendlyHitForTrace(traceEye, eyeStart, eyeEnd);
 
@@ -1039,71 +1152,71 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
             }
         }
 
-    // RightAmmoHUD: show HP%% for the *aimed* special infected (and Witch).
-    // Add a tiny sticky window on "target lost" so hitbox-edge jitter / transient netvar reads
-    // don't cause the HUD to flash.
-    constexpr float kAimTargetStickySeconds = 0.08f; // 80ms
-    const long long nowTicks = (long long)now.time_since_epoch().count();
+        // RightAmmoHUD: show HP%% for the *aimed* special infected (and Witch).
+        // Add a tiny sticky window on "target lost" so hitbox-edge jitter / transient netvar reads
+        // don't cause the HUD to flash.
+        constexpr float kAimTargetStickySeconds = 0.08f; // 80ms
+        const long long nowTicks = (long long)now.time_since_epoch().count();
 
-    // NOTE: use a function-static atomic so we don't require adding new members to VR (avoids header mismatch).
-    static std::atomic<long long> s_AimTargetStickyUntilTicks{ 0 };
+        // NOTE: use a function-static atomic so we don't require adding new members to VR (avoids header mismatch).
+        static std::atomic<long long> s_AimTargetStickyUntilTicks{ 0 };
 
-    auto clearAimTargetWithSticky = [&]()
-    {
-        const long long untilTicks = s_AimTargetStickyUntilTicks.load(std::memory_order_relaxed);
-        if (untilTicks != 0 && nowTicks <= untilTicks)
-            return;
+        auto clearAimTargetWithSticky = [&]()
+            {
+                const long long untilTicks = s_AimTargetStickyUntilTicks.load(std::memory_order_relaxed);
+                if (untilTicks != 0 && nowTicks <= untilTicks)
+                    return;
 
-        s_AimTargetStickyUntilTicks.store(0, std::memory_order_relaxed);
-        ClearAmmoHudAimTarget();
-    };
-    auto refreshAimTargetSticky = [&]()
-    {
-        const auto until = now + duration_cast<steady_clock::duration>(duration<float>(kAimTargetStickySeconds));
-        s_AimTargetStickyUntilTicks.store((long long)until.time_since_epoch().count(), std::memory_order_relaxed);
-    };
-    auto updateAimTarget = [&](C_BaseEntity* ent)
-    {
-        if (!ent || !m_Game)
-        {
-            clearAimTargetWithSticky();
-            return;
-        }
+                s_AimTargetStickyUntilTicks.store(0, std::memory_order_relaxed);
+                ClearAmmoHudAimTarget();
+            };
+        auto refreshAimTargetSticky = [&]()
+            {
+                const auto until = now + duration_cast<steady_clock::duration>(duration<float>(kAimTargetStickySeconds));
+                s_AimTargetStickyUntilTicks.store((long long)until.time_since_epoch().count(), std::memory_order_relaxed);
+            };
+        auto updateAimTarget = [&](C_BaseEntity* ent)
+            {
+                if (!ent || !m_Game)
+                {
+                    clearAimTargetWithSticky();
+                    return;
+                }
 
-        const unsigned char* eb = reinterpret_cast<const unsigned char*>(ent);
+                const unsigned char* eb = reinterpret_cast<const unsigned char*>(ent);
 
-        int hp = 0;
-        if (!VR_TryReadI32(eb, kHealthOffset, hp) || hp <= 0)
-        {
-            clearAimTargetWithSticky();
-            return;
-        }
+                int hp = 0;
+                if (!VR_TryReadI32(eb, kHealthOffset, hp) || hp <= 0)
+                {
+                    clearAimTargetWithSticky();
+                    return;
+                }
 
-        // L4D2 special infected are usually network-class "CTerrorPlayer" (team 3) with m_zombieClass set.
-        // Witch also reports a special zombieClass value (see GetSpecialInfectedType).
-        const SpecialInfectedType siType = GetSpecialInfectedType(ent);
-        if (siType == SpecialInfectedType::None)
-        {
-            // Ignore common infected (and everything else).
-            clearAimTargetWithSticky();
-            return;
-        }
+                // L4D2 special infected are usually network-class "CTerrorPlayer" (team 3) with m_zombieClass set.
+                // Witch also reports a special zombieClass value (see GetSpecialInfectedType).
+                const SpecialInfectedType siType = GetSpecialInfectedType(ent);
+                if (siType == SpecialInfectedType::None)
+                {
+                    // Ignore common infected (and everything else).
+                    clearAimTargetWithSticky();
+                    return;
+                }
 
-        // Extra safety: never show for survivors even if zombieClass read glitches.
-        int team = 0;
-        if (VR_TryReadI32(eb, kTeamNumOffset, team) && team == 2)
-        {
-            clearAimTargetWithSticky();
-            return;
-        }
+                // Extra safety: never show for survivors even if zombieClass read glitches.
+                int team = 0;
+                if (VR_TryReadI32(eb, kTeamNumOffset, team) && team == 2)
+                {
+                    clearAimTargetWithSticky();
+                    return;
+                }
 
-        int maxHp = 0;
-        VR_TryReadI32(eb, kMaxHealthOffset, maxHp);
-        NotifyAmmoHudAimTarget((std::uintptr_t)ent, hp, maxHp);
-        refreshAimTargetSticky();
-    };
+                int maxHp = 0;
+                VR_TryReadI32(eb, kMaxHealthOffset, maxHp);
+                NotifyAmmoHudAimTarget((std::uintptr_t)ent, hp, maxHp);
+                refreshAimTargetSticky();
+            };
 
-    updateAimTarget(hitEnt);
+        updateAimTarget(hitEnt);
 
     }
 
@@ -1488,6 +1601,137 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 
 
 
+bool VR::BuildRenderAimLineSegment(C_BasePlayer* localPlayer, Vector& start, Vector& end)
+{
+    start = Vector{ 0.0f, 0.0f, 0.0f };
+    end = Vector{ 0.0f, 0.0f, 0.0f };
+
+    if (!m_Game || m_HasThrowArc)
+        return false;
+
+    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+    if (queueMode == 0)
+    {
+        if (!m_HasAimLine)
+            return false;
+        start = m_AimLineStart;
+        end = m_AimLineEnd;
+        return !((end - start).IsZero());
+    }
+
+    // Ensure render-thread getters pull from the render-frame snapshot.
+    struct RenderSnapshotTLSGuard
+    {
+        bool prev = false;
+        RenderSnapshotTLSGuard()
+        {
+            prev = VR::t_UseRenderFrameSnapshot;
+            VR::t_UseRenderFrameSnapshot = true;
+        }
+        ~RenderSnapshotTLSGuard()
+        {
+            VR::t_UseRenderFrameSnapshot = prev;
+        }
+    } tlsGuard;
+
+    // If update-side aiming has no valid ray this frame, don't guess here.
+    if (!m_HasAimLine && m_LastAimDirection.IsZero())
+        return false;
+
+    const bool useMouse = m_MouseModeEnabled;
+    const bool frontViewEyeAim = m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ThirdPersonFrontScopeFromEye;
+    const bool frontViewControllerEyeOrigin = m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && !m_ThirdPersonFrontScopeFromEye;
+
+    if (useMouse)
+    {
+        // Mouse mode uses an HMD-anchored origin. Keep the update-side solution (it already handles convergence).
+        if (!m_HasAimLine)
+            return false;
+
+        start = m_AimLineStart;
+        end = m_AimLineEnd;
+        return !((end - start).IsZero());
+    }
+
+    Vector originBase = GetRightControllerAbsPos();
+    Vector dir{};
+
+    if (frontViewEyeAim || frontViewControllerEyeOrigin)
+    {
+        // Front-view mode: keep the rendered aim line origin at the eye in queued rendering.
+        originBase = m_SetupOrigin;
+        if (frontViewEyeAim)
+        {
+            const Vector viewAng = GetViewAngle();
+            QAngle eyeAng(viewAng.x, viewAng.y, viewAng.z);
+            NormalizeAndClampViewAngles(eyeAng);
+
+            Vector eyeForward{};
+            QAngle::AngleVectors(eyeAng, &eyeForward, nullptr, nullptr);
+            dir = eyeForward;
+            if (dir.IsZero())
+                dir = m_HmdForward;
+        }
+        else
+        {
+            const QAngle angAbs = GetRightControllerAbsAngle();
+
+            Vector f{}, r{}, u{};
+            QAngle::AngleVectors(angAbs, &f, &r, &u);
+            dir = f;
+            if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
+                dir = m_RightControllerForwardUnforced;
+        }
+    }
+    else
+    {
+        // Use the *render-frame* controller pose so the line stays glued to the hand/gun.
+        if (m_IsThirdPersonCamera)
+        {
+            // In third-person, the VR render camera is moved away from the player eye.
+            // The local VR hand/viewmodel visuals are shifted by the same delta; apply it so the aim line stays on the hand.
+            const Vector camDelta = (m_ThirdPersonRenderCenter - m_SetupOrigin);
+            if (camDelta.LengthSqr() > (5.0f * 5.0f))
+                originBase += camDelta;
+        }
+
+        const QAngle angAbs = GetRightControllerAbsAngle();
+
+        Vector f{}, r{}, u{};
+        QAngle::AngleVectors(angAbs, &f, &r, &u);
+
+        dir = f;
+    }
+
+    if (dir.IsZero())
+        dir = m_LastAimDirection.IsZero() ? m_LastUnforcedAimDirection : m_LastAimDirection;
+
+    if (dir.IsZero())
+        return false;
+
+    VectorNormalize(dir);
+
+    start = originBase + dir * 2.0f;
+
+    const float maxDistance = 8192.0f;
+    if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+    {
+        end = m_NonVRAimHitPoint;
+    }
+    else
+    {
+        // In third-person, avoid using the update-thread converge point here (it may be in a different phase);
+        // draw a pure controller ray so the line always stays attached to the hand.
+        end = start + dir * maxDistance;
+    }
+
+    return !((end - start).IsZero());
+}
+
 void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
 {
     // Render-thread aim line drawing for mat_queue_mode!=0.
@@ -1512,129 +1756,17 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
     if (scopeOnlyAimLine && !m_ScopeRenderingPass)
         return;
 
-
-    // Ensure render-thread getters pull from the render-frame snapshot.
-    struct RenderSnapshotTLSGuard
-    {
-        bool prev = false;
-        RenderSnapshotTLSGuard()
-        {
-            prev = VR::t_UseRenderFrameSnapshot;
-            VR::t_UseRenderFrameSnapshot = true;
-        }
-        ~RenderSnapshotTLSGuard()
-        {
-            VR::t_UseRenderFrameSnapshot = prev;
-        }
-    } tlsGuard;
-
-    // Throwables are handled by the throw-arc code (which is trace-heavy and stays on the update path).
-    if (m_HasThrowArc)
-        return;
-	// Gating is computed on the update thread (see VR::UpdateTracking) and exposed via atomics.
-	// IMPORTANT: do not touch entity/weapon state from the render thread in queued mode.
-	const bool allowAimLineDraw = (m_RenderAimLineAllowed.load(std::memory_order_relaxed) != 0);
-	const bool showAimLine = (m_RenderAimLineShow.load(std::memory_order_relaxed) != 0);
-	if (!allowAimLineDraw || !showAimLine)
-		return;
-    // If update-side aiming has no valid ray this frame, don't guess here.
-    if (!m_HasAimLine && m_LastAimDirection.IsZero())
+    // Gating is computed on the update thread (see VR::UpdateTracking) and exposed via atomics.
+    // IMPORTANT: do not touch entity/weapon state from the render thread in queued mode.
+    const bool allowAimLineDraw = (m_RenderAimLineAllowed.load(std::memory_order_relaxed) != 0);
+    const bool showAimLine = (m_RenderAimLineShow.load(std::memory_order_relaxed) != 0);
+    if (!allowAimLineDraw || !showAimLine)
         return;
 
     Vector start{};
     Vector end{};
-
-    const bool useMouse = m_MouseModeEnabled;
-    const bool frontViewEyeAim = m_ThirdPersonFrontViewEnabled
-        && m_IsThirdPersonCamera
-        && m_ThirdPersonFrontScopeFromEye;
-    const bool frontViewControllerEyeOrigin = m_ThirdPersonFrontViewEnabled
-        && m_IsThirdPersonCamera
-        && !m_ThirdPersonFrontScopeFromEye;
-
-    if (useMouse)
-    {
-        // Mouse mode uses an HMD-anchored origin. Keep the update-side solution (it already handles convergence).
-        if (!m_HasAimLine)
-            return;
-
-        start = m_AimLineStart;
-        end = m_AimLineEnd;
-    }
-    else
-    {
-        Vector originBase = GetRightControllerAbsPos();
-        Vector dir{};
-
-        if (frontViewEyeAim || frontViewControllerEyeOrigin)
-        {
-            // Front-view mode: keep the rendered aim line origin at the eye in queued rendering.
-            originBase = m_SetupOrigin;
-            if (frontViewEyeAim)
-            {
-                const Vector viewAng = GetViewAngle();
-                QAngle eyeAng(viewAng.x, viewAng.y, viewAng.z);
-                NormalizeAndClampViewAngles(eyeAng);
-
-                Vector eyeForward{};
-                QAngle::AngleVectors(eyeAng, &eyeForward, nullptr, nullptr);
-                dir = eyeForward;
-                if (dir.IsZero())
-                    dir = m_HmdForward;
-            }
-            else
-            {
-                const QAngle angAbs = GetRightControllerAbsAngle();
-
-                Vector f{}, r{}, u{};
-                QAngle::AngleVectors(angAbs, &f, &r, &u);
-                dir = f;
-                if (m_IsThirdPersonCamera && !m_RightControllerForwardUnforced.IsZero())
-                    dir = m_RightControllerForwardUnforced;
-            }
-        }
-        else
-        {
-            // Use the *render-frame* controller pose so the line stays glued to the hand/gun.
-            if (m_IsThirdPersonCamera)
-            {
-                // In third-person, the VR render camera is moved away from the player eye.
-                // The local VR hand/viewmodel visuals are shifted by the same delta; apply it so the aim line stays on the hand.
-                const Vector camDelta = (m_ThirdPersonRenderCenter - m_SetupOrigin);
-                if (camDelta.LengthSqr() > (5.0f * 5.0f))
-                    originBase += camDelta;
-            }
-
-            const QAngle angAbs = GetRightControllerAbsAngle();
-
-            Vector f{}, r{}, u{};
-            QAngle::AngleVectors(angAbs, &f, &r, &u);
-
-            dir = f;
-        }
-
-        if (dir.IsZero())
-            dir = m_LastAimDirection.IsZero() ? m_LastUnforcedAimDirection : m_LastAimDirection;
-
-        if (dir.IsZero())
-            return;
-
-        VectorNormalize(dir);
-
-        start = originBase + dir * 2.0f;
-
-        const float maxDistance = 8192.0f;
-        if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
-        {
-            end = m_NonVRAimHitPoint;
-        }
-        else
-        {
-            // In third-person, avoid using the update-thread converge point here (it may be in a different phase);
-            // draw a pure controller ray so the line always stays attached to the hand.
-            end = start + dir * maxDistance;
-        }
-    }
+    if (!BuildRenderAimLineSegment(localPlayer, start, end))
+        return;
 
     // Duration: keep it alive for ~one render interval so we don't accumulate multiple historical lines.
     using namespace std::chrono;
@@ -1654,6 +1786,17 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
         durationSec = 0.0f;
 
     DrawLineWithThickness(start, end, durationSec);
+}
+
+void VR::RenderDrawGameLaserSight(C_BasePlayer* localPlayer)
+{
+    const bool keepReplacementParticle = m_IsVREnabled
+        && m_GameLaserSightBeamEnabled
+        && m_GameLaserSightReplaceParticle
+        && (localPlayer != nullptr);
+
+    if (!keepReplacementParticle)
+        VR_ClearGameLaserParticle(m_Game);
 }
 
 

@@ -5,6 +5,7 @@
 #include "sdk.h"
 #include "game.h"
 #include "hooks.h"
+#include "offsets.h"
 #include "usercmd.h"
 #include "trace.h"
 #include "sdk/ivdebugoverlay.h"

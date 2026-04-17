@@ -1061,6 +1061,18 @@ void VR::ParseConfigFile()
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
+    m_GameLaserSightBeamEnabled = getBool("GameLaserSightBeamEnabled", m_GameLaserSightBeamEnabled);
+    m_GameLaserSightReplaceParticle = getBool("GameLaserSightReplaceParticle", m_GameLaserSightReplaceParticle);
+    m_GameLaserSightThickness = std::clamp(getFloat("GameLaserSightThickness", m_GameLaserSightThickness), 0.0f, 8.0f);
+    auto gameLaserColor = getColor("GameLaserSightColor", m_GameLaserSightColorR, m_GameLaserSightColorG, m_GameLaserSightColorB, m_GameLaserSightColorA);
+    m_GameLaserSightColorR = gameLaserColor[0];
+    m_GameLaserSightColorG = gameLaserColor[1];
+    m_GameLaserSightColorB = gameLaserColor[2];
+    m_GameLaserSightColorA = gameLaserColor[3];
+    m_GameLaserSightEndOffset = getVector3("GameLaserSightEndOffset", m_GameLaserSightEndOffset);
+    m_GameLaserSightEndOffset.x = std::clamp(m_GameLaserSightEndOffset.x, -256.0f, 256.0f);
+    m_GameLaserSightEndOffset.y = std::clamp(m_GameLaserSightEndOffset.y, -256.0f, 256.0f);
+    m_GameLaserSightEndOffset.z = std::clamp(m_GameLaserSightEndOffset.z, -256.0f, 256.0f);
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     // Debug / memory
