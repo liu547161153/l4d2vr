@@ -294,6 +294,22 @@ void VR::SubmitVRTextures()
         m_MenuBlankSubmitted = false;
 
     const bool queued = (m_Game && (m_Game->GetMatQueueMode() != 0));
+    if (m_RenderPipelineDebugLog && !ShouldThrottle(m_RenderPipelineLastSubmitLog, m_RenderPipelineDebugLogHz))
+    {
+        const uint32_t renderCompletedFrameId = m_RenderCompletedFrameId.load(std::memory_order_acquire);
+        const uint32_t lastSubmittedFrameId = m_LastSubmittedFrameId.load(std::memory_order_acquire);
+        const uint32_t currentPoseToken = m_SubmitPoseToken.load(std::memory_order_acquire);
+        const uint32_t lastSubmittedPoseToken = m_LastSubmittedPoseToken.load(std::memory_order_acquire);
+        Game::logMsg("[VR][RenderPipe][Submit] tid=%lu q=%d inGame=%d renderedNew=%d completed=%u submitted=%u pose=%u lastPose=%u submitInFlight=%d renderedHud=%d hudPainted=%d menuBlank=%d",
+            GetCurrentThreadId(), queued ? 1 : 0, inGame ? 1 : 0,
+            renderedNewFrame ? 1 : 0,
+            renderCompletedFrameId, lastSubmittedFrameId,
+            currentPoseToken, lastSubmittedPoseToken,
+            m_SubmitInFlight.load(std::memory_order_acquire) ? 1 : 0,
+            m_RenderedHud.load(std::memory_order_acquire) ? 1 : 0,
+            m_HudPaintedThisFrame.load(std::memory_order_acquire) ? 1 : 0,
+            m_MenuBlankSubmitted ? 1 : 0);
+    }
 
     struct SubmitInFlightGuard
     {

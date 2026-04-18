@@ -78,6 +78,56 @@ static inline bool ShouldThrottleLog(std::chrono::steady_clock::time_point& last
 	return false;
 }
 
+static inline const char* DebugTextureName(ITexture* texture)
+{
+	if (!texture)
+		return "<null>";
+
+	__try
+	{
+		const char* name = texture->GetName();
+		return (name && *name) ? name : "<unnamed>";
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return "<bad-texture>";
+	}
+}
+
+static inline void DebugTextureSize(ITexture* texture, int& width, int& height)
+{
+	width = 0;
+	height = 0;
+	if (!texture)
+		return;
+
+	__try
+	{
+		width = texture->GetMappingWidth();
+		height = texture->GetMappingHeight();
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		width = -1;
+		height = -1;
+	}
+}
+
+static inline ITexture* DebugCurrentRenderTarget(IMatRenderContext* context)
+{
+	if (!context)
+		return nullptr;
+
+	__try
+	{
+		return context->GetRenderTarget();
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return nullptr;
+	}
+}
+
 static inline bool IsReadableProtection(DWORD protect)
 {
 	if (protect & PAGE_GUARD)

@@ -77,6 +77,8 @@ FixedHudDistanceOffset=0.25
 ControllerSmoothing=0.0
 HideArms=false
 ViewmodelDisableMoveBob=false
+RenderPipelineDebugLog=false
+RenderPipelineDebugLogHz=2
 
 RequireSecondaryAttackForItemSwitch=false
 VoiceRecordCombo=Crouch+Reload

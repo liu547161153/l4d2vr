@@ -4522,6 +4522,30 @@ namespace dxvk {
                     vr->m_QueuedSubmitStaleStreak.store(0, std::memory_order_release);
             }
 
+            if (vr->m_RenderPipelineDebugLog) {
+                static DWORD s_lastRenderPipelinePresentLogMs = 0;
+                const DWORD nowMs = ::GetTickCount();
+                const float maxHz = vr->m_RenderPipelineDebugLogHz;
+                const DWORD minIntervalMs = maxHz > 0.0f
+                    ? (DWORD)(1000.0f / std::max(1.0f, maxHz))
+                    : 0;
+
+                if (minIntervalMs == 0 || nowMs - s_lastRenderPipelinePresentLogMs >= minIntervalMs) {
+                    s_lastRenderPipelinePresentLogMs = nowMs;
+                    const uint32_t completed = vr->m_RenderCompletedFrameId.load(std::memory_order_acquire);
+                    const uint32_t submitted = vr->m_LastSubmittedFrameId.load(std::memory_order_acquire);
+                    const uint32_t staleStreak = vr->m_QueuedSubmitStaleStreak.load(std::memory_order_acquire);
+
+                    Game::logMsg("[VR][RenderPipe][Present] tid=%lu q=%d inGame=%d completed=%u submitted=%u renderedNew=%d waitCfg=%d stale=%u result=0x%08lX flags=0x%08lX",
+                        ::GetCurrentThreadId(), queued ? 1 : 0, inGame ? 1 : 0,
+                        completed, submitted,
+                        vr->m_RenderedNewFrame.load(std::memory_order_acquire) ? 1 : 0,
+                        vr->m_QueuedSubmitWaitMs, staleStreak,
+                        static_cast<unsigned long>(result),
+                        static_cast<unsigned long>(dwFlags));
+                }
+            }
+
             auto resolveVrSurface = [this](IDirect3DSurface9* surface) {
                 D3D9CommonTexture* commonTex = GetCommonTexture(surface);
                 if (commonTex == nullptr)

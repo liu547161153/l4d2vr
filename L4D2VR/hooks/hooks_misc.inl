@@ -678,11 +678,30 @@ void Hooks::dPushRenderTargetAndViewport(void* ecx, void* edx, ITexture* pTextur
     if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
         return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
+    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+    if (m_VR->m_RenderPipelineDebugLog)
+    {
+        static thread_local std::chrono::steady_clock::time_point s_lastPushRtLog{};
+        if (!ShouldThrottleLog(s_lastPushRtLog, m_VR->m_RenderPipelineDebugLogHz))
+        {
+            int texW = 0;
+            int texH = 0;
+            DebugTextureSize(pTexture, texW, texH);
+
+            Game::logMsg("[VR][RenderPipe][PushRT] tid=%lu q=%d step=%d pushed=%d hudPainted=%d suppress=%d tex=%s(%dx%d) viewport=%d,%d %dx%d",
+                GetCurrentThreadId(), queueMode,
+                static_cast<int>(m_HUDStep), m_PushedHud ? 1 : 0,
+                m_VR->m_HudPaintedThisFrame.load(std::memory_order_acquire) ? 1 : 0,
+                m_VR->m_SuppressHudCapture ? 1 : 0,
+                DebugTextureName(pTexture), texW, texH,
+                nViewX, nViewY, nViewW, nViewH);
+        }
+    }
+
     // Extra offscreen passes (scope/rear-mirror RTT) must not hijack HUD capture
     if (m_VR->m_SuppressHudCapture)
         return hkPushRenderTargetAndViewport.fOriginal(ecx, pTexture, pDepthTexture, nViewX, nViewY, nViewW, nViewH);
 
-    const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
     if (queueMode != 0)
     {
         // Queued/multicore path: the Pop->IsSplitScreen->PrePush->Push sequence
@@ -770,14 +789,36 @@ void Hooks::dVGui_Paint(void* ecx, void* edx, int mode)
     if (!m_VR->m_CreatedVRTextures.load(std::memory_order_acquire))
         return hkVgui_Paint.fOriginal(ecx, mode);
 
-    // When scope/rear-mirror RTT is rendering, don't redirect HUD/VGUI
-    if (m_VR->m_SuppressHudCapture)
-        return;
-
     const bool inGame = m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame();
     const bool isPaused = m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsPaused();
     const bool cursorVisible = (m_Game && m_Game->m_VguiSurface) ? m_Game->m_VguiSurface->IsCursorVisible() : false;
     const bool allowBackbufferVgui = !inGame || isPaused || cursorVisible;
+
+    if (m_VR->m_RenderPipelineDebugLog)
+    {
+        static thread_local std::chrono::steady_clock::time_point s_lastVguiPaintLog{};
+        if (!ShouldThrottleLog(s_lastVguiPaintLog, m_VR->m_RenderPipelineDebugLogHz))
+        {
+            IMatRenderContext* ctx = m_Game && m_Game->m_MaterialSystem ? m_Game->m_MaterialSystem->GetRenderContext() : nullptr;
+            ITexture* currentRt = DebugCurrentRenderTarget(ctx);
+            int rtW = 0;
+            int rtH = 0;
+            DebugTextureSize(currentRt, rtW, rtH);
+
+            const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+            Game::logMsg("[VR][RenderPipe][VGuiPaint] tid=%lu q=%d mode=0x%X inGame=%d paused=%d cursor=%d allowBackbuffer=%d rt=%s(%dx%d) hudPainted=%d renderedHud=%d suppress=%d",
+                GetCurrentThreadId(), queueMode, mode,
+                inGame ? 1 : 0, isPaused ? 1 : 0, cursorVisible ? 1 : 0, allowBackbufferVgui ? 1 : 0,
+                DebugTextureName(currentRt), rtW, rtH,
+                m_VR->m_HudPaintedThisFrame.load(std::memory_order_acquire) ? 1 : 0,
+                m_VR->m_RenderedHud.load(std::memory_order_acquire) ? 1 : 0,
+                m_VR->m_SuppressHudCapture ? 1 : 0);
+        }
+    }
+
+    // When scope/rear-mirror RTT is rendering, don't redirect HUD/VGUI
+    if (m_VR->m_SuppressHudCapture)
+        return;
 
     auto PaintToHudOnce = [&](int paintMode)
         {
