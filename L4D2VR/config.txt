@@ -84,19 +84,25 @@ QuickTurnCombo=SecondaryAttack+Crouch
 ViewmodelAdjustEnabled=false
 ViewmodelAdjustCombo=Reload+SecondaryAttack
 
-AimLineEnabled=false
+AimLineEnabled=true
 AimLineOnlyWhenLaserSight=false
 AimLineTimingAligned=true
-MeleeAimLineEnabled=false
-BlockFireOnFriendlyAimEnabled=false
+MeleeAimLineEnabled=true
+BlockFireOnFriendlyAimEnabled=true
 BlockFireOnFriendlyAimRadiusMeters=0.1
 
 AimLineThickness=0.15
 AimLineFrameDurationMultiplier=0
 AimLineColor=255,0,0,100
 AimLineMinHitDistance=0
+D3DAimLineOverlayEnabled=true
+D3DAimLineOverlayWidthPixels=3.0
+D3DAimLineOverlayOutlinePixels=2.0
+D3DAimLineOverlayEndpointPixels=5.0
+D3DAimLineOverlayColor=255,0,0,255
+D3DAimLineOverlayOutlineColor=0,0,0,220
 GameLaserSightBeamEnabled=true
-GameLaserSightReplaceParticle=false
+GameLaserSightReplaceParticle=true
 GameLaserSightEndOffset=0.0,0.0,0.0
 
 MotionGestureSwingThreshold=2

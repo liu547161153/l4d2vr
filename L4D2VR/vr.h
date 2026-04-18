@@ -42,6 +42,7 @@ class IDirect3DSurface9;
 class ITexture;
 class IMaterial;
 class IMatRenderContext;
+class CViewSetup;
 class IGameEvent;
 class IGameEventListener2;
 class IGameEventManager2;
@@ -95,6 +96,20 @@ struct HapticMixState
 	float weight = 0.0f;
 	int priority = -1;
 	std::chrono::steady_clock::time_point lastSubmit{};
+};
+
+struct D3DAimLineOverlayEyeState
+{
+	bool valid = false;
+	float x0 = 0.0f;
+	float y0 = 0.0f;
+	float x1 = 0.0f;
+	float y1 = 0.0f;
+	float widthPixels = 0.0f;
+	float outlinePixels = 0.0f;
+	float endpointPixels = 0.0f;
+	uint32_t color = 0;
+	uint32_t outlineColor = 0;
 };
 
 class VR
@@ -468,6 +483,25 @@ public:
 	bool m_AimLineOnlyWhenLaserSight = false;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
+	bool m_D3DAimLineOverlayEnabled = false;
+	float m_D3DAimLineOverlayWidthPixels = 3.0f;
+	float m_D3DAimLineOverlayOutlinePixels = 2.0f;
+	float m_D3DAimLineOverlayEndpointPixels = 5.0f;
+	int m_D3DAimLineOverlayColorR = 255;
+	int m_D3DAimLineOverlayColorG = 0;
+	int m_D3DAimLineOverlayColorB = 0;
+	int m_D3DAimLineOverlayColorA = 255;
+	int m_D3DAimLineOverlayOutlineColorR = 0;
+	int m_D3DAimLineOverlayOutlineColorG = 0;
+	int m_D3DAimLineOverlayOutlineColorB = 0;
+	int m_D3DAimLineOverlayOutlineColorA = 220;
+	mutable std::mutex m_D3DAimLineOverlayMutex;
+	std::array<D3DAimLineOverlayEyeState, 2> m_D3DAimLineOverlayEyes{};
+	std::array<IDirect3DSurface9*, 2> m_D3DAimLineOverlayBackupSurfaces{};
+	std::array<bool, 2> m_D3DAimLineOverlayBackupValid{};
+	Vector m_D3DAimLineWorldStart = { 0,0,0 };
+	Vector m_D3DAimLineWorldEnd = { 0,0,0 };
+	bool m_HasD3DAimLineWorldSegment = false;
 	// Mounted gun (minigun/.50cal) state.
 	// We force first-person rendering while using the mounted gun (see hooks.cpp).
 	// On exit we do a one-shot ResetPosition to avoid accumulated anchor drift.
@@ -1989,6 +2023,10 @@ public:
 	C_BaseEntity* GetMountedGunUseEntity(C_BasePlayer* localPlayer) const;
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
+	void UpdateD3DAimLineOverlayForView(C_BasePlayer* localPlayer, const CViewSetup& view, int eyeIndex);
+	void ClearD3DAimLineOverlayEye(int eyeIndex);
+	void ClearD3DAimLineOverlay();
+	bool GetD3DAimLineOverlayEye(int eyeIndex, D3DAimLineOverlayEyeState& out) const;
 	// In queued (multicore) rendering, the render thread uses a render-frame pose snapshot.
 	// Draw the aim line from the render hook (dRenderView) using that snapshot to avoid head-turn ghosting.
 	void RenderDrawAimLineQueued(C_BasePlayer* localPlayer);

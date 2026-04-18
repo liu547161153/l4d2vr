@@ -186,6 +186,99 @@ namespace
         }
     }
 
+    static inline uint32_t VR_PackD3DColor(int r, int g, int b, int a)
+    {
+        const uint32_t cr = static_cast<uint32_t>(std::clamp(r, 0, 255));
+        const uint32_t cg = static_cast<uint32_t>(std::clamp(g, 0, 255));
+        const uint32_t cb = static_cast<uint32_t>(std::clamp(b, 0, 255));
+        const uint32_t ca = static_cast<uint32_t>(std::clamp(a, 0, 255));
+        return (ca << 24) | (cr << 16) | (cg << 8) | cb;
+    }
+
+    static inline bool VR_ProjectAimLinePointToView(
+        const CViewSetup& view,
+        const Vector& forward,
+        const Vector& right,
+        const Vector& up,
+        const Vector& point,
+        float tanHalfFovX,
+        float tanHalfFovY,
+        float& outX,
+        float& outY,
+        float& outDepth)
+    {
+        const Vector rel = point - view.origin;
+        const float depth = DotProduct(rel, forward);
+        if (depth <= 0.001f || !std::isfinite(depth))
+            return false;
+
+        const float px = DotProduct(rel, right) / (depth * tanHalfFovX);
+        const float py = DotProduct(rel, up) / (depth * tanHalfFovY);
+        if (!std::isfinite(px) || !std::isfinite(py))
+            return false;
+
+        outX = (0.5f + px * 0.5f) * static_cast<float>(view.width);
+        outY = (0.5f - py * 0.5f) * static_cast<float>(view.height);
+        outDepth = depth;
+        return std::isfinite(outX) && std::isfinite(outY);
+    }
+
+    static inline bool VR_ProjectAimLineSegmentToView(
+        const CViewSetup& view,
+        Vector start,
+        Vector end,
+        float& x0,
+        float& y0,
+        float& x1,
+        float& y1)
+    {
+        if (view.width <= 0 || view.height <= 0 || view.fov <= 1.0f)
+            return false;
+
+        QAngle viewAngles(view.angles.x, view.angles.y, view.angles.z);
+        Vector forward{}, right{}, up{};
+        QAngle::AngleVectors(viewAngles, &forward, &right, &up);
+        if (forward.IsZero() || right.IsZero() || up.IsZero())
+            return false;
+
+        VectorNormalize(forward);
+        VectorNormalize(right);
+        VectorNormalize(up);
+
+        const float aspect = (view.m_flAspectRatio > 0.01f)
+            ? view.m_flAspectRatio
+            : (static_cast<float>(view.width) / static_cast<float>(std::max(view.height, 1)));
+        const float tanHalfFovX = std::tan(DEG2RAD(view.fov * 0.5f));
+        const float tanHalfFovY = tanHalfFovX / std::max(aspect, 0.01f);
+        if (tanHalfFovX <= 0.0001f || tanHalfFovY <= 0.0001f)
+            return false;
+
+        const float nearDepth = std::max(view.zNear, 1.0f);
+        const float startDepth = DotProduct(start - view.origin, forward);
+        const float endDepth = DotProduct(end - view.origin, forward);
+        if (startDepth <= nearDepth && endDepth <= nearDepth)
+            return false;
+
+        if (startDepth <= nearDepth || endDepth <= nearDepth)
+        {
+            const float denom = endDepth - startDepth;
+            if (std::fabs(denom) <= 0.0001f)
+                return false;
+
+            const float t = std::clamp((nearDepth - startDepth) / denom, 0.0f, 1.0f);
+            const Vector clipped = start + (end - start) * t;
+            if (startDepth <= nearDepth)
+                start = clipped;
+            else
+                end = clipped;
+        }
+
+        float d0 = 0.0f;
+        float d1 = 0.0f;
+        return VR_ProjectAimLinePointToView(view, forward, right, up, start, tanHalfFovX, tanHalfFovY, x0, y0, d0)
+            && VR_ProjectAimLinePointToView(view, forward, right, up, end, tanHalfFovX, tanHalfFovY, x1, y1, d1);
+    }
+
 }
 
 bool VR::IsUsingMountedGun(const C_BasePlayer* localPlayer) const
@@ -851,8 +944,9 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     } tlsGuard(queueMode != 0);
 
     const bool queued = (queueMode != 0);
+    const bool d3dAimLineEffective = m_D3DAimLineOverlayEnabled && !queued;
 
-    const bool canDraw = (m_Game->m_DebugOverlay != nullptr);
+    const bool canDraw = (m_Game->m_DebugOverlay != nullptr) || d3dAimLineEffective;
 
 
     C_WeaponCSBase* activeWeapon = nullptr;
@@ -870,6 +964,10 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         m_HasAimConvergePoint = false;
         m_HasThrowArc = false;
         m_LastAimWasThrowable = false;
+        {
+            std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+            m_HasD3DAimLineWorldSegment = false;
+        }
 
         // Even when the aim line is hidden/disabled, still run the friendly-fire guard trace
         // if the user toggled it on.
@@ -880,11 +978,15 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         return;
     }
 
-    // If debug overlay isn't available, don't draw, but keep the guard working.
+    // If neither DebugOverlay nor the D3D overlay is available, don't draw, but keep the guard working.
     if (!canDraw)
     {
         UpdateFriendlyFireAimHit(localPlayer);
         UpdateAimTeammateHudTarget(localPlayer, Vector{}, Vector{}, false);
+        {
+            std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+            m_HasD3DAimLineWorldSegment = false;
+        }
 
         return;
     }
@@ -1075,6 +1177,40 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     m_AimLineEnd = target;
     m_HasAimLine = true;
     m_HasThrowArc = false;
+
+    if (d3dAimLineEffective && localPlayer && m_Game && m_Game->m_EngineTrace
+        && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame())
+    {
+        Vector visibleEnd = target;
+        CGameTrace visibleTrace;
+        Ray_t visibleRay;
+        C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
+        C_BaseCombatWeapon* activeWeaponForTrace = localPlayer->GetActiveWeapon();
+        IClientEntityList* entityList = m_Game ? m_Game->m_ClientEntityList : nullptr;
+        IHandleEntity* safeMountedUseEnt = VR_GetSafeTraceSkipEntity(entityList, reinterpret_cast<IHandleEntity*>(mountedUseEnt));
+        IHandleEntity* safeActiveWeapon = VR_GetSafeTraceSkipEntity(entityList, reinterpret_cast<IHandleEntity*>(activeWeaponForTrace));
+        CTraceFilterSkipThreeEntities tracefilterThree((IHandleEntity*)localPlayer, safeMountedUseEnt, safeActiveWeapon, 0);
+        CTraceFilter* pTraceFilter = static_cast<CTraceFilter*>(&tracefilterThree);
+        visibleRay.Init(origin, target);
+        if (VR_SafeTraceRay(m_Game->m_EngineTrace, visibleRay, STANDARD_TRACE_MASK, pTraceFilter, visibleTrace)
+            && visibleTrace.fraction < 1.0f
+            && visibleTrace.fraction > 0.0f)
+        {
+            visibleEnd = visibleTrace.endpos;
+        }
+
+        std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+        m_D3DAimLineWorldStart = origin;
+        m_D3DAimLineWorldEnd = visibleEnd;
+        m_HasD3DAimLineWorldSegment = !((visibleEnd - origin).IsZero());
+    }
+    else
+    {
+        std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+        m_D3DAimLineWorldStart = origin;
+        m_D3DAimLineWorldEnd = target;
+        m_HasD3DAimLineWorldSegment = !((target - origin).IsZero());
+    }
 
     if (!queued && canDraw && allowAimLineDraw && !scopeOnlyAimLine)
         DrawAimLine(origin, target);
@@ -1579,6 +1715,11 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
     if (!m_AimLineEnabled || !m_Game || !m_Game->m_DebugOverlay)
         return;
+    const int queueMode = m_Game ? m_Game->GetMatQueueMode() : 0;
+    const bool d3dAimLineEffective = m_D3DAimLineOverlayEnabled && (queueMode == 0);
+    if (d3dAimLineEffective && !m_ScopeRenderingPass)
+        return;
+
     const bool scopeOnlyAimLine = m_ScopeAimLineOnlyInScope
         && m_ThirdPersonFrontViewEnabled
         && m_IsThirdPersonCamera
@@ -1732,6 +1873,118 @@ bool VR::BuildRenderAimLineSegment(C_BasePlayer* localPlayer, Vector& start, Vec
     return !((end - start).IsZero());
 }
 
+void VR::ClearD3DAimLineOverlayEye(int eyeIndex)
+{
+    if (eyeIndex < 0 || eyeIndex >= static_cast<int>(m_D3DAimLineOverlayEyes.size()))
+        return;
+
+    std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+    m_D3DAimLineOverlayEyes[eyeIndex] = {};
+}
+
+void VR::ClearD3DAimLineOverlay()
+{
+    std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+    for (auto& eye : m_D3DAimLineOverlayEyes)
+        eye = {};
+    m_D3DAimLineWorldStart = {};
+    m_D3DAimLineWorldEnd = {};
+    m_HasD3DAimLineWorldSegment = false;
+}
+
+bool VR::GetD3DAimLineOverlayEye(int eyeIndex, D3DAimLineOverlayEyeState& out) const
+{
+    if (eyeIndex < 0 || eyeIndex >= static_cast<int>(m_D3DAimLineOverlayEyes.size()))
+        return false;
+
+    std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+    out = m_D3DAimLineOverlayEyes[eyeIndex];
+    return out.valid;
+}
+
+void VR::UpdateD3DAimLineOverlayForView(C_BasePlayer* localPlayer, const CViewSetup& view, int eyeIndex)
+{
+    if (eyeIndex < 0 || eyeIndex >= static_cast<int>(m_D3DAimLineOverlayEyes.size()))
+        return;
+
+    auto clearEye = [&]()
+        {
+            std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+            m_D3DAimLineOverlayEyes[eyeIndex] = {};
+        };
+
+    const int queueMode = m_Game ? m_Game->GetMatQueueMode() : 0;
+    if (!m_D3DAimLineOverlayEnabled || queueMode != 0 || !m_AimLineEnabled || !m_IsVREnabled || !localPlayer)
+    {
+        clearEye();
+        return;
+    }
+
+    const bool scopeOnlyAimLine = m_ScopeAimLineOnlyInScope
+        && m_ThirdPersonFrontViewEnabled
+        && m_IsThirdPersonCamera
+        && m_ScopeWeaponIsFirearm;
+    if (scopeOnlyAimLine && !m_ScopeRenderingPass)
+    {
+        clearEye();
+        return;
+    }
+
+    Vector start{};
+    Vector end{};
+    if (!BuildRenderAimLineSegment(localPlayer, start, end))
+    {
+        clearEye();
+        return;
+    }
+
+    Vector cachedWorldStart{};
+    Vector cachedWorldEnd{};
+    bool hasCachedWorldSegment = false;
+    {
+        std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+        cachedWorldStart = m_D3DAimLineWorldStart;
+        cachedWorldEnd = m_D3DAimLineWorldEnd;
+        hasCachedWorldSegment = m_HasD3DAimLineWorldSegment;
+    }
+
+    if (hasCachedWorldSegment)
+    {
+        Vector dir = end - start;
+        const float visibleDistance = (cachedWorldEnd - cachedWorldStart).Length();
+        if (!dir.IsZero() && visibleDistance > 0.1f)
+        {
+            VectorNormalize(dir);
+            end = start + dir * visibleDistance;
+        }
+    }
+
+    D3DAimLineOverlayEyeState state{};
+    state.valid = VR_ProjectAimLineSegmentToView(view, start, end, state.x0, state.y0, state.x1, state.y1);
+    if (!state.valid)
+    {
+        clearEye();
+        return;
+    }
+
+    state.widthPixels = m_D3DAimLineOverlayWidthPixels;
+    state.outlinePixels = m_D3DAimLineOverlayOutlinePixels;
+    state.endpointPixels = m_D3DAimLineOverlayEndpointPixels;
+    state.color = VR_PackD3DColor(
+        m_D3DAimLineOverlayColorR, m_D3DAimLineOverlayColorG, m_D3DAimLineOverlayColorB, m_D3DAimLineOverlayColorA);
+    state.outlineColor = VR_PackD3DColor(
+        m_D3DAimLineOverlayOutlineColorR, m_D3DAimLineOverlayOutlineColorG, m_D3DAimLineOverlayOutlineColorB, m_D3DAimLineOverlayOutlineColorA);
+
+    if (((state.color >> 24) & 0xFFu) == 0u || state.widthPixels <= 0.0f)
+    {
+        clearEye();
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
+    m_D3DAimLineOverlayEyes[eyeIndex] = state;
+}
+
 void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
 {
     // Render-thread aim line drawing for mat_queue_mode!=0.
@@ -1754,13 +2007,6 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
         && m_IsThirdPersonCamera
         && m_ScopeWeaponIsFirearm;
     if (scopeOnlyAimLine && !m_ScopeRenderingPass)
-        return;
-
-    // Gating is computed on the update thread (see VR::UpdateTracking) and exposed via atomics.
-    // IMPORTANT: do not touch entity/weapon state from the render thread in queued mode.
-    const bool allowAimLineDraw = (m_RenderAimLineAllowed.load(std::memory_order_relaxed) != 0);
-    const bool showAimLine = (m_RenderAimLineShow.load(std::memory_order_relaxed) != 0);
-    if (!allowAimLineDraw || !showAimLine)
         return;
 
     Vector start{};

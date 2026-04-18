@@ -1058,6 +1058,22 @@ void VR::ParseConfigFile()
     m_AimLineColorG = aimColor[1];
     m_AimLineColorB = aimColor[2];
     m_AimLineColorA = aimColor[3];
+    m_D3DAimLineOverlayEnabled = getBool("D3DAimLineOverlayEnabled", m_D3DAimLineOverlayEnabled);
+    m_D3DAimLineOverlayWidthPixels = std::clamp(getFloat("D3DAimLineOverlayWidthPixels", m_D3DAimLineOverlayWidthPixels), 0.0f, 64.0f);
+    m_D3DAimLineOverlayOutlinePixels = std::clamp(getFloat("D3DAimLineOverlayOutlinePixels", m_D3DAimLineOverlayOutlinePixels), 0.0f, 64.0f);
+    m_D3DAimLineOverlayEndpointPixels = std::clamp(getFloat("D3DAimLineOverlayEndpointPixels", m_D3DAimLineOverlayEndpointPixels), 0.0f, 128.0f);
+    auto d3dAimColor = getColor("D3DAimLineOverlayColor",
+        m_D3DAimLineOverlayColorR, m_D3DAimLineOverlayColorG, m_D3DAimLineOverlayColorB, m_D3DAimLineOverlayColorA);
+    m_D3DAimLineOverlayColorR = d3dAimColor[0];
+    m_D3DAimLineOverlayColorG = d3dAimColor[1];
+    m_D3DAimLineOverlayColorB = d3dAimColor[2];
+    m_D3DAimLineOverlayColorA = d3dAimColor[3];
+    auto d3dAimOutlineColor = getColor("D3DAimLineOverlayOutlineColor",
+        m_D3DAimLineOverlayOutlineColorR, m_D3DAimLineOverlayOutlineColorG, m_D3DAimLineOverlayOutlineColorB, m_D3DAimLineOverlayOutlineColorA);
+    m_D3DAimLineOverlayOutlineColorR = d3dAimOutlineColor[0];
+    m_D3DAimLineOverlayOutlineColorG = d3dAimOutlineColor[1];
+    m_D3DAimLineOverlayOutlineColorB = d3dAimOutlineColor[2];
+    m_D3DAimLineOverlayOutlineColorA = d3dAimOutlineColor[3];
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));

@@ -1573,6 +1573,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	if (m_VR->m_IsVREnabled)
 		m_VR->RenderDrawGameLaserSight(localPlayer);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
+	if (m_VR->m_IsVREnabled)
+		m_VR->UpdateD3DAimLineOverlayForView(localPlayer, leftEyeView, 0);
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -1594,6 +1596,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
+	if (m_VR->m_IsVREnabled)
+		m_VR->UpdateD3DAimLineOverlayForView(localPlayer, rightEyeView, 1);
 
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
@@ -1781,5 +1785,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Restore engine angles immediately after our stereo render (single-threaded only).
 	if (touchedEngineAngles && m_Game && m_Game->m_EngineClient)
 		m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
+	const uint32_t completedFrameId = m_VR->m_RenderCompletedFrameId.fetch_add(1, std::memory_order_acq_rel) + 1;
+	(void)completedFrameId;
+	if (m_VR->m_RenderFrameReadyEvent)
+		SetEvent(m_VR->m_RenderFrameReadyEvent);
 	m_VR->m_RenderedNewFrame.store(true, std::memory_order_release);
 }
