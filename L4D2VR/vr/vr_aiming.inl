@@ -23,24 +23,29 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { out = 0.0f; return false; }
     }
 
-    static inline bool VR_IsKnownClientEntityPointer(IClientEntityList* entityList, const void* ptr)
+    static inline int VR_FindClientEntityIndex(IClientEntityList* entityList, const void* ptr)
     {
         if (!entityList || !ptr)
-            return false;
+            return -1;
 
         int highestIndex = entityList->GetHighestEntityIndex();
         if (highestIndex < 0)
-            return false;
+            return -1;
 
         // Keep the scan bounded; L4D2 client entity counts stay well below this.
         highestIndex = (std::min)(highestIndex, 4096);
         for (int i = 0; i <= highestIndex; ++i)
         {
             if (entityList->GetClientEntity(i) == ptr)
-                return true;
+                return i;
         }
 
-        return false;
+        return -1;
+    }
+
+    static inline bool VR_IsKnownClientEntityPointer(IClientEntityList* entityList, const void* ptr)
+    {
+        return VR_FindClientEntityIndex(entityList, ptr) >= 0;
     }
 
     static inline IHandleEntity* VR_GetSafeTraceSkipEntity(IClientEntityList* entityList, IHandleEntity* entity)
@@ -72,6 +77,488 @@ namespace
             out.m_pEnt = nullptr;
             return false;
         }
+    }
+
+    static std::string VR_NormalizeResourcePath(std::string path)
+    {
+        std::replace(path.begin(), path.end(), '\\', '/');
+        while (!path.empty() && (path.front() == '/' || path.front() == '.'))
+            path.erase(path.begin());
+        std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return path;
+    }
+
+    static std::string VR_TrimCopy(std::string value)
+    {
+        auto isSpace = [](unsigned char ch) { return std::isspace(ch) != 0; };
+        value.erase(value.begin(), std::find_if(value.begin(), value.end(), [&](char ch) { return !isSpace(static_cast<unsigned char>(ch)); }));
+        value.erase(std::find_if(value.rbegin(), value.rend(), [&](char ch) { return !isSpace(static_cast<unsigned char>(ch)); }).base(), value.end());
+        return value;
+    }
+
+    static std::string VR_JoinWindowsPath(const std::string& base, const std::string& child)
+    {
+        if (base.empty())
+            return child;
+        if (child.empty())
+            return base;
+
+        const char tail = base.back();
+        if (tail == '\\' || tail == '/')
+            return base + child;
+
+        return base + "\\" + child;
+    }
+
+    static std::string VR_GetModuleDirectoryA()
+    {
+        char modulePath[MAX_PATH] = {};
+        const DWORD len = ::GetModuleFileNameA(nullptr, modulePath, MAX_PATH);
+        if (len == 0 || len >= MAX_PATH)
+            return {};
+
+        std::string path(modulePath, len);
+        const size_t slash = path.find_last_of("\\/");
+        if (slash == std::string::npos)
+            return {};
+
+        return path.substr(0, slash);
+    }
+
+    static std::string VR_GetDirectoryNameA(const std::string& path)
+    {
+        const size_t slash = path.find_last_of("\\/");
+        if (slash == std::string::npos)
+            return {};
+        return path.substr(0, slash);
+    }
+
+    static std::string VR_GetFileStemA(const std::string& path)
+    {
+        size_t begin = path.find_last_of("\\/");
+        begin = (begin == std::string::npos) ? 0 : begin + 1;
+        const size_t dot = path.find_last_of('.');
+        const size_t end = (dot == std::string::npos || dot < begin) ? path.size() : dot;
+        return path.substr(begin, end - begin);
+    }
+
+    static bool VR_EndsWithInsensitive(const std::string& value, const char* suffix)
+    {
+        if (!suffix)
+            return false;
+        const size_t suffixLen = std::strlen(suffix);
+        if (value.size() < suffixLen)
+            return false;
+        return _stricmp(value.c_str() + value.size() - suffixLen, suffix) == 0;
+    }
+
+    static bool VR_ReadAllTextFile(const std::string& path, std::string& outText)
+    {
+        outText.clear();
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open())
+            return false;
+
+        std::ostringstream ss;
+        ss << file.rdbuf();
+        outText = ss.str();
+        return !outText.empty();
+    }
+
+    static bool VR_ReadVpkCString(std::ifstream& file, std::string& out)
+    {
+        out.clear();
+        char c = 0;
+        while (file.get(c))
+        {
+            if (c == '\0')
+                return true;
+            out.push_back(c);
+            if (out.size() > 4096)
+                return false;
+        }
+        return false;
+    }
+
+    template <typename T>
+    static bool VR_ReadBinaryValue(std::ifstream& file, T& out)
+    {
+        file.read(reinterpret_cast<char*>(&out), sizeof(T));
+        return file.good();
+    }
+
+    static bool VR_TryReadVpkTextFileAtPath(const std::string& dirPath, const std::string& relativePath, std::string& outText, std::string* outSource = nullptr)
+    {
+        outText.clear();
+        if (outSource)
+            outSource->clear();
+
+        std::ifstream dirFile(dirPath, std::ios::binary);
+        if (!dirFile.is_open())
+            return false;
+
+        uint32_t signature = 0;
+        uint32_t version = 0;
+        uint32_t treeSize = 0;
+        if (!VR_ReadBinaryValue(dirFile, signature) || !VR_ReadBinaryValue(dirFile, version) || !VR_ReadBinaryValue(dirFile, treeSize))
+            return false;
+        if (signature != 0x55AA1234u || version != 1u)
+            return false;
+
+        const std::streamoff treeStart = dirFile.tellg();
+        const std::string targetPath = VR_NormalizeResourcePath(relativePath);
+        const std::string archiveDir = VR_GetDirectoryNameA(dirPath);
+        std::string archivePrefix = VR_GetFileStemA(dirPath);
+        if (VR_EndsWithInsensitive(archivePrefix, "_dir"))
+            archivePrefix.resize(archivePrefix.size() - 4);
+
+        std::string extension;
+        while (VR_ReadVpkCString(dirFile, extension))
+        {
+            if (extension.empty())
+                break;
+
+            std::string path;
+            while (VR_ReadVpkCString(dirFile, path))
+            {
+                if (path.empty())
+                    break;
+
+                std::string name;
+                while (VR_ReadVpkCString(dirFile, name))
+                {
+                    if (name.empty())
+                        break;
+
+                    uint32_t crc = 0;
+                    uint16_t preloadBytes = 0;
+                    uint16_t archiveIndex = 0;
+                    uint32_t entryOffset = 0;
+                    uint32_t entryLength = 0;
+                    uint16_t terminator = 0;
+                    if (!VR_ReadBinaryValue(dirFile, crc)
+                        || !VR_ReadBinaryValue(dirFile, preloadBytes)
+                        || !VR_ReadBinaryValue(dirFile, archiveIndex)
+                        || !VR_ReadBinaryValue(dirFile, entryOffset)
+                        || !VR_ReadBinaryValue(dirFile, entryLength)
+                        || !VR_ReadBinaryValue(dirFile, terminator))
+                    {
+                        return false;
+                    }
+
+                    std::string preload;
+                    if (preloadBytes > 0)
+                    {
+                        preload.resize(preloadBytes);
+                        dirFile.read(&preload[0], preloadBytes);
+                        if (!dirFile.good())
+                            return false;
+                    }
+
+                    const std::string fullPath = VR_NormalizeResourcePath(path + "/" + name + "." + extension);
+                    if (fullPath != targetPath)
+                        continue;
+
+                    if (entryLength > (4u * 1024u * 1024u))
+                        return false;
+
+                    std::string archivePath;
+                    std::streamoff dataOffset = 0;
+                    if (archiveIndex == 0x7FFFu)
+                    {
+                        archivePath = dirPath;
+                        dataOffset = treeStart + static_cast<std::streamoff>(treeSize) + static_cast<std::streamoff>(entryOffset);
+                    }
+                    else
+                    {
+                        if (archiveDir.empty() || archivePrefix.empty())
+                            return false;
+                        char archiveName[MAX_PATH] = {};
+                        sprintf_s(archiveName, "%s_%03u.vpk", archivePrefix.c_str(), static_cast<unsigned int>(archiveIndex));
+                        archivePath = VR_JoinWindowsPath(archiveDir, archiveName);
+                        dataOffset = static_cast<std::streamoff>(entryOffset);
+                    }
+
+                    std::ifstream dataFile(archivePath, std::ios::binary);
+                    if (!dataFile.is_open())
+                        return false;
+
+                    dataFile.seekg(dataOffset, std::ios::beg);
+                    if (!dataFile.good())
+                        return false;
+
+                    std::string data;
+                    data.resize(entryLength);
+                    if (entryLength > 0)
+                    {
+                        dataFile.read(&data[0], entryLength);
+                        if (!dataFile.good())
+                            return false;
+                    }
+
+                    outText = preload + data;
+                    if (outSource && !outText.empty())
+                        *outSource = std::string("vpk:") + archivePath + "!" + fullPath;
+                    return !outText.empty();
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static bool VR_TryReadVpkTextFile(const std::string& gameDir, const std::string& relativePath, std::string& outText, std::string* outSource = nullptr)
+    {
+        return VR_TryReadVpkTextFileAtPath(VR_JoinWindowsPath(gameDir, "pak01_dir.vpk"), relativePath, outText, outSource);
+    }
+
+    static bool VR_TryReadVpkTextFileFromDirectory(const std::string& directory, const std::string& relativePath, std::string& outText, std::string* outSource = nullptr)
+    {
+        outText.clear();
+        if (outSource)
+            outSource->clear();
+
+        const std::string pattern = VR_JoinWindowsPath(directory, "*.vpk");
+        WIN32_FIND_DATAA data{};
+        HANDLE find = ::FindFirstFileA(pattern.c_str(), &data);
+        if (find == INVALID_HANDLE_VALUE)
+            return false;
+
+        std::vector<std::string> vpkPaths;
+        do
+        {
+            if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                continue;
+            if (data.nFileSizeHigh == 0 && data.nFileSizeLow < 12)
+                continue;
+
+            const std::string name(data.cFileName);
+            if (VR_EndsWithInsensitive(name, "_000.vpk")
+                || VR_EndsWithInsensitive(name, "_001.vpk")
+                || VR_EndsWithInsensitive(name, "_002.vpk")
+                || VR_EndsWithInsensitive(name, "_003.vpk")
+                || VR_EndsWithInsensitive(name, "_004.vpk")
+                || VR_EndsWithInsensitive(name, "_005.vpk")
+                || VR_EndsWithInsensitive(name, "_006.vpk")
+                || VR_EndsWithInsensitive(name, "_007.vpk")
+                || VR_EndsWithInsensitive(name, "_008.vpk")
+                || VR_EndsWithInsensitive(name, "_009.vpk"))
+            {
+                continue;
+            }
+
+            vpkPaths.push_back(VR_JoinWindowsPath(directory, name));
+        } while (::FindNextFileA(find, &data));
+        ::FindClose(find);
+
+        std::sort(vpkPaths.begin(), vpkPaths.end());
+        for (const std::string& vpkPath : vpkPaths)
+        {
+            if (VR_TryReadVpkTextFileAtPath(vpkPath, relativePath, outText, outSource))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool VR_TryReadGameResourceText(const std::string& relativePath, std::string& outText, std::string* outSource = nullptr)
+    {
+        outText.clear();
+        if (outSource)
+            outSource->clear();
+
+        const std::string moduleDir = VR_GetModuleDirectoryA();
+        if (moduleDir.empty())
+            return false;
+
+        const std::string l4d2Dir = VR_JoinWindowsPath(moduleDir, "left4dead2");
+        const std::array<std::string, 2> looseOverrideRoots =
+        {
+            VR_JoinWindowsPath(l4d2Dir, "downloads"),
+            l4d2Dir
+        };
+        for (const std::string& root : looseOverrideRoots)
+        {
+            const std::string loosePath = VR_JoinWindowsPath(root, relativePath);
+            if (VR_ReadAllTextFile(loosePath, outText))
+            {
+                if (outSource)
+                    *outSource = std::string("loose:") + loosePath;
+                return true;
+            }
+        }
+
+        const std::array<std::string, 3> vpkOverrideRoots =
+        {
+            VR_JoinWindowsPath(l4d2Dir, "downloads"),
+            VR_JoinWindowsPath(l4d2Dir, "addons"),
+            VR_JoinWindowsPath(VR_JoinWindowsPath(l4d2Dir, "addons"), "workshop")
+        };
+        for (const std::string& root : vpkOverrideRoots)
+        {
+            if (VR_TryReadVpkTextFileFromDirectory(root, relativePath, outText, outSource))
+                return true;
+        }
+
+        const std::array<const char*, 5> searchRoots =
+        {
+            "update",
+            "left4dead2_dlc3",
+            "left4dead2_dlc2",
+            "left4dead2_dlc1",
+            "left4dead2"
+        };
+
+        for (const char* root : searchRoots)
+        {
+            const std::string gameDir = VR_JoinWindowsPath(moduleDir, root);
+            const std::string loosePath = VR_JoinWindowsPath(gameDir, relativePath);
+            if (VR_ReadAllTextFile(loosePath, outText))
+            {
+                if (outSource)
+                    *outSource = std::string("loose:") + loosePath;
+                return true;
+            }
+            if (VR_TryReadVpkTextFile(gameDir, relativePath, outText, outSource))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool VR_ReadQuotedToken(const std::string& line, size_t& pos, std::string& out)
+    {
+        out.clear();
+
+        const size_t begin = line.find('"', pos);
+        if (begin == std::string::npos)
+            return false;
+        const size_t end = line.find('"', begin + 1);
+        if (end == std::string::npos)
+            return false;
+
+        out = line.substr(begin + 1, end - begin - 1);
+        pos = end + 1;
+        return true;
+    }
+
+    static bool VR_ParseWeaponScriptFloat(const std::string& text, const char* key, float& outValue)
+    {
+        if (!key || !*key)
+            return false;
+
+        std::istringstream stream(text);
+        std::string line;
+        while (std::getline(stream, line))
+        {
+            const size_t comment = line.find("//");
+            if (comment != std::string::npos)
+                line = line.substr(0, comment);
+
+            size_t pos = 0;
+            std::string parsedKey;
+            std::string parsedValue;
+            if (!VR_ReadQuotedToken(line, pos, parsedKey) || !VR_ReadQuotedToken(line, pos, parsedValue))
+                continue;
+
+            if (_stricmp(parsedKey.c_str(), key) != 0)
+                continue;
+
+            try
+            {
+                outValue = std::stof(VR_TrimCopy(parsedValue));
+                return std::isfinite(outValue);
+            }
+            catch (...)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    static bool VR_ParseWeaponScriptInt(const std::string& text, const char* key, int& outValue)
+    {
+        float value = 0.0f;
+        if (!VR_ParseWeaponScriptFloat(text, key, value))
+            return false;
+
+        outValue = static_cast<int>(std::lround(value));
+        return true;
+    }
+
+    static bool VR_ParseEffectiveWeaponData(const std::string& text, VR::EffectiveAttackRangeWeaponData& outData)
+    {
+        VR::EffectiveAttackRangeWeaponData data{};
+        bool hasSpread = false;
+        hasSpread |= VR_ParseWeaponScriptFloat(text, "MinStandingSpread", data.minStandingSpread);
+        hasSpread |= VR_ParseWeaponScriptFloat(text, "MinDuckingSpread", data.minDuckingSpread);
+        hasSpread |= VR_ParseWeaponScriptFloat(text, "MinInAirSpread", data.minInAirSpread);
+        VR_ParseWeaponScriptFloat(text, "MaxMovementSpread", data.maxMovementSpread);
+        VR_ParseWeaponScriptFloat(text, "PelletScatterPitch", data.pelletScatterPitch);
+        VR_ParseWeaponScriptFloat(text, "PelletScatterYaw", data.pelletScatterYaw);
+        VR_ParseWeaponScriptFloat(text, "Range", data.range);
+        VR_ParseWeaponScriptFloat(text, "MaxPlayerSpeed", data.maxPlayerSpeed);
+        VR_ParseWeaponScriptInt(text, "Bullets", data.bullets);
+
+        if (!hasSpread)
+            return false;
+
+        if (data.minDuckingSpread <= 0.0f)
+            data.minDuckingSpread = data.minStandingSpread;
+        if (data.minInAirSpread <= 0.0f)
+            data.minInAirSpread = data.minStandingSpread;
+        data.minStandingSpread = std::max(0.0f, data.minStandingSpread);
+        data.minDuckingSpread = std::max(0.0f, data.minDuckingSpread);
+        data.minInAirSpread = std::max(0.0f, data.minInAirSpread);
+        data.maxMovementSpread = std::max(0.0f, data.maxMovementSpread);
+        data.pelletScatterPitch = std::max(0.0f, data.pelletScatterPitch);
+        data.pelletScatterYaw = std::max(0.0f, data.pelletScatterYaw);
+        data.range = std::clamp(data.range, 1.0f, 65536.0f);
+        data.maxPlayerSpeed = std::clamp(data.maxPlayerSpeed, 1.0f, 1000.0f);
+        data.bullets = std::max(1, data.bullets);
+        data.valid = true;
+        outData = data;
+        return true;
+    }
+
+    struct VR_EntityNpcPlayerFlags
+    {
+        bool isNpc = false;
+        bool isPlayer = false;
+    };
+
+    static VR_EntityNpcPlayerFlags VR_GetEntityNpcPlayerFlags(const C_BaseEntity* entity)
+    {
+        VR_EntityNpcPlayerFlags flags{};
+        if (!entity)
+            return flags;
+
+#ifdef _MSC_VER
+        __try
+        {
+            C_BaseEntity* mutableEntity = const_cast<C_BaseEntity*>(entity);
+            flags.isNpc = mutableEntity->IsNPC() != nullptr;
+            flags.isPlayer = mutableEntity->IsPlayer() != nullptr;
+            return flags;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return {};
+        }
+#else
+        C_BaseEntity* mutableEntity = const_cast<C_BaseEntity*>(entity);
+        flags.isNpc = mutableEntity->IsNPC() != nullptr;
+        flags.isPlayer = mutableEntity->IsPlayer() != nullptr;
+        return flags;
+#endif
+    }
+
+    static bool VR_IsEntityNpcOrPlayer(const C_BaseEntity* entity)
+    {
+        const VR_EntityNpcPlayerFlags flags = VR_GetEntityNpcPlayerFlags(entity);
+        return flags.isNpc || flags.isPlayer;
     }
 
     using VR_CreateParticleEffectFn = void* (__thiscall*)(void* thisptr, const char* particleName, int attachType, int attachment, Vector originOffset, int unknown);
@@ -1061,12 +1548,18 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
             {
                 DrawThrowArcFromCache(duration);
                 m_AimLineHitsFriendly = false;
+                m_AimLineEffectiveAttackRangeActive = false;
+                m_AimLineEffectiveAttackRangeHoldUntil = {};
+                m_AimLineEffectiveAttackRangeCacheValid = false;
                 return;
             }
 
             if (!m_HasAimLine)
             {
                 m_AimLineHitsFriendly = false;
+                m_AimLineEffectiveAttackRangeActive = false;
+                m_AimLineEffectiveAttackRangeHoldUntil = {};
+                m_AimLineEffectiveAttackRangeCacheValid = false;
                 return;
             }
 
@@ -1230,6 +1723,9 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
     {
         m_AimTeammateCandidateIndex = -1;
         m_AimTeammateLastRawIndex = -1;
+        m_AimLineEffectiveAttackRangeActive = false;
+        m_AimLineEffectiveAttackRangeHoldUntil = {};
+        m_AimLineEffectiveAttackRangeCacheValid = false;
         if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
             m_AimTeammateDisplayIndex = -1;
         ClearAmmoHudAimTarget();
@@ -1240,6 +1736,9 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
     {
         m_AimTeammateCandidateIndex = -1;
         m_AimTeammateLastRawIndex = -1;
+        m_AimLineEffectiveAttackRangeActive = false;
+        m_AimLineEffectiveAttackRangeHoldUntil = {};
+        m_AimLineEffectiveAttackRangeCacheValid = false;
         if (m_AimTeammateDisplayIndex > 0 && now > m_AimTeammateDisplayUntil)
             m_AimTeammateDisplayIndex = -1;
         ClearAmmoHudAimTarget();
@@ -1265,6 +1764,15 @@ void VR::UpdateAimTeammateHudTarget(C_BasePlayer* localPlayer, const Vector& sta
         VR_SafeTraceRay(m_Game->m_EngineTrace, ray, STANDARD_TRACE_MASK, pFilter, tr);
 
         hitEnt = reinterpret_cast<C_BaseEntity*>(tr.m_pEnt);
+        UpdateAimLineEffectiveAttackRange(
+            localPlayer,
+            static_cast<C_WeaponCSBase*>(activeWeapon),
+            hitEnt,
+            start,
+            end,
+            tr.endpos,
+            tr.fraction < 1.0f && tr.fraction > 0.0f && !tr.startsolid && !tr.allsolid);
+
         if (hitEnt && hitEnt != localPlayer)
         {
             const unsigned char* eb = reinterpret_cast<const unsigned char*>(hitEnt);
@@ -1517,6 +2025,448 @@ bool VR::IsWeaponLaserSightActive(C_WeaponCSBase* weapon) const
     if (!VR_TryReadI32(reinterpret_cast<const unsigned char*>(weapon), kUpgradeBitVecOffset, bitVec))
         return false;
     return (bitVec & kLaserSightBit) != 0;
+}
+
+bool VR::IsEffectiveAttackRangeTarget(const C_BaseEntity* entity) const
+{
+    if (!entity || !m_Game)
+        return false;
+
+    const unsigned char* base = reinterpret_cast<const unsigned char*>(entity);
+    int team = 0;
+    const bool hasTeam = VR_TryReadI32(base, kTeamNumOffset, team);
+    if (hasTeam && team == 2)
+        return false;
+
+    const int entityIndex = VR_FindClientEntityIndex(m_Game->m_ClientEntityList, entity);
+
+    const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
+    if (!className || !*className)
+        return hasTeam && team == 3 && entityIndex > 0;
+
+    std::string lowered(className);
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    const bool obstacle =
+        lowered.find("world") != std::string::npos ||
+        lowered.find("func") != std::string::npos ||
+        lowered.find("brush") != std::string::npos ||
+        lowered.find("prop") != std::string::npos ||
+        lowered.find("door") != std::string::npos ||
+        lowered.find("breakable") != std::string::npos ||
+        lowered.find("weapon") != std::string::npos ||
+        lowered.find("projectile") != std::string::npos ||
+        lowered.find("physics") != std::string::npos ||
+        lowered.find("moveable") != std::string::npos ||
+        lowered.find("ragdoll") != std::string::npos ||
+        lowered.find("trigger") != std::string::npos ||
+        lowered.find("ladder") != std::string::npos ||
+        lowered.find("env") != std::string::npos ||
+        lowered.find("point") != std::string::npos ||
+        lowered.find("info") != std::string::npos ||
+        lowered.find("beam") != std::string::npos ||
+        lowered.find("sprite") != std::string::npos ||
+        lowered.find("particle") != std::string::npos ||
+        lowered.find("light") != std::string::npos ||
+        lowered.find("shadow") != std::string::npos ||
+        lowered.find("water") != std::string::npos ||
+        lowered.find("fog") != std::string::npos ||
+        lowered.find("sky") != std::string::npos ||
+        lowered.find("tonemap") != std::string::npos ||
+        lowered.find("colorcorrection") != std::string::npos ||
+        lowered.find("postprocess") != std::string::npos ||
+        lowered.find("inferno") != std::string::npos ||
+        lowered.find("baseentity") != std::string::npos;
+    if (obstacle)
+        return false;
+
+    if (hasTeam && team == 0)
+        return false;
+
+    return true;
+}
+
+void VR::LogEffectiveAttackRangeTarget(C_BaseEntity* entity, C_WeaponCSBase* weapon, float distance, float maxRange, float spreadDegrees, bool cached, const char* dataSource)
+{
+    if (!m_EffectiveAttackRangeDebugLog || !entity || !m_Game)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    const std::uintptr_t entityTag = reinterpret_cast<std::uintptr_t>(entity);
+    const bool sameEntity = m_EffectiveAttackRangeDebugLastEntity == entityTag;
+    if (sameEntity && m_EffectiveAttackRangeDebugLastLog.time_since_epoch().count() != 0)
+    {
+        if (m_EffectiveAttackRangeDebugLogHz <= 0.0f)
+            return;
+
+        const float minInterval = 1.0f / m_EffectiveAttackRangeDebugLogHz;
+        const float elapsed = std::chrono::duration<float>(now - m_EffectiveAttackRangeDebugLastLog).count();
+        if (elapsed >= 0.0f && elapsed < minInterval)
+            return;
+    }
+
+    m_EffectiveAttackRangeDebugLastEntity = entityTag;
+    m_EffectiveAttackRangeDebugLastLog = now;
+
+    const unsigned char* base = reinterpret_cast<const unsigned char*>(entity);
+    int team = -1;
+    unsigned char lifeState = 255;
+    const bool hasTeam = VR_TryReadI32(base, kTeamNumOffset, team);
+    const bool hasLifeState = VR_TryReadU8(base, kLifeStateOffset, lifeState);
+    const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(entity));
+    const int entityIndex = VR_FindClientEntityIndex(m_Game->m_ClientEntityList, entity);
+    const int weaponId = weapon ? static_cast<int>(weapon->GetWeaponID()) : -1;
+    const VR_EntityNpcPlayerFlags npcPlayerFlags = VR_GetEntityNpcPlayerFlags(entity);
+    const bool npcOrPlayer = npcPlayerFlags.isNpc || npcPlayerFlags.isPlayer;
+
+    Game::logMsg(
+        "[VR][EffectiveRange][hit] idx=%d ent=%p class=%s team=%d%s life=%d%s isNpc=%d isPlayer=%d npcOrPlayer=%d weaponId=%d dist=%.1f range=%.1f spreadDeg=%.4f cached=%d dataSource=\"%s\"",
+        entityIndex,
+        static_cast<void*>(entity),
+        (className && *className) ? className : "<null>",
+        hasTeam ? team : -1,
+        hasTeam ? "" : "?",
+        hasLifeState ? static_cast<int>(lifeState) : -1,
+        hasLifeState ? "" : "?",
+        npcPlayerFlags.isNpc ? 1 : 0,
+        npcPlayerFlags.isPlayer ? 1 : 0,
+        npcOrPlayer ? 1 : 0,
+        weaponId,
+        distance,
+        maxRange,
+        spreadDegrees,
+        cached ? 1 : 0,
+        (dataSource && *dataSource) ? dataSource : "<unknown>");
+}
+
+bool VR::EnsureEffectiveAttackRangeWeaponDataLoaded()
+{
+    auto hasLoadedData = [&]() -> bool
+        {
+            for (const auto& data : m_EffectiveAttackRangeWeaponData)
+            {
+                if (data.valid)
+                    return true;
+            }
+            return false;
+        };
+
+    const auto now = std::chrono::steady_clock::now();
+    if (m_EffectiveAttackRangeWeaponDataLoaded && hasLoadedData())
+        return hasLoadedData();
+    if (m_EffectiveAttackRangeWeaponDataLoaded &&
+        std::chrono::duration<float>(now - m_EffectiveAttackRangeWeaponDataLastLoad).count() < 2.0f)
+    {
+        return false;
+    }
+
+    m_EffectiveAttackRangeWeaponDataLoaded = true;
+    m_EffectiveAttackRangeWeaponDataLastLoad = now;
+    m_EffectiveAttackRangeWeaponData = {};
+
+    auto loadScript = [&](C_WeaponCSBase::WeaponID weaponId, const char* scriptPath)
+        {
+            const size_t index = static_cast<size_t>(weaponId);
+            if (!scriptPath || index >= m_EffectiveAttackRangeWeaponData.size())
+                return;
+
+            std::string text;
+            std::string source;
+            EffectiveAttackRangeWeaponData data{};
+            if (VR_TryReadGameResourceText(scriptPath, text, &source) && VR_ParseEffectiveWeaponData(text, data))
+            {
+                data.source = source.empty() ? scriptPath : source;
+                m_EffectiveAttackRangeWeaponData[index] = data;
+            }
+        };
+
+    loadScript(C_WeaponCSBase::PISTOL, "scripts/weapon_pistol.txt");
+    loadScript(C_WeaponCSBase::MAGNUM, "scripts/weapon_pistol_magnum.txt");
+    loadScript(C_WeaponCSBase::UZI, "scripts/weapon_smg.txt");
+    loadScript(C_WeaponCSBase::MAC10, "scripts/weapon_smg_silenced.txt");
+    loadScript(C_WeaponCSBase::MP5, "scripts/weapon_smg_mp5.txt");
+    loadScript(C_WeaponCSBase::M16A1, "scripts/weapon_rifle.txt");
+    loadScript(C_WeaponCSBase::AK47, "scripts/weapon_rifle_ak47.txt");
+    loadScript(C_WeaponCSBase::SCAR, "scripts/weapon_rifle_desert.txt");
+    loadScript(C_WeaponCSBase::SG552, "scripts/weapon_rifle_sg552.txt");
+    loadScript(C_WeaponCSBase::HUNTING_RIFLE, "scripts/weapon_hunting_rifle.txt");
+    loadScript(C_WeaponCSBase::SNIPER_MILITARY, "scripts/weapon_sniper_military.txt");
+    loadScript(C_WeaponCSBase::AWP, "scripts/weapon_sniper_awp.txt");
+    loadScript(C_WeaponCSBase::SCOUT, "scripts/weapon_sniper_scout.txt");
+    loadScript(C_WeaponCSBase::M60, "scripts/weapon_rifle_m60.txt");
+    loadScript(C_WeaponCSBase::PUMPSHOTGUN, "scripts/weapon_pumpshotgun.txt");
+    loadScript(C_WeaponCSBase::SHOTGUN_CHROME, "scripts/weapon_shotgun_chrome.txt");
+    loadScript(C_WeaponCSBase::AUTOSHOTGUN, "scripts/weapon_autoshotgun.txt");
+    loadScript(C_WeaponCSBase::SPAS, "scripts/weapon_shotgun_spas.txt");
+
+    const bool anyLoaded = hasLoadedData();
+    if (!anyLoaded && m_Game)
+        Game::logMsg("[VR][EffectiveRange] no weapon script spread data loaded from game VPKs.");
+
+    return anyLoaded;
+}
+
+const VR::EffectiveAttackRangeWeaponData* VR::GetEffectiveAttackRangeWeaponData(C_WeaponCSBase* weapon)
+{
+    if (!weapon || !EnsureEffectiveAttackRangeWeaponDataLoaded())
+        return nullptr;
+
+    const size_t index = static_cast<size_t>(weapon->GetWeaponID());
+    if (index >= m_EffectiveAttackRangeWeaponData.size())
+        return nullptr;
+
+    const EffectiveAttackRangeWeaponData& data = m_EffectiveAttackRangeWeaponData[index];
+    return data.valid ? &data : nullptr;
+}
+
+float VR::GetEffectiveAttackRangeSpreadDegrees(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, const EffectiveAttackRangeWeaponData& data) const
+{
+    if (!localPlayer || !weapon || !data.valid)
+        return -1.0f;
+
+    const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+    int flags = 0;
+    const bool hasFlags = VR_TryReadI32(base, kFlagsOffset, flags);
+    const bool onGround = !hasFlags || ((flags & kOnGroundFlag) != 0);
+    const bool ducking = hasFlags && ((flags & 0x2) != 0); // FL_DUCKING
+
+    float spread = data.minStandingSpread;
+    if (!onGround)
+        spread = data.minInAirSpread;
+    else if (ducking)
+        spread = data.minDuckingSpread;
+
+    if (onGround && data.maxMovementSpread > 0.0f && data.maxPlayerSpeed > 1.0f)
+    {
+        const float speed2D = localPlayer->m_vecVelocity.Length2D();
+        const float moveT = std::clamp(speed2D / data.maxPlayerSpeed, 0.0f, 1.0f);
+        spread = std::max(spread, data.maxMovementSpread * moveT);
+    }
+
+    if (data.bullets > 1)
+        spread = std::max(spread, std::max(data.pelletScatterPitch, data.pelletScatterYaw));
+
+    if (IsWeaponLaserSightActive(weapon))
+    {
+        const float laserScale = m_Game ? m_Game->GetConVarFloat("upgrade_laser_sight_spread_factor", 0.4f) : 0.4f;
+        spread *= std::clamp(laserScale, 0.0f, 1.0f);
+    }
+
+    return std::clamp(spread, 0.0f, 45.0f);
+}
+
+bool VR::DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, float spreadDegrees, float maxRange) const
+{
+    if (!localPlayer || !weapon || !hitEntity || !m_Game || !m_Game->m_EngineTrace || !m_Game->m_ClientEntityList)
+        return false;
+
+    Vector centerDir = end - start;
+    if (centerDir.IsZero())
+        return false;
+    VectorNormalize(centerDir);
+
+    if (spreadDegrees <= 0.0f)
+        return true;
+
+    maxRange = std::clamp(maxRange, 1.0f, 65536.0f);
+    const float coneRadians = DEG2RAD(spreadDegrees);
+    const float coneSin = std::sin(coneRadians);
+    const float coneCos = std::cos(coneRadians);
+
+    Vector up(0.0f, 0.0f, 1.0f);
+    Vector right = CrossProduct(centerDir, up);
+    if (right.LengthSqr() < 0.0001f)
+    {
+        up = Vector(1.0f, 0.0f, 0.0f);
+        right = CrossProduct(centerDir, up);
+    }
+    if (right.IsZero())
+        return false;
+    VectorNormalize(right);
+    up = CrossProduct(right, centerDir);
+    if (up.IsZero())
+        return false;
+    VectorNormalize(up);
+
+    C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
+    IClientEntityList* entityList = m_Game ? m_Game->m_ClientEntityList : nullptr;
+    IHandleEntity* safeMountedUseEnt = VR_GetSafeTraceSkipEntity(entityList, reinterpret_cast<IHandleEntity*>(mountedUseEnt));
+    IHandleEntity* safeActiveWeapon = VR_GetSafeTraceSkipEntity(entityList, reinterpret_cast<IHandleEntity*>(weapon));
+    CTraceFilterSkipThreeEntities filterThree((IHandleEntity*)localPlayer, safeMountedUseEnt, safeActiveWeapon, 0);
+    CTraceFilter* pFilter = static_cast<CTraceFilter*>(&filterThree);
+
+    constexpr int kSamples = 8;
+    for (int i = 0; i < kSamples; ++i)
+    {
+        const float theta = (2.0f * 3.14159265358979323846f * static_cast<float>(i)) / static_cast<float>(kSamples);
+        const Vector radial = right * std::cos(theta) + up * std::sin(theta);
+        Vector sampleDir = centerDir * coneCos + radial * coneSin;
+        if (sampleDir.IsZero())
+            return false;
+        VectorNormalize(sampleDir);
+
+        CGameTrace sampleTrace;
+        Ray_t sampleRay;
+        sampleRay.Init(start, start + sampleDir * maxRange);
+        if (!VR_SafeTraceRay(m_Game->m_EngineTrace, sampleRay, STANDARD_TRACE_MASK, pFilter, sampleTrace))
+            return false;
+
+        C_BaseEntity* sampleHit = reinterpret_cast<C_BaseEntity*>(sampleTrace.m_pEnt);
+        if (sampleHit != hitEntity || sampleTrace.fraction <= 0.0f || sampleTrace.fraction >= 1.0f || sampleTrace.startsolid || sampleTrace.allsolid)
+            return false;
+    }
+
+    return true;
+}
+
+void VR::UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, const Vector& hitPos, bool hasAimHit)
+{
+    const auto now = std::chrono::steady_clock::now();
+    const auto holdDuration = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<float>(std::clamp(m_EffectiveAttackRangeHoldSeconds, 0.0f, 1.0f)));
+
+    auto clearImmediate = [&]()
+        {
+            m_AimLineEffectiveAttackRangeActive = false;
+            m_AimLineEffectiveAttackRangeHoldUntil = {};
+            m_AimLineEffectiveAttackRangeCacheValid = false;
+        };
+
+    auto updateHeldState = [&](bool rawActive)
+        {
+            if (rawActive)
+            {
+                m_AimLineEffectiveAttackRangeActive = true;
+                m_AimLineEffectiveAttackRangeHoldUntil = now + holdDuration;
+                return;
+            }
+
+            const bool stillHeld = m_AimLineEffectiveAttackRangeHoldUntil.time_since_epoch().count() != 0
+                && now <= m_AimLineEffectiveAttackRangeHoldUntil;
+            if (stillHeld)
+            {
+                m_AimLineEffectiveAttackRangeActive = true;
+                return;
+            }
+
+            clearImmediate();
+        };
+
+    if (!m_EffectiveAttackRangeIndicatorEnabled || !localPlayer || !weapon)
+    {
+        clearImmediate();
+        return;
+    }
+
+    if (!hasAimHit || !hitEntity || hitEntity == localPlayer)
+    {
+        updateHeldState(false);
+        return;
+    }
+
+    if (!IsEffectiveAttackRangeTarget(hitEntity))
+    {
+        updateHeldState(false);
+        return;
+    }
+
+    const float distance = (hitPos - start).Length();
+    if (!std::isfinite(distance) || distance <= 0.1f)
+    {
+        updateHeldState(false);
+        return;
+    }
+
+    const C_WeaponCSBase::WeaponID weaponId = weapon->GetWeaponID();
+    if (weaponId == C_WeaponCSBase::MELEE || weaponId == C_WeaponCSBase::CHAINSAW)
+    {
+        const float gameDefaultMeleeRange = 70.0f;
+        const float meleeDistance = m_Game ? m_Game->GetConVarFloat("melee_range", gameDefaultMeleeRange) : gameDefaultMeleeRange;
+        const bool meleeActive = distance <= meleeDistance;
+        if (meleeActive)
+            LogEffectiveAttackRangeTarget(hitEntity, weapon, distance, meleeDistance, 0.0f, false, "convar:melee_range");
+        updateHeldState(meleeActive);
+        return;
+    }
+
+    const EffectiveAttackRangeWeaponData* data = GetEffectiveAttackRangeWeaponData(weapon);
+    if (!data)
+    {
+        updateHeldState(false);
+        return;
+    }
+
+    if (distance > data->range)
+    {
+        updateHeldState(false);
+        return;
+    }
+
+    const float spreadDeg = GetEffectiveAttackRangeSpreadDegrees(localPlayer, weapon, *data);
+    if (spreadDeg < 0.0f)
+    {
+        updateHeldState(false);
+        return;
+    }
+
+    Vector centerDir = end - start;
+    if (centerDir.IsZero())
+    {
+        updateHeldState(false);
+        return;
+    }
+    VectorNormalize(centerDir);
+
+    const std::uintptr_t entityTag = reinterpret_cast<std::uintptr_t>(hitEntity);
+    const std::uintptr_t weaponTag = reinterpret_cast<std::uintptr_t>(weapon);
+    const float cacheAge = m_AimLineEffectiveAttackRangeCacheValid
+        ? std::chrono::duration<float>(now - m_AimLineEffectiveAttackRangeCacheTime).count()
+        : 999.0f;
+    const float dirDot = m_AimLineEffectiveAttackRangeCacheDirection.IsZero()
+        ? -1.0f
+        : DotProduct(centerDir, m_AimLineEffectiveAttackRangeCacheDirection);
+    const bool canReuseCachedResult =
+        m_AimLineEffectiveAttackRangeCacheValid &&
+        m_AimLineEffectiveAttackRangeCacheEntity == entityTag &&
+        m_AimLineEffectiveAttackRangeCacheWeapon == weaponTag &&
+        cacheAge >= 0.0f &&
+        cacheAge <= std::clamp(m_EffectiveAttackRangeCacheSeconds, 0.0f, 1.0f) &&
+        std::fabs(distance - m_AimLineEffectiveAttackRangeCacheDistance) <= std::clamp(m_EffectiveAttackRangeCacheDistanceTolerance, 0.0f, 256.0f) &&
+        std::fabs(spreadDeg - m_AimLineEffectiveAttackRangeCacheSpread) <= std::clamp(m_EffectiveAttackRangeCacheSpreadTolerance, 0.0f, 10.0f) &&
+        dirDot >= std::clamp(m_EffectiveAttackRangeCacheDirectionDot, 0.0f, 1.0f);
+
+    bool rawActive = false;
+    bool usedCache = false;
+    if (canReuseCachedResult)
+    {
+        rawActive = m_AimLineEffectiveAttackRangeCacheResult;
+        usedCache = true;
+    }
+    else
+    {
+        rawActive = DoesEffectiveAttackRangeSpreadConeHitTarget(
+            localPlayer,
+            weapon,
+            hitEntity,
+            start,
+            end,
+            spreadDeg,
+            data->range);
+
+        m_AimLineEffectiveAttackRangeCacheValid = true;
+        m_AimLineEffectiveAttackRangeCacheResult = rawActive;
+        m_AimLineEffectiveAttackRangeCacheEntity = entityTag;
+        m_AimLineEffectiveAttackRangeCacheWeapon = weaponTag;
+        m_AimLineEffectiveAttackRangeCacheTime = now;
+        m_AimLineEffectiveAttackRangeCacheDistance = distance;
+        m_AimLineEffectiveAttackRangeCacheSpread = spreadDeg;
+        m_AimLineEffectiveAttackRangeCacheDirection = centerDir;
+    }
+
+    if (rawActive)
+        LogEffectiveAttackRangeTarget(hitEntity, weapon, distance, data->range, spreadDeg, usedCache, data->source.c_str());
+
+    updateHeldState(rawActive);
 }
 
 bool VR::ShouldDrawAimLine(C_WeaponCSBase* weapon) const
@@ -1970,8 +2920,19 @@ void VR::UpdateD3DAimLineOverlayForView(C_BasePlayer* localPlayer, const CViewSe
     state.widthPixels = m_D3DAimLineOverlayWidthPixels;
     state.outlinePixels = m_D3DAimLineOverlayOutlinePixels;
     state.endpointPixels = m_D3DAimLineOverlayEndpointPixels;
-    state.color = VR_PackD3DColor(
-        m_D3DAimLineOverlayColorR, m_D3DAimLineOverlayColorG, m_D3DAimLineOverlayColorB, m_D3DAimLineOverlayColorA);
+
+    int colorR = m_D3DAimLineOverlayColorR;
+    int colorG = m_D3DAimLineOverlayColorG;
+    int colorB = m_D3DAimLineOverlayColorB;
+    int colorA = m_D3DAimLineOverlayColorA;
+    if (m_D3DAimLineOverlaySyncAimLineColor)
+    {
+        GetAimLineColor(colorR, colorG, colorB, colorA);
+        if (colorA > 0)
+            colorA = m_D3DAimLineOverlayColorA;
+    }
+
+    state.color = VR_PackD3DColor(colorR, colorG, colorB, colorA);
     state.outlineColor = VR_PackD3DColor(
         m_D3DAimLineOverlayOutlineColorR, m_D3DAimLineOverlayOutlineColorG, m_D3DAimLineOverlayOutlineColorB, m_D3DAimLineOverlayOutlineColorA);
 

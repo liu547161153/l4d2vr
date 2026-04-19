@@ -6,11 +6,17 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
         g = m_AimLineWarningColorG;
         b = m_AimLineWarningColorB;
     }
+    else if (m_EffectiveAttackRangeIndicatorEnabled && m_AimLineEffectiveAttackRangeActive)
+    {
+        r = m_EffectiveAttackRangeColorR;
+        g = m_EffectiveAttackRangeColorG;
+        b = m_EffectiveAttackRangeColorB;
+    }
     else if (m_SpecialInfectedPreWarningActive)
     {
-        r = 0;
-        g = 255;
-        b = 0;
+        r = m_AimLineWarningColorR;
+        g = m_AimLineWarningColorG;
+        b = m_AimLineWarningColorB;
     }
     else
     {
@@ -1058,7 +1064,21 @@ void VR::ParseConfigFile()
     m_AimLineColorG = aimColor[1];
     m_AimLineColorB = aimColor[2];
     m_AimLineColorA = aimColor[3];
+    m_EffectiveAttackRangeIndicatorEnabled = getBool("EffectiveAttackRangeIndicatorEnabled", m_EffectiveAttackRangeIndicatorEnabled);
+    auto effectiveRangeColor = getColor("EffectiveAttackRangeColor",
+        m_EffectiveAttackRangeColorR, m_EffectiveAttackRangeColorG, m_EffectiveAttackRangeColorB, m_AimLineColorA);
+    m_EffectiveAttackRangeColorR = effectiveRangeColor[0];
+    m_EffectiveAttackRangeColorG = effectiveRangeColor[1];
+    m_EffectiveAttackRangeColorB = effectiveRangeColor[2];
+    m_EffectiveAttackRangeDebugLog = getBool("EffectiveAttackRangeDebugLog", m_EffectiveAttackRangeDebugLog);
+    m_EffectiveAttackRangeDebugLogHz = std::clamp(getFloat("EffectiveAttackRangeDebugLogHz", m_EffectiveAttackRangeDebugLogHz), 0.0f, 20.0f);
+    m_EffectiveAttackRangeHoldSeconds = std::clamp(getFloat("EffectiveAttackRangeHoldSeconds", m_EffectiveAttackRangeHoldSeconds), 0.0f, 1.0f);
+    m_EffectiveAttackRangeCacheSeconds = std::clamp(getFloat("EffectiveAttackRangeCacheSeconds", m_EffectiveAttackRangeCacheSeconds), 0.0f, 1.0f);
+    m_EffectiveAttackRangeCacheDistanceTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheDistanceTolerance", m_EffectiveAttackRangeCacheDistanceTolerance), 0.0f, 256.0f);
+    m_EffectiveAttackRangeCacheSpreadTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheSpreadTolerance", m_EffectiveAttackRangeCacheSpreadTolerance), 0.0f, 10.0f);
+    m_EffectiveAttackRangeCacheDirectionDot = std::clamp(getFloat("EffectiveAttackRangeCacheDirectionDot", m_EffectiveAttackRangeCacheDirectionDot), 0.0f, 1.0f);
     m_D3DAimLineOverlayEnabled = getBool("D3DAimLineOverlayEnabled", m_D3DAimLineOverlayEnabled);
+    m_D3DAimLineOverlaySyncAimLineColor = getBool("D3DAimLineOverlaySyncAimLineColor", m_D3DAimLineOverlaySyncAimLineColor);
     m_D3DAimLineOverlayWidthPixels = std::clamp(getFloat("D3DAimLineOverlayWidthPixels", m_D3DAimLineOverlayWidthPixels), 0.0f, 64.0f);
     m_D3DAimLineOverlayOutlinePixels = std::clamp(getFloat("D3DAimLineOverlayOutlinePixels", m_D3DAimLineOverlayOutlinePixels), 0.0f, 64.0f);
     m_D3DAimLineOverlayEndpointPixels = std::clamp(getFloat("D3DAimLineOverlayEndpointPixels", m_D3DAimLineOverlayEndpointPixels), 0.0f, 128.0f);
