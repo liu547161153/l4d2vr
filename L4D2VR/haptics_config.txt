@@ -9,7 +9,7 @@ weapon.enabled=1
 weapon.default=0.018,130,0.32
 
 weapon.pistol=0.018,165,0.33
-weapon.magnum=0.032,85,0.66
+weapon.magnum=0.050,70,1.00
 weapon.uzi=0.012,185,0.23
 weapon.mac10=0.011,195,0.24
 weapon.mp5=0.012,190,0.26
@@ -24,13 +24,61 @@ weapon.spas=0.029,82,0.62
 weapon.hunting_rifle=0.038,88,0.72
 weapon.sniper_military=0.033,92,0.61
 weapon.scout=0.036,96,0.69
-weapon.awp=0.052,62,0.94
+weapon.awp=0.050,70,1.00
 weapon.m60=0.019,115,0.50
 weapon.grenade_launcher=0.060,55,1.00
 weapon.melee=0.028,105,0.54
 weapon.chainsaw=0.014,175,0.34
 
 melee.swing=0.035,95,0.72
-melee.shove=0.022,120,0.58
+melee.shove=0.05,200,1.0
 
-# Removed: damage feedback, landing feedback, and camera-shake haptics.
+# ----------------------------
+# Damage / controlled-state damage
+# ----------------------------
+damage.enabled=1
+damage.directional=1
+# Seconds to wait so several very-close hits can merge into one stronger pulse.
+damage.merge_window=0.045
+# Minimum gap between actual damage haptic triggers.
+damage.min_trigger_interval=0.030
+# Extra amplitude added for each merged extra hit.
+damage.merged_hit_bonus=0.04
+# Damage scaling: amplitude bonus starts after this damage amount.
+damage.scale_start=6
+damage.scale_per_point=0.008
+damage.scale_max_bonus=0.24
+# Clamp final computed amplitude.
+damage.amplitude_min=0.05
+damage.amplitude_max=1.0
+
+# Generic damage buckets
+damage.common=0.016,135,0.24
+damage.special=0.020,112,0.38
+damage.heavy=0.030,82,0.62
+damage.explosion=0.036,72,0.74
+damage.fire=0.018,106,0.28
+damage.acid=0.014,156,0.32
+
+# Controlled-state damage buckets
+# Smoker: directional pull damage
+damage.control.smoker=0.020,96,0.30
+damage.control.smoker.directional_bias=1.00
+# Hunter: rapid clawing while pinned
+damage.control.hunter=0.018,138,0.36
+damage.control.hunter.directional_bias=0.30
+# Jockey: lighter, choppier repeated hits
+damage.control.jockey=0.016,152,0.30
+damage.control.jockey.directional_bias=0.20
+# Charger carry: heavy body-check / carry impacts
+damage.control.charger_carry=0.028,88,0.52
+damage.control.charger_carry.directional_bias=0.10
+# Charger pummel: centered ground-pound style hits
+damage.control.charger_pummel=0.044,66,0.82
+damage.control.charger_pummel.directional_bias=0.00
+
+landing.enabled=true
+landing.min_air_time=0.08
+landing.min_down_speed=140
+landing.medium=0.028,92,0.52
+landing.damage=0.042,72,0.88

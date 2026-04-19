@@ -6,11 +6,17 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
         g = m_AimLineWarningColorG;
         b = m_AimLineWarningColorB;
     }
+    else if (m_EffectiveAttackRangeIndicatorEnabled && m_AimLineEffectiveAttackRangeActive)
+    {
+        r = m_EffectiveAttackRangeColorR;
+        g = m_EffectiveAttackRangeColorG;
+        b = m_EffectiveAttackRangeColorB;
+    }
     else if (m_SpecialInfectedPreWarningActive)
     {
-        r = 0;
-        g = 255;
-        b = 0;
+        r = m_AimLineWarningColorR;
+        g = m_AimLineWarningColorG;
+        b = m_AimLineWarningColorB;
     }
     else
     {
@@ -1058,9 +1064,51 @@ void VR::ParseConfigFile()
     m_AimLineColorG = aimColor[1];
     m_AimLineColorB = aimColor[2];
     m_AimLineColorA = aimColor[3];
+    m_EffectiveAttackRangeIndicatorEnabled = getBool("EffectiveAttackRangeIndicatorEnabled", m_EffectiveAttackRangeIndicatorEnabled);
+    auto effectiveRangeColor = getColor("EffectiveAttackRangeColor",
+        m_EffectiveAttackRangeColorR, m_EffectiveAttackRangeColorG, m_EffectiveAttackRangeColorB, m_AimLineColorA);
+    m_EffectiveAttackRangeColorR = effectiveRangeColor[0];
+    m_EffectiveAttackRangeColorG = effectiveRangeColor[1];
+    m_EffectiveAttackRangeColorB = effectiveRangeColor[2];
+    m_EffectiveAttackRangeDebugLog = getBool("EffectiveAttackRangeDebugLog", m_EffectiveAttackRangeDebugLog);
+    m_EffectiveAttackRangeDebugLogHz = std::clamp(getFloat("EffectiveAttackRangeDebugLogHz", m_EffectiveAttackRangeDebugLogHz), 0.0f, 20.0f);
+    m_EffectiveAttackRangeHoldSeconds = std::clamp(getFloat("EffectiveAttackRangeHoldSeconds", m_EffectiveAttackRangeHoldSeconds), 0.0f, 1.0f);
+    m_EffectiveAttackRangeCacheSeconds = std::clamp(getFloat("EffectiveAttackRangeCacheSeconds", m_EffectiveAttackRangeCacheSeconds), 0.0f, 1.0f);
+    m_EffectiveAttackRangeCacheDistanceTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheDistanceTolerance", m_EffectiveAttackRangeCacheDistanceTolerance), 0.0f, 256.0f);
+    m_EffectiveAttackRangeCacheSpreadTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheSpreadTolerance", m_EffectiveAttackRangeCacheSpreadTolerance), 0.0f, 10.0f);
+    m_EffectiveAttackRangeCacheDirectionDot = std::clamp(getFloat("EffectiveAttackRangeCacheDirectionDot", m_EffectiveAttackRangeCacheDirectionDot), 0.0f, 1.0f);
+    m_D3DAimLineOverlayEnabled = getBool("D3DAimLineOverlayEnabled", m_D3DAimLineOverlayEnabled);
+    m_D3DAimLineOverlaySyncAimLineColor = getBool("D3DAimLineOverlaySyncAimLineColor", m_D3DAimLineOverlaySyncAimLineColor);
+    m_D3DAimLineOverlayWidthPixels = std::clamp(getFloat("D3DAimLineOverlayWidthPixels", m_D3DAimLineOverlayWidthPixels), 0.0f, 64.0f);
+    m_D3DAimLineOverlayOutlinePixels = std::clamp(getFloat("D3DAimLineOverlayOutlinePixels", m_D3DAimLineOverlayOutlinePixels), 0.0f, 64.0f);
+    m_D3DAimLineOverlayEndpointPixels = std::clamp(getFloat("D3DAimLineOverlayEndpointPixels", m_D3DAimLineOverlayEndpointPixels), 0.0f, 128.0f);
+    auto d3dAimColor = getColor("D3DAimLineOverlayColor",
+        m_D3DAimLineOverlayColorR, m_D3DAimLineOverlayColorG, m_D3DAimLineOverlayColorB, m_D3DAimLineOverlayColorA);
+    m_D3DAimLineOverlayColorR = d3dAimColor[0];
+    m_D3DAimLineOverlayColorG = d3dAimColor[1];
+    m_D3DAimLineOverlayColorB = d3dAimColor[2];
+    m_D3DAimLineOverlayColorA = d3dAimColor[3];
+    auto d3dAimOutlineColor = getColor("D3DAimLineOverlayOutlineColor",
+        m_D3DAimLineOverlayOutlineColorR, m_D3DAimLineOverlayOutlineColorG, m_D3DAimLineOverlayOutlineColorB, m_D3DAimLineOverlayOutlineColorA);
+    m_D3DAimLineOverlayOutlineColorR = d3dAimOutlineColor[0];
+    m_D3DAimLineOverlayOutlineColorG = d3dAimOutlineColor[1];
+    m_D3DAimLineOverlayOutlineColorB = d3dAimOutlineColor[2];
+    m_D3DAimLineOverlayOutlineColorA = d3dAimOutlineColor[3];
     m_AimLinePersistence = std::max(0.0f, getFloat("AimLinePersistence", m_AimLinePersistence));
     m_AimLineFrameDurationMultiplier = std::max(0.0f, getFloat("AimLineFrameDurationMultiplier", m_AimLineFrameDurationMultiplier));
     m_AimLineMaxHz = std::max(0.0f, getFloat("AimLineMaxHz", m_AimLineMaxHz));
+    m_GameLaserSightBeamEnabled = getBool("GameLaserSightBeamEnabled", m_GameLaserSightBeamEnabled);
+    m_GameLaserSightReplaceParticle = getBool("GameLaserSightReplaceParticle", m_GameLaserSightReplaceParticle);
+    m_GameLaserSightThickness = std::clamp(getFloat("GameLaserSightThickness", m_GameLaserSightThickness), 0.0f, 8.0f);
+    auto gameLaserColor = getColor("GameLaserSightColor", m_GameLaserSightColorR, m_GameLaserSightColorG, m_GameLaserSightColorB, m_GameLaserSightColorA);
+    m_GameLaserSightColorR = gameLaserColor[0];
+    m_GameLaserSightColorG = gameLaserColor[1];
+    m_GameLaserSightColorB = gameLaserColor[2];
+    m_GameLaserSightColorA = gameLaserColor[3];
+    m_GameLaserSightEndOffset = getVector3("GameLaserSightEndOffset", m_GameLaserSightEndOffset);
+    m_GameLaserSightEndOffset.x = std::clamp(m_GameLaserSightEndOffset.x, -256.0f, 256.0f);
+    m_GameLaserSightEndOffset.y = std::clamp(m_GameLaserSightEndOffset.y, -256.0f, 256.0f);
+    m_GameLaserSightEndOffset.z = std::clamp(m_GameLaserSightEndOffset.z, -256.0f, 256.0f);
     m_ThrowArcLandingOffset = std::max(-10000.0f, std::min(10000.0f, getFloat("ThrowArcLandingOffset", m_ThrowArcLandingOffset)));
     m_ThrowArcMaxHz = std::max(0.0f, getFloat("ThrowArcMaxHz", m_ThrowArcMaxHz));
     // Debug / memory
@@ -1116,6 +1164,8 @@ void VR::ParseConfigFile()
     Game::logMsg("[VR][Config] ViewmodelDisableMoveBob=%s", m_ViewmodelDisableMoveBob ? "true" : "false");
     m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);
     m_QueuedViewmodelStabilizeDebugLogHz = std::max(0.0f, getFloat("QueuedViewmodelStabilizeDebugLogHz", m_QueuedViewmodelStabilizeDebugLogHz));
+    m_RenderPipelineDebugLog = getBool("RenderPipelineDebugLog", m_RenderPipelineDebugLog);
+    m_RenderPipelineDebugLogHz = std::clamp(getFloat("RenderPipelineDebugLogHz", m_RenderPipelineDebugLogHz), 0.0f, 60.0f);
 
     // Bullet FX alignment: fine-tune client-side tracer/impact visuals.
     // Units: meters in aim-ray space (X=forward, Y=right, Z=up). Visual-only.

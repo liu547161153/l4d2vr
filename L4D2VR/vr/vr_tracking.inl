@@ -55,8 +55,9 @@ void VR::UpdateTracking()
             m_RenderTpPinned.store(0, std::memory_order_relaxed);
             m_RenderTpSelfMedkit.store(0, std::memory_order_relaxed);
 
-            m_RenderAimLineAllowed.store(0, std::memory_order_relaxed);
-            m_RenderAimLineShow.store(0, std::memory_order_relaxed);
+    m_RenderAimLineAllowed.store(0, std::memory_order_relaxed);
+    m_RenderAimLineShow.store(0, std::memory_order_relaxed);
+    m_RenderWeaponLaserSightActive.store(0, std::memory_order_relaxed);
 
             m_RenderViewParamsSeq.store(seq + 2, std::memory_order_release);
         }
@@ -1251,6 +1252,7 @@ void VR::UpdateTracking()
         __activeWeapon = (C_WeaponCSBase*)aw;
     const bool __aimAllowed = ShouldDrawAimLine(__activeWeapon);
     const bool __aimShow = __aimAllowed && ShouldShowAimLine(__activeWeapon);
+    const bool __weaponLaserSightActive = IsWeaponLaserSightActive(__activeWeapon);
 
     const bool __inMapLoadCooldown = IsThirdPersonMapLoadCooldownActive();
 
@@ -1313,6 +1315,7 @@ void VR::UpdateTracking()
 
         m_RenderAimLineAllowed.store(__aimAllowed ? 1u : 0u, std::memory_order_relaxed);
         m_RenderAimLineShow.store(__aimShow ? 1u : 0u, std::memory_order_relaxed);
+        m_RenderWeaponLaserSightActive.store(__weaponLaserSightActive ? 1u : 0u, std::memory_order_relaxed);
 
         // Mark write complete (even).
         m_RenderViewParamsSeq.store(seq + 2, std::memory_order_release);

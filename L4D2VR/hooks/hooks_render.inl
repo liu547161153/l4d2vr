@@ -42,6 +42,26 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	};
 	RenderSnapshotTLSGuard __renderTls(queueMode != 0);
 
+	if (m_VR->m_RenderPipelineDebugLog)
+	{
+		static thread_local std::chrono::steady_clock::time_point s_lastRenderPipeLog{};
+		if (!ShouldThrottleLog(s_lastRenderPipeLog, m_VR->m_RenderPipelineDebugLogHz))
+		{
+			ITexture* currentRt = DebugCurrentRenderTarget(rndrContext);
+			int rtW = 0;
+			int rtH = 0;
+			DebugTextureSize(currentRt, rtW, rtH);
+
+			const bool inGame = m_Game && m_Game->m_EngineClient && m_Game->m_EngineClient->IsInGame();
+			Game::logMsg("[VR][RenderPipe][RenderView] tid=%lu q=%d inGame=%d setup=%dx%d hud=%dx%d rt=%s(%dx%d) clear=0x%X draw=0x%X created=%d",
+				GetCurrentThreadId(), queueMode, inGame ? 1 : 0,
+				setup.width, setup.height, hudViewSetup.width, hudViewSetup.height,
+				DebugTextureName(currentRt), rtW, rtH,
+				nClearFlags, whatToDraw,
+				m_VR->m_CreatedVRTextures.load(std::memory_order_acquire) ? 1 : 0);
+		}
+	}
+
 	if (queueMode != 0 && m_VR && m_VR->m_System && vr::VRCompositor())
 	{
 		// Remember which thread is producing render snapshots (used by other render-time hooks).
@@ -1570,7 +1590,11 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	hudLeft.origin = leftEyeView.origin;
 	hudLeft.angles = renderViewAngles;
 	rndrContext->SetRenderTarget(m_VR->m_LeftEyeTexture);
+	if (m_VR->m_IsVREnabled)
+		m_VR->RenderDrawGameLaserSight(localPlayer);
 	hkRenderView.fOriginal(ecx, leftEyeView, hudLeft, nClearFlags, whatToDraw);
+	if (m_VR->m_IsVREnabled)
+		m_VR->UpdateD3DAimLineOverlayForView(localPlayer, leftEyeView, 0);
 	m_PushedHud = false;
 
 	// Right eye CViewSetup
@@ -1592,6 +1616,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 
 	rndrContext->SetRenderTarget(m_VR->m_RightEyeTexture);
 	hkRenderView.fOriginal(ecx, rightEyeView, hudRight, nClearFlags, whatToDraw);
+	if (m_VR->m_IsVREnabled)
+		m_VR->UpdateD3DAimLineOverlayForView(localPlayer, rightEyeView, 1);
 
 	auto renderToTexture_SetRT = [&](ITexture* target, int texW, int texH, QAngle passAngles,
 		CViewSetup& view, CViewSetup& hud)
@@ -1705,6 +1731,8 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 				m_VR->DrawAimLine(m_VR->m_AimLineStart, m_VR->m_AimLineEnd);
 			}
 		}
+		if (m_VR->m_IsVREnabled)
+			m_VR->RenderDrawGameLaserSight(localPlayer);
 
 		renderToTexture_SetRT(m_VR->m_ScopeTexture,
 			m_VR->m_ScopeRTTSize, m_VR->m_ScopeRTTSize,
@@ -1777,5 +1805,9 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// Restore engine angles immediately after our stereo render (single-threaded only).
 	if (touchedEngineAngles && m_Game && m_Game->m_EngineClient)
 		m_Game->m_EngineClient->SetViewAngles(prevEngineAngles);
+	const uint32_t completedFrameId = m_VR->m_RenderCompletedFrameId.fetch_add(1, std::memory_order_acq_rel) + 1;
+	(void)completedFrameId;
+	if (m_VR->m_RenderFrameReadyEvent)
+		SetEvent(m_VR->m_RenderFrameReadyEvent);
 	m_VR->m_RenderedNewFrame.store(true, std::memory_order_release);
 }

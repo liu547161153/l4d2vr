@@ -97,6 +97,7 @@ typedef void(__thiscall* tPopRenderTargetAndViewport)(void* thisptr);
 typedef void(__thiscall* tVgui_Paint)(void* thisptr, int mode);
 typedef int(__cdecl* tIsSplitScreen)();
 typedef DWORD* (__thiscall* tPrePushRenderTarget)(void* thisptr, int a2);
+typedef void(__thiscall* tUpdateLaserSight)(void* thisptr);
 
 
 class Hooks
@@ -133,6 +134,7 @@ public:
 	static inline Hook<tVgui_Paint> hkVgui_Paint;
 	static inline Hook<tIsSplitScreen> hkIsSplitScreen;
 	static inline Hook<tPrePushRenderTarget> hkPrePushRenderTarget;
+	static inline Hook<tUpdateLaserSight> hkUpdateLaserSight;
 	static bool s_ServerUnderstandsVR;
 
 	Hooks() {};
@@ -171,6 +173,7 @@ public:
 	static void __fastcall dVGui_Paint(void* ecx, void* edx, int mode);
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
+	static void __fastcall dUpdateLaserSight(void* ecx, void* edx);
 
 	// HUD render-target interception uses a small state machine to detect the
 	// engine's "push HUD RT" sequence:

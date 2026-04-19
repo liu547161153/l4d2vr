@@ -44,7 +44,10 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 			vecNewOrigin = m_VR->GetRecommendedViewmodelAbsPos();
 			vecNewAngles = m_VR->GetRecommendedViewmodelAbsAngle();
 			if (!forceDisableMoveBob)
-				return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+			{
+				hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
+				return;
+			}
 
 			CallCalcViewModelViewOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
 			if (ecx)
@@ -154,6 +157,581 @@ void __fastcall Hooks::dCalcViewModelView(void* ecx, void* edx, void* owner, con
 
 	return hkCalcViewModelView.fOriginal(ecx, owner, vecNewOrigin, vecNewAngles);
 }
+
+namespace
+{
+	static constexpr int kMaxGameLaserBeamEffects = 1;
+	static constexpr int kMaxGameLaserDotEffects = 1;
+
+	using tCreateParticleEffect = void* (__thiscall*)(void* thisptr, const char* particleName, int attachType, int attachment, Vector originOffset, int unknown);
+	using tStopParticleEffect = void(__thiscall*)(void* thisptr, void* effect);
+	using tParticleSetControlPointPosition = void(__thiscall*)(void* thisptr, int controlPoint, const Vector& position);
+	using tParticleSetControlPointForwardVector = void(__thiscall*)(void* thisptr, int controlPoint, const Vector& forward);
+
+	struct LocalWorldLaserParticleState
+	{
+		void* beamEffects[kMaxGameLaserBeamEffects] = {};
+		void* dotEffects[kMaxGameLaserDotEffects] = {};
+		int beamCount = 0;
+		int dotCount = 0;
+		void* particleProperty = nullptr;
+		C_BaseCombatWeapon* weapon = nullptr;
+		void* owner = nullptr;
+	};
+
+	static LocalWorldLaserParticleState s_localWorldLaserParticle;
+
+	static inline bool TryReadPointer(const void* ptrAddress, void*& out)
+	{
+		out = nullptr;
+		if (!IsReadableMemoryRange(ptrAddress, sizeof(void*)))
+			return false;
+
+		__try
+		{
+			out = *reinterpret_cast<void* const*>(ptrAddress);
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			out = nullptr;
+			return false;
+		}
+	}
+
+	static inline bool TryWritePointer(void* ptrAddress, void* value)
+	{
+		if (!ptrAddress)
+			return false;
+
+		__try
+		{
+			*reinterpret_cast<void**>(ptrAddress) = value;
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return false;
+		}
+	}
+
+	static inline bool TryReadInt(const void* ptrAddress, int& out)
+	{
+		out = 0;
+		if (!IsReadableMemoryRange(ptrAddress, sizeof(int)))
+			return false;
+
+		__try
+		{
+			out = *reinterpret_cast<const int*>(ptrAddress);
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			out = 0;
+			return false;
+		}
+	}
+
+	static inline void* CreateParticleEffect(void* particleProperty, const char* particleName, int attachType, int attachment, const Vector& originOffset, int unknown = 0)
+	{
+		if (!Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->CreateParticleEffect.valid)
+			return nullptr;
+		if (!particleProperty || !particleName || !particleName[0])
+			return nullptr;
+
+		auto createParticleEffect = reinterpret_cast<tCreateParticleEffect>(
+			Hooks::m_Game->m_Offsets->CreateParticleEffect.address);
+		if (!createParticleEffect)
+			return nullptr;
+
+		__try
+		{
+			return createParticleEffect(particleProperty, particleName, attachType, attachment, originOffset, unknown);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return nullptr;
+		}
+	}
+
+	static inline void StopParticleEffect(void* particleProperty, void* effect)
+	{
+		if (!Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->StopParticleEffect.valid)
+			return;
+		if (!particleProperty || !effect || !IsReadableMemoryRange(particleProperty, sizeof(void*)) || !IsReadableMemoryRange(effect, sizeof(void*)))
+			return;
+
+		auto stopParticleEffect = reinterpret_cast<tStopParticleEffect>(
+			Hooks::m_Game->m_Offsets->StopParticleEffect.address);
+		if (!stopParticleEffect)
+			return;
+
+		__try
+		{
+			stopParticleEffect(particleProperty, effect);
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+		}
+	}
+
+	static inline void ClearLocalWorldLaserParticle()
+	{
+		if (s_localWorldLaserParticle.particleProperty)
+		{
+			for (void* effect : s_localWorldLaserParticle.beamEffects)
+			{
+				if (effect)
+					StopParticleEffect(s_localWorldLaserParticle.particleProperty, effect);
+			}
+			for (void* effect : s_localWorldLaserParticle.dotEffects)
+			{
+				if (effect)
+					StopParticleEffect(s_localWorldLaserParticle.particleProperty, effect);
+			}
+		}
+
+		s_localWorldLaserParticle = {};
+	}
+
+	static inline bool SetParticleControlPoint(void* effect, int controlPoint, const Vector& position)
+	{
+		if (!Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->ParticleSetControlPointPosition.valid)
+			return false;
+		if (!effect || !IsReadableMemoryRange(effect, sizeof(void*)))
+			return false;
+
+		auto setControlPoint = reinterpret_cast<tParticleSetControlPointPosition>(
+			Hooks::m_Game->m_Offsets->ParticleSetControlPointPosition.address);
+		if (!setControlPoint)
+			return false;
+
+		__try
+		{
+			setControlPoint(effect, controlPoint, position);
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return false;
+		}
+	}
+
+	static inline bool SetParticleControlPointForwardVector(void* effect, int controlPoint, const Vector& forward)
+	{
+		if (!Hooks::m_Game || !Hooks::m_Game->m_Offsets || !Hooks::m_Game->m_Offsets->ParticleSetControlPointForwardVector.valid)
+			return false;
+		if (!effect || !IsReadableMemoryRange(effect, sizeof(void*)))
+			return false;
+
+		Vector normalizedForward = forward;
+		if (normalizedForward.IsZero())
+			return false;
+		VectorNormalize(normalizedForward);
+
+		auto setForward = reinterpret_cast<tParticleSetControlPointForwardVector>(
+			Hooks::m_Game->m_Offsets->ParticleSetControlPointForwardVector.address);
+		if (!setForward)
+			return false;
+
+		__try
+		{
+			setForward(effect, controlPoint, normalizedForward);
+			return true;
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			return false;
+		}
+	}
+
+	static inline bool HasLocalWorldLaserParticle()
+	{
+		for (void* effect : s_localWorldLaserParticle.beamEffects)
+		{
+			if (effect)
+				return true;
+		}
+		for (void* effect : s_localWorldLaserParticle.dotEffects)
+		{
+			if (effect)
+				return true;
+		}
+		return false;
+	}
+
+	static inline bool LocalWorldLaserParticleHasInvalidEffect()
+	{
+		for (void* effect : s_localWorldLaserParticle.beamEffects)
+		{
+			if (effect && !IsReadableMemoryRange(effect, sizeof(void*)))
+				return true;
+		}
+		for (void* effect : s_localWorldLaserParticle.dotEffects)
+		{
+			if (effect && !IsReadableMemoryRange(effect, sizeof(void*)))
+				return true;
+		}
+		return false;
+	}
+
+	static inline int GetGameLaserBeamCount(const VR* vr)
+	{
+		if (!vr || vr->m_GameLaserSightColorA <= 0)
+			return 0;
+
+		const float thickness = std::clamp(vr->m_GameLaserSightThickness, 0.0f, 8.0f);
+		const float alpha = std::clamp(static_cast<float>(vr->m_GameLaserSightColorA) / 255.0f, 0.0f, 1.0f);
+
+		int count = 1;
+		if (thickness >= 0.20f || alpha >= 0.35f)
+			count = 3;
+		if (thickness >= 0.50f || alpha >= 0.65f)
+			count = 5;
+		if (thickness >= 1.00f || alpha >= 0.85f)
+			count = 9;
+
+		return std::clamp(count, 1, kMaxGameLaserBeamEffects);
+	}
+
+	static inline int GetGameLaserDotCount(const VR* vr)
+	{
+		// Keep only the main laser beam.
+		// The extra dot uses another weapon_laser_sight effect and makes the result look multi-stroked.
+		(void)vr;
+		return 0;
+	}
+
+	static inline void GetLaserBillboardBasis(VR* vr, const Vector& direction, Vector& right, Vector& up)
+	{
+		right = vr ? vr->m_HmdRight : Vector{ 0.0f, 0.0f, 0.0f };
+		up = vr ? vr->m_HmdUp : Vector{ 0.0f, 0.0f, 0.0f };
+
+		if (right.IsZero() && vr)
+			right = vr->m_RightControllerRight;
+		if (up.IsZero() && vr)
+			up = vr->m_RightControllerUp;
+		if (up.IsZero())
+			up = Vector{ 0.0f, 0.0f, 1.0f };
+
+		if (right.IsZero())
+			right = CrossProduct(up, direction);
+		if (right.IsZero())
+			right = CrossProduct(Vector{ 0.0f, 0.0f, 1.0f }, direction);
+
+		if (!right.IsZero())
+			VectorNormalize(right);
+		if (!up.IsZero())
+			VectorNormalize(up);
+	}
+
+	static inline void SetLaserParticleLine(void* effect, const Vector& start, const Vector& end)
+	{
+		if (!effect)
+			return;
+
+		Vector direction = end - start;
+		if (direction.IsZero())
+			return;
+		VectorNormalize(direction);
+
+		SetParticleControlPoint(effect, 1, start);
+		SetParticleControlPoint(effect, 2, end);
+		SetParticleControlPoint(effect, 3, start + direction * 32.0f);
+		SetParticleControlPointForwardVector(effect, 1, direction);
+	}
+
+	static inline void ClearOriginalLocalLaserParticleSlot(void* terrorPlayer, int effectOffset)
+	{
+		if (!terrorPlayer)
+			return;
+
+		auto* base = reinterpret_cast<uint8_t*>(terrorPlayer);
+		void* effect = nullptr;
+		void* effectAddress = base + effectOffset;
+		if (!TryReadPointer(effectAddress, effect) || !effect)
+			return;
+
+		void* particleProperty = base + 0x2A8;
+		StopParticleEffect(particleProperty, effect);
+		TryWritePointer(effectAddress, nullptr);
+	}
+
+	static inline void ClearOriginalLocalLaserParticles(void* terrorPlayer)
+	{
+		ClearOriginalLocalLaserParticleSlot(terrorPlayer, 0x28D0);
+		ClearOriginalLocalLaserParticleSlot(terrorPlayer, 0x28E8);
+	}
+
+	static inline bool GetLaserAimSegment(Vector& start, Vector& end)
+	{
+		VR* vr = Hooks::m_VR;
+		if (!vr || !vr->m_IsVREnabled)
+			return false;
+
+		if (vr->m_HasAimLine)
+		{
+			start = vr->m_AimLineStart;
+			end = vr->m_AimLineEnd;
+
+			Vector direction = end - start;
+			if (!direction.IsZero())
+				return true;
+		}
+
+		QAngle controllerAng = vr->GetRightControllerAbsAngle();
+		Vector direction{}, right{}, up{};
+		QAngle::AngleVectors(controllerAng, &direction, &right, &up);
+		if (direction.IsZero())
+			direction = vr->m_LastAimDirection.IsZero() ? vr->m_HmdForward : vr->m_LastAimDirection;
+		if (direction.IsZero())
+			return false;
+
+		VectorNormalize(direction);
+		start = vr->GetRightControllerAbsPos() + direction * 2.0f;
+		if (!vr->m_IsThirdPersonCamera && vr->m_ForceNonVRServerMovement && vr->m_HasNonVRAimSolution)
+			end = vr->m_NonVRAimHitPoint;
+		else
+			end = start + direction * 8192.0f;
+
+		return !((end - start).IsZero());
+	}
+
+	static inline Vector BuildLaserSightEndOffset(const Vector& direction)
+	{
+		VR* vr = Hooks::m_VR;
+		if (!vr)
+			return Vector{ 0.0f, 0.0f, 0.0f };
+
+		Vector right = vr->m_HmdRight;
+		Vector up = vr->m_HmdUp;
+
+		if (right.IsZero())
+			right = vr->m_RightControllerRight;
+		if (up.IsZero())
+			up = vr->m_RightControllerUp;
+		if (up.IsZero())
+			up = Vector(0.0f, 0.0f, 1.0f);
+
+		if (right.IsZero())
+			right = CrossProduct(up, direction);
+		if (right.IsZero())
+			right = CrossProduct(Vector(0.0f, 0.0f, 1.0f), direction);
+
+		if (!right.IsZero())
+			VectorNormalize(right);
+		if (!up.IsZero())
+			VectorNormalize(up);
+
+		const Vector& offset = vr->m_GameLaserSightEndOffset;
+		return right * offset.x + up * offset.y + direction * offset.z;
+	}
+
+	static inline void UpdateLocalWorldLaserParticle(void* terrorPlayer)
+	{
+		if (!terrorPlayer || !Hooks::m_Game || !Hooks::m_Game->m_EngineClient || !Hooks::m_VR)
+			return;
+
+		VR* vr = Hooks::m_VR;
+		const int localPlayerIndex = Hooks::m_Game->m_EngineClient->GetLocalPlayer();
+		C_BaseEntity* localEntity = Hooks::m_Game->GetClientEntity(localPlayerIndex);
+		if (localEntity && reinterpret_cast<void*>(localEntity) != terrorPlayer)
+			return;
+
+		auto* localPlayer = reinterpret_cast<C_BasePlayer*>(localEntity ? localEntity : terrorPlayer);
+		if (!localPlayer)
+		{
+			ClearLocalWorldLaserParticle();
+			return;
+		}
+
+		if (!vr->m_IsVREnabled || !vr->m_GameLaserSightBeamEnabled)
+		{
+			ClearLocalWorldLaserParticle();
+			return;
+		}
+
+		C_BaseCombatWeapon* activeWeapon = nullptr;
+		__try
+		{
+			activeWeapon = localPlayer->GetActiveWeapon();
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+			activeWeapon = nullptr;
+		}
+		if (!activeWeapon)
+		{
+			ClearLocalWorldLaserParticle();
+			return;
+		}
+
+		auto* weapon = reinterpret_cast<C_WeaponCSBase*>(activeWeapon);
+		if (!vr->IsWeaponLaserSightActive(weapon))
+		{
+			ClearLocalWorldLaserParticle();
+			return;
+		}
+
+		Vector start{}, end{};
+		if (!GetLaserAimSegment(start, end))
+		{
+			ClearLocalWorldLaserParticle();
+			return;
+		}
+
+		Vector direction = end - start;
+		if (direction.IsZero())
+		{
+			ClearLocalWorldLaserParticle();
+			return;
+		}
+		VectorNormalize(direction);
+
+		const Vector laserEnd = end + BuildLaserSightEndOffset(direction);
+		Vector laserDirection = laserEnd - start;
+		if (laserDirection.IsZero())
+			laserDirection = direction;
+		VectorNormalize(laserDirection);
+
+		const int desiredBeamCount = GetGameLaserBeamCount(vr);
+		const int desiredDotCount = GetGameLaserDotCount(vr);
+		if (desiredBeamCount <= 0)
+		{
+			ClearLocalWorldLaserParticle();
+			return;
+		}
+
+		void* particleProperty = reinterpret_cast<uint8_t*>(activeWeapon) + 0x2A8;
+		if (s_localWorldLaserParticle.weapon != activeWeapon ||
+			s_localWorldLaserParticle.owner != terrorPlayer ||
+			s_localWorldLaserParticle.particleProperty != particleProperty ||
+			s_localWorldLaserParticle.beamCount != desiredBeamCount ||
+			s_localWorldLaserParticle.dotCount != desiredDotCount)
+		{
+			ClearLocalWorldLaserParticle();
+		}
+
+		if (LocalWorldLaserParticleHasInvalidEffect())
+			ClearLocalWorldLaserParticle();
+
+		if (!HasLocalWorldLaserParticle())
+		{
+			const auto* weaponBase = reinterpret_cast<const uint8_t*>(activeWeapon);
+			int attachment = 0;
+			TryReadInt(weaponBase + 0xCE0, attachment);
+			const int attachType = (attachment > 0) ? 5 : 0;
+			if (attachment <= 0)
+				attachment = 0;
+
+			const Vector originOffset{ 0.0f, 0.0f, 0.0f };
+			for (int i = 0; i < desiredBeamCount; ++i)
+				s_localWorldLaserParticle.beamEffects[i] = CreateParticleEffect(particleProperty, "weapon_laser_sight", attachType, attachment, originOffset);
+			for (int i = 0; i < desiredDotCount; ++i)
+				s_localWorldLaserParticle.dotEffects[i] = CreateParticleEffect(particleProperty, "weapon_laser_sight", 0, 0, originOffset);
+
+			s_localWorldLaserParticle.beamCount = desiredBeamCount;
+			s_localWorldLaserParticle.dotCount = desiredDotCount;
+			s_localWorldLaserParticle.particleProperty = particleProperty;
+			s_localWorldLaserParticle.weapon = activeWeapon;
+			s_localWorldLaserParticle.owner = terrorPlayer;
+
+			if (!HasLocalWorldLaserParticle())
+			{
+				static bool s_loggedCreateFailed = false;
+				if (!s_loggedCreateFailed)
+				{
+					Game::logMsg("[VR][laser] failed to create weapon_laser_sight particle");
+					s_loggedCreateFailed = true;
+				}
+				return;
+			}
+
+			static bool s_loggedCreated = false;
+			if (!s_loggedCreated)
+			{
+				Game::logMsg("[VR][laser] created persistent local weapon_laser_sight particle");
+				s_loggedCreated = true;
+			}
+		}
+
+		Vector right{}, up{};
+		GetLaserBillboardBasis(vr, laserDirection, right, up);
+		const float radius = std::clamp(vr->m_GameLaserSightThickness, 0.0f, 8.0f);
+		static const float kBeamPattern[kMaxGameLaserBeamEffects][2] = {
+			{ 0.0f, 0.0f }
+		};
+
+		for (int i = 0; i < s_localWorldLaserParticle.beamCount && i < kMaxGameLaserBeamEffects; ++i)
+		{
+			void* effect = s_localWorldLaserParticle.beamEffects[i];
+			if (!effect)
+				continue;
+
+			const Vector offset = right * (kBeamPattern[i][0] * radius) + up * (kBeamPattern[i][1] * radius);
+			SetLaserParticleLine(effect, start + offset, laserEnd + offset);
+		}
+
+		const float dotRadius = std::max(2.0f, radius * 3.0f);
+		Vector diagonalA = right + up;
+		Vector diagonalB = right - up;
+		if (!diagonalA.IsZero())
+			VectorNormalize(diagonalA);
+		if (!diagonalB.IsZero())
+			VectorNormalize(diagonalB);
+
+		const Vector dotAxes[kMaxGameLaserDotEffects] = {
+			right
+		};
+		for (int i = 0; i < s_localWorldLaserParticle.dotCount && i < kMaxGameLaserDotEffects; ++i)
+		{
+			void* effect = s_localWorldLaserParticle.dotEffects[i];
+			if (!effect)
+				continue;
+
+			Vector axis = dotAxes[i];
+			if (axis.IsZero())
+				continue;
+			VectorNormalize(axis);
+			SetLaserParticleLine(effect, laserEnd - axis * dotRadius, laserEnd + axis * dotRadius);
+		}
+	}
+}
+
+void __fastcall Hooks::dUpdateLaserSight(void* ecx, void* edx)
+{
+	const bool hasVr = (m_VR != nullptr);
+	const bool vrEnabled = hasVr && m_VR->m_IsVREnabled;
+	const bool replacementEnabled = vrEnabled
+		&& m_VR->m_GameLaserSightBeamEnabled
+		&& m_VR->m_GameLaserSightReplaceParticle;
+
+	bool skipOriginalForLocalPlayer = false;
+	if (replacementEnabled && m_Game && m_Game->m_EngineClient)
+	{
+		const int localPlayerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+		C_BaseEntity* localEntity = m_Game->GetClientEntity(localPlayerIndex);
+		skipOriginalForLocalPlayer = (localEntity != nullptr) && (reinterpret_cast<void*>(localEntity) == ecx);
+	}
+
+	if (!replacementEnabled)
+	{
+		hkUpdateLaserSight.fOriginal(ecx);
+		ClearLocalWorldLaserParticle();
+		return;
+	}
+
+	if (!skipOriginalForLocalPlayer)
+		hkUpdateLaserSight.fOriginal(ecx);
+	else
+		ClearOriginalLocalLaserParticles(ecx);
+
+	// Keep the helper behavior identical to the original code path:
+	// it silently ignores non-local callers instead of clearing the local replacement particle.
+	UpdateLocalWorldLaserParticle(ecx);
+}
+
 int Hooks::dServerFireTerrorBullets(int playerId, const Vector& vecOrigin, const QAngle& vecAngles, int a4, int a5, int a6, float a7)
 {
 	Vector vecNewOrigin = vecOrigin;

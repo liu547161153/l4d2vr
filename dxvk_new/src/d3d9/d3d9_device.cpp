@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #ifdef MSC_VER
 #pragma fenv_access (on)
@@ -52,6 +53,297 @@ namespace {
 }
 
 namespace dxvk {
+
+    namespace {
+
+        struct VrAimLineOverlayVertex {
+            float x;
+            float y;
+            float z;
+            float rhw;
+            D3DCOLOR color;
+        };
+
+        static bool VrAimLineColorVisible(uint32_t color) {
+            return ((color >> 24) & 0xFFu) != 0u;
+        }
+
+        static void VrAimLineDrawQuad(
+            D3D9DeviceEx* device,
+            const VrAimLineOverlayVertex& a,
+            const VrAimLineOverlayVertex& b,
+            const VrAimLineOverlayVertex& c,
+            const VrAimLineOverlayVertex& d) {
+            VrAimLineOverlayVertex vertices[6] = {
+                a, b, c,
+                a, c, d,
+            };
+            device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, vertices, sizeof(VrAimLineOverlayVertex));
+        }
+
+        static void VrAimLineDrawRect(
+            D3D9DeviceEx* device,
+            float x0,
+            float y0,
+            float x1,
+            float y1,
+            uint32_t color) {
+            if (!VrAimLineColorVisible(color))
+                return;
+
+            const D3DCOLOR d3dColor = static_cast<D3DCOLOR>(color);
+            const VrAimLineOverlayVertex a{ x0, y0, 0.0f, 1.0f, d3dColor };
+            const VrAimLineOverlayVertex b{ x1, y0, 0.0f, 1.0f, d3dColor };
+            const VrAimLineOverlayVertex c{ x1, y1, 0.0f, 1.0f, d3dColor };
+            const VrAimLineOverlayVertex d{ x0, y1, 0.0f, 1.0f, d3dColor };
+            VrAimLineDrawQuad(device, a, b, c, d);
+        }
+
+        static void VrAimLineDrawDisc(
+            D3D9DeviceEx* device,
+            float cx,
+            float cy,
+            float radius,
+            uint32_t color) {
+            if (!VrAimLineColorVisible(color) || radius <= 0.0f)
+                return;
+
+            constexpr int kSegments = 24;
+            constexpr float kPi = 3.14159265358979323846f;
+            const D3DCOLOR d3dColor = static_cast<D3DCOLOR>(color);
+            VrAimLineOverlayVertex vertices[kSegments * 3]{};
+
+            for (int i = 0; i < kSegments; ++i) {
+                const float a0 = (static_cast<float>(i) / static_cast<float>(kSegments)) * (kPi * 2.0f);
+                const float a1 = (static_cast<float>(i + 1) / static_cast<float>(kSegments)) * (kPi * 2.0f);
+                vertices[i * 3 + 0] = { cx, cy, 0.0f, 1.0f, d3dColor };
+                vertices[i * 3 + 1] = { cx + std::cos(a0) * radius, cy + std::sin(a0) * radius, 0.0f, 1.0f, d3dColor };
+                vertices[i * 3 + 2] = { cx + std::cos(a1) * radius, cy + std::sin(a1) * radius, 0.0f, 1.0f, d3dColor };
+            }
+
+            device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, kSegments, vertices, sizeof(VrAimLineOverlayVertex));
+        }
+
+        static void VrAimLineDrawLine(
+            D3D9DeviceEx* device,
+            float x0,
+            float y0,
+            float x1,
+            float y1,
+            float width,
+            uint32_t color) {
+            if (!VrAimLineColorVisible(color) || width <= 0.0f)
+                return;
+
+            const float dx = x1 - x0;
+            const float dy = y1 - y0;
+            const float len = std::sqrt(dx * dx + dy * dy);
+            if (!std::isfinite(len) || len <= 0.001f)
+                return;
+
+            const float halfWidth = width * 0.5f;
+            const float nx = (-dy / len) * halfWidth;
+            const float ny = (dx / len) * halfWidth;
+            const D3DCOLOR d3dColor = static_cast<D3DCOLOR>(color);
+
+            const VrAimLineOverlayVertex a{ x0 + nx, y0 + ny, 0.0f, 1.0f, d3dColor };
+            const VrAimLineOverlayVertex b{ x1 + nx, y1 + ny, 0.0f, 1.0f, d3dColor };
+            const VrAimLineOverlayVertex c{ x1 - nx, y1 - ny, 0.0f, 1.0f, d3dColor };
+            const VrAimLineOverlayVertex d{ x0 - nx, y0 - ny, 0.0f, 1.0f, d3dColor };
+            VrAimLineDrawQuad(device, a, b, c, d);
+        }
+
+        static void VrAimLineReleaseBackup(VR* vr, int eyeIndex) {
+            if (!vr || eyeIndex < 0 || eyeIndex >= static_cast<int>(vr->m_D3DAimLineOverlayBackupSurfaces.size()))
+                return;
+
+            IDirect3DSurface9*& backup = vr->m_D3DAimLineOverlayBackupSurfaces[eyeIndex];
+            if (backup) {
+                backup->Release();
+                backup = nullptr;
+            }
+            vr->m_D3DAimLineOverlayBackupValid[eyeIndex] = false;
+        }
+
+        static bool VrAimLineEnsureBackupSurface(
+            D3D9DeviceEx* device,
+            VR* vr,
+            int eyeIndex,
+            const D3DSURFACE_DESC& desc) {
+            if (!device || !vr || eyeIndex < 0 || eyeIndex >= static_cast<int>(vr->m_D3DAimLineOverlayBackupSurfaces.size()))
+                return false;
+
+            IDirect3DSurface9*& backup = vr->m_D3DAimLineOverlayBackupSurfaces[eyeIndex];
+            if (backup) {
+                D3DSURFACE_DESC backupDesc{};
+                if (FAILED(backup->GetDesc(&backupDesc))
+                    || backupDesc.Width != desc.Width
+                    || backupDesc.Height != desc.Height
+                    || backupDesc.Format != desc.Format
+                    || backupDesc.MultiSampleType != desc.MultiSampleType
+                    || backupDesc.MultiSampleQuality != desc.MultiSampleQuality) {
+                    VrAimLineReleaseBackup(vr, eyeIndex);
+                }
+            }
+
+            if (!backup) {
+                if (FAILED(device->CreateRenderTarget(
+                    desc.Width,
+                    desc.Height,
+                    desc.Format,
+                    desc.MultiSampleType,
+                    desc.MultiSampleQuality,
+                    FALSE,
+                    &backup,
+                    nullptr))) {
+                    backup = nullptr;
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        static bool VrAimLineBackupTarget(
+            D3D9DeviceEx* device,
+            VR* vr,
+            int eyeIndex,
+            IDirect3DSurface9* target,
+            const D3DSURFACE_DESC& desc) {
+            if (!device || !vr || !target)
+                return false;
+
+            vr->m_D3DAimLineOverlayBackupValid[eyeIndex] = false;
+            if (!VrAimLineEnsureBackupSurface(device, vr, eyeIndex, desc))
+                return false;
+
+            IDirect3DSurface9* backup = vr->m_D3DAimLineOverlayBackupSurfaces[eyeIndex];
+            if (!backup)
+                return false;
+
+            if (FAILED(device->StretchRect(target, nullptr, backup, nullptr, D3DTEXF_NONE)))
+                return false;
+
+            vr->m_D3DAimLineOverlayBackupValid[eyeIndex] = true;
+            return true;
+        }
+
+        static void VrAimLineRestoreOverlayBackups(D3D9DeviceEx* device, VR* vr) {
+            if (!device || !vr)
+                return;
+
+            for (int eyeIndex = 0; eyeIndex < 2; ++eyeIndex) {
+                if (!vr->m_D3DAimLineOverlayBackupValid[eyeIndex])
+                    continue;
+
+                IDirect3DSurface9* target = (eyeIndex == 0) ? vr->m_D9LeftEyeSurface : vr->m_D9RightEyeSurface;
+                IDirect3DSurface9* backup = vr->m_D3DAimLineOverlayBackupSurfaces[eyeIndex];
+                if (target && backup)
+                    device->StretchRect(backup, nullptr, target, nullptr, D3DTEXF_NONE);
+
+                vr->m_D3DAimLineOverlayBackupValid[eyeIndex] = false;
+            }
+        }
+
+        static void VrAimLineDrawOverlayToSurface(
+            D3D9DeviceEx* device,
+            VR* vr,
+            int eyeIndex,
+            IDirect3DSurface9* target) {
+            if (!device || !vr || !target)
+                return;
+
+            D3DAimLineOverlayEyeState line{};
+            if (!vr->GetD3DAimLineOverlayEye(eyeIndex, line))
+                return;
+
+            D3DSURFACE_DESC desc{};
+            if (FAILED(target->GetDesc(&desc)) || desc.Width == 0 || desc.Height == 0)
+                return;
+
+            if (!VrAimLineBackupTarget(device, vr, eyeIndex, target, desc))
+                return;
+
+            if (FAILED(device->BeginScene()))
+                return;
+
+            IDirect3DStateBlock9* stateBlock = nullptr;
+            if (FAILED(device->CreateStateBlock(D3DSBT_ALL, &stateBlock))) {
+                device->EndScene();
+                return;
+            }
+
+            IDirect3DSurface9* oldRenderTarget = nullptr;
+            device->GetRenderTarget(0, &oldRenderTarget);
+
+            D3DVIEWPORT9 oldViewport{};
+            const bool hasOldViewport = SUCCEEDED(device->GetViewport(&oldViewport));
+
+            D3DVIEWPORT9 viewport{};
+            viewport.X = 0;
+            viewport.Y = 0;
+            viewport.Width = desc.Width;
+            viewport.Height = desc.Height;
+            viewport.MinZ = 0.0f;
+            viewport.MaxZ = 1.0f;
+
+            device->SetRenderTarget(0, target);
+            device->SetViewport(&viewport);
+            device->SetVertexShader(nullptr);
+            device->SetPixelShader(nullptr);
+            device->SetTexture(0, nullptr);
+            device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+            device->SetRenderState(D3DRS_LIGHTING, FALSE);
+            device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+            device->SetRenderState(D3DRS_ZENABLE, FALSE);
+            device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+            device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+            device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+            device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+            device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+            device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+            device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+            device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+            device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+
+            const float outlineWidth = std::max(0.0f, line.outlinePixels);
+            if (outlineWidth > 0.0f && VrAimLineColorVisible(line.outlineColor))
+                VrAimLineDrawLine(device, line.x0, line.y0, line.x1, line.y1, line.widthPixels + outlineWidth * 2.0f, line.outlineColor);
+
+            VrAimLineDrawLine(device, line.x0, line.y0, line.x1, line.y1, line.widthPixels, line.color);
+
+            const float endpoint = std::max(0.0f, line.endpointPixels);
+            if (endpoint > 0.0f)
+            {
+                if (outlineWidth > 0.0f && VrAimLineColorVisible(line.outlineColor))
+                {
+                    const float r = endpoint + outlineWidth;
+                    VrAimLineDrawDisc(device, line.x1, line.y1, r, line.outlineColor);
+                }
+
+                VrAimLineDrawDisc(device, line.x1, line.y1, endpoint, line.color);
+            }
+
+            if (stateBlock)
+            {
+                stateBlock->Apply();
+                stateBlock->Release();
+            }
+
+            if (oldRenderTarget)
+            {
+                device->SetRenderTarget(0, oldRenderTarget);
+                oldRenderTarget->Release();
+            }
+
+            if (hasOldViewport)
+                device->SetViewport(&oldViewport);
+
+            device->EndScene();
+        }
+
+    }
 
     D3D9DeviceEx::D3D9DeviceEx(
         D3D9InterfaceEx* pParent,
@@ -4230,6 +4522,30 @@ namespace dxvk {
                     vr->m_QueuedSubmitStaleStreak.store(0, std::memory_order_release);
             }
 
+            if (vr->m_RenderPipelineDebugLog) {
+                static DWORD s_lastRenderPipelinePresentLogMs = 0;
+                const DWORD nowMs = ::GetTickCount();
+                const float maxHz = vr->m_RenderPipelineDebugLogHz;
+                const DWORD minIntervalMs = maxHz > 0.0f
+                    ? (DWORD)(1000.0f / std::max(1.0f, maxHz))
+                    : 0;
+
+                if (minIntervalMs == 0 || nowMs - s_lastRenderPipelinePresentLogMs >= minIntervalMs) {
+                    s_lastRenderPipelinePresentLogMs = nowMs;
+                    const uint32_t completed = vr->m_RenderCompletedFrameId.load(std::memory_order_acquire);
+                    const uint32_t submitted = vr->m_LastSubmittedFrameId.load(std::memory_order_acquire);
+                    const uint32_t staleStreak = vr->m_QueuedSubmitStaleStreak.load(std::memory_order_acquire);
+
+                    Game::logMsg("[VR][RenderPipe][Present] tid=%lu q=%d inGame=%d completed=%u submitted=%u renderedNew=%d waitCfg=%d stale=%u result=0x%08lX flags=0x%08lX",
+                        ::GetCurrentThreadId(), queued ? 1 : 0, inGame ? 1 : 0,
+                        completed, submitted,
+                        vr->m_RenderedNewFrame.load(std::memory_order_acquire) ? 1 : 0,
+                        vr->m_QueuedSubmitWaitMs, staleStreak,
+                        static_cast<unsigned long>(result),
+                        static_cast<unsigned long>(dwFlags));
+                }
+            }
+
             auto resolveVrSurface = [this](IDirect3DSurface9* surface) {
                 D3D9CommonTexture* commonTex = GetCommonTexture(surface);
                 if (commonTex == nullptr)
@@ -4261,6 +4577,16 @@ namespace dxvk {
                 }
                 };
 
+            if (!inGame) {
+                vr->ClearD3DAimLineOverlay();
+            }
+            else if (vr->m_D3DAimLineOverlayEnabled && !queued) {
+                if (vr->m_D9LeftEyeSurface)
+                    VrAimLineDrawOverlayToSurface(this, vr, 0, vr->m_D9LeftEyeSurface);
+                if (vr->m_D9RightEyeSurface)
+                    VrAimLineDrawOverlayToSurface(this, vr, 1, vr->m_D9RightEyeSurface);
+            }
+
             if (vr->m_D9LeftEyeSurface)
                 resolveVrSurface(vr->m_D9LeftEyeSurface);
             if (vr->m_D9RightEyeSurface)
@@ -4273,6 +4599,9 @@ namespace dxvk {
 
         if (g_Game && g_Game->m_VR)
             g_Game->m_VR->Update();
+
+        if (g_Game && g_Game->m_VR)
+            VrAimLineRestoreOverlayBackups(this, g_Game->m_VR);
 
         return result;
     }

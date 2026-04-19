@@ -42,6 +42,7 @@ class IDirect3DSurface9;
 class ITexture;
 class IMaterial;
 class IMatRenderContext;
+class CViewSetup;
 class IGameEvent;
 class IGameEventListener2;
 class IGameEventManager2;
@@ -95,6 +96,20 @@ struct HapticMixState
 	float weight = 0.0f;
 	int priority = -1;
 	std::chrono::steady_clock::time_point lastSubmit{};
+};
+
+struct D3DAimLineOverlayEyeState
+{
+	bool valid = false;
+	float x0 = 0.0f;
+	float y0 = 0.0f;
+	float x1 = 0.0f;
+	float y1 = 0.0f;
+	float widthPixels = 0.0f;
+	float outlinePixels = 0.0f;
+	float endpointPixels = 0.0f;
+	uint32_t color = 0;
+	uint32_t outlineColor = 0;
 };
 
 class VR
@@ -287,6 +302,7 @@ public:
 	// Aim-line gating computed on the update thread; render thread only consumes.
 	std::atomic<uint32_t> m_RenderAimLineAllowed{ 0 };
 	std::atomic<uint32_t> m_RenderAimLineShow{ 0 };
+	std::atomic<uint32_t> m_RenderWeaponLaserSightActive{ 0 };
 
 
 	// Render-thread computed snapshot (updated once per dRenderView call).
@@ -420,6 +436,10 @@ public:
 	// Debug logging for queued viewmodel stabilization (prints viewmodel pose + engine-produced pose).
 	bool  m_QueuedViewmodelStabilizeDebugLog = false;
 	float m_QueuedViewmodelStabilizeDebugLogHz = 4.0f; // max prints per second; 0 disables throttling
+	// Render/HUD/multicore pipeline diagnostics. Default off; logs key frame boundaries only.
+	bool  m_RenderPipelineDebugLog = false;
+	float m_RenderPipelineDebugLogHz = 2.0f;
+	std::chrono::steady_clock::time_point m_RenderPipelineLastSubmitLog{};
 	// Bullet FX alignment: optional visual-only offset applied to
 		// client-side bullet tracers/impact effects so they can be tuned to match the aim line.
 		// Units: meters in aim-ray space (X=forward, Y=right, Z=up). Applies in all render modes.
@@ -467,6 +487,26 @@ public:
 	bool m_AimLineOnlyWhenLaserSight = false;
 	bool m_ScopeForcingAimLine = false;
 	bool m_MeleeAimLineEnabled = true;
+	bool m_D3DAimLineOverlayEnabled = false;
+	bool m_D3DAimLineOverlaySyncAimLineColor = true;
+	float m_D3DAimLineOverlayWidthPixels = 3.0f;
+	float m_D3DAimLineOverlayOutlinePixels = 2.0f;
+	float m_D3DAimLineOverlayEndpointPixels = 5.0f;
+	int m_D3DAimLineOverlayColorR = 255;
+	int m_D3DAimLineOverlayColorG = 0;
+	int m_D3DAimLineOverlayColorB = 0;
+	int m_D3DAimLineOverlayColorA = 255;
+	int m_D3DAimLineOverlayOutlineColorR = 0;
+	int m_D3DAimLineOverlayOutlineColorG = 0;
+	int m_D3DAimLineOverlayOutlineColorB = 0;
+	int m_D3DAimLineOverlayOutlineColorA = 220;
+	mutable std::mutex m_D3DAimLineOverlayMutex;
+	std::array<D3DAimLineOverlayEyeState, 2> m_D3DAimLineOverlayEyes{};
+	std::array<IDirect3DSurface9*, 2> m_D3DAimLineOverlayBackupSurfaces{};
+	std::array<bool, 2> m_D3DAimLineOverlayBackupValid{};
+	Vector m_D3DAimLineWorldStart = { 0,0,0 };
+	Vector m_D3DAimLineWorldEnd = { 0,0,0 };
+	bool m_HasD3DAimLineWorldSegment = false;
 	// Mounted gun (minigun/.50cal) state.
 	// We force first-person rendering while using the mounted gun (see hooks.cpp).
 	// On exit we do a one-shot ResetPosition to avoid accumulated anchor drift.
@@ -482,6 +522,54 @@ public:
 	int m_AimLineColorG = 255;
 	int m_AimLineColorB = 0;
 	int m_AimLineColorA = 192;
+	struct EffectiveAttackRangeWeaponData
+	{
+		bool valid = false;
+		float minDuckingSpread = 0.0f;
+		float minStandingSpread = 0.0f;
+		float minInAirSpread = 0.0f;
+		float maxMovementSpread = 0.0f;
+		float pelletScatterPitch = 0.0f;
+		float pelletScatterYaw = 0.0f;
+		float range = 8192.0f;
+		float maxPlayerSpeed = 250.0f;
+		int bullets = 1;
+		std::string source;
+	};
+	bool m_EffectiveAttackRangeIndicatorEnabled = true;
+	bool m_AimLineEffectiveAttackRangeActive = false;
+	std::chrono::steady_clock::time_point m_AimLineEffectiveAttackRangeHoldUntil{};
+	bool m_AimLineEffectiveAttackRangeCacheValid = false;
+	bool m_AimLineEffectiveAttackRangeCacheResult = false;
+	std::uintptr_t m_AimLineEffectiveAttackRangeCacheEntity = 0;
+	std::uintptr_t m_AimLineEffectiveAttackRangeCacheWeapon = 0;
+	std::chrono::steady_clock::time_point m_AimLineEffectiveAttackRangeCacheTime{};
+	float m_AimLineEffectiveAttackRangeCacheDistance = 0.0f;
+	float m_AimLineEffectiveAttackRangeCacheSpread = -1.0f;
+	Vector m_AimLineEffectiveAttackRangeCacheDirection = { 0.0f, 0.0f, 0.0f };
+	int m_EffectiveAttackRangeColorR = 0;
+	int m_EffectiveAttackRangeColorG = 255;
+	int m_EffectiveAttackRangeColorB = 0;
+	bool m_EffectiveAttackRangeDebugLog = false;
+	float m_EffectiveAttackRangeDebugLogHz = 2.0f;
+	float m_EffectiveAttackRangeHoldSeconds = 0.25f;
+	float m_EffectiveAttackRangeCacheSeconds = 0.15f;
+	float m_EffectiveAttackRangeCacheDistanceTolerance = 24.0f;
+	float m_EffectiveAttackRangeCacheSpreadTolerance = 0.10f;
+	float m_EffectiveAttackRangeCacheDirectionDot = 0.9990f;
+	std::uintptr_t m_EffectiveAttackRangeDebugLastEntity = 0;
+	std::chrono::steady_clock::time_point m_EffectiveAttackRangeDebugLastLog{};
+	bool m_EffectiveAttackRangeWeaponDataLoaded = false;
+	std::chrono::steady_clock::time_point m_EffectiveAttackRangeWeaponDataLastLoad{};
+	std::array<EffectiveAttackRangeWeaponData, 64> m_EffectiveAttackRangeWeaponData{};
+	bool m_GameLaserSightBeamEnabled = true;
+	bool m_GameLaserSightReplaceParticle = false;
+	float m_GameLaserSightThickness = 1.5f;
+	int m_GameLaserSightColorR = 255;
+	int m_GameLaserSightColorG = 0;
+	int m_GameLaserSightColorB = 0;
+	int m_GameLaserSightColorA = 255;
+	Vector m_GameLaserSightEndOffset = { 0.0f, 0.0f, 0.0f };
 	static constexpr int THROW_ARC_SEGMENTS = 16;
 	std::array<Vector, THROW_ARC_SEGMENTS + 1> m_LastThrowArcPoints{};
 	bool m_HasThrowArc = false;
@@ -1980,15 +2068,21 @@ public:
 	C_BaseEntity* GetMountedGunUseEntity(C_BasePlayer* localPlayer) const;
 	bool m_EncodeVRUsercmd = true;
 	void UpdateAimingLaser(C_BasePlayer* localPlayer);
+	void UpdateD3DAimLineOverlayForView(C_BasePlayer* localPlayer, const CViewSetup& view, int eyeIndex);
+	void ClearD3DAimLineOverlayEye(int eyeIndex);
+	void ClearD3DAimLineOverlay();
+	bool GetD3DAimLineOverlayEye(int eyeIndex, D3DAimLineOverlayEyeState& out) const;
 	// In queued (multicore) rendering, the render thread uses a render-frame pose snapshot.
 	// Draw the aim line from the render hook (dRenderView) using that snapshot to avoid head-turn ghosting.
 	void RenderDrawAimLineQueued(C_BasePlayer* localPlayer);
+	bool BuildRenderAimLineSegment(C_BasePlayer* localPlayer, Vector& start, Vector& end);
 	bool ShouldShowAimLine(C_WeaponCSBase* weapon) const;
 	bool IsThrowableWeapon(C_WeaponCSBase* weapon) const;
 	bool ShouldDrawAimLine(C_WeaponCSBase* weapon) const;
 	bool IsWeaponLaserSightActive(C_WeaponCSBase* weapon) const;
 	float CalculateThrowArcDistance(const Vector& pitchSource, bool* clampedToMax = nullptr) const;
 	void DrawAimLine(const Vector& start, const Vector& end);
+	void RenderDrawGameLaserSight(C_BasePlayer* localPlayer);
 	void DrawThrowArc(const Vector& origin, const Vector& forward, const Vector& pitchSource);
 	void DrawThrowArcFromCache(float duration);
 	void DrawLineWithThickness(const Vector& start, const Vector& end, float duration);
@@ -2011,6 +2105,13 @@ public:
 	void UpdateSpecialInfectedWarningAction();
 	void ResetSpecialInfectedWarningAction();
 	void GetAimLineColor(int& r, int& g, int& b, int& a) const;
+	void UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, const Vector& hitPos, bool hasAimHit);
+	bool IsEffectiveAttackRangeTarget(const C_BaseEntity* entity) const;
+	void LogEffectiveAttackRangeTarget(C_BaseEntity* entity, C_WeaponCSBase* weapon, float distance, float maxRange, float spreadDegrees, bool cached, const char* dataSource);
+	bool EnsureEffectiveAttackRangeWeaponDataLoaded();
+	const EffectiveAttackRangeWeaponData* GetEffectiveAttackRangeWeaponData(C_WeaponCSBase* weapon);
+	float GetEffectiveAttackRangeSpreadDegrees(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, const EffectiveAttackRangeWeaponData& data) const;
+	bool DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, float spreadDegrees, float maxRange) const;
 	void FinishFrame();
 	void ConfigureExplicitTiming();
 };
