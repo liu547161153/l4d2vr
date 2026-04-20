@@ -1065,6 +1065,7 @@ void VR::ParseConfigFile()
     m_AimLineColorB = aimColor[2];
     m_AimLineColorA = aimColor[3];
     m_EffectiveAttackRangeIndicatorEnabled = getBool("EffectiveAttackRangeIndicatorEnabled", m_EffectiveAttackRangeIndicatorEnabled);
+    m_EffectiveAttackRangeAutoFireEnabled = getBool("EffectiveAttackRangeAutoFireEnabled", m_EffectiveAttackRangeAutoFireEnabled);
     auto effectiveRangeColor = getColor("EffectiveAttackRangeColor",
         m_EffectiveAttackRangeColorR, m_EffectiveAttackRangeColorG, m_EffectiveAttackRangeColorB, m_AimLineColorA);
     m_EffectiveAttackRangeColorR = effectiveRangeColor[0];
@@ -1077,6 +1078,9 @@ void VR::ParseConfigFile()
     m_EffectiveAttackRangeCacheDistanceTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheDistanceTolerance", m_EffectiveAttackRangeCacheDistanceTolerance), 0.0f, 256.0f);
     m_EffectiveAttackRangeCacheSpreadTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheSpreadTolerance", m_EffectiveAttackRangeCacheSpreadTolerance), 0.0f, 10.0f);
     m_EffectiveAttackRangeCacheDirectionDot = std::clamp(getFloat("EffectiveAttackRangeCacheDirectionDot", m_EffectiveAttackRangeCacheDirectionDot), 0.0f, 1.0f);
+    m_EffectiveAttackRangeHitPointTolerance = std::clamp(getFloat("EffectiveAttackRangeHitPointTolerance", m_EffectiveAttackRangeHitPointTolerance), 0.0f, 64.0f);
+    m_EffectiveAttackRangeHitPointSpreadScale = std::clamp(getFloat("EffectiveAttackRangeHitPointSpreadScale", m_EffectiveAttackRangeHitPointSpreadScale), 0.0f, 2.0f);
+    m_EffectiveAttackRangeHitPointMaxTolerance = std::clamp(getFloat("EffectiveAttackRangeHitPointMaxTolerance", m_EffectiveAttackRangeHitPointMaxTolerance), m_EffectiveAttackRangeHitPointTolerance, 64.0f);
     m_D3DAimLineOverlayEnabled = getBool("D3DAimLineOverlayEnabled", m_D3DAimLineOverlayEnabled);
     m_D3DAimLineOverlaySyncAimLineColor = getBool("D3DAimLineOverlaySyncAimLineColor", m_D3DAimLineOverlaySyncAimLineColor);
     m_D3DAimLineOverlayWidthPixels = std::clamp(getFloat("D3DAimLineOverlayWidthPixels", m_D3DAimLineOverlayWidthPixels), 0.0f, 64.0f);
@@ -1427,6 +1431,8 @@ void VR::ParseConfigFile()
     m_SpecialInfectedWarningActionEnabled = getBool("SpecialInfectedAutoEvade", m_SpecialInfectedWarningActionEnabled);
     m_SpecialInfectedArrowEnabled = getBool("SpecialInfectedArrowEnabled", m_SpecialInfectedArrowEnabled);
     m_SpecialInfectedDebug = getBool("SpecialInfectedDebug", m_SpecialInfectedDebug);
+    m_SpecialInfectedArrowDebugLog = getBool("SpecialInfectedArrowDebugLog", m_SpecialInfectedArrowDebugLog);
+    m_SpecialInfectedArrowDebugLogHz = std::clamp(getFloat("SpecialInfectedArrowDebugLogHz", m_SpecialInfectedArrowDebugLogHz), 0.0f, 20.0f);
     m_SpecialInfectedArrowSize = std::max(0.0f, getFloat("SpecialInfectedArrowSize", m_SpecialInfectedArrowSize));
     m_SpecialInfectedArrowHeight = std::max(0.0f, getFloat("SpecialInfectedArrowHeight", m_SpecialInfectedArrowHeight));
     m_SpecialInfectedArrowThickness = std::max(0.0f, getFloat("SpecialInfectedArrowThickness", m_SpecialInfectedArrowThickness));

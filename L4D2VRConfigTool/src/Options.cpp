@@ -277,6 +277,7 @@ static bool IsOptionVisible(const Option& opt)
         return IsEnabled("KillIndicatorEnabled");
 
     if (std::strcmp(key, "AimLineOnlyWhenLaserSight") == 0 ||
+        std::strcmp(key, "EffectiveAttackRangeAutoFireEnabled") == 0 ||
         std::strcmp(key, "AimLineThickness") == 0 ||
         std::strcmp(key, "AimLineColor") == 0 ||
         std::strcmp(key, "AimLineMaxHz") == 0)
@@ -1568,6 +1569,18 @@ Option g_Options[] =
          u8"当瞄准线指向队友时抑制开火。" },
         { u8"This is the startup default; you can still toggle it at runtime via SteamVR binding.",
         u8"这是启动时的默认值；运行中仍可用 SteamVR 绑定开关切换。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "EffectiveAttackRangeAutoFireEnabled",
+        OptionType::Bool,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Effective-range Auto Fire", u8"有效距离自动开火" },
+        { u8"When enabled, the mod fires automatically while the aim line is in effective attack range.",
+          u8"开启后，当瞄准线处于有效攻击距离时自动开火。" },
+        { u8"Witches are excluded. You can toggle this at runtime via SteamVR binding.",
+          u8"女巫会被排除。运行中也可用 SteamVR 绑定开关切换。" },
         0.0f, 0.0f,
         "false"
     },

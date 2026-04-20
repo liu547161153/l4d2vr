@@ -2262,12 +2262,12 @@ namespace
     }
 }
 
-bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const
+bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial)
 {
     return ReadLocalKillCounters(localPlayer, outCommon, outSpecial, nullptr);
 }
 
-bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial, char* outSource) const
+bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial, char* outSource)
 {
     outCommon = 0;
     outSpecial = 0;
@@ -2323,15 +2323,63 @@ bool VR::ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& o
     const int missionSum = missionCommon + missionSpecial;
     const int checkpointSum = checkpointCommon + checkpointSpecial;
 
-    // Some servers stop refreshing m_missionZombieKills after map transitions but leave the
-    // previous non-zero value in place. The old code only fell back when mission was zero,
-    // so a stale mission value could pin the HUD / kill-feedback forever after a few chapters.
-    // Prefer whichever valid source currently has the larger non-zero total; equal totals keep
-    // mission as the primary source.
-    const bool useCheckpoint = checkpointOk && (
-        !missionOk ||
-        (checkpointSum > 0 && missionSum <= 0) ||
-        (checkpointSum > missionSum));
+    const int prevMissionSum = m_LastKillCounterMissionSum;
+    const int prevCheckpointSum = m_LastKillCounterCheckpointSum;
+    const char prevSource = m_KillCounterPreferredSource;
+    const bool missionReset = missionOk && prevMissionSum >= 0 && missionSum < prevMissionSum;
+    const bool checkpointReset = checkpointOk && prevCheckpointSum >= 0 && checkpointSum < prevCheckpointSum;
+    const bool missionAdvanced = missionOk && prevMissionSum >= 0 && missionSum > prevMissionSum;
+    const bool checkpointAdvanced = checkpointOk && prevCheckpointSum >= 0 && checkpointSum > prevCheckpointSum;
+
+    bool useCheckpoint = checkpointOk && !missionOk;
+    if (missionOk && checkpointOk)
+    {
+        // Team-wipe retry can reset m_checkpointZombieKills while m_missionZombieKills
+        // keeps the abandoned attempt's total. Stay on checkpoint after that reset so
+        // kill feedback and the wrist HUD don't stay pinned until the next map load.
+        if (checkpointReset && !missionReset)
+        {
+            useCheckpoint = true;
+        }
+        else if (missionReset && !checkpointReset)
+        {
+            useCheckpoint = false;
+        }
+        else if (prevSource == 'C')
+        {
+            // Some servers only move one source. If checkpoint stops moving but mission
+            // advances, switch back; otherwise keep checkpoint once it was chosen.
+            useCheckpoint = !(missionAdvanced && !checkpointAdvanced);
+        }
+        else
+        {
+            // Preserve the existing map-transition fallback: stale mission values are
+            // common, and checkpoint is the fresher source once it overtakes mission.
+            useCheckpoint = checkpointSum > missionSum;
+        }
+    }
+
+    const char selectedSource = useCheckpoint ? 'C' : 'M';
+    if (m_FeedbackSoundDebugLog && prevSource != 'N' && selectedSource != prevSource
+        && !ShouldThrottle(m_LastFeedbackSoundDebugLogTime, m_FeedbackSoundDebugLogHz))
+    {
+        Game::logMsg(
+            "[VR][KillSound][counter-source] %c->%c mission=%d(prev=%d reset=%d adv=%d) checkpoint=%d(prev=%d reset=%d adv=%d)",
+            prevSource,
+            selectedSource,
+            missionSum,
+            prevMissionSum,
+            missionReset ? 1 : 0,
+            missionAdvanced ? 1 : 0,
+            checkpointSum,
+            prevCheckpointSum,
+            checkpointReset ? 1 : 0,
+            checkpointAdvanced ? 1 : 0);
+    }
+
+    m_LastKillCounterMissionSum = missionOk ? missionSum : -1;
+    m_LastKillCounterCheckpointSum = checkpointOk ? checkpointSum : -1;
+    m_KillCounterPreferredSource = selectedSource;
 
     if (useCheckpoint)
     {

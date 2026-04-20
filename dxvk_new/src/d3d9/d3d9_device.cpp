@@ -996,39 +996,54 @@ namespace dxvk {
                 SharedTextureHolder* textureTarget = nullptr;
                 D3D9_TEXTURE_VR_DESC texDesc = { };
                 VR::TextureID texID = g_Game->m_VR->m_CreatingTextureID;
+                HRESULT vrDescResult = D3DERR_INVALIDCALL;
 
                 if (texID == VR::Texture_LeftEye) {
-                    textureTarget = &g_Game->m_VR->m_VKLeftEye;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9LeftEyeSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9LeftEyeSurface, &texDesc);
+                    if (desc.MultiSample == D3DMULTISAMPLE_NONE) {
+                        textureTarget = &g_Game->m_VR->m_VKLeftEye;
+                        vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9LeftEyeSurface, &texDesc);
+                    }
                 }
                 else if (texID == VR::Texture_RightEye) {
-                    textureTarget = &g_Game->m_VR->m_VKRightEye;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9RightEyeSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RightEyeSurface, &texDesc);
+                    if (desc.MultiSample == D3DMULTISAMPLE_NONE) {
+                        textureTarget = &g_Game->m_VR->m_VKRightEye;
+                        vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RightEyeSurface, &texDesc);
+                    }
+                }
+                else if (texID == VR::Texture_LeftEyeSubmit) {
+                    textureTarget = &g_Game->m_VR->m_VKLeftEye;
+                    texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9LeftEyeSubmitSurface);
+                    vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9LeftEyeSubmitSurface, &texDesc);
+                }
+                else if (texID == VR::Texture_RightEyeSubmit) {
+                    textureTarget = &g_Game->m_VR->m_VKRightEye;
+                    texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9RightEyeSubmitSurface);
+                    vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RightEyeSubmitSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_HUD) {
                     textureTarget = &g_Game->m_VR->m_VKHUD;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9HUDSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9HUDSurface, &texDesc);
+                    vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9HUDSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_Scope) {
                     textureTarget = &g_Game->m_VR->m_VKScope;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9ScopeSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9ScopeSurface, &texDesc);
+                    vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9ScopeSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_RearMirror) {
                     textureTarget = &g_Game->m_VR->m_VKRearMirror;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9RearMirrorSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RearMirrorSurface, &texDesc);
+                    vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9RearMirrorSurface, &texDesc);
                 }
                 else if (texID == VR::Texture_Blank) {
                     textureTarget = &g_Game->m_VR->m_VKBlankTexture;
                     texture.ref()->GetSurfaceLevel(0, &g_Game->m_VR->m_D9BlankSurface);
-                    g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9BlankSurface, &texDesc);
+                    vrDescResult = g_D3DVR9->GetVRDesc(g_Game->m_VR->m_D9BlankSurface, &texDesc);
                 }
 
-                if (textureTarget != nullptr) {
+                if (textureTarget != nullptr && SUCCEEDED(vrDescResult)) {
                     std::memcpy(&textureTarget->m_VulkanData, &texDesc, sizeof(vr::VRVulkanTextureData_t));
                     textureTarget->m_VRTexture.handle = &textureTarget->m_VulkanData;
                     textureTarget->m_VRTexture.eColorSpace = vr::ColorSpace_Auto;
@@ -4546,35 +4561,13 @@ namespace dxvk {
                 }
             }
 
-            auto resolveVrSurface = [this](IDirect3DSurface9* surface) {
-                D3D9CommonTexture* commonTex = GetCommonTexture(surface);
-                if (commonTex == nullptr)
+            auto resolveVrSurfaceToSubmit = [this](IDirect3DSurface9* source, IDirect3DSurface9* submitTarget) {
+                if (source == nullptr || submitTarget == nullptr || source == submitTarget)
                     return;
 
-                auto image = commonTex->GetImage();
-                bool needsResolve = image != nullptr && image->info().sampleCount != VK_SAMPLE_COUNT_1_BIT;
-
-                if (needsResolve) {
-                    const D3D9_VK_FORMAT_MAPPING formatInfo = LookupFormat(commonTex->Desc()->Format);
-                    const VkImageSubresource subresource = commonTex->GetSubresourceFromIndex(formatInfo.Aspect, 0);
-
-                    VkImageResolve region;
-                    region.srcSubresource = { subresource.aspectMask, subresource.mipLevel, subresource.arrayLayer, 1 };
-                    region.srcOffset = { 0, 0, 0 };
-                    region.dstSubresource = region.srcSubresource;
-                    region.dstOffset = { 0, 0, 0 };
-                    region.extent = image->info().extent;
-
-                    EmitCs([
-                        cDstImage = commonTex->GetResolveImage(),
-                        cSrcImage = image,
-                        cRegion = region
-                    ] (DxvkContext* ctx) {
-                            ctx->resolveImage(
-                                cDstImage, cSrcImage, cRegion, cSrcImage->info().format,
-                                VK_RESOLVE_MODE_AVERAGE_BIT, VK_RESOLVE_MODE_SAMPLE_ZERO_BIT);
-                        });
-                }
+                HRESULT resolveResult = StretchRect(source, nullptr, submitTarget, nullptr, D3DTEXF_NONE);
+                if (FAILED(resolveResult))
+                    Logger::warn(str::format("VR eye MSAA resolve to submit texture failed: 0x", std::hex, resolveResult));
                 };
 
             if (!inGame) {
@@ -4587,10 +4580,10 @@ namespace dxvk {
                     VrAimLineDrawOverlayToSurface(this, vr, 1, vr->m_D9RightEyeSurface);
             }
 
-            if (vr->m_D9LeftEyeSurface)
-                resolveVrSurface(vr->m_D9LeftEyeSurface);
-            if (vr->m_D9RightEyeSurface)
-                resolveVrSurface(vr->m_D9RightEyeSurface);
+            if (vr->m_D9LeftEyeSubmitSurface)
+                resolveVrSurfaceToSubmit(vr->m_D9LeftEyeSurface, vr->m_D9LeftEyeSubmitSurface);
+            if (vr->m_D9RightEyeSubmitSurface)
+                resolveVrSurfaceToSubmit(vr->m_D9RightEyeSurface, vr->m_D9RightEyeSubmitSurface);
         }
 
         // Keep conservative sync behavior for stability.

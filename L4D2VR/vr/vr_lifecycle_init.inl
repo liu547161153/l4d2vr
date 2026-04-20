@@ -1020,6 +1020,7 @@ int VR::SetActionManifest(const char* fileName)
     m_Input->GetActionHandle("/actions/main/in/InventoryGripRight", &m_ActionInventoryGripRight);
     m_Input->GetActionHandle("/actions/main/in/InventoryQuickSwitch", &m_ActionInventoryQuickSwitch);
     m_Input->GetActionHandle("/actions/main/in/SpecialInfectedAutoAimToggle", &m_ActionSpecialInfectedAutoAimToggle);
+    m_Input->GetActionHandle("/actions/main/in/EffectiveAttackRangeAutoFireToggle", &m_ActionEffectiveAttackRangeAutoFireToggle);
     m_Input->GetActionHandle("/actions/main/in/MenuSelect", &m_MenuSelect);
     m_Input->GetActionHandle("/actions/main/in/MenuBack", &m_MenuBack);
     m_Input->GetActionHandle("/actions/main/in/MenuUp", &m_MenuUp);

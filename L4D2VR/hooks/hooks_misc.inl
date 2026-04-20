@@ -261,10 +261,25 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		}
 		bool isPlayerClass = false;
 		const char* className = nullptr;
+		int entityTeam = -1;
+		bool hasEntityTeam = false;
+		unsigned char entityLifeState = 255;
+		bool hasEntityLifeState = false;
+		std::string classNameLower;
 		if (entity)
 		{
 			className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
 			isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
+			if (className && *className)
+			{
+				classNameLower = className;
+				std::transform(classNameLower.begin(), classNameLower.end(), classNameLower.begin(),
+					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			}
+			hasEntityTeam = vr_vm_stabilize::SafeRead(reinterpret_cast<const std::uint8_t*>(entity) + VR::kTeamNumOffset, entityTeam);
+			hasEntityLifeState = vr_vm_stabilize::SafeRead(reinterpret_cast<const std::uint8_t*>(entity) + VR::kLifeStateOffset, entityLifeState);
+			if (hasEntityLifeState && (isPlayerClass || (hasEntityTeam && entityTeam == 3)))
+				isAlive = (entityLifeState == 0);
 			if (isPlayerClass)
 			{
 				isAlive = m_VR->IsEntityAlive(entity);
@@ -517,26 +532,81 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 	}
 }
 
-// if (entity && info.entity_index > 0 && m_Game->IsValidPlayerIndex(info.entity_index))
-		// {
-		// 	infectedType = m_VR->GetSpecialInfectedType(entity);
-		// }
 		const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
-		if (isInfectedModel)
+		const bool isInfectedClass =
+			classNameLower.find("infected") != std::string::npos ||
+			classNameLower.find("witch") != std::string::npos;
+		const bool isTeamInfected = hasEntityTeam && entityTeam == 3;
+		const bool isSpecialCandidate = entity && isAlive && (isInfectedModel || isInfectedClass || isTeamInfected);
+		int entityZombieClass = -1;
+		const bool hasEntityZombieClass = entity && vr_vm_stabilize::SafeRead(reinterpret_cast<const std::uint8_t*>(entity) + VR::kZombieClassOffset, entityZombieClass);
+		if (isSpecialCandidate)
 		{
 			infectedType = m_VR->GetSpecialInfectedType(entity);
 		}
 
+		VR::SpecialInfectedType modelType = VR::SpecialInfectedType::None;
 		if (isAlive && infectedType == VR::SpecialInfectedType::None)
 		{
-			const auto modelType = m_VR->GetSpecialInfectedTypeFromModel(modelName);
+			modelType = m_VR->GetSpecialInfectedTypeFromModel(modelName);
 			if (modelType == VR::SpecialInfectedType::Tank || modelType == VR::SpecialInfectedType::Witch)
 				infectedType = modelType;
 		}
 
+		const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
+		if (m_VR->m_SpecialInfectedArrowDebugLog && entity &&
+			(isSpecialCandidate || isInfectedModel || isInfectedClass || isTeamInfected || modelType != VR::SpecialInfectedType::None || infectedType != VR::SpecialInfectedType::None))
+		{
+			static std::unordered_map<int, std::chrono::steady_clock::time_point> s_lastSpecialInfectedArrowDebugLog;
+			bool doDebugLog = true;
+			if (m_VR->m_SpecialInfectedArrowDebugLogHz <= 0.0f)
+			{
+				doDebugLog = false;
+			}
+			else if (info.entity_index > 0)
+			{
+				auto& last = s_lastSpecialInfectedArrowDebugLog[info.entity_index];
+				const auto now = std::chrono::steady_clock::now();
+				if (last.time_since_epoch().count() != 0)
+				{
+					const float minInterval = 1.0f / std::max(1.0f, m_VR->m_SpecialInfectedArrowDebugLogHz);
+					const float elapsed = std::chrono::duration<float>(now - last).count();
+					if (elapsed >= 0.0f && elapsed < minInterval)
+						doDebugLog = false;
+				}
+				if (doDebugLog)
+					last = now;
+			}
+
+			if (doDebugLog)
+			{
+				Game::logMsg(
+					"[VR][SIArrow][scan] idx=%d ent=%p model=\"%s\" class=%s team=%d%s life=%d%s z=%d%s alive=%d candidate=%d modelInf=%d classInf=%d teamInf=%d ragdoll=%d type=%d modelType=%d arrow=%d size=%.1f",
+					info.entity_index,
+					const_cast<C_BaseEntity*>(entity),
+					modelName.c_str(),
+					(className && *className) ? className : "<null>",
+					hasEntityTeam ? entityTeam : -1,
+					hasEntityTeam ? "" : "?",
+					hasEntityLifeState ? static_cast<int>(entityLifeState) : -1,
+					hasEntityLifeState ? "" : "?",
+					hasEntityZombieClass ? entityZombieClass : -1,
+					hasEntityZombieClass ? "" : "?",
+					isAlive ? 1 : 0,
+					isSpecialCandidate ? 1 : 0,
+					isInfectedModel ? 1 : 0,
+					isInfectedClass ? 1 : 0,
+					isTeamInfected ? 1 : 0,
+					isRagdoll ? 1 : 0,
+					static_cast<int>(infectedType),
+					static_cast<int>(modelType),
+					m_VR->m_SpecialInfectedArrowEnabled ? 1 : 0,
+					m_VR->m_SpecialInfectedArrowSize);
+			}
+		}
+
 		if (isAlive && infectedType != VR::SpecialInfectedType::None)
 		{
-			const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
 			if (!isRagdoll)
 			{
 				// 1) 高优先级：自瞄/目标刷新不要被 Overlay 节流影响（否则锁定会飘）

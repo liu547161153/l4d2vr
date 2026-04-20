@@ -2086,6 +2086,23 @@ bool VR::IsEffectiveAttackRangeTarget(const C_BaseEntity* entity) const
     return true;
 }
 
+bool VR::IsEffectiveAttackRangeWitchTarget(const C_BaseEntity* entity) const
+{
+    if (!entity || !m_Game)
+        return false;
+
+    if (GetSpecialInfectedType(entity) == SpecialInfectedType::Witch)
+        return true;
+
+    const char* className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
+    if (!className || !*className)
+        return false;
+
+    std::string lowered(className);
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lowered.find("witch") != std::string::npos;
+}
+
 void VR::LogEffectiveAttackRangeTarget(C_BaseEntity* entity, C_WeaponCSBase* weapon, float distance, float maxRange, float spreadDegrees, bool cached, const char* dataSource)
 {
     if (!m_EffectiveAttackRangeDebugLog || !entity || !m_Game)
@@ -2120,7 +2137,7 @@ void VR::LogEffectiveAttackRangeTarget(C_BaseEntity* entity, C_WeaponCSBase* wea
     const bool npcOrPlayer = npcPlayerFlags.isNpc || npcPlayerFlags.isPlayer;
 
     Game::logMsg(
-        "[VR][EffectiveRange][hit] idx=%d ent=%p class=%s team=%d%s life=%d%s isNpc=%d isPlayer=%d npcOrPlayer=%d weaponId=%d dist=%.1f range=%.1f spreadDeg=%.4f cached=%d dataSource=\"%s\"",
+        "[VR][EffectiveRange][hit] idx=%d ent=%p class=%s team=%d%s life=%d%s isNpc=%d isPlayer=%d npcOrPlayer=%d weaponId=%d dist=%.1f range=%.1f spreadDeg=%.4f hitPointTol=%.1f cached=%d dataSource=\"%s\"",
         entityIndex,
         static_cast<void*>(entity),
         (className && *className) ? className : "<null>",
@@ -2135,6 +2152,7 @@ void VR::LogEffectiveAttackRangeTarget(C_BaseEntity* entity, C_WeaponCSBase* wea
         distance,
         maxRange,
         spreadDegrees,
+        std::clamp(m_EffectiveAttackRangeHitPointTolerance, 0.0f, 64.0f),
         cached ? 1 : 0,
         (dataSource && *dataSource) ? dataSource : "<unknown>");
 }
@@ -2255,7 +2273,22 @@ float VR::GetEffectiveAttackRangeSpreadDegrees(C_BasePlayer* localPlayer, C_Weap
     return std::clamp(spread, 0.0f, 45.0f);
 }
 
-bool VR::DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, float spreadDegrees, float maxRange) const
+float VR::GetEffectiveAttackRangeHitPointTolerance(const Vector& start, const Vector& centerHitPos, float spreadDegrees, float maxRange) const
+{
+    const float baseTolerance = std::clamp(m_EffectiveAttackRangeHitPointTolerance, 0.0f, 64.0f);
+    const float maxTolerance = std::clamp(m_EffectiveAttackRangeHitPointMaxTolerance, baseTolerance, 64.0f);
+    const float spreadScale = std::clamp(m_EffectiveAttackRangeHitPointSpreadScale, 0.0f, 2.0f);
+
+    if (spreadScale <= 0.0f || spreadDegrees <= 0.0f)
+        return baseTolerance;
+
+    const float centerDistance = std::clamp((centerHitPos - start).Length(), 0.0f, std::clamp(maxRange, 1.0f, 65536.0f));
+    const float coneRadiusAtHit = std::tan(DEG2RAD(std::clamp(spreadDegrees, 0.0f, 45.0f))) * centerDistance;
+    const float dynamicTolerance = baseTolerance + (coneRadiusAtHit * spreadScale);
+    return std::clamp(dynamicTolerance, baseTolerance, maxTolerance);
+}
+
+bool VR::DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, const Vector& centerHitPos, float spreadDegrees, float maxRange) const
 {
     if (!localPlayer || !weapon || !hitEntity || !m_Game || !m_Game->m_EngineTrace || !m_Game->m_ClientEntityList)
         return false;
@@ -2269,6 +2302,8 @@ bool VR::DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, 
         return true;
 
     maxRange = std::clamp(maxRange, 1.0f, 65536.0f);
+    const float hitPointTolerance = GetEffectiveAttackRangeHitPointTolerance(start, centerHitPos, spreadDegrees, maxRange);
+    const float hitPointToleranceSqr = hitPointTolerance * hitPointTolerance;
     const float coneRadians = DEG2RAD(spreadDegrees);
     const float coneSin = std::sin(coneRadians);
     const float coneCos = std::cos(coneRadians);
@@ -2314,6 +2349,10 @@ bool VR::DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, 
         C_BaseEntity* sampleHit = reinterpret_cast<C_BaseEntity*>(sampleTrace.m_pEnt);
         if (sampleHit != hitEntity || sampleTrace.fraction <= 0.0f || sampleTrace.fraction >= 1.0f || sampleTrace.startsolid || sampleTrace.allsolid)
             return false;
+
+        const Vector hitDelta = sampleTrace.endpos - centerHitPos;
+        if (hitDelta.LengthSqr() > hitPointToleranceSqr)
+            return false;
     }
 
     return true;
@@ -2330,6 +2369,8 @@ void VR::UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCS
             m_AimLineEffectiveAttackRangeActive = false;
             m_AimLineEffectiveAttackRangeHoldUntil = {};
             m_AimLineEffectiveAttackRangeCacheValid = false;
+            m_AimLineEffectiveAttackRangeTarget = 0;
+            m_AimLineEffectiveAttackRangeTargetIsWitch = false;
         };
 
     auto updateHeldState = [&](bool rawActive)
@@ -2363,6 +2404,9 @@ void VR::UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCS
         updateHeldState(false);
         return;
     }
+
+    m_AimLineEffectiveAttackRangeTarget = reinterpret_cast<std::uintptr_t>(hitEntity);
+    m_AimLineEffectiveAttackRangeTargetIsWitch = IsEffectiveAttackRangeWitchTarget(hitEntity);
 
     if (!IsEffectiveAttackRangeTarget(hitEntity))
     {
@@ -2425,6 +2469,8 @@ void VR::UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCS
     const float dirDot = m_AimLineEffectiveAttackRangeCacheDirection.IsZero()
         ? -1.0f
         : DotProduct(centerDir, m_AimLineEffectiveAttackRangeCacheDirection);
+    const float cacheHitPointTolerance = GetEffectiveAttackRangeHitPointTolerance(start, hitPos, spreadDeg, data->range);
+    const float cacheHitPointToleranceSqr = cacheHitPointTolerance * cacheHitPointTolerance;
     const bool canReuseCachedResult =
         m_AimLineEffectiveAttackRangeCacheValid &&
         m_AimLineEffectiveAttackRangeCacheEntity == entityTag &&
@@ -2433,6 +2479,7 @@ void VR::UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCS
         cacheAge <= std::clamp(m_EffectiveAttackRangeCacheSeconds, 0.0f, 1.0f) &&
         std::fabs(distance - m_AimLineEffectiveAttackRangeCacheDistance) <= std::clamp(m_EffectiveAttackRangeCacheDistanceTolerance, 0.0f, 256.0f) &&
         std::fabs(spreadDeg - m_AimLineEffectiveAttackRangeCacheSpread) <= std::clamp(m_EffectiveAttackRangeCacheSpreadTolerance, 0.0f, 10.0f) &&
+        (hitPos - m_AimLineEffectiveAttackRangeCacheHitPos).LengthSqr() <= cacheHitPointToleranceSqr &&
         dirDot >= std::clamp(m_EffectiveAttackRangeCacheDirectionDot, 0.0f, 1.0f);
 
     bool rawActive = false;
@@ -2450,6 +2497,7 @@ void VR::UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCS
             hitEntity,
             start,
             end,
+            hitPos,
             spreadDeg,
             data->range);
 
@@ -2460,6 +2508,7 @@ void VR::UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCS
         m_AimLineEffectiveAttackRangeCacheTime = now;
         m_AimLineEffectiveAttackRangeCacheDistance = distance;
         m_AimLineEffectiveAttackRangeCacheSpread = spreadDeg;
+        m_AimLineEffectiveAttackRangeCacheHitPos = hitPos;
         m_AimLineEffectiveAttackRangeCacheDirection = centerDir;
     }
 

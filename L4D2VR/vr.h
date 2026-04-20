@@ -537,15 +537,21 @@ public:
 		std::string source;
 	};
 	bool m_EffectiveAttackRangeIndicatorEnabled = true;
+	bool m_EffectiveAttackRangeAutoFireEnabled = false;
+	bool m_EffectiveAttackRangeAutoFireActive = false;
+	bool m_EffectiveAttackRangeAutoFirePrevAttackDown = false;
 	bool m_AimLineEffectiveAttackRangeActive = false;
 	std::chrono::steady_clock::time_point m_AimLineEffectiveAttackRangeHoldUntil{};
 	bool m_AimLineEffectiveAttackRangeCacheValid = false;
 	bool m_AimLineEffectiveAttackRangeCacheResult = false;
+	std::uintptr_t m_AimLineEffectiveAttackRangeTarget = 0;
+	bool m_AimLineEffectiveAttackRangeTargetIsWitch = false;
 	std::uintptr_t m_AimLineEffectiveAttackRangeCacheEntity = 0;
 	std::uintptr_t m_AimLineEffectiveAttackRangeCacheWeapon = 0;
 	std::chrono::steady_clock::time_point m_AimLineEffectiveAttackRangeCacheTime{};
 	float m_AimLineEffectiveAttackRangeCacheDistance = 0.0f;
 	float m_AimLineEffectiveAttackRangeCacheSpread = -1.0f;
+	Vector m_AimLineEffectiveAttackRangeCacheHitPos = { 0.0f, 0.0f, 0.0f };
 	Vector m_AimLineEffectiveAttackRangeCacheDirection = { 0.0f, 0.0f, 0.0f };
 	int m_EffectiveAttackRangeColorR = 0;
 	int m_EffectiveAttackRangeColorG = 255;
@@ -557,6 +563,9 @@ public:
 	float m_EffectiveAttackRangeCacheDistanceTolerance = 24.0f;
 	float m_EffectiveAttackRangeCacheSpreadTolerance = 0.10f;
 	float m_EffectiveAttackRangeCacheDirectionDot = 0.9990f;
+	float m_EffectiveAttackRangeHitPointTolerance = 8.0f;
+	float m_EffectiveAttackRangeHitPointSpreadScale = 0.50f;
+	float m_EffectiveAttackRangeHitPointMaxTolerance = 24.0f;
 	std::uintptr_t m_EffectiveAttackRangeDebugLastEntity = 0;
 	std::chrono::steady_clock::time_point m_EffectiveAttackRangeDebugLastLog{};
 	bool m_EffectiveAttackRangeWeaponDataLoaded = false;
@@ -607,6 +616,8 @@ public:
 		Texture_None = -1,
 		Texture_LeftEye,
 		Texture_RightEye,
+		Texture_LeftEyeSubmit,
+		Texture_RightEyeSubmit,
 		Texture_HUD,
 		Texture_Scope,
 		Texture_RearMirror,
@@ -615,6 +626,8 @@ public:
 
 	ITexture* m_LeftEyeTexture;
 	ITexture* m_RightEyeTexture;
+	ITexture* m_LeftEyeSubmitTexture = nullptr;
+	ITexture* m_RightEyeSubmitTexture = nullptr;
 	ITexture* m_HUDTexture;
 	ITexture* m_ScopeTexture = nullptr;
 	ITexture* m_RearMirrorTexture = nullptr;
@@ -622,6 +635,8 @@ public:
 
 	IDirect3DSurface9* m_D9LeftEyeSurface;
 	IDirect3DSurface9* m_D9RightEyeSurface;
+	IDirect3DSurface9* m_D9LeftEyeSubmitSurface = nullptr;
+	IDirect3DSurface9* m_D9RightEyeSubmitSurface = nullptr;
 	IDirect3DSurface9* m_D9HUDSurface;
 	IDirect3DSurface9* m_D9ScopeSurface;
 	IDirect3DSurface9* m_D9RearMirrorSurface = nullptr;
@@ -735,6 +750,7 @@ public:
 	vr::VRActionHandle_t m_ActionInventoryGripRight;
 	vr::VRActionHandle_t m_ActionInventoryQuickSwitch;
 	vr::VRActionHandle_t m_ActionSpecialInfectedAutoAimToggle;
+	vr::VRActionHandle_t m_ActionEffectiveAttackRangeAutoFireToggle;
 	vr::VRActionHandle_t m_ActionActivateVR;
 	vr::VRActionHandle_t m_MenuSelect;
 	vr::VRActionHandle_t m_MenuBack;
@@ -1427,6 +1443,9 @@ public:
 	std::vector<ActiveKillIndicator> m_ActiveKillIndicators;
 	int m_LastKillSoundCommonKills = -1;
 	int m_LastKillSoundSpecialKills = -1;
+	int m_LastKillCounterMissionSum = -1;
+	int m_LastKillCounterCheckpointSum = -1;
+	char m_KillCounterPreferredSource = 'N';
 	float m_PredictedHitFeedbackDedupWindowSeconds = 0.015f;
 	Vector m_LastPredictedHitFeedbackStart = { 0,0,0 };
 	Vector m_LastPredictedHitFeedbackDir = { 0,0,0 };
@@ -1684,6 +1703,8 @@ public:
 	static constexpr int kUseEntityHandleOffset = 0x1480;  // DT_BasePlayer::m_hUseEntity
 	bool m_SpecialInfectedArrowEnabled = false;
 	bool m_SpecialInfectedDebug = false;
+	bool m_SpecialInfectedArrowDebugLog = false;
+	float m_SpecialInfectedArrowDebugLogHz = 2.0f;
 	float m_SpecialInfectedArrowSize = 12.0f;
 	float m_SpecialInfectedArrowHeight = 36.0f;
 	float m_SpecialInfectedArrowThickness = 0.0f;
@@ -2023,8 +2044,8 @@ public:
 	void TriggerDirectionalDamageHaptics(float amplitude, float frequency, float durationSeconds, float rightBias, int priority = 1);
 	void QueuePendingKillSoundEvent(std::uintptr_t entityTag, bool headshot);
 	bool ConsumePendingKillSoundEvent(std::chrono::steady_clock::time_point now, bool& outHeadshot, std::uintptr_t& outEntityTag);
-	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial) const;
-	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial, char* outSource) const;
+	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial);
+	bool ReadLocalKillCounters(C_BasePlayer* localPlayer, int& outCommon, int& outSpecial, char* outSource);
 	bool ReadLocalHeadshotCounter(C_BasePlayer* localPlayer, int& outHeadshots) const;
 	bool IsKillSoundTargetEntity(const C_BaseEntity* entity) const;
 	bool ConsumePendingKillSoundHit(std::uintptr_t preferredEntityTag, std::chrono::steady_clock::time_point now, Vector* outImpactPos = nullptr);
@@ -2107,11 +2128,13 @@ public:
 	void GetAimLineColor(int& r, int& g, int& b, int& a) const;
 	void UpdateAimLineEffectiveAttackRange(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, const Vector& hitPos, bool hasAimHit);
 	bool IsEffectiveAttackRangeTarget(const C_BaseEntity* entity) const;
+	bool IsEffectiveAttackRangeWitchTarget(const C_BaseEntity* entity) const;
 	void LogEffectiveAttackRangeTarget(C_BaseEntity* entity, C_WeaponCSBase* weapon, float distance, float maxRange, float spreadDegrees, bool cached, const char* dataSource);
 	bool EnsureEffectiveAttackRangeWeaponDataLoaded();
 	const EffectiveAttackRangeWeaponData* GetEffectiveAttackRangeWeaponData(C_WeaponCSBase* weapon);
 	float GetEffectiveAttackRangeSpreadDegrees(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, const EffectiveAttackRangeWeaponData& data) const;
-	bool DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, float spreadDegrees, float maxRange) const;
+	float GetEffectiveAttackRangeHitPointTolerance(const Vector& start, const Vector& centerHitPos, float spreadDegrees, float maxRange) const;
+	bool DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, const Vector& centerHitPos, float spreadDegrees, float maxRange) const;
 	void FinishFrame();
 	void ConfigureExplicitTiming();
 };

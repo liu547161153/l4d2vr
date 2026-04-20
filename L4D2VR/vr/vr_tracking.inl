@@ -1377,13 +1377,18 @@ void VR::UpdateMotionGestures(C_BasePlayer* localPlayer)
     const float leftOutwardHorizontalSpeed = std::max(0.0f, DotProduct(leftDelta, leftForwardHorizontalNorm)) / deltaSeconds;
     const float leftHorizontalSpeed = VectorLength(Vector(leftDelta.x, leftDelta.y, 0.0f)) / deltaSeconds;
     const float leftOutwardSpeed = leftForwardHorizontalLength > 0.01f ? leftOutwardHorizontalSpeed : leftHorizontalSpeed;
+    const bool inventoryQuickSwitchHeld = m_InventoryQuickSwitchEnabled && PressedDigitalAction(m_ActionInventoryQuickSwitch);
     if (leftOutwardSpeed >= m_MotionGestureSwingThreshold && now >= m_SecondaryGestureCooldownEnd)
     {
         startHold(m_SecondaryAttackGestureHoldUntil);
         startCooldown(m_SecondaryGestureCooldownEnd);
     }
 
-    if (rightDownSpeed >= m_MotionGestureDownSwingThreshold && now >= m_ReloadGestureCooldownEnd)
+    if (inventoryQuickSwitchHeld)
+    {
+        m_ReloadGestureHoldUntil = {};
+    }
+    else if (rightDownSpeed >= m_MotionGestureDownSwingThreshold && now >= m_ReloadGestureCooldownEnd)
     {
         startHold(m_ReloadGestureHoldUntil);
         startCooldown(m_ReloadGestureCooldownEnd);

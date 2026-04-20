@@ -90,6 +90,11 @@
 			"type": "boolean"
 		},
 		{
+			"name": "/actions/main/in/SpecialInfectedAutoAimToggle",
+			"type": "boolean",
+			"requirement": "optional"
+		},
+		{
 			"name": "/actions/main/in/ActivateVR",
 			"type": "boolean"
 		},
@@ -159,6 +164,26 @@
 			"name": "/actions/main/in/CustomAction5",
 			"type": "boolean",
 			"requirement": "optional"
+		},
+		{
+			"name": "/actions/main/in/ScopeMagnificationToggle",
+			"type": "boolean",
+			"requirement": "optional"
+		},
+		{
+			"name": "/actions/main/in/FriendlyFireBlockToggle",
+			"type": "boolean",
+			"requirement": "optional"
+		},
+		{
+			"name": "/actions/main/in/InventoryQuickSwitch",
+			"type": "boolean",
+			"requirement": "optional"
+		},
+		{
+			"name": "/actions/main/in/EffectiveAttackRangeAutoFireToggle",
+			"type": "boolean",
+			"requirement": "optional"
 		}
 	],
 
@@ -189,6 +214,7 @@
 			"/actions/main/in/ResetPosition": "Reset Position",
 			"/actions/main/in/Crouch": "Crouch",
 			"/actions/main/in/Flashlight": "Flashlight",
+			"/actions/main/in/SpecialInfectedAutoAimToggle": "Special Infected Auto Aim Toggle",
 			"/actions/main/in/ActivateVR": "Activate VR",
 			"/actions/main/in/MenuSelect": "Menu Select",
 			"/actions/main/in/MenuBack": "Menu Back",
@@ -204,7 +230,11 @@
 			"/actions/main/in/CustomAction2": "Custom Action 2",
 			"/actions/main/in/CustomAction3": "Custom Action 3",
 			"/actions/main/in/CustomAction4": "Custom Action 4",
-			"/actions/main/in/CustomAction5": "Custom Action 5"
+			"/actions/main/in/CustomAction5": "Custom Action 5",
+			"/actions/main/in/ScopeMagnificationToggle": "Toggle Scope Magnification",
+			"/actions/main/in/FriendlyFireBlockToggle": "Friendly Fire Block Toggle",
+			"/actions/main/in/InventoryQuickSwitch": "Inventory Quick Switch",
+			"/actions/main/in/EffectiveAttackRangeAutoFireToggle": "Effective Range Auto Fire Toggle"
 		}
 	]
 }

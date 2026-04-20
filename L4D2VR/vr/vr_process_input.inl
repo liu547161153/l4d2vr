@@ -242,7 +242,7 @@ void VR::ProcessInput()
     bool primaryAttackDown = false;
     bool primaryAttackJustPressed = false;
     getActionState(&m_ActionPrimaryAttack, primaryAttackActionData, primaryAttackDown, primaryAttackJustPressed);
-    m_PrimaryAttackDown = primaryAttackDown;
+    m_PrimaryAttackDown = false;
 
     vr::InputDigitalActionData_t jumpActionData{};
     bool jumpButtonDown = false;
@@ -275,7 +275,6 @@ void VR::ProcessInput()
     bool secondaryAttackDataValid = getActionState(&m_ActionSecondaryAttack, secondaryAttackActionData, secondaryAttackActive, secondaryAttackJustPressed);
 
     const bool gestureSecondaryAttackActive = currentTime < m_SecondaryAttackGestureHoldUntil;
-    const bool gestureReloadActive = currentTime < m_ReloadGestureHoldUntil;
 
     vr::InputDigitalActionData_t flashlightActionData{};
     bool flashlightButtonDown = false;
@@ -286,11 +285,20 @@ void VR::ProcessInput()
     bool inventoryQuickSwitchDown = false;
     bool inventoryQuickSwitchJustPressed = false;
     bool inventoryQuickSwitchDataValid = getActionState(&m_ActionInventoryQuickSwitch, inventoryQuickSwitchActionData, inventoryQuickSwitchDown, inventoryQuickSwitchJustPressed);
+    const bool inventoryQuickSwitchHeld = m_InventoryQuickSwitchEnabled && inventoryQuickSwitchDataValid && inventoryQuickSwitchDown;
+    if (inventoryQuickSwitchHeld)
+        m_ReloadGestureHoldUntil = currentTime;
+    const bool gestureReloadActive = !inventoryQuickSwitchHeld && currentTime < m_ReloadGestureHoldUntil;
 
     vr::InputDigitalActionData_t autoAimToggleActionData{};
     [[maybe_unused]] bool autoAimToggleDown = false;
     bool autoAimToggleJustPressed = false;
     [[maybe_unused]] bool autoAimToggleDataValid = getActionState(&m_ActionSpecialInfectedAutoAimToggle, autoAimToggleActionData, autoAimToggleDown, autoAimToggleJustPressed);
+
+    vr::InputDigitalActionData_t effectiveRangeAutoFireToggleActionData{};
+    [[maybe_unused]] bool effectiveRangeAutoFireToggleDown = false;
+    bool effectiveRangeAutoFireToggleJustPressed = false;
+    [[maybe_unused]] bool effectiveRangeAutoFireToggleDataValid = getActionState(&m_ActionEffectiveAttackRangeAutoFireToggle, effectiveRangeAutoFireToggleActionData, effectiveRangeAutoFireToggleDown, effectiveRangeAutoFireToggleJustPressed);
 
     vr::InputDigitalActionData_t nonVrServerMovementToggleActionData{};
     [[maybe_unused]] bool nonVrServerMovementToggleDown = false;
@@ -893,6 +901,13 @@ void VR::ProcessInput()
         m_SpecialInfectedAutoAimCooldownEnd = {};
     }
 
+    if (effectiveRangeAutoFireToggleJustPressed)
+    {
+        m_EffectiveAttackRangeAutoFireEnabled = !m_EffectiveAttackRangeAutoFireEnabled;
+        m_EffectiveAttackRangeAutoFireActive = false;
+        Game::logMsg("[VR] Effective attack range auto-fire %s", m_EffectiveAttackRangeAutoFireEnabled ? "enabled" : "disabled");
+    }
+
     if (nonVrServerMovementToggleJustPressed)
     {
         m_NonVRServerMovementAngleOverride = !m_NonVRServerMovementAngleOverride;
@@ -903,11 +918,42 @@ void VR::ProcessInput()
         CycleScopeMagnification();
     }
 
+    bool effectiveRangeAutoFireOwnsPrimary = false;
+    if (m_EffectiveAttackRangeAutoFireEnabled
+        && m_AimLineEffectiveAttackRangeActive
+        && !m_AimLineEffectiveAttackRangeTargetIsWitch
+        && !m_SuppressPlayerInput
+        && !m_AdjustingViewmodel
+        && !isObserverOrIdle
+        && localPlayer)
+    {
+        const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+        const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+        const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
+        const int currentUseAction = *reinterpret_cast<const int*>(base + 0x1ba8); // m_iCurrentUseAction
+        effectiveRangeAutoFireOwnsPrimary = (lifeState == 0) && (obsMode == 0) && (currentUseAction == 0);
+    }
+
+    if (effectiveRangeAutoFireOwnsPrimary)
+    {
+        primaryAttackDown = false;
+        primaryAttackJustPressed = false;
+    }
+    m_PrimaryAttackDown = primaryAttackDown;
+
     // Drive +attack only from the VR action state. IMPORTANT: do NOT spam "-attack" every frame,
     // otherwise real mouse1 cannot work in MouseMode (mouse1 triggers +attack, but we instantly cancel it).
     if (isObserverOrIdle)
     {
         // Don't hold +attack while spectating.
+        if (m_PrimaryAttackCmdOwned)
+        {
+            m_Game->ClientCmd_Unrestricted("-attack");
+            m_PrimaryAttackCmdOwned = false;
+        }
+    }
+    else if (effectiveRangeAutoFireOwnsPrimary)
+    {
         if (m_PrimaryAttackCmdOwned)
         {
             m_Game->ClientCmd_Unrestricted("-attack");
