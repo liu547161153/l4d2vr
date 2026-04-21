@@ -249,9 +249,8 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 	if (info.pModel)
 	{
 		modelName = m_Game->m_ModelInfo->GetModelName(info.pModel);
+		m_VR->ScanSpecialInfectedEntitiesFromClientList();
 
-		VR::SpecialInfectedType infectedType = VR::SpecialInfectedType::None;
-		bool isAlive = true;
 		const C_BaseEntity* entity = nullptr;
 		if (m_Game->m_ClientEntityList && info.entity_index > 0)
 		{
@@ -261,29 +260,10 @@ void Hooks::dDrawModelExecute(void* ecx, void* edx, void* state, const ModelRend
 		}
 		bool isPlayerClass = false;
 		const char* className = nullptr;
-		int entityTeam = -1;
-		bool hasEntityTeam = false;
-		unsigned char entityLifeState = 255;
-		bool hasEntityLifeState = false;
-		std::string classNameLower;
 		if (entity)
 		{
 			className = m_Game->GetNetworkClassName(reinterpret_cast<uintptr_t*>(const_cast<C_BaseEntity*>(entity)));
 			isPlayerClass = className && (std::strcmp(className, "CTerrorPlayer") == 0 || std::strcmp(className, "C_TerrorPlayer") == 0);
-			if (className && *className)
-			{
-				classNameLower = className;
-				std::transform(classNameLower.begin(), classNameLower.end(), classNameLower.begin(),
-					[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			}
-			hasEntityTeam = vr_vm_stabilize::SafeRead(reinterpret_cast<const std::uint8_t*>(entity) + VR::kTeamNumOffset, entityTeam);
-			hasEntityLifeState = vr_vm_stabilize::SafeRead(reinterpret_cast<const std::uint8_t*>(entity) + VR::kLifeStateOffset, entityLifeState);
-			if (hasEntityLifeState && (isPlayerClass || (hasEntityTeam && entityTeam == 3)))
-				isAlive = (entityLifeState == 0);
-			if (isPlayerClass)
-			{
-				isAlive = m_VR->IsEntityAlive(entity);
-			}
 		}
 		// Scope RTT pass: optionally hide the local player model so scoped view isn't blocked by your own head/body.
 		if (m_VR->m_ScopeRenderingPass && m_VR->m_ScopeHideLocalPlayerModelInScope && isPlayerClass && m_Game->m_EngineClient)
@@ -532,40 +512,21 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 	}
 }
 
-		const bool isInfectedModel = modelName.find("models/infected/") != std::string::npos;
-		const bool isInfectedClass =
-			classNameLower.find("infected") != std::string::npos ||
-			classNameLower.find("witch") != std::string::npos;
-		const bool isTeamInfected = hasEntityTeam && entityTeam == 3;
-		const bool isSpecialCandidate = entity && isAlive && (isInfectedModel || isInfectedClass || isTeamInfected);
-		int entityZombieClass = -1;
-		const bool hasEntityZombieClass = entity && vr_vm_stabilize::SafeRead(reinterpret_cast<const std::uint8_t*>(entity) + VR::kZombieClassOffset, entityZombieClass);
-		if (isSpecialCandidate)
-		{
-			infectedType = m_VR->GetSpecialInfectedType(entity);
-		}
+		const VR::SpecialInfectedType entityInfectedType =
+			entity ? m_VR->GetSpecialInfectedType(entity) : VR::SpecialInfectedType::None;
+		const VR::SpecialInfectedType modelInfectedType = m_VR->GetSpecialInfectedTypeFromModel(modelName);
+		const bool useWitchModelFallback =
+			modelInfectedType == VR::SpecialInfectedType::Witch &&
+			entityInfectedType == VR::SpecialInfectedType::None;
 
-		VR::SpecialInfectedType modelType = VR::SpecialInfectedType::None;
-		if (isAlive && infectedType == VR::SpecialInfectedType::None)
+		if (useWitchModelFallback)
 		{
-			modelType = m_VR->GetSpecialInfectedTypeFromModel(modelName);
-			if (modelType == VR::SpecialInfectedType::Tank || modelType == VR::SpecialInfectedType::Witch)
-				infectedType = modelType;
-		}
-
-		const bool isRagdoll = modelName.find("ragdoll") != std::string::npos;
-		if (m_VR->m_SpecialInfectedArrowDebugLog && entity &&
-			(isSpecialCandidate || isInfectedModel || isInfectedClass || isTeamInfected || modelType != VR::SpecialInfectedType::None || infectedType != VR::SpecialInfectedType::None))
-		{
-			static std::unordered_map<int, std::chrono::steady_clock::time_point> s_lastSpecialInfectedArrowDebugLog;
-			bool doDebugLog = true;
-			if (m_VR->m_SpecialInfectedArrowDebugLogHz <= 0.0f)
+			if (m_VR->m_SpecialInfectedArrowDebugLog && m_VR->m_SpecialInfectedArrowDebugLogHz > 0.0f)
 			{
-				doDebugLog = false;
-			}
-			else if (info.entity_index > 0)
-			{
-				auto& last = s_lastSpecialInfectedArrowDebugLog[info.entity_index];
+				static std::unordered_map<int, std::chrono::steady_clock::time_point> s_lastWitchModelDebugLog;
+				const int debugKey = info.entity_index > 0 ? info.entity_index : -1;
+				bool doDebugLog = true;
+				auto& last = s_lastWitchModelDebugLog[debugKey];
 				const auto now = std::chrono::steady_clock::now();
 				if (last.time_since_epoch().count() != 0)
 				{
@@ -575,36 +536,64 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 						doDebugLog = false;
 				}
 				if (doDebugLog)
+				{
+					last = now;
+					Game::logMsg(
+						"[VR][SIArrow][model] idx=%d class=%s model=\"%s\" type=%d origin=(%.1f %.1f %.1f)",
+						info.entity_index,
+						(className && *className) ? className : "<null>",
+						modelName.c_str(),
+						static_cast<int>(modelInfectedType),
+						info.origin.x,
+						info.origin.y,
+						info.origin.z);
+				}
+			}
+
+			m_VR->RefreshSpecialInfectedPreWarning(info.origin, modelInfectedType, info.entity_index, false);
+
+			bool doOverlay = true;
+			if (info.entity_index > 0 && m_VR->m_SpecialInfectedOverlayMaxHz > 0.0f)
+			{
+				auto& last = m_VR->m_LastSpecialInfectedOverlayTime[info.entity_index];
+				const auto now = std::chrono::steady_clock::now();
+				if (last.time_since_epoch().count() != 0)
+				{
+					const float minInterval = 1.0f / std::max(1.0f, m_VR->m_SpecialInfectedOverlayMaxHz);
+					const float elapsed = std::chrono::duration<float>(now - last).count();
+					if (elapsed >= 0.0f && elapsed < minInterval)
+						doOverlay = false;
+				}
+				if (doOverlay)
 					last = now;
 			}
 
-			if (doDebugLog)
+			if (doOverlay)
 			{
-				Game::logMsg(
-					"[VR][SIArrow][scan] idx=%d ent=%p model=\"%s\" class=%s team=%d%s life=%d%s z=%d%s alive=%d candidate=%d modelInf=%d classInf=%d teamInf=%d ragdoll=%d type=%d modelType=%d arrow=%d size=%.1f",
-					info.entity_index,
-					const_cast<C_BaseEntity*>(entity),
-					modelName.c_str(),
-					(className && *className) ? className : "<null>",
-					hasEntityTeam ? entityTeam : -1,
-					hasEntityTeam ? "" : "?",
-					hasEntityLifeState ? static_cast<int>(entityLifeState) : -1,
-					hasEntityLifeState ? "" : "?",
-					hasEntityZombieClass ? entityZombieClass : -1,
-					hasEntityZombieClass ? "" : "?",
-					isAlive ? 1 : 0,
-					isSpecialCandidate ? 1 : 0,
-					isInfectedModel ? 1 : 0,
-					isInfectedClass ? 1 : 0,
-					isTeamInfected ? 1 : 0,
-					isRagdoll ? 1 : 0,
-					static_cast<int>(infectedType),
-					static_cast<int>(modelType),
-					m_VR->m_SpecialInfectedArrowEnabled ? 1 : 0,
-					m_VR->m_SpecialInfectedArrowSize);
+				if (m_VR->m_RearMirrorEnabled && m_VR->m_RearMirrorShowOnlyOnSpecialWarning
+					&& m_VR->m_RearMirrorSpecialShowHoldSeconds > 0.0f && m_VR->m_RearMirrorSpecialWarningDistance > 0.0f)
+				{
+					Vector to = info.origin - m_VR->m_HmdPosAbs;
+					to.z = 0.0f;
+					const float maxD = m_VR->m_RearMirrorSpecialWarningDistance;
+					if (!to.IsZero() && to.LengthSqr() <= (maxD * maxD))
+					{
+						Vector fwd = m_VR->m_HmdForward;
+						fwd.z = 0.0f;
+						if (VectorNormalize(fwd) == 0.0f)
+							fwd = { 1.0f, 0.0f, 0.0f };
+						VectorNormalize(to);
+						if (DotProduct(to, fwd) < 0.0f)
+							m_VR->NotifyRearMirrorSpecialWarning();
+						m_VR->m_RearMirrorSawSpecialThisPass = true;
+					}
+				}
+
+				m_VR->DrawSpecialInfectedArrow(info.origin, modelInfectedType);
 			}
 		}
 
+		#if 0
 		if (isAlive && infectedType != VR::SpecialInfectedType::None)
 		{
 			if (!isRagdoll)
@@ -674,6 +663,7 @@ if (m_VR->m_IsVREnabled && queueMode == 2 && (m_VR->m_QueuedViewmodelStabilize |
 				}
 			}
 		}
+		#endif
 	}
 
 	if (info.pModel && hideArms && !m_Game->m_CachedArmsModel)

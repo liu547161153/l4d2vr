@@ -2112,6 +2112,7 @@ public:
 	SpecialInfectedType GetSpecialInfectedTypeFromModel(const std::string& modelName) const;
 	bool IsEntityAlive(const C_BaseEntity* entity) const;
 	void DrawSpecialInfectedArrow(const Vector& origin, SpecialInfectedType type);
+	void ScanSpecialInfectedEntitiesFromClientList();
 	void RefreshSpecialInfectedPreWarning(const Vector& infectedOrigin, SpecialInfectedType type, int entityIndex, bool isPlayerClass);
 	void RefreshSpecialInfectedBlindSpotWarning(const Vector& infectedOrigin);
 	bool HasLineOfSightToSpecialInfected(const Vector& infectedOrigin, int entityIndex) const;
