@@ -116,4 +116,5 @@ public:
 
     Offset DrawModelExecute =            { "engine.dll", 0xE05E0, "55 8B EC 81 EC ? ? ? ? A1 ? ? ? ? 33 C5 89 45 FC 8B 45 10 56 8B 75 08 57 8B" };
     Offset VGui_Paint =                  { "engine.dll", 0x115CE0, "55 8B EC E8 ? ? ? ? 8B 10 8B C8 8B 52 38" };
+    Offset SampleLightAtPoint =          { "engine.dll", 0xC1FB0, "55 8B EC 83 EC 18 8B 45 0C F3 0F 10 00 56 33 F6 56 56 56 56 8D 4D ? 51 F3 0F 11 45 ? F3 0F 10 40 04 6A 01 8D 55 ? F3 0F 11 45 ? F3 0F 10 40 08 F3 0F 5C 05 ? ? ? ? 52 50 F3 0F 11 45 ? E8 ? ? ? ? 83 C4 20 85 C0", 0, true };
 };

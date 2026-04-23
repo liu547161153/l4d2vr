@@ -119,6 +119,8 @@ public:
     bool SetConVarInt(const char* name, int value) const;
     bool SetConVarFloat(const char* name, float value) const;
     bool SetConVarBool(const char* name, bool value) const;
+    bool SampleLightAtPoint(const Vector& point, int& outR, int& outG, int& outB) const;
+    int GetEntityEffects(const C_BaseEntity* entity, int fallback = 0) const;
 
     // === Logging ===
     static void logMsg(const char* fmt, ...);

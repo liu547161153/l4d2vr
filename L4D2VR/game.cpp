@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -671,6 +672,84 @@ bool Game::SetConVarFloat(const char* name, float value) const
 bool Game::SetConVarBool(const char* name, bool value) const
 {
     return SetConVarInt(name, value ? 1 : 0);
+}
+
+bool Game::SampleLightAtPoint(const Vector& point, int& outR, int& outG, int& outB) const
+{
+    outR = 0;
+    outG = 0;
+    outB = 0;
+
+    static bool s_loggedUnavailable = false;
+    if (!m_Offsets || !m_Offsets->SampleLightAtPoint.valid || m_Offsets->SampleLightAtPoint.address == 0)
+    {
+        if (!s_loggedUnavailable)
+        {
+            logMsg("[WARN] engine.dll SampleLightAtPoint wrapper is unavailable");
+            s_loggedUnavailable = true;
+        }
+        return false;
+    }
+
+    struct EngineLightSample
+    {
+        int r;
+        int g;
+        int b;
+        int valid;
+    } sample{};
+
+    using tSampleLightAtPoint = int* (__cdecl*)(int* outRgba, const Vector* point);
+    auto fn = reinterpret_cast<tSampleLightAtPoint>(m_Offsets->SampleLightAtPoint.address);
+    if (!fn)
+        return false;
+
+    __try
+    {
+        if (!fn(reinterpret_cast<int*>(&sample), &point) || sample.valid == 0)
+            return false;
+
+        outR = (std::max)(0, (std::min)(255, sample.r));
+        outG = (std::max)(0, (std::min)(255, sample.g));
+        outB = (std::max)(0, (std::min)(255, sample.b));
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] SampleLightAtPoint failed at (%.1f %.1f %.1f)", point.x, point.y, point.z);
+        return false;
+    }
+}
+
+int Game::GetEntityEffects(const C_BaseEntity* entity, int fallback) const
+{
+    if (!entity)
+        return fallback;
+
+    static int s_effectsOffset = std::numeric_limits<int>::min();
+    static bool s_loggedOffset = false;
+    if (s_effectsOffset == std::numeric_limits<int>::min())
+    {
+        s_effectsOffset = FindRecvPropOffset("DT_BaseEntity", "m_fEffects");
+        if (s_effectsOffset < 0)
+            s_effectsOffset = 0xE0;
+
+        if (!s_loggedOffset)
+        {
+            logMsg("[Offsets] Using DT_BaseEntity::m_fEffects offset 0x%X", s_effectsOffset);
+            s_loggedOffset = true;
+        }
+    }
+
+    __try
+    {
+        return *reinterpret_cast<const int*>(reinterpret_cast<const uint8_t*>(entity) + s_effectsOffset);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] GetEntityEffects failed");
+        return fallback;
+    }
 }
 
 // === Rendering Thread Mode ===

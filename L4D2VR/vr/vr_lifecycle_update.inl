@@ -1,3 +1,144 @@
+namespace
+{
+    constexpr int kEffectDimLight = 0x4; // Source EF_DIMLIGHT
+
+    inline float ComputePerceivedLuma(int r, int g, int b)
+    {
+        return 0.2126f * static_cast<float>(r) +
+            0.7152f * static_cast<float>(g) +
+            0.0722f * static_cast<float>(b);
+    }
+}
+
+void VR::ResetAutoFlashlightState()
+{
+    m_AutoFlashlightHasKnownState = false;
+    m_AutoFlashlightLastKnownOn = false;
+    m_AutoFlashlightNextSampleTime = {};
+    m_AutoFlashlightLastToggleTime = {};
+    m_AutoFlashlightManualOverrideUntil = {};
+}
+
+bool VR::QueryFlashlightState(C_BasePlayer* localPlayer, bool& outOn)
+{
+    if (!m_Game || !localPlayer)
+        return false;
+
+    const int effects = m_Game->GetEntityEffects(localPlayer, 0x7fffffff);
+    if (effects == 0x7fffffff)
+        return false;
+
+    outOn = (effects & kEffectDimLight) != 0;
+    m_AutoFlashlightHasKnownState = true;
+    m_AutoFlashlightLastKnownOn = outOn;
+    return true;
+}
+
+void VR::IssueFlashlightToggle(bool manual)
+{
+    if (!m_Game)
+        return;
+
+    m_Game->ClientCmd_Unrestricted("impulse 100");
+
+    const auto now = std::chrono::steady_clock::now();
+    m_AutoFlashlightLastToggleTime = now;
+    if (m_AutoFlashlightHasKnownState)
+        m_AutoFlashlightLastKnownOn = !m_AutoFlashlightLastKnownOn;
+
+    if (manual && m_AutoFlashlightManualOverrideSeconds > 0.0f)
+    {
+        m_AutoFlashlightManualOverrideUntil =
+            now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<float>(m_AutoFlashlightManualOverrideSeconds));
+    }
+}
+
+void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (!m_AutoFlashlightEnabled || !m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame() || !localPlayer)
+    {
+        ResetAutoFlashlightState();
+        return;
+    }
+
+    if (m_Game->m_VguiSurface && m_Game->m_VguiSurface->IsCursorVisible())
+        return;
+
+    __try
+    {
+        const unsigned char* base = reinterpret_cast<const unsigned char*>(localPlayer);
+        const int teamNum = *reinterpret_cast<const int*>(base + kTeamNumOffset);
+        const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
+        const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
+        if (teamNum == 1 || lifeState != 0 || obsMode != 0)
+            return;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return;
+    }
+
+    if (m_AutoFlashlightManualOverrideUntil.time_since_epoch().count() != 0 &&
+        now < m_AutoFlashlightManualOverrideUntil)
+    {
+        return;
+    }
+
+    if (m_AutoFlashlightNextSampleTime.time_since_epoch().count() != 0 &&
+        now < m_AutoFlashlightNextSampleTime)
+    {
+        return;
+    }
+
+    m_AutoFlashlightNextSampleTime =
+        now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<float>(m_AutoFlashlightSampleInterval));
+
+    bool flashlightOn = false;
+    const bool stateValid = QueryFlashlightState(localPlayer, flashlightOn);
+    if (!stateValid)
+    {
+        if (!m_AutoFlashlightHasKnownState)
+            return;
+
+        flashlightOn = m_AutoFlashlightLastKnownOn;
+    }
+
+    const Vector eye = localPlayer->EyePosition();
+    int sampleR = 0;
+    int sampleG = 0;
+    int sampleB = 0;
+    if (!m_Game->SampleLightAtPoint(eye, sampleR, sampleG, sampleB))
+        return;
+
+    bool shouldToggle = false;
+    const float luma = ComputePerceivedLuma(sampleR, sampleG, sampleB);
+    const float elapsedSinceToggle =
+        (m_AutoFlashlightLastToggleTime.time_since_epoch().count() == 0)
+        ? 9999.0f
+        : std::chrono::duration<float>(now - m_AutoFlashlightLastToggleTime).count();
+
+    if (!flashlightOn && luma <= m_AutoFlashlightDarkThreshold)
+    {
+        if (elapsedSinceToggle >= m_AutoFlashlightMinOffTime)
+        {
+            shouldToggle = true;
+        }
+    }
+    else if (flashlightOn && luma >= m_AutoFlashlightBrightThreshold)
+    {
+        if (elapsedSinceToggle >= m_AutoFlashlightMinOnTime)
+        {
+            shouldToggle = true;
+        }
+    }
+
+    if (shouldToggle)
+        IssueFlashlightToggle(false);
+}
+
 void VR::Update()
 {
     if (!m_IsInitialized || !g_Game)
@@ -77,6 +218,16 @@ void VR::Update()
                 }
             }
         }
+    }
+
+    {
+        C_BasePlayer* localPlayer = nullptr;
+        if (m_Game->m_EngineClient->IsInGame())
+        {
+            const int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
+            localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
+        }
+        UpdateAutoFlashlight(localPlayer);
     }
 
     UpdateTracking();

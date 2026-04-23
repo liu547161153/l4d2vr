@@ -1151,7 +1151,7 @@ void VR::ProcessInput()
         if (crouchButtonDown)
             SendFunctionKey(VK_F1);
         else
-            m_Game->ClientCmd_Unrestricted("impulse 100");
+            IssueFlashlightToggle(true);
     }
 
     if (PressedDigitalAction(m_Spray, true))

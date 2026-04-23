@@ -1591,6 +1591,21 @@ void VR::ParseConfigFile()
     m_WriteOnlyCvarDetailFade =
         std::clamp(getFloat("cl_detailfade", m_WriteOnlyCvarDetailFade), 0.0f, 32768.0f);
     m_WriteOnlyPerformanceSettingsDirty.store(true, std::memory_order_release);
+    m_AutoFlashlightEnabled = getBool("AutoFlashlightEnabled", m_AutoFlashlightEnabled);
+    m_AutoFlashlightDarkThreshold =
+        std::clamp(getFloat("AutoFlashlightDarkThreshold", m_AutoFlashlightDarkThreshold), 0.0f, 255.0f);
+    m_AutoFlashlightBrightThreshold =
+        std::clamp(getFloat("AutoFlashlightBrightThreshold", m_AutoFlashlightBrightThreshold), 0.0f, 255.0f);
+    if (m_AutoFlashlightBrightThreshold < m_AutoFlashlightDarkThreshold)
+        m_AutoFlashlightBrightThreshold = m_AutoFlashlightDarkThreshold;
+    m_AutoFlashlightSampleInterval =
+        std::clamp(getFloat("AutoFlashlightSampleInterval", m_AutoFlashlightSampleInterval), 0.05f, 2.0f);
+    m_AutoFlashlightMinOnTime =
+        std::clamp(getFloat("AutoFlashlightMinOnTime", m_AutoFlashlightMinOnTime), 0.0f, 30.0f);
+    m_AutoFlashlightMinOffTime =
+        std::clamp(getFloat("AutoFlashlightMinOffTime", m_AutoFlashlightMinOffTime), 0.0f, 30.0f);
+    m_AutoFlashlightManualOverrideSeconds =
+        std::clamp(getFloat("AutoFlashlightManualOverrideSeconds", m_AutoFlashlightManualOverrideSeconds), 0.0f, 60.0f);
 
     ParseHapticsConfigFile();
 }

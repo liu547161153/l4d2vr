@@ -1217,6 +1217,18 @@ public:
 	float m_WriteOnlyOrigDetailDist = 400.0f;
 	float m_WriteOnlyOrigDetailFade = 250.0f;
 	std::atomic<bool> m_WriteOnlyPerformanceSettingsDirty{ true };
+	bool m_AutoFlashlightEnabled = false;
+	float m_AutoFlashlightDarkThreshold = 52.0f;
+	float m_AutoFlashlightBrightThreshold = 72.0f;
+	float m_AutoFlashlightSampleInterval = 0.15f;
+	float m_AutoFlashlightMinOnTime = 2.0f;
+	float m_AutoFlashlightMinOffTime = 0.8f;
+	float m_AutoFlashlightManualOverrideSeconds = 6.0f;
+	bool m_AutoFlashlightHasKnownState = false;
+	bool m_AutoFlashlightLastKnownOn = false;
+	std::chrono::steady_clock::time_point m_AutoFlashlightNextSampleTime{};
+	std::chrono::steady_clock::time_point m_AutoFlashlightLastToggleTime{};
+	std::chrono::steady_clock::time_point m_AutoFlashlightManualOverrideUntil{};
 
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;
@@ -2002,6 +2014,10 @@ public:
 	void GetMouseModeEyeRay(Vector& eyeDirOut, QAngle* eyeAngOut = nullptr);
 	void UpdateTracking();
 	void UpdateMotionGestures(C_BasePlayer* localPlayer);
+	void UpdateAutoFlashlight(C_BasePlayer* localPlayer);
+	void ResetAutoFlashlightState();
+	void IssueFlashlightToggle(bool manual);
+	bool QueryFlashlightState(C_BasePlayer* localPlayer, bool& outOn);
 	bool UpdateThirdPersonViewState(const Vector& cameraOrigin, const Vector& cameraAngles);
 	Vector GetViewAngle();
 	// Yaw (degrees) used as the movement basis for the walk axis.

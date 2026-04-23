@@ -260,3 +260,10 @@ r_propsmaxdist=600
 cl_detaildist=0
 cl_detailfade=0
 
+AutoFlashlightEnabled=false
+AutoFlashlightDarkThreshold=52
+AutoFlashlightBrightThreshold=72
+AutoFlashlightSampleInterval=0.15
+AutoFlashlightMinOnTime=2.0
+AutoFlashlightMinOffTime=0.8
+AutoFlashlightManualOverrideSeconds=6.0
