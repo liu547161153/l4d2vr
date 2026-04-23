@@ -7,6 +7,9 @@
 #include <chrono>
 #include <ctime>
 #include <cstring>
+#include <cstdlib>
+#include <cmath>
+#include <cstdint>
 #include <mutex>
 #include <string>
 
@@ -23,6 +26,34 @@ using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
 namespace
 {
     static_assert(sizeof(void*) == 4, "L4D2VR ConVar bridge assumes 32-bit Source DLL layout.");
+
+    static bool NormalizeSuspiciousFloat(float candidate, float& normalized)
+    {
+        if (std::isfinite(candidate) && std::fabs(candidate) <= 1000000.0f)
+        {
+            normalized = candidate;
+            return true;
+        }
+
+        const double rounded = std::nearbyint(static_cast<double>(candidate));
+        if (std::isfinite(candidate) &&
+            std::fabs(static_cast<double>(candidate) - rounded) <= 0.5 &&
+            rounded >= 0.0 &&
+            rounded <= static_cast<double>(UINT32_MAX))
+        {
+            const uint32_t rebits = static_cast<uint32_t>(rounded);
+            float rebound = 0.0f;
+            std::memcpy(&rebound, &rebits, sizeof(rebound));
+            if (std::isfinite(rebound) && std::fabs(rebound) <= 1000000.0f)
+            {
+                normalized = rebound;
+                return true;
+            }
+        }
+
+        normalized = candidate;
+        return false;
+    }
 
     // Source SDK 2007/2009 style ConVar layout used by L4D2.
     // We only depend on the vtable order for SetValue(...) and the cached numeric fields for reads.
@@ -78,6 +109,10 @@ namespace
         virtual void InternalSetFloatValue2(float value, bool force = false) = 0;
 
     public:
+        // ConVar derives from both ConCommandBase and IConVar in Source.
+        // FindVar() returns the full ConVar object, so after the ConCommandBase
+        // base subobject there is a second vptr for the IConVar base.
+        void* m_pIConVarVTable = nullptr;
         SourceConVar* m_pParent = nullptr;
         const char* m_pszDefaultValue = nullptr;
         char* m_pszString = nullptr;
@@ -95,13 +130,41 @@ namespace
         int GetIntValue() const
         {
             const SourceConVar* parent = (m_pParent != nullptr) ? m_pParent : this;
-            return parent->m_nValue;
+            if (parent->m_pszString && *parent->m_pszString)
+            {
+                char* end = nullptr;
+                const long parsed = std::strtol(parent->m_pszString, &end, 10);
+                if (end != parent->m_pszString)
+                    return static_cast<int>(parsed);
+            }
+
+            const uintptr_t key = reinterpret_cast<uintptr_t>(parent);
+            return static_cast<int>(parent->m_nValue ^ static_cast<int>(key));
         }
 
         float GetFloatValue() const
         {
             const SourceConVar* parent = (m_pParent != nullptr) ? m_pParent : this;
-            return parent->m_fValue;
+            if (parent->m_pszString && *parent->m_pszString)
+            {
+                char* end = nullptr;
+                const float parsed = std::strtof(parent->m_pszString, &end);
+                if (end != parent->m_pszString)
+                {
+                    float normalized = parsed;
+                    NormalizeSuspiciousFloat(parsed, normalized);
+                    return normalized;
+                }
+            }
+
+            const uintptr_t key = reinterpret_cast<uintptr_t>(parent);
+            const uint32_t encodedBits = *reinterpret_cast<const uint32_t*>(&parent->m_fValue);
+            const uint32_t decodedBits = encodedBits ^ static_cast<uint32_t>(key);
+            float decoded = 0.0f;
+            std::memcpy(&decoded, &decodedBits, sizeof(decoded));
+            float normalized = decoded;
+            NormalizeSuspiciousFloat(decoded, normalized);
+            return normalized;
         }
     };
 

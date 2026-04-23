@@ -107,6 +107,8 @@ EffectiveAttackRangeCacheSeconds=0.25
 EffectiveAttackRangeCacheDistanceTolerance=40.0
 EffectiveAttackRangeCacheSpreadTolerance=0.25
 EffectiveAttackRangeCacheDirectionDot=0.9975
+EffectiveAttackRangeMeleeDistance=70.0
+EffectiveAttackRangeMeleeFanAngle=90.0
 EffectiveAttackRangeHitPointTolerance=8.0
 EffectiveAttackRangeHitPointSpreadScale=0.50
 EffectiveAttackRangeHitPointMaxTolerance=24.0
@@ -247,4 +249,14 @@ z_infected_shadows=true
 nb_shadow_blobby_dist=493.820007
 nb_shadow_cull_dist=500.584991
 r_flashlightinfectedshadows=true
+
+WriteOnlyPerformanceTweaksEnabled=false
+cl_threaded_bone_setup=1
+r_threaded_particles=1
+r_queued_decals=1
+r_queued_post_processing=1
+r_rootlod=1
+r_propsmaxdist=600
+cl_detaildist=0
+cl_detailfade=0
 

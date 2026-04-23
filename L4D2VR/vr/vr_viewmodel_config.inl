@@ -1078,6 +1078,8 @@ void VR::ParseConfigFile()
     m_EffectiveAttackRangeCacheDistanceTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheDistanceTolerance", m_EffectiveAttackRangeCacheDistanceTolerance), 0.0f, 256.0f);
     m_EffectiveAttackRangeCacheSpreadTolerance = std::clamp(getFloat("EffectiveAttackRangeCacheSpreadTolerance", m_EffectiveAttackRangeCacheSpreadTolerance), 0.0f, 10.0f);
     m_EffectiveAttackRangeCacheDirectionDot = std::clamp(getFloat("EffectiveAttackRangeCacheDirectionDot", m_EffectiveAttackRangeCacheDirectionDot), 0.0f, 1.0f);
+    m_EffectiveAttackRangeMeleeDistance = std::clamp(getFloat("EffectiveAttackRangeMeleeDistance", m_EffectiveAttackRangeMeleeDistance), 1.0f, 512.0f);
+    m_EffectiveAttackRangeMeleeFanAngle = std::clamp(getFloat("EffectiveAttackRangeMeleeFanAngle", m_EffectiveAttackRangeMeleeFanAngle), 0.0f, 180.0f);
     m_EffectiveAttackRangeHitPointTolerance = std::clamp(getFloat("EffectiveAttackRangeHitPointTolerance", m_EffectiveAttackRangeHitPointTolerance), 0.0f, 64.0f);
     m_EffectiveAttackRangeHitPointSpreadScale = std::clamp(getFloat("EffectiveAttackRangeHitPointSpreadScale", m_EffectiveAttackRangeHitPointSpreadScale), 0.0f, 2.0f);
     m_EffectiveAttackRangeHitPointMaxTolerance = std::clamp(getFloat("EffectiveAttackRangeHitPointMaxTolerance", m_EffectiveAttackRangeHitPointMaxTolerance), m_EffectiveAttackRangeHitPointTolerance, 64.0f);
@@ -1570,6 +1572,26 @@ void VR::ParseConfigFile()
     }
     m_ShadowSettingsDirty.store(true, std::memory_order_release);
 
+    m_WriteOnlyPerformanceTweaksEnabled =
+        getBool("WriteOnlyPerformanceTweaksEnabled", m_WriteOnlyPerformanceTweaksEnabled);
+    m_WriteOnlyCvarThreadedBoneSetup =
+        std::clamp(getInt("cl_threaded_bone_setup", m_WriteOnlyCvarThreadedBoneSetup), 0, 1);
+    m_WriteOnlyCvarThreadedParticles =
+        std::clamp(getInt("r_threaded_particles", m_WriteOnlyCvarThreadedParticles), 0, 1);
+    m_WriteOnlyCvarQueuedDecals =
+        std::clamp(getInt("r_queued_decals", m_WriteOnlyCvarQueuedDecals), 0, 1);
+    m_WriteOnlyCvarQueuedPostProcessing =
+        std::clamp(getInt("r_queued_post_processing", m_WriteOnlyCvarQueuedPostProcessing), 0, 1);
+    m_WriteOnlyCvarRootLod =
+        std::clamp(getInt("r_rootlod", m_WriteOnlyCvarRootLod), -1, 2);
+    m_WriteOnlyCvarPropsMaxDist =
+        std::clamp(getFloat("r_propsmaxdist", m_WriteOnlyCvarPropsMaxDist), 0.0f, 32768.0f);
+    m_WriteOnlyCvarDetailDist =
+        std::clamp(getFloat("cl_detaildist", m_WriteOnlyCvarDetailDist), 0.0f, 32768.0f);
+    m_WriteOnlyCvarDetailFade =
+        std::clamp(getFloat("cl_detailfade", m_WriteOnlyCvarDetailFade), 0.0f, 32768.0f);
+    m_WriteOnlyPerformanceSettingsDirty.store(true, std::memory_order_release);
+
     ParseHapticsConfigFile();
 }
 
@@ -1924,6 +1946,250 @@ void VR::ApplyShadowSettingsIfNeeded()
         m_ShadowCvarNbShadowBlobbyDist,
         m_ShadowCvarNbShadowCullDist,
         m_ShadowCvarFlashlightInfectedShadows);
+}
+
+void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
+{
+    const bool dirty = m_WriteOnlyPerformanceSettingsDirty.exchange(false, std::memory_order_acq_rel);
+    if (!dirty)
+        return;
+
+    if (!m_Game || !m_Game->m_Initialized)
+    {
+        m_WriteOnlyPerformanceSettingsDirty.store(true, std::memory_order_release);
+        return;
+    }
+
+    if (!m_WriteOnlyPerformanceTweaksEnabled)
+    {
+        if (m_WriteOnlyPerformanceTweaksApplied && m_WriteOnlyPerformanceOriginalsCaptured)
+        {
+            RestoreWriteOnlyPerformanceDefaults();
+            Game::logMsg("[VR][WriteOnlyPerfTweaks] Disabled; restored one-shot snapshot defaults.");
+        }
+
+        m_WriteOnlyPerformanceTweaksApplied = false;
+        return;
+    }
+
+    if (!m_WriteOnlyPerformanceOriginalsCaptured)
+        CaptureWriteOnlyPerformanceDefaults();
+
+    int appliedCount = 0;
+    int verifiedCount = 0;
+
+    struct IntWriteResult
+    {
+        bool setOk = false;
+        int readback = 0;
+        bool readbackMatches = false;
+    };
+
+    struct FloatWriteResult
+    {
+        bool setOk = false;
+        float readback = 0.0f;
+        bool readbackMatches = false;
+    };
+
+    auto applyInt = [&](const char* name, int value) -> IntWriteResult
+        {
+            IntWriteResult result{};
+            result.setOk = m_Game->SetConVarInt(name, value);
+            result.readback = m_Game->GetConVarInt(name, INT32_MIN);
+            result.readbackMatches = (result.readback == value);
+            if (result.setOk)
+                ++appliedCount;
+            if (result.setOk && result.readbackMatches)
+                ++verifiedCount;
+            return result;
+        };
+
+    auto applyFloat = [&](const char* name, float value) -> FloatWriteResult
+        {
+            FloatWriteResult result{};
+            result.setOk = m_Game->SetConVarFloat(name, value);
+            result.readback = m_Game->GetConVarFloat(name, -999999.0f);
+            result.readbackMatches = (std::fabs(result.readback - value) <= 0.01f);
+            if (result.setOk)
+                ++appliedCount;
+            if (result.setOk && result.readbackMatches)
+                ++verifiedCount;
+            return result;
+        };
+
+    const IntWriteResult threadedBoneSetup = applyInt("cl_threaded_bone_setup", m_WriteOnlyCvarThreadedBoneSetup);
+    const IntWriteResult threadedParticles = applyInt("r_threaded_particles", m_WriteOnlyCvarThreadedParticles);
+    const IntWriteResult queuedDecals = applyInt("r_queued_decals", m_WriteOnlyCvarQueuedDecals);
+    const IntWriteResult queuedPostProcessing = applyInt("r_queued_post_processing", m_WriteOnlyCvarQueuedPostProcessing);
+    const IntWriteResult rootLod = applyInt("r_rootlod", m_WriteOnlyCvarRootLod);
+    const FloatWriteResult propsMaxDist = applyFloat("r_propsmaxdist", m_WriteOnlyCvarPropsMaxDist);
+    const FloatWriteResult detailDist = applyFloat("cl_detaildist", m_WriteOnlyCvarDetailDist);
+    const FloatWriteResult detailFade = applyFloat("cl_detailfade", m_WriteOnlyCvarDetailFade);
+
+    m_WriteOnlyPerformanceTweaksApplied = (appliedCount > 0);
+    Game::logMsg(
+        "[VR][WriteOnlyPerfTweaks] Applied %d/8 write-only controls, verified %d/8 by readback: "
+        "cl_threaded_bone_setup=%d(set=%d read=%d ok=%d) "
+        "r_threaded_particles=%d(set=%d read=%d ok=%d) "
+        "r_queued_decals=%d(set=%d read=%d ok=%d) "
+        "r_queued_post_processing=%d(set=%d read=%d ok=%d) "
+        "r_rootlod=%d(set=%d read=%d ok=%d) "
+        "r_propsmaxdist=%.1f(set=%d read=%.1f ok=%d) "
+        "cl_detaildist=%.1f(set=%d read=%.1f ok=%d) "
+        "cl_detailfade=%.1f(set=%d read=%.1f ok=%d)",
+        appliedCount,
+        verifiedCount,
+        m_WriteOnlyCvarThreadedBoneSetup,
+        threadedBoneSetup.setOk ? 1 : 0,
+        threadedBoneSetup.readback,
+        threadedBoneSetup.readbackMatches ? 1 : 0,
+        m_WriteOnlyCvarThreadedParticles,
+        threadedParticles.setOk ? 1 : 0,
+        threadedParticles.readback,
+        threadedParticles.readbackMatches ? 1 : 0,
+        m_WriteOnlyCvarQueuedDecals,
+        queuedDecals.setOk ? 1 : 0,
+        queuedDecals.readback,
+        queuedDecals.readbackMatches ? 1 : 0,
+        m_WriteOnlyCvarQueuedPostProcessing,
+        queuedPostProcessing.setOk ? 1 : 0,
+        queuedPostProcessing.readback,
+        queuedPostProcessing.readbackMatches ? 1 : 0,
+        m_WriteOnlyCvarRootLod,
+        rootLod.setOk ? 1 : 0,
+        rootLod.readback,
+        rootLod.readbackMatches ? 1 : 0,
+        m_WriteOnlyCvarPropsMaxDist,
+        propsMaxDist.setOk ? 1 : 0,
+        propsMaxDist.readback,
+        propsMaxDist.readbackMatches ? 1 : 0,
+        m_WriteOnlyCvarDetailDist,
+        detailDist.setOk ? 1 : 0,
+        detailDist.readback,
+        detailDist.readbackMatches ? 1 : 0,
+        m_WriteOnlyCvarDetailFade,
+        detailFade.setOk ? 1 : 0,
+        detailFade.readback,
+        detailFade.readbackMatches ? 1 : 0);
+}
+
+void VR::CaptureWriteOnlyPerformanceDefaults()
+{
+    if (!m_Game)
+        return;
+
+    m_WriteOnlyOrigThreadedBoneSetup =
+        m_Game->GetConVarInt("cl_threaded_bone_setup", m_WriteOnlyOrigThreadedBoneSetup);
+    m_WriteOnlyOrigThreadedParticles =
+        m_Game->GetConVarInt("r_threaded_particles", m_WriteOnlyOrigThreadedParticles);
+    m_WriteOnlyOrigQueuedDecals =
+        m_Game->GetConVarInt("r_queued_decals", m_WriteOnlyOrigQueuedDecals);
+    m_WriteOnlyOrigQueuedPostProcessing =
+        m_Game->GetConVarInt("r_queued_post_processing", m_WriteOnlyOrigQueuedPostProcessing);
+    m_WriteOnlyOrigRootLod =
+        m_Game->GetConVarInt("r_rootlod", m_WriteOnlyOrigRootLod);
+    m_WriteOnlyOrigPropsMaxDist =
+        m_Game->GetConVarFloat("r_propsmaxdist", m_WriteOnlyOrigPropsMaxDist);
+    m_WriteOnlyOrigDetailDist =
+        m_Game->GetConVarFloat("cl_detaildist", m_WriteOnlyOrigDetailDist);
+    m_WriteOnlyOrigDetailFade =
+        m_Game->GetConVarFloat("cl_detailfade", m_WriteOnlyOrigDetailFade);
+    m_WriteOnlyPerformanceOriginalsCaptured = true;
+
+    Game::logMsg(
+        "[VR][WriteOnlyPerfTweaks] Captured one-shot snapshot defaults: cl_threaded_bone_setup=%d "
+        "r_threaded_particles=%d r_queued_decals=%d r_queued_post_processing=%d r_rootlod=%d "
+        "r_propsmaxdist=%.1f cl_detaildist=%.1f cl_detailfade=%.1f",
+        m_WriteOnlyOrigThreadedBoneSetup,
+        m_WriteOnlyOrigThreadedParticles,
+        m_WriteOnlyOrigQueuedDecals,
+        m_WriteOnlyOrigQueuedPostProcessing,
+        m_WriteOnlyOrigRootLod,
+        m_WriteOnlyOrigPropsMaxDist,
+        m_WriteOnlyOrigDetailDist,
+        m_WriteOnlyOrigDetailFade);
+}
+
+void VR::RestoreWriteOnlyPerformanceDefaults()
+{
+    if (!m_Game || !m_WriteOnlyPerformanceOriginalsCaptured)
+        return;
+
+    int restoredCount = 0;
+    int verifiedCount = 0;
+
+    auto restoreInt = [&](const char* name, int value)
+        {
+            const bool setOk = m_Game->SetConVarInt(name, value);
+            const int readback = m_Game->GetConVarInt(name, INT32_MIN);
+            const bool readbackMatches = (readback == value);
+            if (setOk)
+                ++restoredCount;
+            if (setOk && readbackMatches)
+                ++verifiedCount;
+            return std::make_pair(readback, readbackMatches);
+        };
+
+    auto restoreFloat = [&](const char* name, float value)
+        {
+            const bool setOk = m_Game->SetConVarFloat(name, value);
+            const float readback = m_Game->GetConVarFloat(name, -999999.0f);
+            const bool readbackMatches = (std::fabs(readback - value) <= 0.01f);
+            if (setOk)
+                ++restoredCount;
+            if (setOk && readbackMatches)
+                ++verifiedCount;
+            return std::make_pair(readback, readbackMatches);
+        };
+
+    const auto threadedBoneSetup = restoreInt("cl_threaded_bone_setup", m_WriteOnlyOrigThreadedBoneSetup);
+    const auto threadedParticles = restoreInt("r_threaded_particles", m_WriteOnlyOrigThreadedParticles);
+    const auto queuedDecals = restoreInt("r_queued_decals", m_WriteOnlyOrigQueuedDecals);
+    const auto queuedPostProcessing = restoreInt("r_queued_post_processing", m_WriteOnlyOrigQueuedPostProcessing);
+    const auto rootLod = restoreInt("r_rootlod", m_WriteOnlyOrigRootLod);
+    const auto propsMaxDist = restoreFloat("r_propsmaxdist", m_WriteOnlyOrigPropsMaxDist);
+    const auto detailDist = restoreFloat("cl_detaildist", m_WriteOnlyOrigDetailDist);
+    const auto detailFade = restoreFloat("cl_detailfade", m_WriteOnlyOrigDetailFade);
+
+    Game::logMsg(
+        "[VR][WriteOnlyPerfTweaks] Restored %d/8 snapshot defaults, verified %d/8 by readback: "
+        "cl_threaded_bone_setup=%d(read=%d ok=%d) "
+        "r_threaded_particles=%d(read=%d ok=%d) "
+        "r_queued_decals=%d(read=%d ok=%d) "
+        "r_queued_post_processing=%d(read=%d ok=%d) "
+        "r_rootlod=%d(read=%d ok=%d) "
+        "r_propsmaxdist=%.1f(read=%.1f ok=%d) "
+        "cl_detaildist=%.1f(read=%.1f ok=%d) "
+        "cl_detailfade=%.1f(read=%.1f ok=%d)",
+        restoredCount,
+        verifiedCount,
+        m_WriteOnlyOrigThreadedBoneSetup,
+        threadedBoneSetup.first,
+        threadedBoneSetup.second ? 1 : 0,
+        m_WriteOnlyOrigThreadedParticles,
+        threadedParticles.first,
+        threadedParticles.second ? 1 : 0,
+        m_WriteOnlyOrigQueuedDecals,
+        queuedDecals.first,
+        queuedDecals.second ? 1 : 0,
+        m_WriteOnlyOrigQueuedPostProcessing,
+        queuedPostProcessing.first,
+        queuedPostProcessing.second ? 1 : 0,
+        m_WriteOnlyOrigRootLod,
+        rootLod.first,
+        rootLod.second ? 1 : 0,
+        m_WriteOnlyOrigPropsMaxDist,
+        propsMaxDist.first,
+        propsMaxDist.second ? 1 : 0,
+        m_WriteOnlyOrigDetailDist,
+        detailDist.first,
+        detailDist.second ? 1 : 0,
+        m_WriteOnlyOrigDetailFade,
+        detailFade.first,
+        detailFade.second ? 1 : 0);
+
+    m_WriteOnlyPerformanceOriginalsCaptured = false;
 }
 
 void VR::WaitForConfigUpdate()

@@ -553,6 +553,7 @@ public:
 	float m_AimLineEffectiveAttackRangeCacheSpread = -1.0f;
 	Vector m_AimLineEffectiveAttackRangeCacheHitPos = { 0.0f, 0.0f, 0.0f };
 	Vector m_AimLineEffectiveAttackRangeCacheDirection = { 0.0f, 0.0f, 0.0f };
+	bool m_AimLineEffectiveAttackRangeCacheRelaxedMovement = false;
 	int m_EffectiveAttackRangeColorR = 0;
 	int m_EffectiveAttackRangeColorG = 255;
 	int m_EffectiveAttackRangeColorB = 0;
@@ -563,6 +564,8 @@ public:
 	float m_EffectiveAttackRangeCacheDistanceTolerance = 24.0f;
 	float m_EffectiveAttackRangeCacheSpreadTolerance = 0.10f;
 	float m_EffectiveAttackRangeCacheDirectionDot = 0.9990f;
+	float m_EffectiveAttackRangeMeleeDistance = 70.0f;
+	float m_EffectiveAttackRangeMeleeFanAngle = 90.0f;
 	float m_EffectiveAttackRangeHitPointTolerance = 8.0f;
 	float m_EffectiveAttackRangeHitPointSpreadScale = 0.50f;
 	float m_EffectiveAttackRangeHitPointMaxTolerance = 24.0f;
@@ -1190,6 +1193,30 @@ public:
 	std::unordered_map<int, ShadowControlEntityDefaults> m_ShadowControlEntityDefaults;
 	std::unordered_map<int, EnvProjectedTextureEntityDefaults> m_EnvProjectedTextureEntityDefaults;
 	std::atomic<bool> m_ShadowSettingsDirty{ true };
+
+	// Write-only performance cvar tweaks.
+	// These are pushed through VEngineCvar on update, with a one-shot snapshot restore path.
+	// The Orig* values below also serve as fallback restore targets if capture ever fails.
+	bool m_WriteOnlyPerformanceTweaksEnabled = false;
+	bool m_WriteOnlyPerformanceTweaksApplied = false;
+	bool m_WriteOnlyPerformanceOriginalsCaptured = false;
+	int m_WriteOnlyCvarThreadedBoneSetup = 1;
+	int m_WriteOnlyCvarThreadedParticles = 1;
+	int m_WriteOnlyCvarQueuedDecals = 1;
+	int m_WriteOnlyCvarQueuedPostProcessing = 1;
+	int m_WriteOnlyCvarRootLod = 1;
+	float m_WriteOnlyCvarPropsMaxDist = 600.0f;
+	float m_WriteOnlyCvarDetailDist = 0.0f;
+	float m_WriteOnlyCvarDetailFade = 0.0f;
+	int m_WriteOnlyOrigThreadedBoneSetup = 0;
+	int m_WriteOnlyOrigThreadedParticles = 1;
+	int m_WriteOnlyOrigQueuedDecals = 0;
+	int m_WriteOnlyOrigQueuedPostProcessing = 0;
+	int m_WriteOnlyOrigRootLod = 1;
+	float m_WriteOnlyOrigPropsMaxDist = 1200.0f;
+	float m_WriteOnlyOrigDetailDist = 400.0f;
+	float m_WriteOnlyOrigDetailFade = 250.0f;
+	std::atomic<bool> m_WriteOnlyPerformanceSettingsDirty{ true };
 
 	bool m_DrawInventoryAnchors = false;
 	int m_InventoryAnchorColorR = 0;
@@ -1931,6 +1958,9 @@ public:
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
 	void ApplyShadowSettingsIfNeeded();
+	void ApplyWriteOnlyPerformanceSettingsIfNeeded();
+	void CaptureWriteOnlyPerformanceDefaults();
+	void RestoreWriteOnlyPerformanceDefaults();
 	void CaptureShadowCvarDefaults();
 	void RestoreShadowCvarDefaults();
 	void ApplyShadowEntityOverrides(bool forceRefresh);
@@ -2136,6 +2166,7 @@ public:
 	float GetEffectiveAttackRangeSpreadDegrees(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, const EffectiveAttackRangeWeaponData& data) const;
 	float GetEffectiveAttackRangeHitPointTolerance(const Vector& start, const Vector& centerHitPos, float spreadDegrees, float maxRange) const;
 	bool DoesEffectiveAttackRangeSpreadConeHitTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, C_BaseEntity* hitEntity, const Vector& start, const Vector& end, const Vector& centerHitPos, float spreadDegrees, float maxRange) const;
+	bool TryFindEffectiveAttackRangeMeleeFanTarget(C_BasePlayer* localPlayer, C_WeaponCSBase* weapon, const Vector& start, const Vector& end, float maxDistance, C_BaseEntity*& outTarget, Vector& outTargetPos, float& outDistance) const;
 	void FinishFrame();
 	void ConfigureExplicitTiming();
 };
