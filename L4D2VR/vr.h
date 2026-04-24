@@ -1231,12 +1231,15 @@ public:
 	float m_AutoFlashlightManualOverrideSeconds = 6.0f;
 	bool m_AutoFlashlightDebugLog = false;
 	float m_AutoFlashlightDebugLogHz = 2.0f;
-	bool m_AutoFlashlightHasSmoothedLuma = false;
-	float m_AutoFlashlightSmoothedLuma = 255.0f;
+	bool m_AutoFlashlightHasSmoothedForwardLuma = false;
+	float m_AutoFlashlightSmoothedForwardLuma = 255.0f;
+	bool m_AutoFlashlightHasSmoothedAmbientLuma = false;
+	float m_AutoFlashlightSmoothedAmbientLuma = 255.0f;
 	bool m_AutoFlashlightHasKnownState = false;
 	bool m_AutoFlashlightLastKnownOn = false;
 	std::chrono::steady_clock::time_point m_AutoFlashlightNextSampleTime{};
-	std::chrono::steady_clock::time_point m_AutoFlashlightLastSampleTime{};
+	std::chrono::steady_clock::time_point m_AutoFlashlightLastForwardSampleTime{};
+	std::chrono::steady_clock::time_point m_AutoFlashlightLastAmbientSampleTime{};
 	std::chrono::steady_clock::time_point m_AutoFlashlightLastToggleTime{};
 	std::chrono::steady_clock::time_point m_AutoFlashlightManualOverrideUntil{};
 	std::chrono::steady_clock::time_point m_AutoFlashlightLastDebugLog{};

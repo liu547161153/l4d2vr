@@ -53,3 +53,7 @@ extern char g_OptionSearch[128];
 
 // UI
 void DrawOptionsUI();
+
+// Config whitelist
+bool IsAllowedOptionKey(const std::string& key);
+std::string GetOptionDefaultValue(const Option& opt);

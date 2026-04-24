@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <cfloat>
 #include <algorithm>
+#include <sstream>
+#include <vector>
 
 // Search box text (typed in main.cpp)
 char g_OptionSearch[128] = "";
@@ -13,6 +15,189 @@ char g_OptionSearch[128] = "";
 static const char* L(const L10nText& t)
 {
     return (g_UseChinese && t.zh && *t.zh) ? t.zh : t.en;
+}
+
+static const char* kAllowedDefaultsText = R"(VRScale=43.2
+IPDScale=1.0
+TurnSpeed=0.3
+SnapTurning=false
+SnapTurnAngle=45.0
+LeftHanded=false
+AntiAliasing=0
+
+ThirdPersonCameraFollowHmd=true
+ThirdPersonVRCameraOffset=38
+
+AutoMatQueueMode=false
+WriteOnlyPerformanceTweaksEnabled=false
+
+
+LeftWristHudEnabled=false
+LeftWristHudWidthMeters=0.1
+LeftWristHudXOffset=0.01
+LeftWristHudYOffset=0.01
+LeftWristHudZOffset=-0.0
+LeftWristHudAngleOffset=-75,0,0
+RightAmmoHudEnabled=false
+RightAmmoHudWidthMeters=0.8
+RightAmmoHudXOffset=-0.07
+RightAmmoHudYOffset=0.03
+RightAmmoHudZOffset=-0.09
+RightAmmoHudAngleOffset=-75,0,0
+
+ForceNonVRServerMovement=false
+MoveDirectionFromController=false
+
+cmd=exec cam.cfg
+HudDistance=1.3
+HudSize=1.3
+HudAlwaysVisible=false
+ControllerSmoothing=0.0
+HideArms=false
+ViewmodelDisableMoveBob=false
+
+RequireSecondaryAttackForItemSwitch=false
+VoiceRecordCombo=Crouch+Reload
+QuickTurnCombo=SecondaryAttack+Crouch
+ViewmodelAdjustEnabled=false
+ViewmodelAdjustCombo=Reload+SecondaryAttack
+
+AimLineOnlyWhenLaserSight=false
+BlockFireOnFriendlyAimEnabled=false
+
+D3DAimLineOverlayEnabled=false
+D3DAimLineOverlayWidthPixels=2.0
+D3DAimLineOverlayOutlinePixels=1.0
+D3DAimLineOverlayEndpointPixels=1.5
+D3DAimLineOverlayColor=255,0,0,100
+D3DAimLineOverlayOutlineColor=255,0,0,1
+
+MotionGestureSwingThreshold=2
+MotionGesturePushThreshold=1.5
+MotionGestureDownSwingThreshold=2.0
+MotionGestureJumpThreshold=2.0
+MotionGestureCooldown=0.8
+MotionGestureHoldDuration=0.2
+
+
+InventoryGestureRange=0.16
+InventoryBodyOriginOffset=-0.1,0.0,-0.28
+InventoryChestOffset=0.45,0.0,0.5
+InventoryBackOffset=0.12,0.0,0.1
+InventoryLeftWaistOffset=0.45,-0.28,0.25
+InventoryRightWaistOffset=0.45,0.28,0.25
+ 
+ShowInventoryAnchors=true
+InventoryAnchorColor=0,255,255,255
+InventoryHudMarkerDistance=0.45
+InventoryHudMarkerUpOffset=-0.10
+InventoryHudMarkerSeparation=0.14
+
+InventoryQuickSwitchEnabled=true
+InventoryQuickSwitchOffset=0.05,0.2,0.2  
+InventoryQuickSwitchZoneRadius=0.15    
+
+CustomAction1Command=thirdpersonshoulder
+CustomAction2Command=
+CustomAction3Command=
+CustomAction4Command=
+CustomAction5Command=
+
+ScopeEnabled=false
+ScopeRTTSize=512
+ScopeFov=20
+ScopeMagnification=20,15,5,3
+ScopeAimSensitivityScale=60,40,35,15
+ScopeZNear=2
+ScopeCameraOffset=12,0,3
+ScopeCameraAngleOffset=0,0,0
+ScopeOverlayWidthMeters=0.3
+ScopeOverlayXOffset=0.02
+ScopeOverlayYOffset=0.04
+ScopeOverlayZOffset=-0.06
+ScopeOverlayAngleOffset=-45,-5,-5
+ScopeRequireLookThrough=true
+ScopeLookThroughDistanceMeters=0.5
+ScopeLookThroughAngleDeg=60
+ScopeOverlayAlwaysVisible=false
+ScopeOverlayIdleAlpha=0.5
+ScopeStabilizationEnabled=true
+ScopeStabilizationMinCutoff=0.5
+ScopeStabilizationBeta=0.5
+ScopeStabilizationDCutoff=1.0
+
+
+MouseModeEnabled=false
+MouseModeYawSensitivity=0.01
+MouseModePitchSensitivity=0.01
+MouseModeViewmodelAnchorOffset=0.42,0.0,-0.28
+MouseModeAimConvergeDistance=2048
+MouseModeTurnSmoothing=0.03
+MouseModePitchSmoothing=0.03
+MouseModePitchAffectsView=true
+MouseModeAimFromHmd=true
+MouseModeScopedViewmodelAnchorOffset=0.35,0.0,-0.13
+MouseModeHmdAimSensitivity=1
+MouseModeScopeOverlayOffset=0,-0.02,-0.3
+MouseModeScopeOverlayAngleOffset=0,0,0
+MouseModeScopeSensitivityScale=50,25,15,5
+MouseModeScopeToggleKey=key:q
+MouseModeScopeMagnificationKey=key:z
+
+AutoRepeatSemiAutoFire=false
+AutoRepeatSemiAutoFireHz=20.0
+AutoRepeatSprayPushEnabled=false
+AutoRepeatSprayPushDelayTicks=0
+AutoRepeatSprayPushHoldTicks=1
+AutoFastMelee=false
+AutoFastMeleeShoveEcho=true
+AutoFastMeleeUseWeaponSwitch=true
+AutoFastMeleePushWaitTicks=2
+AutoFastMeleePostWaitTicks=29
+
+HitSoundEnabled=false
+KillSoundEnabled=false
+HitSoundSpec=game:vrmod/hit.mp3
+KillSoundNormalSpec=game:vrmod/kill.mp3
+KillSoundHeadshotSpec=game:vrmod/headshot.mp3
+HitSoundVolume=1.2
+KillSoundVolume=1.8
+HeadshotSoundVolume=1.3
+
+HitIndicatorEnabled=false
+KillIndicatorEnabled=false
+KillIndicatorMaterialBaseSpec=overlays/2965700751
+
+
+ShadowTweaksEnabled=false
+EffectiveAttackRangeAutoFireEnabled=false
+AutoFlashlightEnabled=true
+)";
+
+static const std::unordered_map<std::string, std::string>& GetAllowedDefaultOverrides()
+{
+    static const std::unordered_map<std::string, std::string> overrides = []()
+    {
+        std::unordered_map<std::string, std::string> map;
+        std::istringstream stream(kAllowedDefaultsText);
+        std::string line;
+        while (std::getline(stream, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            if (line.empty())
+                continue;
+
+            const size_t eq = line.find('=');
+            if (eq == std::string::npos)
+                continue;
+
+            map.emplace(line.substr(0, eq), line.substr(eq + 1));
+        }
+        return map;
+    }();
+
+    return overrides;
 }
 
 // ----------------------------
@@ -70,7 +255,25 @@ static std::string GetStr(const std::string& key)
 
 static std::string GetDefaultStr(const Option& opt)
 {
+    if (opt.key)
+    {
+        const auto& overrides = GetAllowedDefaultOverrides();
+        const auto it = overrides.find(opt.key);
+        if (it != overrides.end())
+            return it->second;
+    }
+
     return (opt.defaultValue && *opt.defaultValue) ? std::string(opt.defaultValue) : std::string();
+}
+
+bool IsAllowedOptionKey(const std::string& key)
+{
+    return GetAllowedDefaultOverrides().find(key) != GetAllowedDefaultOverrides().end();
+}
+
+std::string GetOptionDefaultValue(const Option& opt)
+{
+    return GetDefaultStr(opt);
 }
 
 static bool ParseBool(const std::string& s, bool defVal)
@@ -159,9 +362,24 @@ static bool IsEnabled(const char* key, bool defVal = false)
     return GetBool(key, defVal);
 }
 
+static bool GetHitKillIndicatorsEnabled()
+{
+    return GetBool("KillIndicatorEnabled", false) || GetBool("HitIndicatorEnabled", false);
+}
+
+static void SetHitKillIndicatorsEnabled(bool enabled)
+{
+    const char* value = enabled ? "true" : "false";
+    g_Values["KillIndicatorEnabled"] = value;
+    g_Values["HitIndicatorEnabled"] = value;
+}
+
 static bool IsOptionVisible(const Option& opt)
 {
     const char* key = opt.key;
+
+    if (std::strcmp(key, "HitIndicatorEnabled") == 0)
+        return false;
 
     // Key groups hidden behind their main feature toggles.
     if (StartsWith(key, "MouseMode") && std::strcmp(key, "MouseModeEnabled") != 0)
@@ -176,6 +394,9 @@ static bool IsOptionVisible(const Option& opt)
     if (StartsWith(key, "InventoryQuickSwitch") && std::strcmp(key, "InventoryQuickSwitchEnabled") != 0)
         return IsEnabled("InventoryQuickSwitchEnabled");
 
+    if (StartsWith(key, "D3DAimLineOverlay") && std::strcmp(key, "D3DAimLineOverlayEnabled") != 0)
+        return IsEnabled("D3DAimLineOverlayEnabled");
+
     if (StartsWith(key, "Scope") && std::strcmp(key, "ScopeEnabled") != 0)
     {
         if (!IsEnabled("ScopeEnabled"))
@@ -185,6 +406,9 @@ static bool IsOptionVisible(const Option& opt)
         if ((std::strcmp(key, "ScopeLookThroughDistanceMeters") == 0 || std::strcmp(key, "ScopeLookThroughAngleDeg") == 0) &&
             !IsEnabled("ScopeRequireLookThrough"))
             return false;
+
+        if (StartsWith(key, "ScopeStabilization") && std::strcmp(key, "ScopeStabilizationEnabled") != 0)
+            return IsEnabled("ScopeStabilizationEnabled", true);
     }
 
     // Individual dependency rules.
@@ -250,6 +474,12 @@ static bool IsOptionVisible(const Option& opt)
         std::strcmp(key, "AutoRepeatSprayPushEnabled") == 0)
         return IsEnabled("AutoRepeatSemiAutoFire");
 
+    if (std::strcmp(key, "AutoRepeatSprayPushDelayTicks") == 0 ||
+        std::strcmp(key, "AutoRepeatSprayPushHoldTicks") == 0)
+    {
+        return IsEnabled("AutoRepeatSemiAutoFire") && IsEnabled("AutoRepeatSprayPushEnabled");
+    }
+
     if (StartsWith(key, "AutoFastMelee") && std::strcmp(key, "AutoFastMelee") != 0)
         return IsEnabled("AutoFastMelee");
 
@@ -264,8 +494,6 @@ static bool IsOptionVisible(const Option& opt)
         std::strcmp(key, "KillSoundVolume") == 0 ||
         std::strcmp(key, "HeadshotSoundVolume") == 0)
     {
-        if (std::strcmp(key, "KillSoundVolume") == 0 || std::strcmp(key, "HeadshotSoundVolume") == 0)
-            return false;
         return IsEnabled("KillSoundEnabled");
     }
 
@@ -274,7 +502,7 @@ static bool IsOptionVisible(const Option& opt)
         return IsEnabled("HitSoundEnabled") || IsEnabled("KillSoundEnabled");
 
     if (StartsWith(key, "KillIndicator") && std::strcmp(key, "KillIndicatorEnabled") != 0)
-        return IsEnabled("KillIndicatorEnabled");
+        return GetHitKillIndicatorsEnabled();
 
     if (std::strcmp(key, "AimLineOnlyWhenLaserSight") == 0 ||
         std::strcmp(key, "EffectiveAttackRangeAutoFireEnabled") == 0 ||
@@ -650,60 +878,47 @@ Option g_Options[] =
         "false"
     },
 
-    // Movement / Roomscale
-    {
-        "Roomscale1To1Movement",
-        OptionType::Bool,
-        { u8"Movement / Roomscale", u8"移动 / 房间规模" },
-        { u8"Enable 1:1 Roomscale Server Movement", u8"启用 1:1 房间规模移动" },
-        { u8"When enabled (and ForceNonVRServerMovement=false), room-scale HMD translation is applied to the player entity on VR-aware servers.",
-          u8"开启后（且 ForceNonVRServerMovement=false），会在支持VR的服务器上把HMD的平面位移应用到玩家实体。" },
-        { u8"Disable on servers that don't run the VR plugin.",
-          u8"如果服务器不跑VR插件请关闭。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "Roomscale1To1MinApplyMeters",
-        OptionType::Float,
-        { u8"Movement / Roomscale", u8"移动 / 房间规模" },
-        { u8"Minimum Move Threshold (m)", u8"最小触发移动距离（米）" },
-        { u8"Ignores micro head jitter. Player won't move unless the required movement exceeds this threshold.",
-          u8"忽略头部微小抖动；小于该阈值不会触发人物移动。" },
-        { u8"Helps avoid conflicts with thumbstick locomotion.",
-          u8"可减少与摇杆移动冲突。" },
-        0.0f, 0.20f,
-        "0.02"
-    },
     // Performance / Rendering
     {
         "AutoMatQueueMode",
         OptionType::Bool,
-        { u8"Performance / Rendering", u8"性能 / 渲染" },
-        { u8"Multi-core rendering(Experimental)", u8"多核渲染（实验）" },
-        { u8"Automatically switches mat_queue_mode depending on game state (menus/loading/paused vs in-game).",
-          u8"根据游戏状态（主菜单/加载/暂停 vs 游戏中）自动切换 mat_queue_mode。" },
-        { u8"Recommended for multi-core rendering. When enabled, QueuedRender* options become available.",
-          u8"建议用于多核渲染。开启后将显示 QueuedRender* 相关调节项。" },
+        { u8"Performance", u8"性能" },
+        { u8"Multi-core rendering", u8"多核渲染" },
+        { u8"Turns on multi-core rendering for the mod. Do not enable the in-game multi-core rendering option.",
+          u8"用于开启工具内的多核渲染功能，不要去开启游戏里的多核渲染选项。" },
+        { u8"May cause ghosting. Not recommended for standing play.",
+          u8"开启后可能出现重影，不建议站姿游玩时使用。" },
         0.0f, 0.0f,
         "false"
     },
     {
         "ShadowTweaksEnabled",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Enable Shadow Optimization Controls", u8"启用阴影优化控制" },
-        { u8"Applies shadow-related client cvars directly through the engine instead of sending console commands.",
-          u8"通过引擎内部直接写入阴影相关客户端变量，而不是发送控制台命令。" },
-        { u8"Turn this on to expose the shadow controls below and use the recommended reduced-shadow defaults.",
-          u8"开启后会显示下面的阴影控制项，并使用推荐的降阴影默认值。" },
+        { u8"Simplify shadow rendering to improve performance.",
+          u8"简化阴影显示，提高性能。" },
+        { u8"",
+          u8"" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "WriteOnlyPerformanceTweaksEnabled",
+        OptionType::Bool,
+        { u8"Performance", u8"性能" },
+        { u8"Enable Model Render Distance Tweaks", u8"启用模型渲染距离优化" },
+        { u8"",
+          u8"" },
+        { u8"Useful if some models stay visible too far away and you want a more aggressive distance setup to save performance.",
+          u8"如果有些模型在较远距离仍然参与渲染，想用更激进的距离设置来节省性能，可以开启。" },
         0.0f, 0.0f,
         "false"
     },
     {
         "r_shadows",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Enable Dynamic Shadows", u8"启用动态阴影" },
         { u8"Master switch for dynamic shadows.",
           u8"动态阴影总开关。" },
@@ -715,7 +930,7 @@ Option g_Options[] =
     {
         "r_shadowrendertotexture",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Render Shadows To Texture", u8"阴影渲染到纹理" },
         { u8"Controls render-to-texture shadow maps used by the client shadow manager.",
           u8"控制客户端阴影管理器使用的阴影贴图渲染路径。" },
@@ -727,7 +942,7 @@ Option g_Options[] =
     {
         "r_flashlightdepthtexture",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Flashlight Depth Shadows", u8"手电深度阴影" },
         { u8"Enables depth-texture shadows for flashlights and projected lights.",
           u8"启用手电和投射光使用的深度纹理阴影。" },
@@ -739,7 +954,7 @@ Option g_Options[] =
     {
         "r_flashlightdepthres",
         OptionType::Int,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Flashlight Shadow Resolution", u8"手电阴影分辨率" },
         { u8"Resolution of the flashlight shadow depth texture.",
           u8"手电阴影深度纹理的分辨率。" },
@@ -751,7 +966,7 @@ Option g_Options[] =
     {
         "r_shadow_half_update_rate",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Half-Rate Shadow Updates", u8"阴影半速更新" },
         { u8"Updates client shadows at half the frame rate.",
           u8"让客户端阴影按半帧率更新。" },
@@ -763,7 +978,7 @@ Option g_Options[] =
     {
         "r_shadowmaxrendered",
         OptionType::Int,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Max Rendered Shadows", u8"每帧最大阴影数量" },
         { u8"Caps how many shadows the client renders.",
           u8"限制客户端实际渲染的阴影数量。" },
@@ -775,7 +990,7 @@ Option g_Options[] =
     {
         "cl_max_shadow_renderable_dist",
         OptionType::Float,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Shadow Render Distance", u8"阴影渲染距离" },
         { u8"Maximum distance from the camera for rendering shadow casters/receivers.",
           u8"相机周围参与阴影渲染的最大距离。" },
@@ -787,7 +1002,7 @@ Option g_Options[] =
     {
         "r_FlashlightDetailProps",
         OptionType::Int,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Flashlight Detail Props", u8"手电影响细节物件" },
         { u8"Controls whether flashlight lighting/shadow passes affect detail props.",
           u8"控制手电光照/阴影是否作用到细节物件。" },
@@ -799,7 +1014,7 @@ Option g_Options[] =
     {
         "z_mob_simple_shadows",
         OptionType::Int,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Infected Shadow Quality", u8"尸群阴影质量" },
         { u8"Controls common infected shadow quality: 0 = full, 1 = blob, 2 = off.",
           u8"控制普通感染者阴影质量：0=完整，1=团块，2=关闭。" },
@@ -811,7 +1026,7 @@ Option g_Options[] =
     {
         "r_shadowfromworldlights",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"World-Light Shadows", u8"世界光源阴影" },
         { u8"Allows dynamic shadows to be cast from world lights.",
           u8"允许世界光源投射动态阴影。" },
@@ -823,7 +1038,7 @@ Option g_Options[] =
     {
         "r_flashlightmodels",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Flashlight On Models", u8"手电影响模型" },
         { u8"Allows flashlight shadowing/lighting work on renderable models.",
           u8"允许手电对可渲染模型进行光照/阴影处理。" },
@@ -835,7 +1050,7 @@ Option g_Options[] =
     {
         "r_shadows_on_renderables_enable",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Shadows On Renderables", u8"阴影投到可渲染物" },
         { u8"Controls whether RTT shadows are allowed to cast onto other renderables.",
           u8"控制 RTT 阴影是否允许投射到其他可渲染物体上。" },
@@ -847,7 +1062,7 @@ Option g_Options[] =
     {
         "r_flashlightrendermodels",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Flashlight Render Models", u8"手电渲染模型" },
         { u8"Engine-side switch for flashlight rendering on models.",
           u8"控制手电是否在模型上走渲染路径的引擎侧开关。" },
@@ -859,7 +1074,7 @@ Option g_Options[] =
     {
         "cl_player_shadow_dist",
         OptionType::Float,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Player Shadow Distance", u8"玩家阴影距离" },
         { u8"Maximum distance for player shadow rendering.",
           u8"玩家阴影的最大渲染距离。" },
@@ -871,7 +1086,7 @@ Option g_Options[] =
     {
         "z_infected_shadows",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Infected Dynamic Shadows", u8"感染者动态阴影" },
         { u8"Controls dynamic shadows on infected.",
           u8"控制感染者的动态阴影。" },
@@ -883,7 +1098,7 @@ Option g_Options[] =
     {
         "nb_shadow_blobby_dist",
         OptionType::Float,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"NPC Blob Shadow Distance", u8"NPC 团块阴影距离" },
         { u8"Distance budget for blob-style shadows used by NPCs.",
           u8"NPC 团块式阴影的距离预算。" },
@@ -895,7 +1110,7 @@ Option g_Options[] =
     {
         "nb_shadow_cull_dist",
         OptionType::Float,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"NPC Shadow Cull Distance", u8"NPC 阴影裁剪距离" },
         { u8"Cull distance for NPC shadows.",
           u8"NPC 阴影的裁剪距离。" },
@@ -907,7 +1122,7 @@ Option g_Options[] =
     {
         "r_flashlightinfectedshadows",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Flashlight Infected Shadows", u8"手电感染者阴影" },
         { u8"Controls flashlight shadowing on infected.",
           u8"控制手电对感染者产生的阴影。" },
@@ -919,7 +1134,7 @@ Option g_Options[] =
     {
         "ShadowEntityTweaksEnabled",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Enable Entity Shadow Overrides", u8"启用实体阴影覆盖" },
         { u8"Overrides ShadowControl / EnvProjectedTexture netvars discovered from client.dll.",
           u8"覆盖从 client.dll 里找到的 ShadowControl / EnvProjectedTexture 网络字段。" },
@@ -931,7 +1146,7 @@ Option g_Options[] =
     {
         "ShadowControlDisableShadows",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"ShadowControl Disable Shadows", u8"ShadowControl 禁用阴影" },
         { u8"Writes m_bDisableShadows on CShadowControl entities.",
           u8"直接写入 CShadowControl 实体上的 m_bDisableShadows。" },
@@ -943,7 +1158,7 @@ Option g_Options[] =
     {
         "ShadowControlMaxDist",
         OptionType::Float,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"ShadowControl Max Distance", u8"ShadowControl 最大距离" },
         { u8"Writes m_flShadowMaxDist on CShadowControl entities.",
           u8"直接写入 CShadowControl 实体上的 m_flShadowMaxDist。" },
@@ -955,7 +1170,7 @@ Option g_Options[] =
     {
         "ShadowControlLocalLightShadows",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"ShadowControl Local Lights", u8"ShadowControl 局部光阴影" },
         { u8"Writes m_bEnableLocalLightShadows on CShadowControl entities.",
           u8"直接写入 CShadowControl 实体上的 m_bEnableLocalLightShadows。" },
@@ -967,7 +1182,7 @@ Option g_Options[] =
     {
         "ProjectedTextureEnableShadows",
         OptionType::Bool,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Projected Texture Shadows", u8"投射纹理阴影" },
         { u8"Writes m_bEnableShadows on CEnvProjectedTexture entities.",
           u8"直接写入 CEnvProjectedTexture 实体上的 m_bEnableShadows。" },
@@ -979,7 +1194,7 @@ Option g_Options[] =
     {
         "ProjectedTextureShadowQuality",
         OptionType::Int,
-        { u8"Performance / Shadows", u8"性能 / 阴影" },
+        { u8"Performance", u8"性能" },
         { u8"Projected Texture Quality", u8"投射纹理阴影质量" },
         { u8"Writes m_nShadowQuality on CEnvProjectedTexture entities.",
           u8"直接写入 CEnvProjectedTexture 实体上的 m_nShadowQuality。" },
@@ -1264,9 +1479,9 @@ Option g_Options[] =
         "ViewmodelAdjustEnabled",
         OptionType::Bool,
         { u8"Interaction / Combos", u8"交互 / 组合键" },
-        { u8"Enable Viewmodel Adjustment", u8"启用视模调整" },
-        { u8"Allows saving manual weapon/viewmodel offsets in VR.",
-          u8"允许在VR中保存武器/视模的手动偏移。" },
+        { u8"Enable Weapon Position Adjustment", u8"启用武器位置调整" },
+        { u8"Allows saving manual weapon model offsets in VR.",
+          u8"允许在VR中保存武器模型的位置偏移。" },
         { u8"", u8"" },
         0.0f, 0.0f,
         "true"
@@ -1275,9 +1490,9 @@ Option g_Options[] =
         "ViewmodelAdjustCombo",
         OptionType::String,
         { u8"Interaction / Combos", u8"交互 / 组合键" },
-        { u8"Viewmodel Adjust Combo", u8"视模调整组合键" },
-        { u8"Action combo to toggle viewmodel adjustment mode.",
-          u8"用于切换视模调整模式的组合动作。" },
+        { u8"Weapon Position Adjust Combo", u8"武器位置调整组合键" },
+        { u8"Action combo to toggle weapon position adjustment mode.",
+          u8"用于切换武器位置调整模式的组合动作。" },
         { u8"Set to \"false\" to disable if you never edit offsets.",
           u8"若不需要可设为 \"false\" 禁用。" },
         0.0f, 0.0f,
@@ -1287,11 +1502,11 @@ Option g_Options[] =
         "ViewmodelDisableMoveBob",
         OptionType::Bool,
         { u8"Interaction / Combos", u8"交互 / 组合键" },
-        { u8"Disable Viewmodel Move Bob", u8"禁用视模移动晃动" },
-        { u8"Disables movement bob/sway on the first-person viewmodel.",
-          u8"禁用第一人称视模随移动产生的晃动/摆动。" },
-        { u8"When enabled, weapon/viewmodel appears more stable while moving.",
-          u8"开启后，移动时武器/视模会更稳定。" },
+        { u8"Disable Weapon Move Bob", u8"禁用武器移动晃动" },
+        { u8"Disables movement bob/sway on the first-person weapon model.",
+          u8"禁用第一人称武器模型随移动产生的晃动/摆动。" },
+        { u8"When enabled, the weapon model appears more stable while moving.",
+          u8"开启后，移动时武器模型会更稳定。" },
         0.0f, 0.0f,
         "false"
     },
@@ -1545,17 +1760,6 @@ Option g_Options[] =
         { u8"Enable Melee Aim Line", u8"启用近战瞄准线" },
         { u8"Shows the aim line when wielding melee weapons.",
           u8"在使用近战武器时仍显示瞄准线。" },
-        { u8"", u8"" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
-        "AimLineOnlyWhenLaserSight",
-        OptionType::Bool,
-        { u8"Aim Assist", u8"辅助瞄准" },
-        { u8"Enable aimline only when laser is obtained", u8"仅获得激光时启用瞄准线" },
-        { u8"",
-          u8"" },
         { u8"", u8"" },
         0.0f, 0.0f,
         "true"
@@ -2036,6 +2240,402 @@ Option g_Options[] =
         { u8"", u8"" },
         0.0f, 0.0f,
         ""
+    },
+    {
+        "AntiAliasing",
+        OptionType::Int,
+        { u8"Performance", u8"性能" },
+        { u8"Anti-Aliasing Level", u8"抗锯齿级别" },
+        { u8"Controls the anti-aliasing level used by the VR rendering path.",
+          u8"控制 VR 渲染路径使用的抗锯齿级别。" },
+        { u8"0 disables anti-aliasing. Raise it only if your GPU has headroom.",
+          u8"0 表示关闭抗锯齿。只有在显卡余量充足时再提高。" },
+        0.0f, 8.0f,
+        "0"
+    },
+    {
+        "ThirdPersonCameraFollowHmd",
+        OptionType::Bool,
+        { u8"Camera / Third Person", u8"相机 / 第三人称" },
+        { u8"Third-Person Camera Follows HMD", u8"第三人称相机跟随头显" },
+        { u8"When enabled, the third-person VR camera tracks your HMD orientation.",
+          u8"开启后，第三人称 VR 相机会跟随你的头显朝向。" },
+        { u8"Useful when using shoulder or detached third-person views.",
+          u8"适合肩后视角或分离式第三人称视角。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "ThirdPersonVRCameraOffset",
+        OptionType::Float,
+        { u8"Camera / Third Person", u8"相机 / 第三人称" },
+        { u8"Third-Person Camera Offset", u8"第三人称相机偏移" },
+        { u8"Distance offset applied to the third-person VR camera.",
+          u8"应用到第三人称 VR 相机的距离偏移。" },
+        { u8"Positive values usually move the camera farther back.",
+          u8"正值通常会把相机拉得更靠后。" },
+        -200.0f, 200.0f,
+        "38"
+    },
+    {
+        "D3DAimLineOverlayEnabled",
+        OptionType::Bool,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Enable D3D Aim-Line Overlay", u8"启用 D3D 瞄准线覆盖层" },
+        { u8"Draws a screen-space aim line overlay using the D3D layer.",
+          u8"使用 D3D 层绘制屏幕空间的瞄准线覆盖层。" },
+        { u8"Useful if you want a flat overlay instead of only world-space helpers.",
+          u8"如果你想使用平面覆盖层，而不只依赖世界空间辅助线，可以开启。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "D3DAimLineOverlayWidthPixels",
+        OptionType::Float,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"D3D Aim-Line Width", u8"D3D 瞄准线宽度" },
+        { u8"Pixel width of the D3D aim-line overlay.",
+          u8"D3D 瞄准线覆盖层的像素宽度。" },
+        { u8"Increase only if the line is too thin to see clearly.",
+          u8"只有在瞄准线太细时再调大。" },
+        0.0f, 20.0f,
+        "2.0"
+    },
+    {
+        "D3DAimLineOverlayOutlinePixels",
+        OptionType::Float,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"D3D Aim-Line Outline Width", u8"D3D 瞄准线描边宽度" },
+        { u8"Pixel width of the outline around the D3D aim-line.",
+          u8"D3D 瞄准线外描边的像素宽度。" },
+        { u8"Use a small outline to keep the line visible on bright scenes.",
+          u8"亮场景下可用少量描边来提高可见性。" },
+        0.0f, 20.0f,
+        "1.0"
+    },
+    {
+        "D3DAimLineOverlayEndpointPixels",
+        OptionType::Float,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"D3D Aim-Line Endpoint Size", u8"D3D 瞄准线端点大小" },
+        { u8"Pixel size of the endpoint marker on the D3D aim-line overlay.",
+          u8"D3D 瞄准线覆盖层端点标记的像素大小。" },
+        { u8"Raise it if you want the hit point marker to stand out more.",
+          u8"如果希望落点标记更醒目，可以调大。" },
+        0.0f, 20.0f,
+        "1.5"
+    },
+    {
+        "D3DAimLineOverlayColor",
+        OptionType::Color,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"D3D Aim-Line Color", u8"D3D 瞄准线颜色" },
+        { u8"RGBA color for the D3D aim-line overlay.",
+          u8"D3D 瞄准线覆盖层使用的 RGBA 颜色。" },
+        { u8"Use a bright color with some alpha for readability.",
+          u8"建议使用高亮颜色并保留一点透明度。" },
+        0.0f, 0.0f,
+        "255,0,0,100"
+    },
+    {
+        "D3DAimLineOverlayOutlineColor",
+        OptionType::Color,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"D3D Aim-Line Outline Color", u8"D3D 瞄准线描边颜色" },
+        { u8"RGBA color for the D3D aim-line outline.",
+          u8"D3D 瞄准线描边使用的 RGBA 颜色。" },
+        { u8"Keep it subtle so the main line remains the focus.",
+          u8"建议颜色低调一些，避免抢主线的视觉焦点。" },
+        0.0f, 0.0f,
+        "255,0,0,1"
+    },
+    {
+        "MotionGesturePushThreshold",
+        OptionType::Float,
+        { u8"Motion Gestures", u8"动作手势" },
+        { u8"Push Gesture Threshold", u8"推手势阈值" },
+        { u8"Velocity threshold required to recognize a push gesture.",
+          u8"识别推手势所需的速度阈值。" },
+        { u8"Increase it if forward hand motions trigger too easily.",
+          u8"如果向前挥手过于容易误触，就把它调高。" },
+        0.0f, 10.0f,
+        "1.5"
+    },
+    {
+        "InventoryBodyOriginOffset",
+        OptionType::Vec3,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Body Origin Offset (x,y,z)", u8"身体原点偏移 (x,y,z)" },
+        { u8"Offsets the body-relative origin used to place inventory anchors.",
+          u8"调整用于放置物品栏锚点的身体相对原点。" },
+        { u8"Use this if all anchor positions feel consistently shifted.",
+          u8"如果所有锚点整体都偏了，用这个统一修正。" },
+        -2.0f, 2.0f,
+        "-0.1,0.0,-0.28"
+    },
+    {
+        "InventoryAnchorColor",
+        OptionType::Color,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Inventory Anchor Color", u8"物品栏锚点颜色" },
+        { u8"RGBA color used when drawing visible inventory anchors.",
+          u8"显示物品栏锚点时使用的 RGBA 颜色。" },
+        { u8"Only matters when inventory anchors are visible.",
+          u8"仅在显示锚点时生效。" },
+        0.0f, 0.0f,
+        "0,255,255,255"
+    },
+    {
+        "InventoryHudMarkerDistance",
+        OptionType::Float,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Inventory HUD Marker Distance", u8"物品栏 HUD 标记距离" },
+        { u8"Distance used when placing inventory HUD markers relative to the player.",
+          u8"相对玩家放置物品栏 HUD 标记时使用的距离。" },
+        { u8"Increase it if markers feel too close to your face.",
+          u8"如果标记离脸太近，可以调大。" },
+        -2.0f, 2.0f,
+        "0.45"
+    },
+    {
+        "InventoryHudMarkerUpOffset",
+        OptionType::Float,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Inventory HUD Marker Up Offset", u8"物品栏 HUD 标记上移偏移" },
+        { u8"Vertical offset applied to inventory HUD markers.",
+          u8"应用到物品栏 HUD 标记的垂直偏移。" },
+        { u8"Negative values move the markers lower.",
+          u8"负值会把标记往下移。" },
+        -2.0f, 2.0f,
+        "-0.10"
+    },
+    {
+        "InventoryHudMarkerSeparation",
+        OptionType::Float,
+        { u8"Inventory / Anchors", u8"物品栏 / 锚点" },
+        { u8"Inventory HUD Marker Separation", u8"物品栏 HUD 标记间距" },
+        { u8"Controls spacing between inventory HUD markers.",
+          u8"控制物品栏 HUD 标记之间的间距。" },
+        { u8"Raise it if markers overlap each other.",
+          u8"如果标记互相重叠，就把它调大。" },
+        0.0f, 2.0f,
+        "0.14"
+    },
+    {
+        "ScopeCameraOffset",
+        OptionType::Vec3,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Camera Offset (x,y,z)", u8"瞄准镜相机偏移 (x,y,z)" },
+        { u8"Offsets the rendered scope camera relative to the weapon or controller.",
+          u8"调整瞄准镜渲染相机相对武器或控制器的位置。" },
+        { u8"Use this when the rendered scope view feels misaligned.",
+          u8"如果瞄准镜画面位置不对，可以用它校正。" },
+        -180.0f, 180.0f,
+        "12,0,3"
+    },
+    {
+        "ScopeCameraAngleOffset",
+        OptionType::Vec3,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Camera Angle Offset (pitch,yaw,roll)", u8"瞄准镜相机角度偏移 (俯仰,偏航,翻滚)" },
+        { u8"Additional rotation applied to the rendered scope camera.",
+          u8"额外应用到瞄准镜渲染相机的旋转。" },
+        { u8"Useful when the scope picture is tilted or not centered.",
+          u8"当镜内画面歪斜或不居中时很有用。" },
+        -180.0f, 180.0f,
+        "0,0,0"
+    },
+    {
+        "ScopeStabilizationEnabled",
+        OptionType::Bool,
+        { u8"Optics", u8"光学" },
+        { u8"Enable Scope Stabilization", u8"启用瞄准镜稳定" },
+        { u8"Applies smoothing to scoped aiming to reduce visible jitter.",
+          u8"对开镜瞄准应用平滑处理，减少可见抖动。" },
+        { u8"Useful for high magnification scopes where tiny hand motion is amplified.",
+          u8"高倍率瞄准镜下微小手抖会被放大，这个选项尤其有用。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "ScopeStabilizationMinCutoff",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Stabilization Min Cutoff", u8"瞄准镜稳定最小截止频率" },
+        { u8"Base cutoff used by the scope stabilization filter.",
+          u8"瞄准镜稳定滤波器使用的基础截止频率。" },
+        { u8"Lower values smooth more but respond slower.",
+          u8"数值越低越平滑，但响应也越慢。" },
+        0.0f, 10.0f,
+        "0.5"
+    },
+    {
+        "ScopeStabilizationBeta",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Stabilization Beta", u8"瞄准镜稳定 Beta" },
+        { u8"Dynamic responsiveness factor for the scope stabilization filter.",
+          u8"瞄准镜稳定滤波器的动态响应系数。" },
+        { u8"Higher values track fast motion more aggressively.",
+          u8"数值越高，快速动作的跟随会更积极。" },
+        0.0f, 10.0f,
+        "0.5"
+    },
+    {
+        "ScopeStabilizationDCutoff",
+        OptionType::Float,
+        { u8"Optics", u8"光学" },
+        { u8"Scope Stabilization D Cutoff", u8"瞄准镜稳定导数截止频率" },
+        { u8"Derivative cutoff used by the scope stabilization filter.",
+          u8"瞄准镜稳定滤波器使用的导数截止频率。" },
+        { u8"Adjust only if you need to fine-tune filter behavior.",
+          u8"只有在需要细调滤波行为时再改它。" },
+        0.0f, 10.0f,
+        "1.0"
+    },
+    {
+        "MouseModeScopedViewmodelAnchorOffset",
+        OptionType::Vec3,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse-Mode Scoped Anchor Offset (x,y,z)", u8"键鼠模式开镜锚点偏移 (x,y,z)" },
+        { u8"Viewmodel anchor offset used while scoped in mouse mode.",
+          u8"键鼠模式开镜时使用的武器模型锚点偏移。" },
+        { u8"Use this to line up scoped weapons separately from hip-fire.",
+          u8"用于把开镜时的武器位置与腰射状态分开校正。" },
+        -2.0f, 2.0f,
+        "0.35,0.0,-0.13"
+    },
+    {
+        "MouseModeHmdAimSensitivity",
+        OptionType::Float,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse-Mode HMD Aim Sensitivity", u8"键鼠模式头显瞄准灵敏度" },
+        { u8"Sensitivity multiplier applied when mouse-mode aiming is driven from the HMD.",
+          u8"键鼠模式由头显驱动瞄准时使用的灵敏度倍率。" },
+        { u8"Raise it only if headset-driven aiming feels too sluggish.",
+          u8"只有在头显瞄准明显偏慢时再提高。" },
+        0.0f, 10.0f,
+        "1"
+    },
+    {
+        "MouseModeScopeOverlayOffset",
+        OptionType::Vec3,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse-Mode Scope Overlay Offset (x,y,z)", u8"键鼠模式瞄准镜覆盖层偏移 (x,y,z)" },
+        { u8"Offset for the scope overlay when using mouse mode.",
+          u8"键鼠模式下瞄准镜覆盖层的位置偏移。" },
+        { u8"Use this to align the overlay with scoped weapons in mouse mode.",
+          u8"用于把键鼠模式下的瞄准镜覆盖层和武器对齐。" },
+        -2.0f, 2.0f,
+        "0,-0.02,-0.3"
+    },
+    {
+        "MouseModeScopeOverlayAngleOffset",
+        OptionType::Vec3,
+        { u8"Input / Mouse Mode", u8"输入 / 键鼠模式" },
+        { u8"Mouse-Mode Scope Overlay Angle Offset", u8"键鼠模式瞄准镜覆盖层角度偏移" },
+        { u8"Angular offset for the scope overlay when using mouse mode.",
+          u8"键鼠模式下瞄准镜覆盖层的角度偏移。" },
+        { u8"Adjust this if the scope overlay appears rotated incorrectly.",
+          u8"如果瞄准镜覆盖层角度不对，可以用它校正。" },
+        -180.0f, 180.0f,
+        "0,0,0"
+    },
+    {
+        "AutoRepeatSprayPushDelayTicks",
+        OptionType::Int,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Spray-Push Delay Ticks", u8"Spray-Push 延迟 Tick" },
+        { u8"Delay before the automatic spray-push assist is applied.",
+          u8"自动 spray-push 辅助触发前等待的 Tick 数。" },
+        { u8"Increase it if the assist happens too early for your weapon timing.",
+          u8"如果辅助触发得太早，可以把它调大。" },
+        0.0f, 120.0f,
+        "0"
+    },
+    {
+        "AutoRepeatSprayPushHoldTicks",
+        OptionType::Int,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Spray-Push Hold Ticks", u8"Spray-Push 保持 Tick" },
+        { u8"How long the automatic spray-push assist stays active once triggered.",
+          u8"自动 spray-push 辅助触发后保持生效的 Tick 数。" },
+        { u8"Use a low value unless your weapon timing needs more hold time.",
+          u8"除非武器节奏确实需要，否则建议保持较低数值。" },
+        0.0f, 120.0f,
+        "1"
+    },
+    {
+        "AutoFastMeleeShoveEcho",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Auto Fast-Melee Shove Echo", u8"自动快近战推击回显" },
+        { u8"Adds an extra shove-style echo step during the auto fast-melee routine.",
+          u8"在自动快近战流程中额外加入一次类似推击的回显步骤。" },
+        { u8"Useful only if your current timing benefits from that extra shove signal.",
+          u8"只有在你的当前节奏确实需要额外推击信号时才建议开启。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "AutoFastMeleeUseWeaponSwitch",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Auto Fast-Melee Uses Weapon Switch", u8"自动快近战使用切枪步骤" },
+        { u8"Allows the auto fast-melee routine to include a weapon-switch step.",
+          u8"允许自动快近战流程里包含一次切枪步骤。" },
+        { u8"Disable it only if weapon switching breaks your preferred timing.",
+          u8"只有在切枪会打乱你的节奏时才建议关闭。" },
+        0.0f, 0.0f,
+        "true"
+    },
+    {
+        "AutoFastMeleePushWaitTicks",
+        OptionType::Int,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Auto Fast-Melee Push Wait", u8"自动快近战推击等待" },
+        { u8"Ticks to wait after the push step during auto fast-melee.",
+          u8"自动快近战流程中推击步骤之后等待的 Tick 数。" },
+        { u8"Raise it if your combo is getting cut off too early.",
+          u8"如果连段太早被打断，可以调大。" },
+        0.0f, 120.0f,
+        "2"
+    },
+    {
+        "AutoFastMeleePostWaitTicks",
+        OptionType::Int,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Auto Fast-Melee Post Wait", u8"自动快近战收尾等待" },
+        { u8"Ticks to wait before the auto fast-melee routine resets.",
+          u8"自动快近战流程重置前等待的 Tick 数。" },
+        { u8"Increase it if the macro restarts before the animation has settled.",
+          u8"如果宏在动作还没收完时就重新开始，可以调大。" },
+        0.0f, 120.0f,
+        "29"
+    },
+    {
+        "HitIndicatorEnabled",
+        OptionType::Bool,
+        { u8"Weapons / Fire", u8"武器 / 开火" },
+        { u8"Hit Indicator", u8"命中指示器" },
+        { u8"Shows a visual hit indicator when your shot connects.",
+          u8"当你的射击命中时显示视觉命中提示。" },
+        { u8"Useful if you want feedback without relying only on sound.",
+          u8"如果你不想只依赖音效反馈，可以开启它。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "AutoFlashlightEnabled",
+        OptionType::Bool,
+        { u8"General", u8"通用" },
+        { u8"Automatic Flashlight", u8"自动手电筒" },
+        { u8"Automatically manages flashlight usage while playing.",
+          u8"在游玩过程中自动管理手电筒的开关。" },
+        { u8"Useful on dark maps if you do not want to toggle the flashlight manually.",
+          u8"在黑暗地图里如果不想手动开关手电，可以开启。" },
+        0.0f, 0.0f,
+        "true"
     }
 };
 
@@ -2047,68 +2647,30 @@ const int g_OptionCount = (int)(sizeof(g_Options) / sizeof(g_Options[0]));
 
 void DrawOptionsUI()
 {
-    const char* currentGroup = nullptr;
-
-    for (int i = 0; i < g_OptionCount; ++i)
+    auto renderOption = [](const Option& opt)
     {
-        const Option& opt = g_Options[i];
-        if (!IsOptionVisible(opt) || !OptionMatchesFilter(opt))
-            continue;
-
         std::string key = opt.key;
-
-        // Group header
-        const char* group = L(opt.group);
-
-        if (!currentGroup || std::strcmp(currentGroup, group) != 0)
-        {
-            currentGroup = group;
-            ImGui::SeparatorText(currentGroup);
-        }
-
         ImGui::PushID(opt.key);
 
-        // Render control
         switch (opt.type)
         {
         case OptionType::Bool:
         {
-            bool v = ParseBool(GetStr(key), GetDefaultBool(opt));
+            bool v = (key == "KillIndicatorEnabled")
+                ? GetHitKillIndicatorsEnabled()
+                : ParseBool(GetStr(key), GetDefaultBool(opt));
             if (ImGui::Checkbox(L(opt.title), &v))
-                g_Values[key] = v ? "true" : "false";
+            {
+                if (key == "KillIndicatorEnabled")
+                    SetHitKillIndicatorsEnabled(v);
+                else
+                    g_Values[key] = v ? "true" : "false";
+            }
             DrawHelp(opt);
             break;
         }
         case OptionType::Float:
         {
-            if (key == "HitSoundVolume")
-            {
-                float sum = 0.0f;
-                int count = 0;
-                const char* volumeKeys[] = { "HitSoundVolume", "KillSoundVolume", "HeadshotSoundVolume" };
-                for (const char* volumeKey : volumeKeys)
-                {
-                    float parsed = 0.0f;
-                    if (TryParseFloat(GetStr(volumeKey), parsed))
-                    {
-                        sum += parsed;
-                        ++count;
-                    }
-                }
-
-                float v = (count > 0) ? (sum / static_cast<float>(count)) : GetDefaultFloat(opt);
-                v = std::clamp(v, opt.min, opt.max);
-                if (ImGui::SliderFloat(L(opt.title), &v, opt.min, opt.max, "%.3f"))
-                {
-                    const std::string value = std::to_string(v);
-                    g_Values["HitSoundVolume"] = value;
-                    g_Values["KillSoundVolume"] = value;
-                    g_Values["HeadshotSoundVolume"] = value;
-                }
-                DrawHelp(opt);
-                break;
-            }
-
             float v = GetFloat(key, GetDefaultFloat(opt));
             v = std::clamp(v, opt.min, opt.max);
             if (ImGui::SliderFloat(L(opt.title), &v, opt.min, opt.max, "%.3f"))
@@ -2166,10 +2728,39 @@ void DrawOptionsUI()
         }
         }
 
-        // Display the key below the control in gray text for easy screenshots/support
-        ImGui::TextDisabled("%s", opt.key);
         ImGui::Spacing();
-
         ImGui::PopID();
+    };
+
+    std::vector<std::string> groupOrder;
+    groupOrder.reserve(g_OptionCount);
+
+    for (int i = 0; i < g_OptionCount; ++i)
+    {
+        const Option& opt = g_Options[i];
+        if (!IsAllowedOptionKey(opt.key) || !IsOptionVisible(opt) || !OptionMatchesFilter(opt))
+            continue;
+
+        const std::string group = L(opt.group);
+        if (std::find(groupOrder.begin(), groupOrder.end(), group) == groupOrder.end())
+            groupOrder.push_back(group);
+    }
+
+    for (const std::string& group : groupOrder)
+    {
+        if (!group.empty())
+            ImGui::SeparatorText(group.c_str());
+
+        for (int i = 0; i < g_OptionCount; ++i)
+        {
+            const Option& opt = g_Options[i];
+            if (!IsAllowedOptionKey(opt.key) || !IsOptionVisible(opt) || !OptionMatchesFilter(opt))
+                continue;
+
+            if (group != L(opt.group))
+                continue;
+
+            renderOption(opt);
+        }
     }
 }

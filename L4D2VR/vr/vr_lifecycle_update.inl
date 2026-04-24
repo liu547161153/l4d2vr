@@ -1,6 +1,23 @@
 namespace
 {
     constexpr int kEffectDimLight = 0x4; // Source EF_DIMLIGHT
+    const Vector kAutoFlashlightWorldUp = { 0.0f, 0.0f, 1.0f };
+
+    struct AutoFlashlightProbe
+    {
+        Vector point;
+        float weight;
+    };
+
+    struct AutoFlashlightProbeSetResult
+    {
+        bool valid = false;
+        int successfulSamples = 0;
+        int averageR = 0;
+        int averageG = 0;
+        int averageB = 0;
+        float rawLuma = 0.0f;
+    };
 
     inline float ComputePerceivedLuma(float r, float g, float b)
     {
@@ -24,16 +41,66 @@ namespace
 
         return std::clamp(1.0f - std::exp(-deltaSeconds / smoothingTime), 0.0f, 1.0f);
     }
+
+    inline void BuildYawOnlyFlashlightBasis(const QAngle& viewAngles, Vector& forward, Vector& right)
+    {
+        Vector viewForward;
+        Vector viewRight;
+        Vector viewUp;
+        QAngle::AngleVectors(viewAngles, &viewForward, &viewRight, &viewUp);
+
+        forward = { viewForward.x, viewForward.y, 0.0f };
+        if (VectorNormalize(forward) == 0.0f)
+            forward = { 1.0f, 0.0f, 0.0f };
+
+        right = { viewRight.x, viewRight.y, 0.0f };
+        if (VectorNormalize(right) == 0.0f)
+        {
+            right = CrossProduct(forward, kAutoFlashlightWorldUp);
+            if (VectorNormalize(right) == 0.0f)
+                right = { 0.0f, 1.0f, 0.0f };
+        }
+    }
+
+    inline void UpdateSmoothedLuma(
+        float rawLuma,
+        const std::chrono::steady_clock::time_point& now,
+        float sampleInterval,
+        float smoothingTime,
+        bool& hasSmoothedLuma,
+        float& smoothedLuma,
+        std::chrono::steady_clock::time_point& lastSampleTime)
+    {
+        if (!hasSmoothedLuma)
+        {
+            smoothedLuma = rawLuma;
+            hasSmoothedLuma = true;
+        }
+        else
+        {
+            const float deltaSeconds =
+                (lastSampleTime.time_since_epoch().count() == 0)
+                ? sampleInterval
+                : std::chrono::duration<float>(now - lastSampleTime).count();
+            const float alpha = ComputeSmoothingAlpha(deltaSeconds, smoothingTime);
+            smoothedLuma += (rawLuma - smoothedLuma) * alpha;
+        }
+
+        lastSampleTime = now;
+    }
 }
 
 void VR::ResetAutoFlashlightState()
 {
-    m_AutoFlashlightHasSmoothedLuma = false;
-    m_AutoFlashlightSmoothedLuma = 255.0f;
+    m_AutoFlashlightHasSmoothedForwardLuma = false;
+    m_AutoFlashlightSmoothedForwardLuma = 255.0f;
+    m_AutoFlashlightHasSmoothedAmbientLuma = false;
+    m_AutoFlashlightSmoothedAmbientLuma = 255.0f;
     m_AutoFlashlightHasKnownState = false;
     m_AutoFlashlightLastKnownOn = false;
     m_AutoFlashlightNextSampleTime = {};
-    m_AutoFlashlightLastSampleTime = {};
+    m_AutoFlashlightLastForwardSampleTime = {};
+    m_AutoFlashlightLastAmbientSampleTime = {};
     m_AutoFlashlightLastToggleTime = {};
     m_AutoFlashlightManualOverrideUntil = {};
 }
@@ -175,90 +242,111 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
     const Vector eye = localPlayer->EyePosition();
     Vector forward;
     Vector right;
-    Vector up;
-    QAngle::AngleVectors(m_SetupAngles, &forward, &right, &up);
+    BuildYawOnlyFlashlightBasis(m_SetupAngles, forward, right);
 
-    const Vector probeOrigin = eye + up * m_AutoFlashlightVerticalOffset;
-    float weightedR = 0.0f;
-    float weightedG = 0.0f;
-    float weightedB = 0.0f;
-    float totalWeight = 0.0f;
-    int successfulSamples = 0;
-    auto sampleProbe = [this, &weightedR, &weightedG, &weightedB, &totalWeight, &successfulSamples](const Vector& point, float weight)
-    {
-        if (weight <= 0.0f)
-            return;
-
-        int sampleR = 0;
-        int sampleG = 0;
-        int sampleB = 0;
-        if (!m_Game->SampleLightAtPoint(point, sampleR, sampleG, sampleB))
-            return;
-
-        weightedR += static_cast<float>(sampleR) * weight;
-        weightedG += static_cast<float>(sampleG) * weight;
-        weightedB += static_cast<float>(sampleB) * weight;
-        totalWeight += weight;
-        ++successfulSamples;
-    };
-
-    sampleProbe(probeOrigin, 0.4f);
-
+    const Vector probeOrigin = eye + kAutoFlashlightWorldUp * m_AutoFlashlightVerticalOffset;
     const Vector nearCenter = probeOrigin + forward * m_AutoFlashlightForwardNearDistance;
     const Vector farCenter = probeOrigin + forward * m_AutoFlashlightForwardFarDistance;
-    sampleProbe(nearCenter, 1.4f);
-    sampleProbe(farCenter, 1.3f);
+    const float sideOffset = m_AutoFlashlightLateralOffset;
+    const float farSideOffset = sideOffset * 0.75f;
+    const float ambientBackDistance = std::max(24.0f, m_AutoFlashlightForwardNearDistance * 0.5f);
+    const float ambientSideOffset = std::max(12.0f, sideOffset * 0.75f);
+    const Vector ambientBackCenter = probeOrigin - forward * ambientBackDistance;
 
-    if (m_AutoFlashlightLateralOffset > 0.0f)
+    auto sampleProbeSet = [this](std::initializer_list<AutoFlashlightProbe> probes)
     {
-        const Vector nearRight = nearCenter + right * m_AutoFlashlightLateralOffset;
-        const Vector nearLeft = nearCenter - right * m_AutoFlashlightLateralOffset;
-        const Vector farRight = farCenter + right * (m_AutoFlashlightLateralOffset * 0.75f);
-        const Vector farLeft = farCenter - right * (m_AutoFlashlightLateralOffset * 0.75f);
-        sampleProbe(nearRight, 1.0f);
-        sampleProbe(nearLeft, 1.0f);
-        sampleProbe(farRight, 0.8f);
-        sampleProbe(farLeft, 0.8f);
-    }
+        AutoFlashlightProbeSetResult result;
+        float weightedR = 0.0f;
+        float weightedG = 0.0f;
+        float weightedB = 0.0f;
+        float totalWeight = 0.0f;
 
-    if (successfulSamples == 0 || totalWeight <= 0.0f)
+        for (const AutoFlashlightProbe& probe : probes)
+        {
+            if (probe.weight <= 0.0f)
+                continue;
+
+            int sampleR = 0;
+            int sampleG = 0;
+            int sampleB = 0;
+            if (!m_Game->SampleLightAtPoint(probe.point, sampleR, sampleG, sampleB))
+                continue;
+
+            weightedR += static_cast<float>(sampleR) * probe.weight;
+            weightedG += static_cast<float>(sampleG) * probe.weight;
+            weightedB += static_cast<float>(sampleB) * probe.weight;
+            totalWeight += probe.weight;
+            ++result.successfulSamples;
+        }
+
+        if (result.successfulSamples == 0 || totalWeight <= 0.0f)
+            return result;
+
+        const float averageR = weightedR / totalWeight;
+        const float averageG = weightedG / totalWeight;
+        const float averageB = weightedB / totalWeight;
+        result.valid = true;
+        result.averageR = static_cast<int>(std::lround(averageR));
+        result.averageG = static_cast<int>(std::lround(averageG));
+        result.averageB = static_cast<int>(std::lround(averageB));
+        result.rawLuma = ComputePerceivedLuma(averageR, averageG, averageB);
+        return result;
+    };
+
+    const AutoFlashlightProbeSetResult forwardSample = sampleProbeSet({
+        { probeOrigin, 0.3f },
+        { nearCenter, 1.4f },
+        { farCenter, 1.2f },
+        { nearCenter + right * sideOffset, 1.0f },
+        { nearCenter - right * sideOffset, 1.0f },
+        { farCenter + right * farSideOffset, 0.8f },
+        { farCenter - right * farSideOffset, 0.8f },
+    });
+
+    const AutoFlashlightProbeSetResult ambientSample = sampleProbeSet({
+        { probeOrigin, 1.5f },
+        { probeOrigin + right * ambientSideOffset, 1.1f },
+        { probeOrigin - right * ambientSideOffset, 1.1f },
+        { ambientBackCenter, 1.2f },
+        { ambientBackCenter + right * ambientSideOffset, 0.9f },
+        { ambientBackCenter - right * ambientSideOffset, 0.9f },
+    });
+
+    if (!forwardSample.valid || !ambientSample.valid)
     {
-        debugLog("[VR][AutoFlashlight] skip: light sample failed probes=0");
+        debugLog("[VR][AutoFlashlight] skip: light sample failed forward=%d ambient=%d",
+            forwardSample.successfulSamples, ambientSample.successfulSamples);
         return;
     }
 
-    const float averageR = weightedR / totalWeight;
-    const float averageG = weightedG / totalWeight;
-    const float averageB = weightedB / totalWeight;
-    const int sampleR = static_cast<int>(std::lround(averageR));
-    const int sampleG = static_cast<int>(std::lround(averageG));
-    const int sampleB = static_cast<int>(std::lround(averageB));
-    const float rawLuma = ComputePerceivedLuma(averageR, averageG, averageB);
-    if (!m_AutoFlashlightHasSmoothedLuma)
-    {
-        m_AutoFlashlightSmoothedLuma = rawLuma;
-        m_AutoFlashlightHasSmoothedLuma = true;
-    }
-    else
-    {
-        const float deltaSeconds =
-            (m_AutoFlashlightLastSampleTime.time_since_epoch().count() == 0)
-            ? m_AutoFlashlightSampleInterval
-            : std::chrono::duration<float>(now - m_AutoFlashlightLastSampleTime).count();
-        const float alpha = ComputeSmoothingAlpha(deltaSeconds, m_AutoFlashlightSmoothingTime);
-        m_AutoFlashlightSmoothedLuma += (rawLuma - m_AutoFlashlightSmoothedLuma) * alpha;
-    }
-    m_AutoFlashlightLastSampleTime = now;
+    UpdateSmoothedLuma(
+        forwardSample.rawLuma,
+        now,
+        m_AutoFlashlightSampleInterval,
+        m_AutoFlashlightSmoothingTime,
+        m_AutoFlashlightHasSmoothedForwardLuma,
+        m_AutoFlashlightSmoothedForwardLuma,
+        m_AutoFlashlightLastForwardSampleTime);
+    UpdateSmoothedLuma(
+        ambientSample.rawLuma,
+        now,
+        m_AutoFlashlightSampleInterval,
+        m_AutoFlashlightSmoothingTime,
+        m_AutoFlashlightHasSmoothedAmbientLuma,
+        m_AutoFlashlightSmoothedAmbientLuma,
+        m_AutoFlashlightLastAmbientSampleTime);
 
     bool shouldToggle = false;
-    const float smoothedLuma = m_AutoFlashlightSmoothedLuma;
+    const float smoothedForwardLuma = m_AutoFlashlightSmoothedForwardLuma;
+    const float smoothedAmbientLuma = m_AutoFlashlightSmoothedAmbientLuma;
+    const float darkGateLuma = std::max(smoothedForwardLuma, smoothedAmbientLuma);
     const char* decision = "hold";
     const float elapsedSinceToggle =
         (m_AutoFlashlightLastToggleTime.time_since_epoch().count() == 0)
         ? 9999.0f
         : std::chrono::duration<float>(now - m_AutoFlashlightLastToggleTime).count();
 
-    if (!flashlightOn && smoothedLuma <= m_AutoFlashlightDarkThreshold)
+    if (!flashlightOn && darkGateLuma <= m_AutoFlashlightDarkThreshold)
     {
         if (elapsedSinceToggle >= m_AutoFlashlightMinOffTime)
         {
@@ -270,7 +358,7 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
             decision = "dark_wait_min_off";
         }
     }
-    else if (flashlightOn && smoothedLuma >= m_AutoFlashlightBrightThreshold)
+    else if (flashlightOn && smoothedAmbientLuma >= m_AutoFlashlightBrightThreshold)
     {
         if (elapsedSinceToggle >= m_AutoFlashlightMinOnTime)
         {
@@ -291,16 +379,23 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
         decision = "hold_not_bright";
     }
 
-    debugLog("[VR][AutoFlashlight] sample probes=%d avg_rgb=(%d %d %d) raw=%.1f smooth=%.1f on=%d stateValid=%d dark<=%.1f bright>=%.1f elapsed=%.2fs decision=%s",
-        successfulSamples, sampleR, sampleG, sampleB, rawLuma, smoothedLuma, flashlightOn ? 1 : 0, stateValid ? 1 : 0,
+    debugLog("[VR][AutoFlashlight] sample fwd=%d rgb=(%d %d %d) raw=%.1f smooth=%.1f ambient=%d rgb=(%d %d %d) raw=%.1f smooth=%.1f gate=%.1f on=%d stateValid=%d dark<=%.1f bright>=%.1f elapsed=%.2fs decision=%s",
+        forwardSample.successfulSamples, forwardSample.averageR, forwardSample.averageG, forwardSample.averageB,
+        forwardSample.rawLuma, smoothedForwardLuma,
+        ambientSample.successfulSamples, ambientSample.averageR, ambientSample.averageG, ambientSample.averageB,
+        ambientSample.rawLuma, smoothedAmbientLuma,
+        darkGateLuma, flashlightOn ? 1 : 0, stateValid ? 1 : 0,
         m_AutoFlashlightDarkThreshold, m_AutoFlashlightBrightThreshold, elapsedSinceToggle, decision);
 
     if (shouldToggle)
     {
         IssueFlashlightToggle(false);
         if (m_AutoFlashlightDebugLog)
-            Game::logMsg("[VR][AutoFlashlight] toggled %s at raw=%.1f smooth=%.1f avg_rgb=(%d %d %d) probes=%d",
-                flashlightOn ? "off" : "on", rawLuma, smoothedLuma, sampleR, sampleG, sampleB, successfulSamples);
+            Game::logMsg("[VR][AutoFlashlight] toggled %s at fwdRaw=%.1f fwdSmooth=%.1f ambientRaw=%.1f ambientSmooth=%.1f gate=%.1f",
+                flashlightOn ? "off" : "on",
+                forwardSample.rawLuma, smoothedForwardLuma,
+                ambientSample.rawLuma, smoothedAmbientLuma,
+                darkGateLuma);
     }
 }
 

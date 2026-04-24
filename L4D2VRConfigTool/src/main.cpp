@@ -11,6 +11,7 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <cctype>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -102,10 +103,33 @@ struct ConfigLine
 };
 
 static std::vector<ConfigLine> g_Lines;
-// ݾ
-static std::unordered_map<std::string, std::string> g_Aliases = {
-    { "AimLinePersistence", "AimLineFrameDurationMultiplier" }
-};
+
+static bool ParseBoolLoose(const std::string& value, bool defVal = false)
+{
+    std::string t;
+    t.reserve(value.size());
+    for (char c : value)
+        t.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+    if (t == "1" || t == "true" || t == "yes" || t == "on" || t == "enable" || t == "enabled")
+        return true;
+    if (t == "0" || t == "false" || t == "no" || t == "off" || t == "disable" || t == "disabled")
+        return false;
+    return defVal;
+}
+
+static void NormalizeLinkedIndicatorValues()
+{
+    const auto killIt = g_Values.find("KillIndicatorEnabled");
+    const auto hitIt = g_Values.find("HitIndicatorEnabled");
+    const bool enabled =
+        ParseBoolLoose(killIt != g_Values.end() ? killIt->second : "", false) ||
+        ParseBoolLoose(hitIt != g_Values.end() ? hitIt->second : "", false);
+
+    const char* value = enabled ? "true" : "false";
+    g_Values["KillIndicatorEnabled"] = value;
+    g_Values["HitIndicatorEnabled"] = value;
+}
 
 std::string GetExeDir()
 {
@@ -160,24 +184,32 @@ void LoadConfig(const std::string& path)
             while (!cl.key.empty() && isspace(cl.key.back())) cl.key.pop_back();
             while (!val.empty() && isspace(val.front())) val.erase(val.begin());
 
-            g_Values[cl.key] = val;
-
-            // alias support
-            if (g_Aliases.count(cl.key))
-                g_Values[g_Aliases[cl.key]] = val;
+            if (IsAllowedOptionKey(cl.key))
+                g_Values[cl.key] = val;
         }
 
         g_Lines.push_back(cl);
     }
+
+    NormalizeLinkedIndicatorValues();
 }
 
 void SaveConfig(const std::string& path)
 {
     std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+    NormalizeLinkedIndicatorValues();
 
-    // 滻һγֵ key
-    for (auto& [key, val] : g_Values)
+    for (int optionIndex = 0; optionIndex < g_OptionCount; ++optionIndex)
     {
+        const Option& opt = g_Options[optionIndex];
+        const std::string key = opt.key;
+        if (!IsAllowedOptionKey(key))
+            continue;
+
+        std::string val = GetOptionDefaultValue(opt);
+        if (const auto it = g_Values.find(key); it != g_Values.end())
+            val = it->second;
+
         bool written = false;
         for (int i = (int)g_Lines.size() - 1; i >= 0; --i)
         {
