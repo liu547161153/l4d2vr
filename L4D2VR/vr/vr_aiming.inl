@@ -1661,8 +1661,11 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     Vector target = origin + direction * maxDistance;
 
 
-    if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+    if (m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
     {
+        // On non-VR servers, H is the authoritative eye-ray hit point.
+        // Use it in both 1P and 3P so the rendered aim line follows the same target
+        // that cmd->viewangles is steering toward.
         m_AimConvergePoint = m_NonVRAimHitPoint;
         m_HasAimConvergePoint = true;
         target = m_AimConvergePoint;
@@ -3042,8 +3045,9 @@ bool VR::BuildRenderAimLineSegment(C_BasePlayer* localPlayer, Vector& start, Vec
     start = originBase + dir * 2.0f;
 
     const float maxDistance = 8192.0f;
-    if (!m_IsThirdPersonCamera && m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
+    if (m_ForceNonVRServerMovement && m_HasNonVRAimSolution)
     {
+        // Keep queued-render aim-line target authoritative in 3P as well.
         end = m_NonVRAimHitPoint;
     }
     else

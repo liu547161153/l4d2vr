@@ -490,10 +490,10 @@ namespace
 
 		VectorNormalize(direction);
 		start = vr->GetRightControllerAbsPos() + direction * 2.0f;
-		if (!vr->m_IsThirdPersonCamera && vr->m_ForceNonVRServerMovement && vr->m_HasNonVRAimSolution)
-			end = vr->m_NonVRAimHitPoint;
-		else
-			end = start + direction * 8192.0f;
+        if (vr->m_ForceNonVRServerMovement && vr->m_HasNonVRAimSolution)
+            end = vr->m_NonVRAimHitPoint;
+        else
+            end = start + direction * 8192.0f;
 
 		return !((end - start).IsZero());
 	}

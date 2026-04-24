@@ -381,6 +381,9 @@ static bool IsOptionVisible(const Option& opt)
     if (std::strcmp(key, "HitIndicatorEnabled") == 0)
         return false;
 
+    if (std::strcmp(key, "AimLineOnlyWhenLaserSight") == 0)
+        return IsEnabled("D3DAimLineOverlayEnabled");
+
     // Key groups hidden behind their main feature toggles.
     if (StartsWith(key, "MouseMode") && std::strcmp(key, "MouseModeEnabled") != 0)
         return IsEnabled("MouseModeEnabled");
@@ -504,8 +507,7 @@ static bool IsOptionVisible(const Option& opt)
     if (StartsWith(key, "KillIndicator") && std::strcmp(key, "KillIndicatorEnabled") != 0)
         return GetHitKillIndicatorsEnabled();
 
-    if (std::strcmp(key, "AimLineOnlyWhenLaserSight") == 0 ||
-        std::strcmp(key, "EffectiveAttackRangeAutoFireEnabled") == 0 ||
+    if (std::strcmp(key, "EffectiveAttackRangeAutoFireEnabled") == 0 ||
         std::strcmp(key, "AimLineThickness") == 0 ||
         std::strcmp(key, "AimLineColor") == 0 ||
         std::strcmp(key, "AimLineMaxHz") == 0)
@@ -1532,7 +1534,7 @@ Option g_Options[] =
           u8"按住扳机时每秒生成多少次开火脉冲。" },
         { u8"Higher can feel snappier, but the weapon's real fire rate still limits shots.",
           u8"调高会更“跟手”，但实际射速仍受武器本身限制。" },
-        1.0f, 30.0f,
+        1.0f, 12.0f,
         "12.0"
     },
     {
@@ -1740,18 +1742,6 @@ Option g_Options[] =
           u8"关闭可减少视觉杂乱和开销。" },
         0.0f, 0.0f,
         "true"
-    },
-    {
-        "AimLineOnlyWhenLaserSight",
-        OptionType::Bool,
-        { u8"Aim Assist", u8"辅助瞄准" },
-        { u8"Show Aim Line Only With Laser Sight", u8"仅在激光瞄准开启时显示瞄准线" },
-        { u8"When enabled, the VR aim line is hidden unless your firearm has the in-game laser sight upgrade active.",
-          u8"开启后，除非枪械已激活游戏内的激光瞄准升级，否则隐藏VR瞄准线。" },
-        { u8"Throwable trajectory arcs are not affected.",
-          u8"投掷物抛物线不受影响。" },
-        0.0f, 0.0f,
-        "false"
     },
     {
         "MeleeAimLineEnabled",
@@ -2254,18 +2244,6 @@ Option g_Options[] =
         "0"
     },
     {
-        "ThirdPersonCameraFollowHmd",
-        OptionType::Bool,
-        { u8"Camera / Third Person", u8"相机 / 第三人称" },
-        { u8"Third-Person Camera Follows HMD", u8"第三人称相机跟随头显" },
-        { u8"When enabled, the third-person VR camera tracks your HMD orientation.",
-          u8"开启后，第三人称 VR 相机会跟随你的头显朝向。" },
-        { u8"Useful when using shoulder or detached third-person views.",
-          u8"适合肩后视角或分离式第三人称视角。" },
-        0.0f, 0.0f,
-        "true"
-    },
-    {
         "ThirdPersonVRCameraOffset",
         OptionType::Float,
         { u8"Camera / Third Person", u8"相机 / 第三人称" },
@@ -2281,11 +2259,23 @@ Option g_Options[] =
         "D3DAimLineOverlayEnabled",
         OptionType::Bool,
         { u8"Aim Assist", u8"辅助瞄准" },
-        { u8"Enable D3D Aim-Line Overlay", u8"启用 D3D 瞄准线覆盖层" },
+        { u8"Enable Aim-Line", u8"启用瞄准线" },
         { u8"Draws a screen-space aim line overlay using the D3D layer.",
           u8"使用 D3D 层绘制屏幕空间的瞄准线覆盖层。" },
         { u8"Useful if you want a flat overlay instead of only world-space helpers.",
           u8"如果你想使用平面覆盖层，而不只依赖世界空间辅助线，可以开启。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "AimLineOnlyWhenLaserSight",
+        OptionType::Bool,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Show Aim Line Only With Laser Sight", u8"仅在激光瞄准开启时显示瞄准线" },
+        { u8"When enabled, the VR aim line is hidden unless your firearm has the in-game laser sight upgrade active.",
+          u8"开启后，除非枪械已激活游戏内的激光瞄准升级，否则隐藏VR瞄准线。" },
+        { u8"Throwable trajectory arcs are not affected.",
+          u8"投掷物抛物线不受影响。" },
         0.0f, 0.0f,
         "false"
     },
