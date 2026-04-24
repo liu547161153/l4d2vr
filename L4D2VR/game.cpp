@@ -681,14 +681,58 @@ bool Game::SampleLightAtPoint(const Vector& point, int& outR, int& outG, int& ou
     outB = 0;
 
     static bool s_loggedUnavailable = false;
+    static bool s_loggedFallback = false;
+    constexpr float kLightSampleTraceDown = 2048.0f;
+
+    if (m_Offsets && m_Offsets->R_LightVec.valid && m_Offsets->R_LightVec.address != 0)
+    {
+        using tRLightVec = int(__cdecl*)(const Vector* start, const Vector* end, int useLightStyles,
+            float* outColor, void* arg5, void* arg6, void* arg7, void* arg8);
+        auto fn = reinterpret_cast<tRLightVec>(m_Offsets->R_LightVec.address);
+        if (fn)
+        {
+            Vector end = point;
+            end.z -= kLightSampleTraceDown;
+            float rgb[3] = { 0.0f, 0.0f, 0.0f };
+
+            __try
+            {
+                if (fn(&point, &end, 1, rgb, nullptr, nullptr, nullptr, nullptr) != 0)
+                {
+                    const auto toByte = [](float value) -> int
+                    {
+                        const float clamped = (std::max)(0.0f, (std::min)(1.0f, value));
+                        return (int)std::lround(clamped * 255.0f);
+                    };
+
+                    outR = toByte(rgb[0]);
+                    outG = toByte(rgb[1]);
+                    outB = toByte(rgb[2]);
+                    return true;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                logMsg("[WARN] R_LightVec sample failed at (%.1f %.1f %.1f)", point.x, point.y, point.z);
+                return false;
+            }
+        }
+    }
+
     if (!m_Offsets || !m_Offsets->SampleLightAtPoint.valid || m_Offsets->SampleLightAtPoint.address == 0)
     {
         if (!s_loggedUnavailable)
         {
-            logMsg("[WARN] engine.dll SampleLightAtPoint wrapper is unavailable");
+            logMsg("[WARN] engine.dll light sampling is unavailable");
             s_loggedUnavailable = true;
         }
         return false;
+    }
+
+    if (!s_loggedFallback)
+    {
+        logMsg("[WARN] Falling back to engine.dll SampleLightAtPoint wrapper; brightness may quantize to 0/255");
+        s_loggedFallback = true;
     }
 
     struct EngineLightSample

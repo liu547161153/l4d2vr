@@ -1600,12 +1600,27 @@ void VR::ParseConfigFile()
         m_AutoFlashlightBrightThreshold = m_AutoFlashlightDarkThreshold;
     m_AutoFlashlightSampleInterval =
         std::clamp(getFloat("AutoFlashlightSampleInterval", m_AutoFlashlightSampleInterval), 0.05f, 2.0f);
+    m_AutoFlashlightForwardNearDistance =
+        std::clamp(getFloat("AutoFlashlightForwardNearDistance", m_AutoFlashlightForwardNearDistance), 0.0f, 512.0f);
+    m_AutoFlashlightForwardFarDistance =
+        std::clamp(getFloat("AutoFlashlightForwardFarDistance", m_AutoFlashlightForwardFarDistance), 0.0f, 512.0f);
+    if (m_AutoFlashlightForwardFarDistance < m_AutoFlashlightForwardNearDistance)
+        m_AutoFlashlightForwardFarDistance = m_AutoFlashlightForwardNearDistance;
+    m_AutoFlashlightLateralOffset =
+        std::clamp(getFloat("AutoFlashlightLateralOffset", m_AutoFlashlightLateralOffset), 0.0f, 256.0f);
+    m_AutoFlashlightVerticalOffset =
+        std::clamp(getFloat("AutoFlashlightVerticalOffset", m_AutoFlashlightVerticalOffset), -128.0f, 128.0f);
+    m_AutoFlashlightSmoothingTime =
+        std::clamp(getFloat("AutoFlashlightSmoothingTime", m_AutoFlashlightSmoothingTime), 0.0f, 5.0f);
     m_AutoFlashlightMinOnTime =
         std::clamp(getFloat("AutoFlashlightMinOnTime", m_AutoFlashlightMinOnTime), 0.0f, 30.0f);
     m_AutoFlashlightMinOffTime =
         std::clamp(getFloat("AutoFlashlightMinOffTime", m_AutoFlashlightMinOffTime), 0.0f, 30.0f);
     m_AutoFlashlightManualOverrideSeconds =
         std::clamp(getFloat("AutoFlashlightManualOverrideSeconds", m_AutoFlashlightManualOverrideSeconds), 0.0f, 60.0f);
+    m_AutoFlashlightDebugLog = getBool("AutoFlashlightDebugLog", m_AutoFlashlightDebugLog);
+    m_AutoFlashlightDebugLogHz =
+        std::clamp(getFloat("AutoFlashlightDebugLogHz", m_AutoFlashlightDebugLogHz), 0.0f, 20.0f);
 
     ParseHapticsConfigFile();
 }

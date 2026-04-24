@@ -2,19 +2,38 @@ namespace
 {
     constexpr int kEffectDimLight = 0x4; // Source EF_DIMLIGHT
 
+    inline float ComputePerceivedLuma(float r, float g, float b)
+    {
+        return 0.2126f * r +
+            0.7152f * g +
+            0.0722f * b;
+    }
+
     inline float ComputePerceivedLuma(int r, int g, int b)
     {
-        return 0.2126f * static_cast<float>(r) +
-            0.7152f * static_cast<float>(g) +
-            0.0722f * static_cast<float>(b);
+        return ComputePerceivedLuma(
+            static_cast<float>(r),
+            static_cast<float>(g),
+            static_cast<float>(b));
+    }
+
+    inline float ComputeSmoothingAlpha(float deltaSeconds, float smoothingTime)
+    {
+        if (smoothingTime <= 0.0f || deltaSeconds <= 0.0f)
+            return 1.0f;
+
+        return std::clamp(1.0f - std::exp(-deltaSeconds / smoothingTime), 0.0f, 1.0f);
     }
 }
 
 void VR::ResetAutoFlashlightState()
 {
+    m_AutoFlashlightHasSmoothedLuma = false;
+    m_AutoFlashlightSmoothedLuma = 255.0f;
     m_AutoFlashlightHasKnownState = false;
     m_AutoFlashlightLastKnownOn = false;
     m_AutoFlashlightNextSampleTime = {};
+    m_AutoFlashlightLastSampleTime = {};
     m_AutoFlashlightLastToggleTime = {};
     m_AutoFlashlightManualOverrideUntil = {};
 }
@@ -57,14 +76,52 @@ void VR::IssueFlashlightToggle(bool manual)
 void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
 {
     const auto now = std::chrono::steady_clock::now();
-    if (!m_AutoFlashlightEnabled || !m_Game || !m_Game->m_EngineClient || !m_Game->m_EngineClient->IsInGame() || !localPlayer)
+    auto debugLog = [this](const char* format, auto... args)
+    {
+        if (m_AutoFlashlightDebugLog && !ShouldThrottle(m_AutoFlashlightLastDebugLog, m_AutoFlashlightDebugLogHz))
+            Game::logMsg(format, args...);
+    };
+
+    if (!m_AutoFlashlightEnabled)
     {
         ResetAutoFlashlightState();
+        debugLog("[VR][AutoFlashlight] skip: disabled");
+        return;
+    }
+
+    if (!m_Game)
+    {
+        ResetAutoFlashlightState();
+        debugLog("[VR][AutoFlashlight] skip: missing game");
+        return;
+    }
+
+    if (!m_Game->m_EngineClient)
+    {
+        ResetAutoFlashlightState();
+        debugLog("[VR][AutoFlashlight] skip: missing engine client");
+        return;
+    }
+
+    if (!m_Game->m_EngineClient->IsInGame())
+    {
+        ResetAutoFlashlightState();
+        debugLog("[VR][AutoFlashlight] skip: not in game");
+        return;
+    }
+
+    if (!localPlayer)
+    {
+        ResetAutoFlashlightState();
+        debugLog("[VR][AutoFlashlight] skip: missing local player");
         return;
     }
 
     if (m_Game->m_VguiSurface && m_Game->m_VguiSurface->IsCursorVisible())
+    {
+        debugLog("[VR][AutoFlashlight] skip: menu cursor visible");
         return;
+    }
 
     __try
     {
@@ -73,16 +130,22 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
         const unsigned char lifeState = *reinterpret_cast<const unsigned char*>(base + kLifeStateOffset);
         const int obsMode = *reinterpret_cast<const int*>(base + kObserverModeOffset);
         if (teamNum == 1 || lifeState != 0 || obsMode != 0)
+        {
+            debugLog("[VR][AutoFlashlight] skip: player inactive team=%d life=%u observer=%d", teamNum, lifeState, obsMode);
             return;
+        }
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        debugLog("[VR][AutoFlashlight] skip: player state read exception");
         return;
     }
 
     if (m_AutoFlashlightManualOverrideUntil.time_since_epoch().count() != 0 &&
         now < m_AutoFlashlightManualOverrideUntil)
     {
+        debugLog("[VR][AutoFlashlight] skip: manual override remaining=%.2fs",
+            std::chrono::duration<float>(m_AutoFlashlightManualOverrideUntil - now).count());
         return;
     }
 
@@ -101,42 +164,144 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
     if (!stateValid)
     {
         if (!m_AutoFlashlightHasKnownState)
+        {
+            debugLog("[VR][AutoFlashlight] skip: flashlight state unavailable");
             return;
+        }
 
         flashlightOn = m_AutoFlashlightLastKnownOn;
     }
 
     const Vector eye = localPlayer->EyePosition();
-    int sampleR = 0;
-    int sampleG = 0;
-    int sampleB = 0;
-    if (!m_Game->SampleLightAtPoint(eye, sampleR, sampleG, sampleB))
+    Vector forward;
+    Vector right;
+    Vector up;
+    QAngle::AngleVectors(m_SetupAngles, &forward, &right, &up);
+
+    const Vector probeOrigin = eye + up * m_AutoFlashlightVerticalOffset;
+    float weightedR = 0.0f;
+    float weightedG = 0.0f;
+    float weightedB = 0.0f;
+    float totalWeight = 0.0f;
+    int successfulSamples = 0;
+    auto sampleProbe = [this, &weightedR, &weightedG, &weightedB, &totalWeight, &successfulSamples](const Vector& point, float weight)
+    {
+        if (weight <= 0.0f)
+            return;
+
+        int sampleR = 0;
+        int sampleG = 0;
+        int sampleB = 0;
+        if (!m_Game->SampleLightAtPoint(point, sampleR, sampleG, sampleB))
+            return;
+
+        weightedR += static_cast<float>(sampleR) * weight;
+        weightedG += static_cast<float>(sampleG) * weight;
+        weightedB += static_cast<float>(sampleB) * weight;
+        totalWeight += weight;
+        ++successfulSamples;
+    };
+
+    sampleProbe(probeOrigin, 0.4f);
+
+    const Vector nearCenter = probeOrigin + forward * m_AutoFlashlightForwardNearDistance;
+    const Vector farCenter = probeOrigin + forward * m_AutoFlashlightForwardFarDistance;
+    sampleProbe(nearCenter, 1.4f);
+    sampleProbe(farCenter, 1.3f);
+
+    if (m_AutoFlashlightLateralOffset > 0.0f)
+    {
+        const Vector nearRight = nearCenter + right * m_AutoFlashlightLateralOffset;
+        const Vector nearLeft = nearCenter - right * m_AutoFlashlightLateralOffset;
+        const Vector farRight = farCenter + right * (m_AutoFlashlightLateralOffset * 0.75f);
+        const Vector farLeft = farCenter - right * (m_AutoFlashlightLateralOffset * 0.75f);
+        sampleProbe(nearRight, 1.0f);
+        sampleProbe(nearLeft, 1.0f);
+        sampleProbe(farRight, 0.8f);
+        sampleProbe(farLeft, 0.8f);
+    }
+
+    if (successfulSamples == 0 || totalWeight <= 0.0f)
+    {
+        debugLog("[VR][AutoFlashlight] skip: light sample failed probes=0");
         return;
+    }
+
+    const float averageR = weightedR / totalWeight;
+    const float averageG = weightedG / totalWeight;
+    const float averageB = weightedB / totalWeight;
+    const int sampleR = static_cast<int>(std::lround(averageR));
+    const int sampleG = static_cast<int>(std::lround(averageG));
+    const int sampleB = static_cast<int>(std::lround(averageB));
+    const float rawLuma = ComputePerceivedLuma(averageR, averageG, averageB);
+    if (!m_AutoFlashlightHasSmoothedLuma)
+    {
+        m_AutoFlashlightSmoothedLuma = rawLuma;
+        m_AutoFlashlightHasSmoothedLuma = true;
+    }
+    else
+    {
+        const float deltaSeconds =
+            (m_AutoFlashlightLastSampleTime.time_since_epoch().count() == 0)
+            ? m_AutoFlashlightSampleInterval
+            : std::chrono::duration<float>(now - m_AutoFlashlightLastSampleTime).count();
+        const float alpha = ComputeSmoothingAlpha(deltaSeconds, m_AutoFlashlightSmoothingTime);
+        m_AutoFlashlightSmoothedLuma += (rawLuma - m_AutoFlashlightSmoothedLuma) * alpha;
+    }
+    m_AutoFlashlightLastSampleTime = now;
 
     bool shouldToggle = false;
-    const float luma = ComputePerceivedLuma(sampleR, sampleG, sampleB);
+    const float smoothedLuma = m_AutoFlashlightSmoothedLuma;
+    const char* decision = "hold";
     const float elapsedSinceToggle =
         (m_AutoFlashlightLastToggleTime.time_since_epoch().count() == 0)
         ? 9999.0f
         : std::chrono::duration<float>(now - m_AutoFlashlightLastToggleTime).count();
 
-    if (!flashlightOn && luma <= m_AutoFlashlightDarkThreshold)
+    if (!flashlightOn && smoothedLuma <= m_AutoFlashlightDarkThreshold)
     {
         if (elapsedSinceToggle >= m_AutoFlashlightMinOffTime)
         {
             shouldToggle = true;
+            decision = "toggle_on";
+        }
+        else
+        {
+            decision = "dark_wait_min_off";
         }
     }
-    else if (flashlightOn && luma >= m_AutoFlashlightBrightThreshold)
+    else if (flashlightOn && smoothedLuma >= m_AutoFlashlightBrightThreshold)
     {
         if (elapsedSinceToggle >= m_AutoFlashlightMinOnTime)
         {
             shouldToggle = true;
+            decision = "toggle_off";
+        }
+        else
+        {
+            decision = "bright_wait_min_on";
         }
     }
+    else if (!flashlightOn)
+    {
+        decision = "hold_not_dark";
+    }
+    else
+    {
+        decision = "hold_not_bright";
+    }
+
+    debugLog("[VR][AutoFlashlight] sample probes=%d avg_rgb=(%d %d %d) raw=%.1f smooth=%.1f on=%d stateValid=%d dark<=%.1f bright>=%.1f elapsed=%.2fs decision=%s",
+        successfulSamples, sampleR, sampleG, sampleB, rawLuma, smoothedLuma, flashlightOn ? 1 : 0, stateValid ? 1 : 0,
+        m_AutoFlashlightDarkThreshold, m_AutoFlashlightBrightThreshold, elapsedSinceToggle, decision);
 
     if (shouldToggle)
+    {
         IssueFlashlightToggle(false);
+        if (m_AutoFlashlightDebugLog)
+            Game::logMsg("[VR][AutoFlashlight] toggled %s at raw=%.1f smooth=%.1f avg_rgb=(%d %d %d) probes=%d",
+                flashlightOn ? "off" : "on", rawLuma, smoothedLuma, sampleR, sampleG, sampleB, successfulSamples);
+    }
 }
 
 void VR::Update()
