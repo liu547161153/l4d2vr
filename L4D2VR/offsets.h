@@ -28,21 +28,10 @@ struct Offset
         {
             this->offset = newOffset;
         }
-        else if (newOffset == 0)
-        {
-            Game::logMsg("[Offsets] Signature verified: module=%s offset=0x%X sigOffset=%d sig=\"%s\"",
-                moduleName.c_str(), this->offset, sigOffset, signature.c_str());
-        }
-
         if (newOffset == -1)
         {
             // Keep address=0 and valid=false so hook setup can safely skip.
-            if (optional)
-            {
-                Game::logMsg("[Offsets] Optional signature not found: module=%s sig=\"%s\"",
-                    moduleName.c_str(), signature.c_str());
-            }
-            else
+            if (!optional)
             {
                 Game::errorMsg(("Signature not found: " + signature).c_str());
             }

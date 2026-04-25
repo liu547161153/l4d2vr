@@ -905,7 +905,6 @@ void VR::ProcessInput()
     {
         m_EffectiveAttackRangeAutoFireEnabled = !m_EffectiveAttackRangeAutoFireEnabled;
         m_EffectiveAttackRangeAutoFireActive = false;
-        Game::logMsg("[VR] Effective attack range auto-fire %s", m_EffectiveAttackRangeAutoFireEnabled ? "enabled" : "disabled");
     }
 
     if (nonVrServerMovementToggleJustPressed)
@@ -1023,9 +1022,6 @@ void VR::ProcessInput()
         m_AdjustStartViewmodelRight = m_ViewmodelRight;
         m_AdjustStartViewmodelUp = m_ViewmodelUp;
         m_AdjustingKey = m_CurrentViewmodelKey;
-        Game::logMsg("[VR] Viewmodel adjust start for %s (pos %.2f %.2f %.2f, ang %.2f %.2f %.2f)",
-            m_AdjustingKey.c_str(), m_ViewmodelPosAdjust.x, m_ViewmodelPosAdjust.y, m_ViewmodelPosAdjust.z,
-            m_ViewmodelAngAdjust.x, m_ViewmodelAngAdjust.y, m_ViewmodelAngAdjust.z);
     }
     else if (!adjustViewmodelActive && m_AdjustingViewmodel)
     {
@@ -1036,9 +1032,6 @@ void VR::ProcessInput()
             SaveViewmodelAdjustments();
         }
 
-        Game::logMsg("[VR] Viewmodel adjust end for %s (pos %.2f %.2f %.2f, ang %.2f %.2f %.2f)",
-            m_CurrentViewmodelKey.c_str(), m_ViewmodelPosAdjust.x, m_ViewmodelPosAdjust.y, m_ViewmodelPosAdjust.z,
-            m_ViewmodelAngAdjust.x, m_ViewmodelAngAdjust.y, m_ViewmodelAngAdjust.z);
     }
 
     if (resetJustPressed)
@@ -1200,7 +1193,6 @@ void VR::ProcessInput()
                     if (m_ThirdPersonFrontViewEnabled == enabled)
                         return;
                     m_ThirdPersonFrontViewEnabled = enabled;
-                    Game::logMsg("[VR] Third-person front view %s", enabled ? "enabled" : "disabled");
                 };
             auto triggerQuickTurnOnce = [&]()
                 {

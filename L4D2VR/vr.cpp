@@ -2815,7 +2815,6 @@ void VR::EnsureDamageFeedbackEventListener()
 
     if (!m_DamageFeedbackEventManager)
     {
-        Game::logMsg("[VR][DamageFeedback][listener] missing game event manager");
         return;
     }
 
@@ -2828,13 +2827,8 @@ void VR::EnsureDamageFeedbackEventListener()
     {
         const bool alreadyRegistered = m_DamageFeedbackEventManager->FindListener(m_DamageFeedbackEventListener, eventName);
         const bool registered = alreadyRegistered || m_DamageFeedbackEventManager->AddListener(m_DamageFeedbackEventListener, eventName, false);
-        if (!registered)
-            Game::logMsg("[VR][DamageFeedback][listener] failed to register event=%s", eventName);
         registeredAll = registeredAll && registered;
     }
-
-    if (registeredAll)
-        Game::logMsg("[VR][DamageFeedback][listener] registered player_hurt");
 
     m_DamageFeedbackEventListenerRegistered = registeredAll;
 }
@@ -3028,7 +3022,6 @@ void VR::UpdateDamageFeedback()
                 pending.maxDamage = healthDelta;
                 pending.mergedCount = 1;
                 pending.queuedAt = now;
-                Game::logMsg("[VR][DamageFeedback][fallback] health drop %d -> %d (delta=%d)", m_LastObservedDamageHealth, currentHealth, healthDelta);
             }
         }
 
@@ -3283,7 +3276,6 @@ void VR::EnsureKillSoundEventListener()
         m_KillSoundEventManager = m_Game->m_GameEventManager;
     if (!m_KillSoundEventManager)
     {
-        Game::logMsg("[VR][KillSound][listener] missing game event manager");
         return;
     }
 
@@ -3296,8 +3288,6 @@ void VR::EnsureKillSoundEventListener()
     {
         const bool alreadyRegistered = m_KillSoundEventManager->FindListener(m_KillSoundEventListener, eventName);
         const bool registered = alreadyRegistered || m_KillSoundEventManager->AddListener(m_KillSoundEventListener, eventName, false);
-        if (!registered)
-            Game::logMsg("[VR][KillSound][listener] failed to register event=%s", eventName);
         registeredAll = registeredAll && registered;
     }
 
@@ -3936,7 +3926,6 @@ void VR::EnsureFeedbackSoundWorkerThread()
     catch (const std::system_error&)
     {
         m_FeedbackSoundWorkerStarted.store(false);
-        Game::logMsg("[VR][FeedbackSound] failed to start worker thread");
     }
 }
 
@@ -4340,8 +4329,6 @@ void VR::SyncVrmodFeedbackGameSounds() const
         << "\t\"wave\"\t\t\t\"vrmod/headshot.mp3\"\r\n"
         << "}\r\n";
 
-    if (!WriteWholeTextFileIfChanged(scriptPath, script.str()) && m_Game)
-        Game::logMsg("[VR][FeedbackSound] failed to write soundscript path=%s", scriptPath.c_str());
 }
 
 IMaterial* VR::ResolveHitIndicatorMaterial()
@@ -4607,7 +4594,6 @@ bool VR::EnsureKillIndicatorOverlaySlot(int slotIndex)
     if (createError != vr::VROverlayError_None)
     {
         slot.overlayHandle = vr::k_ulOverlayHandleInvalid;
-        Game::logMsg("[VR][KillIndicator] CreateOverlay failed err=%d key=%s", (int)createError, key.c_str());
         return false;
     }
 
@@ -4914,13 +4900,11 @@ void VR::UpdateKillIndicatorOverlays()
             bool builtFromDecodedFrames = false;
             if (!BuildKillIndicatorOverlayPixels(material, pixels, pixelWidth, pixelHeight, desiredFrameIndex, &builtFromDecodedFrames))
             {
-                Game::logMsg("[VR][KillIndicator] preview build failed material=%s", material->GetName());
                 continue;
             }
 
             if (!UploadKillIndicatorOverlayTexture(materialIndex, pixels.data(), static_cast<int>(pixelWidth), static_cast<int>(pixelHeight), desiredFrameIndex, builtFromDecodedFrames))
             {
-                Game::logMsg("[VR][KillIndicator] world texture upload failed material=%s size=%ux%u", material->GetName(), pixelWidth, pixelHeight);
                 continue;
             }
         }
@@ -4995,7 +4979,6 @@ void VR::UpdateKillIndicatorOverlays()
             const vr::EVROverlayError textureError = overlay->SetOverlayTexture(slot.overlayHandle, &m_KillIndicatorOverlayTextures[materialIndex].sharedTexture.m_VRTexture);
             if (textureError != vr::VROverlayError_None)
             {
-                Game::logMsg("[VR][KillIndicator] SetOverlayTexture failed err=%d material=%s", (int)textureError, material->GetName());
                 slot.materialIndex = -1;
                 slot.visible = false;
                 if (textureError == vr::VROverlayError_InvalidHandle)
@@ -5014,7 +4997,6 @@ void VR::UpdateKillIndicatorOverlays()
             const vr::EVROverlayError showError = overlay->ShowOverlay(slot.overlayHandle);
             if (showError != vr::VROverlayError_None)
             {
-                Game::logMsg("[VR][KillIndicator] ShowOverlay failed err=%d material=%s", (int)showError, material->GetName());
                 slot.visible = false;
                 if (showError == vr::VROverlayError_InvalidHandle)
                     slot.overlayHandle = vr::k_ulOverlayHandleInvalid;

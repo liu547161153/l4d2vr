@@ -404,13 +404,11 @@ Game::Game()
 
     m_Initialized = true;
 
-    Game::logMsg("Game initialized successfully.");
 }
 
 // === Fallback Interface ===
 void* Game::GetInterface(const char* dllname, const char* interfacename)
 {
-    Game::logMsg("Fallback GetInterface called for %s::%s", dllname, interfacename);
     return GetInterfaceSafe(dllname, interfacename);
 }
 
@@ -726,7 +724,6 @@ int Game::GetConVarInt(const char* name, int fallback) const
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] GetConVarInt failed for %s", name ? name : "<null>");
         return fallback;
     }
 }
@@ -743,7 +740,6 @@ int Game::GetConVarIntDirect(const char* name, int fallback) const
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] GetConVarIntDirect failed for %s", name ? name : "<null>");
         return fallback;
     }
 }
@@ -760,7 +756,6 @@ float Game::GetConVarFloat(const char* name, float fallback) const
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] GetConVarFloat failed for %s", name ? name : "<null>");
         return fallback;
     }
 }
@@ -777,7 +772,6 @@ float Game::GetConVarFloatDirect(const char* name, float fallback) const
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] GetConVarFloatDirect failed for %s", name ? name : "<null>");
         return fallback;
     }
 }
@@ -820,7 +814,6 @@ int Game::GetConVarFlags(const char* name) const
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] GetConVarFlags failed for %s", name ? name : "<null>");
         return -1;
     }
 }
@@ -840,7 +833,6 @@ bool Game::SetConVarFlags(const char* name, int flags) const
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] SetConVarFlags failed for %s=0x%08X", name ? name : "<null>", static_cast<unsigned>(flags));
         return false;
     }
 }
@@ -861,9 +853,6 @@ bool Game::SetConVarString(const char* name, const char* value) const
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         EndConVarWritePermit();
-        logMsg("[WARN] SetConVarString failed for %s=%s",
-            name ? name : "<null>",
-            value ? value : "<null>");
         return false;
     }
 }
@@ -888,7 +877,6 @@ bool Game::SetConVarInt(const char* name, int value) const
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         EndConVarWritePermit();
-        logMsg("[WARN] SetConVarInt failed for %s=%d", name ? name : "<null>", value);
         return false;
     }
 }
@@ -911,7 +899,6 @@ bool Game::SetConVarFloat(const char* name, float value) const
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         EndConVarWritePermit();
-        logMsg("[WARN] SetConVarFloat failed for %s=%.3f", name ? name : "<null>", value);
         return false;
     }
 }
@@ -960,7 +947,6 @@ bool Game::SampleLightAtPoint(const Vector& point, int& outR, int& outG, int& ou
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
-                logMsg("[WARN] R_LightVec sample failed at (%.1f %.1f %.1f)", point.x, point.y, point.z);
                 return false;
             }
         }
@@ -968,19 +954,11 @@ bool Game::SampleLightAtPoint(const Vector& point, int& outR, int& outG, int& ou
 
     if (!m_Offsets || !m_Offsets->SampleLightAtPoint.valid || m_Offsets->SampleLightAtPoint.address == 0)
     {
-        if (!s_loggedUnavailable)
-        {
-            logMsg("[WARN] engine.dll light sampling is unavailable");
-            s_loggedUnavailable = true;
-        }
+        s_loggedUnavailable = true;
         return false;
     }
 
-    if (!s_loggedFallback)
-    {
-        logMsg("[WARN] Falling back to engine.dll SampleLightAtPoint wrapper; brightness may quantize to 0/255");
-        s_loggedFallback = true;
-    }
+    s_loggedFallback = true;
 
     struct EngineLightSample
     {
@@ -1007,7 +985,6 @@ bool Game::SampleLightAtPoint(const Vector& point, int& outR, int& outG, int& ou
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] SampleLightAtPoint failed at (%.1f %.1f %.1f)", point.x, point.y, point.z);
         return false;
     }
 }
@@ -1025,11 +1002,7 @@ int Game::GetEntityEffects(const C_BaseEntity* entity, int fallback) const
         if (s_effectsOffset < 0)
             s_effectsOffset = 0xE0;
 
-        if (!s_loggedOffset)
-        {
-            logMsg("[Offsets] Using DT_BaseEntity::m_fEffects offset 0x%X", s_effectsOffset);
-            s_loggedOffset = true;
-        }
+        s_loggedOffset = true;
     }
 
     __try
@@ -1038,7 +1011,6 @@ int Game::GetEntityEffects(const C_BaseEntity* entity, int fallback) const
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        logMsg("[WARN] GetEntityEffects failed");
         return fallback;
     }
 }

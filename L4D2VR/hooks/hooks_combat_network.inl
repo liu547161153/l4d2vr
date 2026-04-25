@@ -642,7 +642,6 @@ namespace
 				static bool s_loggedCreateFailed = false;
 				if (!s_loggedCreateFailed)
 				{
-					Game::logMsg("[VR][laser] failed to create weapon_laser_sight particle");
 					s_loggedCreateFailed = true;
 				}
 				return;
@@ -651,7 +650,6 @@ namespace
 			static bool s_loggedCreated = false;
 			if (!s_loggedCreated)
 			{
-				Game::logMsg("[VR][laser] created persistent local weapon_laser_sight particle");
 				s_loggedCreated = true;
 			}
 		}

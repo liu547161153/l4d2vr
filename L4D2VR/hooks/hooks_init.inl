@@ -175,19 +175,6 @@ int Hooks::initSourceHooks()
 			break;
 	}
 
-	if (hkConVarSetValueString.pTarget && hkConVarSetValueFloat.pTarget && hkConVarSetValueInt.pTarget)
-	{
-		Game::logMsg("[VR][LocalVScriptConvars] Installed ConVar SetValue blockers.");
-	}
-	else
-	{
-		Game::logMsg(
-			"[VR][LocalVScriptConvars] Failed to install one or more ConVar SetValue blockers: string=%d float=%d int=%d",
-			hkConVarSetValueString.pTarget ? 1 : 0,
-			hkConVarSetValueFloat.pTarget ? 1 : 0,
-			hkConVarSetValueInt.pTarget ? 1 : 0);
-	}
-
 	uintptr_t clientModeAddress = m_Game->m_Offsets->g_pClientMode.address;
 	if (!clientModeAddress)
 	{

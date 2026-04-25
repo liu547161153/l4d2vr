@@ -579,8 +579,6 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 							if (s_lastAutoWaitLog.time_since_epoch().count() == 0 ||
 								std::chrono::duration<float>(nowLog - s_lastAutoWaitLog).count() > 1.0f)
 							{
-								Game::logMsg("[VR][Queued][RenderView] auto pose-wait %ums (motion=%d headturn=%d) poseSeq=%u",
-									(unsigned)timeoutMs, motionNow ? 1 : 0, headTurningNow ? 1 : 0, (unsigned)poseSeq);
 								s_lastAutoWaitLog = nowLog;
 							}
 						}

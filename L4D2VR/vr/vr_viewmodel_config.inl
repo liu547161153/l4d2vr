@@ -187,7 +187,6 @@ std::string VR::GetMeleeWeaponName(C_WeaponCSBase* weapon) const
 
     if (!m_Game || !m_Game->m_Offsets)
     {
-        Game::logMsg("[VR] Missing offsets while resolving melee weapon name.");
         return std::string();
     }
 
@@ -316,7 +315,6 @@ std::string VR::BuildViewmodelAdjustKey(C_WeaponCSBase* weapon) const
         if (!meleeName.empty())
             return "melee:" + meleeName;
 
-        Game::logMsg("[VR] Failed to resolve melee name, using generic key.");
         return "melee:unknown";
     }
 
@@ -356,7 +354,6 @@ void VR::LoadViewmodelAdjustments()
 
     if (m_ViewmodelAdjustmentSavePath.empty())
     {
-        Game::logMsg("[VR] No viewmodel adjustment save path configured.");
         ParseHapticsConfigFile();
         return;
     }
@@ -364,7 +361,6 @@ void VR::LoadViewmodelAdjustments()
     std::ifstream adjustmentStream(m_ViewmodelAdjustmentSavePath);
     if (!adjustmentStream)
     {
-        Game::logMsg("[VR] Viewmodel adjustment file missing, will create on save: %s", m_ViewmodelAdjustmentSavePath.c_str());
         return;
     }
 
@@ -425,8 +421,6 @@ void VR::LoadViewmodelAdjustments()
         std::string angStr = line.substr(separator + 1);
 
         std::string normalizedKey = NormalizeViewmodelAdjustKey(key);
-        if (normalizedKey != key)
-            Game::logMsg("[VR] Normalized viewmodel adjust key '%s' -> '%s'", key.c_str(), normalizedKey.c_str());
 
         Vector posAdjust = parseVector3(posStr, m_DefaultViewmodelAdjust.position);
         Vector angAdjustVec = parseVector3(angStr, Vector{ m_DefaultViewmodelAdjust.angle.x, m_DefaultViewmodelAdjust.angle.y, m_DefaultViewmodelAdjust.angle.z });
@@ -434,7 +428,6 @@ void VR::LoadViewmodelAdjustments()
         m_ViewmodelAdjustments[normalizedKey] = { posAdjust, { angAdjustVec.x, angAdjustVec.y, angAdjustVec.z } };
     }
 
-    Game::logMsg("[VR] Loaded %zu viewmodel adjustment entries from %s", m_ViewmodelAdjustments.size(), m_ViewmodelAdjustmentSavePath.c_str());
     m_ViewmodelAdjustmentsDirty = false;
 }
 
@@ -442,14 +435,12 @@ void VR::SaveViewmodelAdjustments()
 {
     if (m_ViewmodelAdjustmentSavePath.empty())
     {
-        Game::logMsg("[VR] Cannot save viewmodel adjustments: missing path.");
         return;
     }
 
     std::ofstream adjustmentStream(m_ViewmodelAdjustmentSavePath, std::ios::trunc);
     if (!adjustmentStream)
     {
-        Game::logMsg("[VR] Failed to open %s for saving viewmodel adjustments", m_ViewmodelAdjustmentSavePath.c_str());
         return;
     }
 
@@ -459,7 +450,6 @@ void VR::SaveViewmodelAdjustments()
         adjustmentStream << ';' << adjustment.angle.x << ',' << adjustment.angle.y << ',' << adjustment.angle.z << "\n";
     }
 
-    Game::logMsg("[VR] Saved %zu viewmodel adjustment entries to %s", m_ViewmodelAdjustments.size(), m_ViewmodelAdjustmentSavePath.c_str());
     m_ViewmodelAdjustmentsDirty = false;
 }
 
@@ -648,7 +638,6 @@ void VR::ParseConfigFile()
     if (!injectedCmd.empty())
     {
         m_Game->ClientCmd_Unrestricted(injectedCmd.c_str());
-        Game::logMsg("[VR] Executed config cmd: %s", injectedCmd.c_str());
     }
 
     auto parseVirtualKey = [&](const std::string& rawValue)->std::optional<WORD>
@@ -750,7 +739,6 @@ void VR::ParseConfigFile()
                         std::replace(aliasBody.begin(), aliasBody.end(), '|', ';');
                         std::string aliasCommand = "alias " + aliasName + " \"" + aliasBody + "\"";
                         m_Game->ClientCmd_Unrestricted(aliasCommand.c_str());
-                        Game::logMsg("[VR] %s defined alias '%s' = %s", key, aliasName.c_str(), aliasBody.c_str());
 
                         binding.command = aliasName;
                         normalized = aliasName;
@@ -761,15 +749,12 @@ void VR::ParseConfigFile()
             binding.virtualKey = parseVirtualKey(binding.command);
             if (!binding.command.empty() && binding.virtualKey.has_value())
             {
-                Game::logMsg("[VR] %s mapped to virtual key 0x%02X%s", key, *binding.virtualKey,
-                    binding.holdVirtualKey ? " (hold)" : "");
             }
             else if (!trimmedCommand.empty() && trimmedCommand[0] == '+' && trimmedCommand.size() > 1)
             {
                 binding.usePressReleaseCommands = true;
                 binding.releaseCommand = "-" + trimmedCommand.substr(1);
                 binding.command = trimmedCommand;
-                Game::logMsg("[VR] %s mapped to command press/release: %s / %s", key, binding.command.c_str(), binding.releaseCommand.c_str());
             }
         };
 
@@ -844,7 +829,6 @@ void VR::ParseConfigFile()
             // Allow disabling a combo by setting it to "false" in the config file.
             if (rawValue == "false")
             {
-                Game::logMsg("[VR] %s combo disabled via config", key);
                 return ActionCombo{};
             }
 
@@ -875,7 +859,6 @@ void VR::ParseConfigFile()
 
             if (!combo.primary || !combo.secondary)
             {
-                Game::logMsg("[VR] Invalid %s combo '%s', using defaults.", key, it->second.c_str());
                 return defaultCombo;
             }
 
@@ -1170,7 +1153,6 @@ void VR::ParseConfigFile()
     m_QueuedViewmodelStabilize = getBool("QueuedViewmodelStabilize", m_QueuedViewmodelStabilize);
     // Global: hard-lock first-person viewmodel pose after engine calc (all queue modes).
     m_ViewmodelDisableMoveBob = getBool("ViewmodelDisableMoveBob", m_ViewmodelDisableMoveBob);
-    Game::logMsg("[VR][Config] ViewmodelDisableMoveBob=%s", m_ViewmodelDisableMoveBob ? "true" : "false");
     m_QueuedViewmodelStabilizeDebugLog = getBool("QueuedViewmodelStabilizeDebugLog", m_QueuedViewmodelStabilizeDebugLog);
     m_QueuedViewmodelStabilizeDebugLogHz = std::max(0.0f, getFloat("QueuedViewmodelStabilizeDebugLogHz", m_QueuedViewmodelStabilizeDebugLogHz));
     m_RenderPipelineDebugLog = getBool("RenderPipelineDebugLog", m_RenderPipelineDebugLog);
@@ -1199,18 +1181,13 @@ void VR::ParseConfigFile()
     {
         m_BulletVisualHitOffset = m_QueuedBulletVisualHitOffset;
         m_QueuedBulletVisualHitOffset = { 0.0f, 0.0f, 0.0f };
-        Game::logMsg("[VR][Config] QueuedBulletVisualHitOffset provided without BulletVisualHitOffset -> using it as BulletVisualHitOffset (compat)");
     }
 
     if (hasBulletFxOff)
     {
-        Game::logMsg("[VR][Config] BulletVisualHitOffset=(%.4f, %.4f, %.4f)",
-            m_BulletVisualHitOffset.x, m_BulletVisualHitOffset.y, m_BulletVisualHitOffset.z);
     }
     if (hasQueuedFxOff)
     {
-        Game::logMsg("[VR][Config] QueuedBulletVisualHitOffset=(%.4f, %.4f, %.4f)",
-            m_QueuedBulletVisualHitOffset.x, m_QueuedBulletVisualHitOffset.y, m_QueuedBulletVisualHitOffset.z);
     }
 
     // Gun-mounted scope
@@ -1569,7 +1546,6 @@ void VR::ParseConfigFile()
     m_ShadowProjectedTextureQuality = std::clamp(getInt("ProjectedTextureShadowQuality", m_ShadowProjectedTextureQuality), 0, 3);
     if (m_ShadowEntityTweaksEnabled)
     {
-        Game::logMsg("[VR][ShadowTweaks] Entity shadow overrides are temporarily disabled for stability.");
         m_ShadowEntityTweaksEnabled = false;
         ResetShadowEntityOverrideTracking();
     }
@@ -1769,10 +1745,6 @@ void VR::RestoreShadowEntityDefaults()
 
     if (restoredShadowControls > 0 || restoredProjectedTextures > 0)
     {
-        Game::logMsg(
-            "[VR][ShadowTweaks] Restored entity shadow defaults for %d ShadowControl and %d EnvProjectedTexture entities.",
-            restoredShadowControls,
-            restoredProjectedTextures);
     }
 
     ResetShadowEntityOverrideTracking();
@@ -1818,7 +1790,6 @@ void VR::ApplyShadowEntityOverrides(bool forceRefresh)
     {
         if (!m_ShadowEntityOffsetsLogged)
         {
-            Game::logMsg("[VR][ShadowTweaks] Failed to resolve ShadowControl / EnvProjectedTexture recv props from client.dll.");
             m_ShadowEntityOffsetsLogged = true;
         }
         m_ShadowEntityTweaksEnabled = false;
@@ -1880,16 +1851,6 @@ void VR::ApplyShadowEntityOverrides(bool forceRefresh)
 
     if (forceRefresh || touchedShadowControls > 0 || touchedProjectedTextures > 0)
     {
-        Game::logMsg(
-            "[VR][ShadowTweaks] Applied entity shadow overrides: ShadowControl=%d EnvProjectedTexture=%d "
-            "disable=%d maxdist=%.1f localLight=%d projectedShadows=%d projectedQuality=%d",
-            touchedShadowControls,
-            touchedProjectedTextures,
-            m_ShadowEntityDisableShadows ? 1 : 0,
-            m_ShadowEntityMaxDist,
-            m_ShadowEntityLocalLightShadows ? 1 : 0,
-            m_ShadowProjectedTextureEnableShadows ? 1 : 0,
-            m_ShadowProjectedTextureQuality);
     }
 }
 
@@ -1920,7 +1881,6 @@ void VR::ApplyShadowSettingsIfNeeded()
         if (m_ShadowTweaksApplied)
         {
             RestoreShadowCvarDefaults();
-            Game::logMsg("[VR][ShadowTweaks] Restored original shadow cvars.");
         }
 
         m_ShadowTweaksApplied = false;
@@ -1961,33 +1921,6 @@ void VR::ApplyShadowSettingsIfNeeded()
     applyInt("r_flashlightinfectedshadows", m_ShadowCvarFlashlightInfectedShadows);
 
     m_ShadowTweaksApplied = (appliedCount > 0);
-    Game::logMsg(
-        "[VR][ShadowTweaks] Applied %d shadow controls: r_shadows=%d r_shadowrendertotexture=%d "
-        "r_flashlightdepthtexture=%d r_flashlightdepthres=%d r_shadow_half_update_rate=%d "
-        "r_shadowmaxrendered=%d cl_max_shadow_renderable_dist=%.1f r_FlashlightDetailProps=%d "
-        "z_mob_simple_shadows=%d r_shadowfromworldlights=%d r_flashlightmodels=%d "
-        "r_shadows_on_renderables_enable=%d r_flashlightrendermodels=%d cl_player_shadow_dist=%.1f "
-        "z_infected_shadows=%d nb_shadow_blobby_dist=%.1f nb_shadow_cull_dist=%.1f "
-        "r_flashlightinfectedshadows=%d",
-        appliedCount,
-        m_ShadowCvarShadows,
-        m_ShadowCvarRenderToTexture,
-        m_ShadowCvarFlashlightDepthTexture,
-        m_ShadowCvarFlashlightDepthRes,
-        m_ShadowCvarHalfUpdateRate,
-        m_ShadowCvarMaxRendered,
-        m_ShadowCvarMaxRenderableDist,
-        m_ShadowCvarFlashlightDetailProps,
-        m_ShadowCvarMobSimpleShadows,
-        m_ShadowCvarWorldLightShadows,
-        m_ShadowCvarFlashlightModels,
-        m_ShadowCvarShadowsOnRenderables,
-        m_ShadowCvarFlashlightRenderModels,
-        m_ShadowCvarPlayerShadowDist,
-        m_ShadowCvarInfectedShadows,
-        m_ShadowCvarNbShadowBlobbyDist,
-        m_ShadowCvarNbShadowCullDist,
-        m_ShadowCvarFlashlightInfectedShadows);
 }
 
 void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
@@ -2007,7 +1940,6 @@ void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
         if (m_WriteOnlyPerformanceTweaksApplied && m_WriteOnlyPerformanceOriginalsCaptured)
         {
             RestoreWriteOnlyPerformanceDefaults();
-            Game::logMsg("[VR][WriteOnlyPerfTweaks] Disabled; restored one-shot snapshot defaults.");
         }
 
         m_WriteOnlyPerformanceTweaksApplied = false;
@@ -2070,50 +2002,6 @@ void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
     const FloatWriteResult detailFade = applyFloat("cl_detailfade", m_WriteOnlyCvarDetailFade);
 
     m_WriteOnlyPerformanceTweaksApplied = (appliedCount > 0);
-    Game::logMsg(
-        "[VR][WriteOnlyPerfTweaks] Applied %d/8 write-only controls, verified %d/8 by readback: "
-        "cl_threaded_bone_setup=%d(set=%d read=%d ok=%d) "
-        "r_threaded_particles=%d(set=%d read=%d ok=%d) "
-        "r_queued_decals=%d(set=%d read=%d ok=%d) "
-        "r_queued_post_processing=%d(set=%d read=%d ok=%d) "
-        "r_rootlod=%d(set=%d read=%d ok=%d) "
-        "r_propsmaxdist=%.1f(set=%d read=%.1f ok=%d) "
-        "cl_detaildist=%.1f(set=%d read=%.1f ok=%d) "
-        "cl_detailfade=%.1f(set=%d read=%.1f ok=%d)",
-        appliedCount,
-        verifiedCount,
-        m_WriteOnlyCvarThreadedBoneSetup,
-        threadedBoneSetup.setOk ? 1 : 0,
-        threadedBoneSetup.readback,
-        threadedBoneSetup.readbackMatches ? 1 : 0,
-        m_WriteOnlyCvarThreadedParticles,
-        threadedParticles.setOk ? 1 : 0,
-        threadedParticles.readback,
-        threadedParticles.readbackMatches ? 1 : 0,
-        m_WriteOnlyCvarQueuedDecals,
-        queuedDecals.setOk ? 1 : 0,
-        queuedDecals.readback,
-        queuedDecals.readbackMatches ? 1 : 0,
-        m_WriteOnlyCvarQueuedPostProcessing,
-        queuedPostProcessing.setOk ? 1 : 0,
-        queuedPostProcessing.readback,
-        queuedPostProcessing.readbackMatches ? 1 : 0,
-        m_WriteOnlyCvarRootLod,
-        rootLod.setOk ? 1 : 0,
-        rootLod.readback,
-        rootLod.readbackMatches ? 1 : 0,
-        m_WriteOnlyCvarPropsMaxDist,
-        propsMaxDist.setOk ? 1 : 0,
-        propsMaxDist.readback,
-        propsMaxDist.readbackMatches ? 1 : 0,
-        m_WriteOnlyCvarDetailDist,
-        detailDist.setOk ? 1 : 0,
-        detailDist.readback,
-        detailDist.readbackMatches ? 1 : 0,
-        m_WriteOnlyCvarDetailFade,
-        detailFade.setOk ? 1 : 0,
-        detailFade.readback,
-        detailFade.readbackMatches ? 1 : 0);
 }
 
 void VR::CaptureWriteOnlyPerformanceDefaults()
@@ -2139,18 +2027,6 @@ void VR::CaptureWriteOnlyPerformanceDefaults()
         m_Game->GetConVarFloat("cl_detailfade", m_WriteOnlyOrigDetailFade);
     m_WriteOnlyPerformanceOriginalsCaptured = true;
 
-    Game::logMsg(
-        "[VR][WriteOnlyPerfTweaks] Captured one-shot snapshot defaults: cl_threaded_bone_setup=%d "
-        "r_threaded_particles=%d r_queued_decals=%d r_queued_post_processing=%d r_rootlod=%d "
-        "r_propsmaxdist=%.1f cl_detaildist=%.1f cl_detailfade=%.1f",
-        m_WriteOnlyOrigThreadedBoneSetup,
-        m_WriteOnlyOrigThreadedParticles,
-        m_WriteOnlyOrigQueuedDecals,
-        m_WriteOnlyOrigQueuedPostProcessing,
-        m_WriteOnlyOrigRootLod,
-        m_WriteOnlyOrigPropsMaxDist,
-        m_WriteOnlyOrigDetailDist,
-        m_WriteOnlyOrigDetailFade);
 }
 
 void VR::RestoreWriteOnlyPerformanceDefaults()
@@ -2194,42 +2070,6 @@ void VR::RestoreWriteOnlyPerformanceDefaults()
     const auto detailDist = restoreFloat("cl_detaildist", m_WriteOnlyOrigDetailDist);
     const auto detailFade = restoreFloat("cl_detailfade", m_WriteOnlyOrigDetailFade);
 
-    Game::logMsg(
-        "[VR][WriteOnlyPerfTweaks] Restored %d/8 snapshot defaults, verified %d/8 by readback: "
-        "cl_threaded_bone_setup=%d(read=%d ok=%d) "
-        "r_threaded_particles=%d(read=%d ok=%d) "
-        "r_queued_decals=%d(read=%d ok=%d) "
-        "r_queued_post_processing=%d(read=%d ok=%d) "
-        "r_rootlod=%d(read=%d ok=%d) "
-        "r_propsmaxdist=%.1f(read=%.1f ok=%d) "
-        "cl_detaildist=%.1f(read=%.1f ok=%d) "
-        "cl_detailfade=%.1f(read=%.1f ok=%d)",
-        restoredCount,
-        verifiedCount,
-        m_WriteOnlyOrigThreadedBoneSetup,
-        threadedBoneSetup.first,
-        threadedBoneSetup.second ? 1 : 0,
-        m_WriteOnlyOrigThreadedParticles,
-        threadedParticles.first,
-        threadedParticles.second ? 1 : 0,
-        m_WriteOnlyOrigQueuedDecals,
-        queuedDecals.first,
-        queuedDecals.second ? 1 : 0,
-        m_WriteOnlyOrigQueuedPostProcessing,
-        queuedPostProcessing.first,
-        queuedPostProcessing.second ? 1 : 0,
-        m_WriteOnlyOrigRootLod,
-        rootLod.first,
-        rootLod.second ? 1 : 0,
-        m_WriteOnlyOrigPropsMaxDist,
-        propsMaxDist.first,
-        propsMaxDist.second ? 1 : 0,
-        m_WriteOnlyOrigDetailDist,
-        detailDist.first,
-        detailDist.second ? 1 : 0,
-        m_WriteOnlyOrigDetailFade,
-        detailFade.first,
-        detailFade.second ? 1 : 0);
 
     m_WriteOnlyPerformanceOriginalsCaptured = false;
 }
@@ -2566,9 +2406,6 @@ void VR::RestoreLocalVScriptConvars()
 
     int restoredCount = 0;
     int restoreFailedCount = 0;
-    Game::logMsg(
-        "[VR][LocalVScriptConvars] Restore begin count=%zu",
-        entriesToRestore.size());
     for (const LocalVScriptConvarEntry& entry : entriesToRestore)
     {
         if (entry.name.empty())
@@ -2578,12 +2415,6 @@ void VR::RestoreLocalVScriptConvars()
         {
             const int writableFlags = entry.flags & ~kLocalVScriptFlagCheat;
             const bool cleared = m_Game->SetConVarFlags(entry.name.c_str(), writableFlags);
-            Game::logMsg(
-                "[VR][LocalVScriptConvars] RestoreFlag name=%s action=clear_cheat before=0x%08X after=0x%08X setOk=%d",
-                entry.name.c_str(),
-                entry.flags,
-                writableFlags,
-                cleared ? 1 : 0);
         }
 
         const std::string beforeValue = m_Game->GetConVarString(entry.name.c_str());
@@ -2635,29 +2466,10 @@ void VR::RestoreLocalVScriptConvars()
         if ((entry.flags & kLocalVScriptFlagCheat) != 0)
         {
             const bool restoredFlags = m_Game->SetConVarFlags(entry.name.c_str(), entry.flags);
-            Game::logMsg(
-                "[VR][LocalVScriptConvars] RestoreFlag name=%s action=restore_flags target=0x%08X setOk=%d",
-                entry.name.c_str(),
-                entry.flags,
-                restoredFlags ? 1 : 0);
         }
 
-        Game::logMsg(
-            "[VR][LocalVScriptConvars] Restore name=%s flags=0x%08X before='%s' target='%s' after='%s' afterDirect='%s' setOk=%d verified=%d",
-            entry.name.c_str(),
-            entry.flags,
-            beforeValue.c_str(),
-            entry.originalValue.c_str(),
-            afterValue.c_str(),
-            directReadback.c_str(),
-            setOk ? 1 : 0,
-            verified ? 1 : 0);
     }
 
-    Game::logMsg(
-        "[VR][LocalVScriptConvars] Restore done restored=%d failed=%d",
-        restoredCount,
-        restoreFailedCount);
 }
 
 bool VR::ShouldBlockExternalLocalVScriptConvarWrite(const char* name, const char* requestedValue)
@@ -2689,11 +2501,6 @@ bool VR::ShouldBlockExternalLocalVScriptConvarWrite(const char* name, const char
 
     if (shouldLog)
     {
-        Game::logMsg(
-            "[VR][LocalVScriptConvars] Blocked external write name=%s requested='%s' locked='%s'",
-            name,
-            requestedValue ? requestedValue : "",
-            lockedValue.c_str());
     }
 
     return true;
@@ -2720,14 +2527,9 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
     std::vector<LocalVScriptConvarEntry> parsedEntries;
     if (!ParseLocalVScriptConvarsFile(m_LocalVScriptConvarsPath, parsedEntries))
     {
-        Game::logMsg("[VR][LocalVScriptConvars] Failed to read %s", m_LocalVScriptConvarsPath.c_str());
         return;
     }
 
-    Game::logMsg(
-        "[VR][LocalVScriptConvars] Apply begin path=%s parsed=%zu",
-        m_LocalVScriptConvarsPath.c_str(),
-        parsedEntries.size());
 
     int appliedCount = 0;
     int skippedCount = 0;
@@ -2742,22 +2544,12 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         if (entry.flags < 0)
         {
             ++missingCount;
-            Game::logMsg(
-                "[VR][LocalVScriptConvars] Missing name=%s requested='%s' reason=FindVar/GetFlags failed",
-                entry.name.c_str(),
-                entry.value.c_str());
             continue;
         }
 
         if (ShouldSkipLocalVScriptConvar(entry.name, entry.flags))
         {
             ++skippedCount;
-            Game::logMsg(
-                "[VR][LocalVScriptConvars] Skip name=%s flags=0x%08X requested='%s' reason=%s",
-                entry.name.c_str(),
-                entry.flags,
-                entry.value.c_str(),
-                GetLocalVScriptSkipReason(entry.name, entry.flags));
             continue;
         }
 
@@ -2766,12 +2558,6 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         {
             const int writableFlags = entry.flags & ~kLocalVScriptFlagCheat;
             const bool cleared = m_Game->SetConVarFlags(entry.name.c_str(), writableFlags);
-            Game::logMsg(
-                "[VR][LocalVScriptConvars] ApplyFlag name=%s action=clear_cheat before=0x%08X after=0x%08X setOk=%d",
-                entry.name.c_str(),
-                entry.flags,
-                writableFlags,
-                cleared ? 1 : 0);
         }
         bool boolValue = false;
         int intValue = 0;
@@ -2835,22 +2621,7 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
             if ((entry.flags & kLocalVScriptFlagCheat) != 0)
             {
                 const bool restoredFlags = m_Game->SetConVarFlags(entry.name.c_str(), entry.flags);
-                Game::logMsg(
-                    "[VR][LocalVScriptConvars] ApplyFlag name=%s action=restore_flags_on_fail target=0x%08X setOk=%d",
-                    entry.name.c_str(),
-                    entry.flags,
-                    restoredFlags ? 1 : 0);
             }
-            Game::logMsg(
-                "[VR][LocalVScriptConvars] WriteFail name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' afterDirect='%s' setOk=0 verified=%d",
-                entry.name.c_str(),
-                entry.flags,
-                GetLocalVScriptValueKindName(kind),
-                entry.originalValue.c_str(),
-                entry.value.c_str(),
-                readbackValue.c_str(),
-                directReadbackValue.c_str(),
-                verified ? 1 : 0);
             continue;
         }
 
@@ -2861,16 +2632,6 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         else
             ++verifyMismatchCount;
 
-        Game::logMsg(
-            "[VR][LocalVScriptConvars] Apply name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' afterDirect='%s' setOk=1 verified=%d",
-            entry.name.c_str(),
-            entry.flags,
-            GetLocalVScriptValueKindName(kind),
-            entry.originalValue.c_str(),
-            entry.value.c_str(),
-            readbackValue.c_str(),
-            directReadbackValue.c_str(),
-            verified ? 1 : 0);
     }
 
     {
@@ -2879,16 +2640,6 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         m_LocalVScriptConvarsApplied = !m_LocalVScriptConvars.empty();
         m_LocalVScriptConvarBlockedWriteLastLog.clear();
     }
-    Game::logMsg(
-        "[VR][LocalVScriptConvars] Apply done path=%s applied=%d verifyMismatch=%d writeFailed=%d missing=%d skipped=%d trackedForRestore=%zu blockExternal=%d",
-        m_LocalVScriptConvarsPath.c_str(),
-        appliedCount,
-        verifyMismatchCount,
-        writeFailedCount,
-        missingCount,
-        skippedCount,
-        m_LocalVScriptConvars.size(),
-        m_LocalVScriptConvarsBlockExternalWrites ? 1 : 0);
 }
 
 void VR::WaitForConfigUpdate()

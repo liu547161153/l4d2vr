@@ -2256,11 +2256,7 @@ bool VR::EnsureEffectiveAttackRangeWeaponDataLoaded()
     loadScript(C_WeaponCSBase::AUTOSHOTGUN, "scripts/weapon_autoshotgun.txt");
     loadScript(C_WeaponCSBase::SPAS, "scripts/weapon_shotgun_spas.txt");
 
-    const bool anyLoaded = hasLoadedData();
-    if (!anyLoaded && m_Game)
-        Game::logMsg("[VR][EffectiveRange] no weapon script spread data loaded from game VPKs.");
-
-    return anyLoaded;
+    return hasLoadedData();
 }
 
 const VR::EffectiveAttackRangeWeaponData* VR::GetEffectiveAttackRangeWeaponData(C_WeaponCSBase* weapon)
@@ -2813,7 +2809,6 @@ void VR::CycleScopeMagnification()
     // Changing magnification changes the sensitivity scale. Rebase on next frame to avoid a sudden jump.
     if (m_ScopeActive)
         m_ScopeAimSensitivityInit = false;
-    Game::logMsg("[VR] Scope magnification set to %.2f", m_ScopeFov);
 }
 
 void VR::UpdateScopeAimLineState()

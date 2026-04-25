@@ -1000,7 +1000,6 @@ int VR::SetActionManifest(const char* fileName)
     if (manifestResult != vr::VRInputError_None)
     {
         Game::errorMsg("SetActionManifestPath failed");
-        Game::logMsg("[VR][Input] SetActionManifestPath failed err=%d path=%s", static_cast<int>(manifestResult), path);
     }
 
     m_Input->GetActionHandle("/actions/main/in/ActivateVR", &m_ActionActivateVR);
@@ -1089,7 +1088,6 @@ void VR::UpdateAutoMatQueueMode()
                     m_Game->ClientCmd_Unrestricted(cmd.c_str());
                     m_MenuFpsMaxLastHz = targetHz;
 
-                    Game::logMsg("[VR] Menu: fps_max -> %d (HMD %.1fHz)", targetHz, hmdHz);
                 }
 
                 m_MenuFpsMaxSent = true;
@@ -1122,7 +1120,6 @@ void VR::UpdateAutoMatQueueMode()
         m_AutoMatQueueModeLastRequested = 0;
         m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
 
-        Game::logMsg("[VR] MouseMode menu: mat_queue_mode -> 0");
         return;
     }
 
@@ -1147,7 +1144,6 @@ void VR::UpdateAutoMatQueueMode()
         m_AutoMatQueueModeLastRequested = 0;
         m_AutoMatQueueModeLastCmdTime = std::chrono::steady_clock::now();
 
-        Game::logMsg("[VR] Menu safety: mat_queue_mode -> 0 (AutoMatQueueMode=false)");
         return;
     }
 
@@ -1197,5 +1193,4 @@ void VR::UpdateAutoMatQueueMode()
     else if (paused) reason = "paused";
     else if (scoreboardHeld) reason = "scoreboard";
     else if (cursorVisible) reason = "cursor";
-    if (isNewTarget) Game::logMsg("[VR] AutoMatQueueMode -> mat_queue_mode %d (%s)", desiredMode, reason);
 }

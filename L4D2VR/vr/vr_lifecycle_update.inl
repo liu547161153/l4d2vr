@@ -570,8 +570,6 @@ void VR::CreateVRTextures()
         m_AntiAliasing == 2 || m_AntiAliasing == 4 || m_AntiAliasing == 8 || m_AntiAliasing == 16;
     if (useDedicatedEyeSubmitTextures)
     {
-        Game::logMsg("[VR] AntiAliasing=%u: creating single-sample eye submit textures", m_AntiAliasing);
-
         m_CreatingTextureID = Texture_LeftEyeSubmit;
         m_LeftEyeSubmitTexture = m_Game->m_MaterialSystem->CreateNamedRenderTargetTextureEx("leftEyeSubmit0", m_RenderWidth, m_RenderHeight, RT_SIZE_NO_CHANGE, m_Game->m_MaterialSystem->GetBackBufferFormat(), MATERIAL_RT_DEPTH_SEPARATE, TEXTUREFLAGS_NOMIP);
         m_CreatingTextureID = Texture_RightEyeSubmit;
@@ -670,7 +668,6 @@ void VR::EnsureOpticsRTTTextures()
             m_Game->m_MaterialSystem->GetBackBufferFormat(),
             MATERIAL_RT_DEPTH_SEPARATE,
             TEXTUREFLAGS_NOMIP);
-        Game::logMsg("[VR] Created scope RTT on-demand (%dx%d)", (int)m_ScopeRTTSize, (int)m_ScopeRTTSize);
     }
 
     if (needRearMirror)
@@ -684,7 +681,6 @@ void VR::EnsureOpticsRTTTextures()
             m_Game->m_MaterialSystem->GetBackBufferFormat(),
             MATERIAL_RT_DEPTH_SEPARATE,
             TEXTUREFLAGS_NOMIP);
-        Game::logMsg("[VR] Created rear-mirror RTT on-demand (%dx%d)", (int)m_RearMirrorRTTSize, (int)m_RearMirrorRTTSize);
     }
 
     m_CreatingTextureID = Texture_None;
@@ -1213,7 +1209,6 @@ void VR::LogCompositorError(const char* action, vr::EVRCompositorError error)
     if (now - m_LastCompositorErrorLog < kLogCooldown)
         return;
 
-    Game::logMsg("[VR] %s failed with VRCompositorError %d", action, static_cast<int>(error));
     m_LastCompositorErrorLog = now;
 }
 
