@@ -258,6 +258,8 @@ r_queued_post_processing=1
 r_rootlod=1
 r_propsmaxdist=600
 cl_detaildist=0
+LocalVScriptConvarsEnabled=false
+LocalVScriptConvarsPath=VR\local_client_convars.nut
 cl_detailfade=0
 
 AutoFlashlightEnabled=false

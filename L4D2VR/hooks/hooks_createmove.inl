@@ -41,6 +41,8 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	static int s_autoFastMeleeSwitchOutCmd = -1;
 	static int s_autoFastMeleeSwitchBackCmd = -1;
 	static int s_autoFastMeleeLastIntentCmd = -1;
+	static std::chrono::steady_clock::time_point s_effectiveRangeMeleeNextCycleAt{};
+	static uintptr_t s_effectiveRangeMeleeWeapon = 0;
 
 	if (!cmd)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
@@ -51,6 +53,12 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	bool result = hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
 
 	m_VR->m_EffectiveAttackRangeAutoFireActive = false;
+
+	auto resetEffectiveRangeMeleeCycle = [&]()
+		{
+			s_effectiveRangeMeleeNextCycleAt = {};
+			s_effectiveRangeMeleeWeapon = 0;
+		};
 
 	if (m_VR->m_IsVREnabled) {
 		// Detect observer -> live transition and recenter once.
@@ -112,8 +120,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 				if (canAutoFire)
 				{
 					constexpr int kIN_ATTACK = (1 << 0);
-					cmd->buttons &= ~kIN_ATTACK;
-					cmd->buttons |= kIN_ATTACK;
+					if (weaponId != C_WeaponCSBase::WeaponID::MELEE)
+					{
+						cmd->buttons &= ~kIN_ATTACK;
+						cmd->buttons |= kIN_ATTACK;
+					}
 					m_VR->m_EffectiveAttackRangeAutoFireActive = true;
 				}
 			}
@@ -889,7 +900,6 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		const bool doingUseAction = lp2 ? (ReadNetvar<int>(lp2, 0x1ba8) != 0) : false; // m_iCurrentUseAction
 		const bool canSwitchCancel = m_VR->m_AutoFastMeleeUseWeaponSwitch;
 		const int cmdNum = cmd->command_number;
-		const bool effectiveRangeMeleeHold = m_VR->m_EffectiveAttackRangeAutoFireActive && isMeleeWeapon;
 
 		if (attackIntentDown)
 		{
@@ -920,19 +930,7 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		}
 		const bool hasPendingSwitch = s_autoFastMeleeSwitchOutPending || s_autoFastMeleeSwitchBackPending;
 
-		if (effectiveRangeMeleeHold)
-		{
-			s_autoFastMeleeHoldPrev = false;
-			s_autoFastMeleeNextSwingCmd = -1;
-			s_autoFastMeleeWeapon = 0;
-			s_autoFastMeleeLastIntentCmd = -1;
-			s_autoFastMeleeSwitchOutPending = false;
-			s_autoFastMeleeSwitchBackPending = false;
-			s_autoFastMeleeSwitchOutCmd = -1;
-			s_autoFastMeleeSwitchBackCmd = -1;
-			cmd->buttons |= kIN_ATTACK;
-		}
-		else if (effectiveAttackIntentDown && !doingUseAction)
+		if (effectiveAttackIntentDown && !doingUseAction)
 		{
 			if (isMeleeWeapon)
 			{
@@ -1035,6 +1033,56 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		s_autoFastMeleeNextSwingCmd = -1;
 		s_autoFastMeleeWeapon = 0;
 		s_autoFastMeleeLastIntentCmd = -1;
+	}
+
+	// Effective-range melee auto-fire: emit one melee attack pulse at a fixed interval,
+	// without running the manual AutoFastMelee weapon-switch cancel chain.
+	if (m_Game && m_Game->m_EngineClient)
+	{
+		const int kIN_ATTACK = (1 << 0);
+
+		const int lpIdx2 = m_Game->m_EngineClient->GetLocalPlayer();
+		C_BasePlayer* lp2 = (lpIdx2 > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx2) : nullptr;
+		C_BaseCombatWeapon* wpn = lp2 ? (C_BaseCombatWeapon*)lp2->GetActiveWeapon() : nullptr;
+		C_WeaponCSBase* wpnCS = reinterpret_cast<C_WeaponCSBase*>(wpn);
+		const bool isMeleeWeapon = (wpnCS != nullptr) && (wpnCS->GetWeaponID() == C_WeaponCSBase::WeaponID::MELEE);
+		const bool autoFireMeleeActive = m_VR->m_EffectiveAttackRangeAutoFireActive && isMeleeWeapon;
+		const bool cmdAttackDown = (cmd->buttons & kIN_ATTACK) != 0;
+		const bool vrAttackDown = m_VR->m_PrimaryAttackDown || m_VR->m_PrimaryAttackCmdOwned;
+		const bool mouseAttackDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+		const bool manualAttackDown = cmdAttackDown || vrAttackDown || mouseAttackDown;
+		const bool doingUseAction = lp2 ? (ReadNetvar<int>(lp2, 0x1ba8) != 0) : false; // m_iCurrentUseAction
+		const auto now = std::chrono::steady_clock::now();
+
+		if (autoFireMeleeActive && !doingUseAction && !manualAttackDown)
+		{
+			const uintptr_t wpnTag = reinterpret_cast<uintptr_t>(wpn);
+			if (wpnTag != s_effectiveRangeMeleeWeapon)
+			{
+				resetEffectiveRangeMeleeCycle();
+				s_effectiveRangeMeleeWeapon = wpnTag;
+			}
+
+			if (s_effectiveRangeMeleeNextCycleAt.time_since_epoch().count() == 0)
+				s_effectiveRangeMeleeNextCycleAt = now;
+
+			if (now >= s_effectiveRangeMeleeNextCycleAt)
+			{
+				cmd->buttons |= kIN_ATTACK;
+
+				const auto interval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+					std::chrono::duration<float>(std::clamp(m_VR->m_EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds, 0.05f, 5.0f)));
+				s_effectiveRangeMeleeNextCycleAt = now + interval;
+			}
+		}
+		else
+		{
+			resetEffectiveRangeMeleeCycle();
+		}
+	}
+	else
+	{
+		resetEffectiveRangeMeleeCycle();
 	}
 
 

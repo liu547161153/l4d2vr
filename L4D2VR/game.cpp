@@ -625,6 +625,69 @@ float Game::GetConVarFloat(const char* name, float fallback) const
     }
 }
 
+static const char* TryGetConVarStringRaw(SourceConVar* cvar)
+{
+    __try
+    {
+        if (!cvar)
+            return nullptr;
+
+        const SourceConVar* parent = (cvar->m_pParent != nullptr) ? cvar->m_pParent : cvar;
+        return parent->m_pszString;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
+std::string Game::GetConVarString(const char* name) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return std::string();
+
+    const char* raw = TryGetConVarStringRaw(cvar);
+    return raw ? std::string(raw) : std::string();
+}
+
+int Game::GetConVarFlags(const char* name) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return -1;
+
+    __try
+    {
+        return cvar->m_nFlags;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] GetConVarFlags failed for %s", name ? name : "<null>");
+        return -1;
+    }
+}
+
+bool Game::SetConVarString(const char* name, const char* value) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return false;
+
+    __try
+    {
+        cvar->SetValue(value ? value : "");
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] SetConVarString failed for %s=%s",
+            name ? name : "<null>",
+            value ? value : "<null>");
+        return false;
+    }
+}
+
 bool Game::SetConVarInt(const char* name, int value) const
 {
     SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
@@ -653,13 +716,11 @@ bool Game::SetConVarFloat(const char* name, float value) const
     if (!cvar)
         return false;
 
-    SourceIConVar* iconvar = AsIConVar(cvar);
-    if (!iconvar)
-        return false;
-
     __try
     {
-        iconvar->SetValue(value);
+        char buffer[64] = {};
+        sprintf_s(buffer, "%.9g", static_cast<double>(value));
+        cvar->SetValue(buffer);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)

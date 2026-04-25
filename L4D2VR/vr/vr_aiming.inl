@@ -1082,6 +1082,8 @@ bool VR::UpdateFriendlyFireAimHit(C_BasePlayer* localPlayer)
 
     if (!activeWeapon || IsThrowableWeapon(activeWeapon))
         return false;
+    if (activeWeapon->GetWeaponID() == C_WeaponCSBase::WeaponID::MELEE)
+        return false;
 
     C_BaseEntity* mountedUseEnt = GetMountedGunUseEntity(localPlayer);
     IClientEntityList* entityList = m_Game ? m_Game->m_ClientEntityList : nullptr;
@@ -1415,6 +1417,17 @@ bool VR::ShouldSuppressPrimaryFire(const CUserCmd* cmd, C_BasePlayer* localPlaye
 
     const bool attackDown = (cmd != nullptr) && ((cmd->buttons & (1 << 0)) != 0); // IN_ATTACK
 
+    if (localPlayer)
+    {
+        C_WeaponCSBase* activeWeapon = static_cast<C_WeaponCSBase*>(localPlayer->GetActiveWeapon());
+        if (activeWeapon && activeWeapon->GetWeaponID() == C_WeaponCSBase::WeaponID::MELEE)
+        {
+            m_AimLineHitsFriendly = false;
+            m_FriendlyFireGuardLatched = false;
+            return false;
+        }
+    }
+
     // Keep the hit result current on input ticks (CreateMove).
     if (localPlayer)
         UpdateFriendlyFireAimHit(localPlayer);
@@ -1468,9 +1481,8 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
     } tlsGuard(queueMode != 0);
 
     const bool queued = (queueMode != 0);
-    const bool d3dAimLineEffective = m_D3DAimLineOverlayEnabled && !queued;
-
-    const bool canDraw = (m_Game->m_DebugOverlay != nullptr) || d3dAimLineEffective;
+    const bool scopeOverlayNeedsDebugAimLine = ShouldRenderScope();
+    const bool d3dAimLineEffective = m_D3DAimLineOverlayEnabled && !queued && !scopeOverlayNeedsDebugAimLine;
 
 
     C_WeaponCSBase* activeWeapon = nullptr;
@@ -1498,19 +1510,6 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         UpdateFriendlyFireAimHit(localPlayer);
         // Aim-line teammate HUD hint is only meaningful while the aim line is active.
         UpdateAimTeammateHudTarget(localPlayer, Vector{}, Vector{}, false);
-
-        return;
-    }
-
-    // If neither DebugOverlay nor the D3D overlay is available, don't draw, but keep the guard working.
-    if (!canDraw)
-    {
-        UpdateFriendlyFireAimHit(localPlayer);
-        UpdateAimTeammateHudTarget(localPlayer, Vector{}, Vector{}, false);
-        {
-            std::lock_guard<std::mutex> lock(m_D3DAimLineOverlayMutex);
-            m_HasD3DAimLineWorldSegment = false;
-        }
 
         return;
     }
@@ -1602,7 +1601,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
 
 
             if (!queued && allowAimLineDraw && !scopeOnlyAimLine)
-                DrawLineWithThickness(m_AimLineStart, m_AimLineEnd, duration);
+                DrawAimLine(m_AimLineStart, m_AimLineEnd);
             return;
         }
 
@@ -1745,7 +1744,7 @@ void VR::UpdateAimingLaser(C_BasePlayer* localPlayer)
         m_HasD3DAimLineWorldSegment = !((target - origin).IsZero());
     }
 
-    if (!queued && canDraw && allowAimLineDraw && !scopeOnlyAimLine)
+    if (!queued && allowAimLineDraw && !scopeOnlyAimLine)
         DrawAimLine(origin, target);
 }
 
@@ -2901,9 +2900,9 @@ void VR::DrawAimLine(const Vector& start, const Vector& end)
 {
     if (!m_AimLineEnabled || !m_Game || !m_Game->m_DebugOverlay)
         return;
-    const int queueMode = m_Game ? m_Game->GetMatQueueMode() : 0;
-    const bool d3dAimLineEffective = m_D3DAimLineOverlayEnabled && (queueMode == 0);
-    if (d3dAimLineEffective && !m_ScopeRenderingPass)
+
+    const bool scopeOverlayNeedsDebugAimLine = ShouldRenderScope();
+    if (!m_ScopeRenderingPass && !scopeOverlayNeedsDebugAimLine)
         return;
 
     const bool scopeOnlyAimLine = m_ScopeAimLineOnlyInScope
@@ -3101,7 +3100,8 @@ void VR::UpdateD3DAimLineOverlayForView(C_BasePlayer* localPlayer, const CViewSe
         };
 
     const int queueMode = m_Game ? m_Game->GetMatQueueMode() : 0;
-    if (!m_D3DAimLineOverlayEnabled || queueMode != 0 || !m_AimLineEnabled || !m_IsVREnabled || !localPlayer)
+    const bool scopeOverlayNeedsDebugAimLine = ShouldRenderScope();
+    if (!m_D3DAimLineOverlayEnabled || queueMode != 0 || !m_AimLineEnabled || !m_IsVREnabled || !localPlayer || scopeOverlayNeedsDebugAimLine)
     {
         clearEye();
         return;
@@ -3204,8 +3204,6 @@ void VR::RenderDrawAimLineQueued(C_BasePlayer* localPlayer)
         && m_ThirdPersonFrontViewEnabled
         && m_IsThirdPersonCamera
         && m_ScopeWeaponIsFirearm;
-    if (scopeOnlyAimLine && !m_ScopeRenderingPass)
-        return;
 
     Vector start{};
     Vector end{};

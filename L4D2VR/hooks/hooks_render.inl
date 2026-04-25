@@ -1559,12 +1559,7 @@ void __fastcall Hooks::dRenderView(void* ecx, void* edx, CViewSetup& setup, CVie
 	// IMPORTANT: must run after we compute m_SetupOrigin / m_ThirdPersonRenderCenter for this frame.
 	if (m_VR->m_IsVREnabled && queueMode != 0)
 	{
-		const bool scopeOnlyAimLine = m_VR->m_ScopeAimLineOnlyInScope
-			&& m_VR->m_ThirdPersonFrontViewEnabled
-			&& m_VR->m_IsThirdPersonCamera
-			&& m_VR->m_ScopeWeaponIsFirearm;
-		if (!scopeOnlyAimLine)
-			m_VR->RenderDrawAimLineQueued(localPlayer);
+		m_VR->RenderDrawAimLineQueued(localPlayer);
 	}
 
 	// --- IMPORTANT: avoid "dragging/ghosting" when turning with thumbstick ---

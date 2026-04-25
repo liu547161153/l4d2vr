@@ -566,6 +566,7 @@ public:
 	float m_EffectiveAttackRangeCacheDirectionDot = 0.9990f;
 	float m_EffectiveAttackRangeMeleeDistance = 70.0f;
 	float m_EffectiveAttackRangeMeleeFanAngle = 90.0f;
+	float m_EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds = 0.60f;
 	float m_EffectiveAttackRangeHitPointTolerance = 8.0f;
 	float m_EffectiveAttackRangeHitPointSpreadScale = 0.50f;
 	float m_EffectiveAttackRangeHitPointMaxTolerance = 24.0f;
@@ -1217,6 +1218,18 @@ public:
 	float m_WriteOnlyOrigDetailDist = 400.0f;
 	float m_WriteOnlyOrigDetailFade = 250.0f;
 	std::atomic<bool> m_WriteOnlyPerformanceSettingsDirty{ true };
+	struct LocalVScriptConvarEntry
+	{
+		std::string name;
+		std::string value;
+		std::string originalValue;
+		int flags = 0;
+	};
+	bool m_LocalVScriptConvarsEnabled = false;
+	std::string m_LocalVScriptConvarsPath = "VR\\local_client_convars.nut";
+	std::vector<LocalVScriptConvarEntry> m_LocalVScriptConvars{};
+	bool m_LocalVScriptConvarsApplied = false;
+	std::atomic<bool> m_LocalVScriptConvarsDirty{ true };
 	bool m_AutoFlashlightEnabled = false;
 	float m_AutoFlashlightDarkThreshold = 90.0f;
 	float m_AutoFlashlightBrightThreshold = 120.0f;
@@ -1985,8 +1998,10 @@ public:
 	void Update();
 	void ApplyShadowSettingsIfNeeded();
 	void ApplyWriteOnlyPerformanceSettingsIfNeeded();
+	void ApplyLocalVScriptConvarsIfNeeded();
 	void CaptureWriteOnlyPerformanceDefaults();
 	void RestoreWriteOnlyPerformanceDefaults();
+	void RestoreLocalVScriptConvars();
 	void CaptureShadowCvarDefaults();
 	void RestoreShadowCvarDefaults();
 	void ApplyShadowEntityOverrides(bool forceRefresh);

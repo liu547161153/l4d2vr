@@ -30,6 +30,8 @@ ThirdPersonVRCameraOffset=38
 
 AutoMatQueueMode=false
 WriteOnlyPerformanceTweaksEnabled=false
+LocalVScriptConvarsEnabled=false
+LocalVScriptConvarsPath=VR\local_client_convars.nut
 
 
 LeftWristHudEnabled=false
@@ -171,6 +173,7 @@ KillIndicatorMaterialBaseSpec=overlays/2965700751
 
 ShadowTweaksEnabled=false
 EffectiveAttackRangeAutoFireEnabled=false
+EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds=0.60
 AutoFlashlightEnabled=true
 )";
 
@@ -512,6 +515,12 @@ static bool IsOptionVisible(const Option& opt)
         std::strcmp(key, "AimLineColor") == 0 ||
         std::strcmp(key, "AimLineMaxHz") == 0)
         return IsEnabled("AimLineEnabled");
+
+    if (std::strcmp(key, "EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds") == 0)
+        return IsEnabled("AimLineEnabled") && IsEnabled("EffectiveAttackRangeAutoFireEnabled");
+
+    if (std::strcmp(key, "LocalVScriptConvarsPath") == 0)
+        return IsEnabled("LocalVScriptConvarsEnabled");
 
     return true;
 }
@@ -916,6 +925,30 @@ Option g_Options[] =
           u8"如果有些模型在较远距离仍然参与渲染，想用更激进的距离设置来节省性能，可以开启。" },
         0.0f, 0.0f,
         "false"
+    },
+    {
+        "LocalVScriptConvarsEnabled",
+        OptionType::Bool,
+        { u8"Performance", u8"性能" },
+        { u8"Enable Local VScript Convars", u8"启用本地 VScript ConVar" },
+        { u8"Parses a local .nut file and applies literal Convars.SetValue(...) entries through VEngineCvar on the client.",
+          u8"解析本地 .nut 文件，并把其中字面量 Convars.SetValue(...) 通过 VEngineCvar 直接下发到客户端。" },
+        { u8"Server-side or replicated gameplay cvars are skipped instead of being sent as commands.",
+          u8"服务器侧或 replicated 的玩法类 cvar 会被跳过，不会再退回成命令发送。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "LocalVScriptConvarsPath",
+        OptionType::String,
+        { u8"Performance", u8"性能" },
+        { u8"Local VScript Convar File", u8"本地 VScript ConVar 文件" },
+        { u8"Path to the .nut file that contains Convars.SetValue(...) lines to apply locally.",
+          u8"要本地下发的 .nut 文件路径，其中包含 Convars.SetValue(...) 行。" },
+        { u8"Relative paths resolve from the game working directory. Default: VR\\local_client_convars.nut",
+          u8"相对路径按游戏工作目录解析。默认：VR\\local_client_convars.nut" },
+        0.0f, 0.0f,
+        "VR\\local_client_convars.nut"
     },
     {
         "r_shadows",
@@ -1777,6 +1810,18 @@ Option g_Options[] =
           u8"女巫会被排除。运行中也可用 SteamVR 绑定开关切换。" },
         0.0f, 0.0f,
         "false"
+    },
+    {
+        "EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds",
+        OptionType::Float,
+        { u8"Aim Assist", u8"辅助瞄准" },
+        { u8"Effective-range Melee Interval", u8"有效距离近战触发间隔" },
+        { u8"While effective-range auto fire is driving a melee weapon, run one auto fast-melee cycle every N seconds instead of holding attack.",
+          u8"当有效距离自动开火驱动近战武器时，不再持续长按，而是每隔 N 秒执行一次自动快近战循环。" },
+        { u8"Lower values start follow-up swings sooner; raise it if the slot-switch cancel feels too aggressive.",
+          u8"数值越小，后续挥刀越快；如果切枪取消显得太激进，就调大一些。" },
+        0.05f, 5.0f,
+        "0.60"
     },
     {
         "AimLineThickness",

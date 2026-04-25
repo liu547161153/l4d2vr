@@ -116,6 +116,9 @@ public:
     void ClientCmd_Unrestricted(const char* szCmdString);
     int GetConVarInt(const char* name, int fallback = 0) const;
     float GetConVarFloat(const char* name, float fallback = 0.0f) const;
+    std::string GetConVarString(const char* name) const;
+    int GetConVarFlags(const char* name) const;
+    bool SetConVarString(const char* name, const char* value) const;
     bool SetConVarInt(const char* name, int value) const;
     bool SetConVarFloat(const char* name, float value) const;
     bool SetConVarBool(const char* name, bool value) const;

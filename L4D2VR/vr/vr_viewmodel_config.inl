@@ -25,13 +25,15 @@ void VR::GetAimLineColor(int& r, int& g, int& b, int& a) const
         b = m_AimLineColorB;
     }
 
-    a = m_AimLineColorA;
-    if (m_ScopeAimLineOnlyInScope
-        && m_ThirdPersonFrontViewEnabled
-        && m_IsThirdPersonCamera
-        && m_ScopeWeaponIsFirearm
-        && !m_ScopeRenderingPass)
-        a = 0;
+	a = m_AimLineColorA;
+	const int queueMode = (m_Game != nullptr) ? m_Game->GetMatQueueMode() : 0;
+	if (m_ScopeAimLineOnlyInScope
+		&& m_ThirdPersonFrontViewEnabled
+		&& m_IsThirdPersonCamera
+		&& m_ScopeWeaponIsFirearm
+		&& queueMode == 0
+		&& !m_ScopeRenderingPass)
+		a = 0;
 }
 
 
@@ -1080,6 +1082,7 @@ void VR::ParseConfigFile()
     m_EffectiveAttackRangeCacheDirectionDot = std::clamp(getFloat("EffectiveAttackRangeCacheDirectionDot", m_EffectiveAttackRangeCacheDirectionDot), 0.0f, 1.0f);
     m_EffectiveAttackRangeMeleeDistance = std::clamp(getFloat("EffectiveAttackRangeMeleeDistance", m_EffectiveAttackRangeMeleeDistance), 1.0f, 512.0f);
     m_EffectiveAttackRangeMeleeFanAngle = std::clamp(getFloat("EffectiveAttackRangeMeleeFanAngle", m_EffectiveAttackRangeMeleeFanAngle), 0.0f, 180.0f);
+    m_EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds = std::clamp(getFloat("EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds", m_EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds), 0.05f, 5.0f);
     m_EffectiveAttackRangeHitPointTolerance = std::clamp(getFloat("EffectiveAttackRangeHitPointTolerance", m_EffectiveAttackRangeHitPointTolerance), 0.0f, 64.0f);
     m_EffectiveAttackRangeHitPointSpreadScale = std::clamp(getFloat("EffectiveAttackRangeHitPointSpreadScale", m_EffectiveAttackRangeHitPointSpreadScale), 0.0f, 2.0f);
     m_EffectiveAttackRangeHitPointMaxTolerance = std::clamp(getFloat("EffectiveAttackRangeHitPointMaxTolerance", m_EffectiveAttackRangeHitPointMaxTolerance), m_EffectiveAttackRangeHitPointTolerance, 64.0f);
@@ -1591,6 +1594,13 @@ void VR::ParseConfigFile()
     m_WriteOnlyCvarDetailFade =
         std::clamp(getFloat("cl_detailfade", m_WriteOnlyCvarDetailFade), 0.0f, 32768.0f);
     m_WriteOnlyPerformanceSettingsDirty.store(true, std::memory_order_release);
+    m_LocalVScriptConvarsEnabled =
+        getBool("LocalVScriptConvarsEnabled", m_LocalVScriptConvarsEnabled);
+    m_LocalVScriptConvarsPath =
+        getString("LocalVScriptConvarsPath", m_LocalVScriptConvarsPath);
+    if (m_LocalVScriptConvarsPath.empty())
+        m_LocalVScriptConvarsPath = "VR\\local_client_convars.nut";
+    m_LocalVScriptConvarsDirty.store(true, std::memory_order_release);
     m_AutoFlashlightEnabled = getBool("AutoFlashlightEnabled", m_AutoFlashlightEnabled);
     m_AutoFlashlightDarkThreshold =
         std::clamp(getFloat("AutoFlashlightDarkThreshold", m_AutoFlashlightDarkThreshold), 0.0f, 255.0f);
@@ -2222,6 +2232,472 @@ void VR::RestoreWriteOnlyPerformanceDefaults()
     m_WriteOnlyPerformanceOriginalsCaptured = false;
 }
 
+namespace
+{
+    constexpr int kLocalVScriptFlagGameDll = 1 << 2;
+    constexpr int kLocalVScriptFlagClientDll = 1 << 3;
+    constexpr int kLocalVScriptFlagReplicated = 1 << 13;
+    enum class LocalVScriptValueKind
+    {
+        String,
+        Bool,
+        Int,
+        Float
+    };
+
+    inline void TrimLocalVScriptValue(std::string& value)
+    {
+        auto ltrim = [](std::string& s)
+        {
+            s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch)
+                {
+                    return !std::isspace(ch);
+                }));
+        };
+        auto rtrim = [](std::string& s)
+        {
+            s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch)
+                {
+                    return !std::isspace(ch);
+                }).base(), s.end());
+        };
+
+        ltrim(value);
+        rtrim(value);
+    }
+
+    void StripLocalVScriptLineComment(std::string& line)
+    {
+        bool inString = false;
+        bool escaped = false;
+        for (size_t i = 0; i + 1 < line.size(); ++i)
+        {
+            const char ch = line[i];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (inString && ch == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString && ch == '/' && line[i + 1] == '/')
+            {
+                line.erase(i);
+                return;
+            }
+        }
+    }
+
+    bool TryParseLocalVScriptBool(const std::string& rawValue, bool& outValue)
+    {
+        std::string value = rawValue;
+        TrimLocalVScriptValue(value);
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+            {
+                return static_cast<char>(std::tolower(c));
+            });
+
+        if (value == "true" || value == "1" || value == "on" || value == "yes")
+        {
+            outValue = true;
+            return true;
+        }
+
+        if (value == "false" || value == "0" || value == "off" || value == "no")
+        {
+            outValue = false;
+            return true;
+        }
+
+        return false;
+    }
+
+    LocalVScriptValueKind InferLocalVScriptValueKind(
+        const std::string& rawValue,
+        bool& outBool,
+        int& outInt,
+        float& outFloat)
+    {
+        std::string value = rawValue;
+        TrimLocalVScriptValue(value);
+
+        if (TryParseLocalVScriptBool(value, outBool))
+            return LocalVScriptValueKind::Bool;
+
+        char* intEnd = nullptr;
+        const long parsedInt = std::strtol(value.c_str(), &intEnd, 10);
+        if (intEnd != nullptr && *value.c_str() != '\0' && *intEnd == '\0')
+        {
+            outInt = static_cast<int>(parsedInt);
+            return LocalVScriptValueKind::Int;
+        }
+
+        char* floatEnd = nullptr;
+        const float parsedFloat = std::strtof(value.c_str(), &floatEnd);
+        if (floatEnd != nullptr && *value.c_str() != '\0' && *floatEnd == '\0' && std::isfinite(parsedFloat))
+        {
+            outFloat = parsedFloat;
+            return LocalVScriptValueKind::Float;
+        }
+
+        return LocalVScriptValueKind::String;
+    }
+
+    const char* GetLocalVScriptValueKindName(LocalVScriptValueKind kind)
+    {
+        switch (kind)
+        {
+        case LocalVScriptValueKind::Bool:
+            return "bool";
+        case LocalVScriptValueKind::Int:
+            return "int";
+        case LocalVScriptValueKind::Float:
+            return "float";
+        default:
+            return "string";
+        }
+    }
+
+    bool LocalVScriptValuesEquivalent(const std::string& requestedRaw, const std::string& actualRaw)
+    {
+        std::string requested = requestedRaw;
+        std::string actual = actualRaw;
+        TrimLocalVScriptValue(requested);
+        TrimLocalVScriptValue(actual);
+
+        if (requested == actual)
+            return true;
+
+        bool requestedBool = false;
+        bool actualBool = false;
+        if (TryParseLocalVScriptBool(requested, requestedBool) &&
+            TryParseLocalVScriptBool(actual, actualBool))
+        {
+            return requestedBool == actualBool;
+        }
+
+        char* requestedEnd = nullptr;
+        char* actualEnd = nullptr;
+        const double requestedNumber = std::strtod(requested.c_str(), &requestedEnd);
+        const double actualNumber = std::strtod(actual.c_str(), &actualEnd);
+        const bool requestedIsNumber =
+            requestedEnd != nullptr && *requested.c_str() != '\0' && *requestedEnd == '\0';
+        const bool actualIsNumber =
+            actualEnd != nullptr && *actual.c_str() != '\0' && *actualEnd == '\0';
+
+        if (requestedIsNumber && actualIsNumber)
+            return std::fabs(requestedNumber - actualNumber) <= 0.0001;
+
+        return false;
+    }
+
+    const char* GetLocalVScriptSkipReason(const std::string& name, int flags)
+    {
+        const auto startsWith = [&](const char* prefix)
+        {
+            return name.rfind(prefix, 0) == 0;
+        };
+
+        if (startsWith("sv_"))
+            return "server prefix sv_";
+        if (startsWith("z_"))
+            return "server/gameplay prefix z_";
+        if (startsWith("director_"))
+            return "server/gameplay prefix director_";
+        if (startsWith("melee_"))
+            return "server/gameplay prefix melee_";
+        if (startsWith("nb_"))
+            return "server/gameplay prefix nb_";
+        if (startsWith("sb_"))
+            return "server/gameplay prefix sb_";
+        if ((flags & kLocalVScriptFlagGameDll) != 0 && (flags & kLocalVScriptFlagClientDll) == 0)
+            return "FCVAR_GAMEDLL without FCVAR_CLIENTDLL";
+        if ((flags & kLocalVScriptFlagReplicated) != 0 && (flags & kLocalVScriptFlagClientDll) == 0)
+            return "FCVAR_REPLICATED without FCVAR_CLIENTDLL";
+
+        return "unknown";
+    }
+
+    bool ShouldSkipLocalVScriptConvar(const std::string& name, int flags)
+    {
+        const auto startsWith = [&](const char* prefix)
+        {
+            return name.rfind(prefix, 0) == 0;
+        };
+
+        if (startsWith("sv_") ||
+            startsWith("z_") ||
+            startsWith("director_") ||
+            startsWith("melee_") ||
+            startsWith("nb_") ||
+            startsWith("sb_"))
+        {
+            return true;
+        }
+
+        if ((flags & kLocalVScriptFlagGameDll) != 0 && (flags & kLocalVScriptFlagClientDll) == 0)
+            return true;
+
+        if ((flags & kLocalVScriptFlagReplicated) != 0 && (flags & kLocalVScriptFlagClientDll) == 0)
+            return true;
+
+        return false;
+    }
+
+    bool ParseLocalVScriptConvarsFile(
+        const std::string& path,
+        std::vector<VR::LocalVScriptConvarEntry>& outEntries)
+    {
+        outEntries.clear();
+        if (path.empty())
+            return false;
+
+        std::ifstream stream(path);
+        if (!stream)
+            return false;
+
+        const std::regex pattern(
+            R"VSCVAR(^\s*Convars\.SetValue\(\s*"([^"]+)"\s*,\s*(.+?)\s*\)\s*;?\s*$)VSCVAR");
+
+        std::unordered_map<std::string, size_t> lastByName;
+        std::string line;
+        while (std::getline(stream, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+
+            StripLocalVScriptLineComment(line);
+            TrimLocalVScriptValue(line);
+            if (line.empty())
+                continue;
+
+            std::smatch match;
+            if (!std::regex_match(line, match, pattern))
+                continue;
+
+            std::string name = match[1].str();
+            std::string value = match[2].str();
+            TrimLocalVScriptValue(name);
+            TrimLocalVScriptValue(value);
+            if (name.empty())
+                continue;
+
+            if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+            {
+                value = value.substr(1, value.size() - 2);
+            }
+
+            VR::LocalVScriptConvarEntry entry;
+            entry.name = std::move(name);
+            entry.value = std::move(value);
+            auto existing = lastByName.find(entry.name);
+            if (existing != lastByName.end())
+            {
+                outEntries[existing->second].value = entry.value;
+            }
+            else
+            {
+                lastByName.emplace(entry.name, outEntries.size());
+                outEntries.push_back(std::move(entry));
+            }
+        }
+
+        return true;
+    }
+}
+
+void VR::RestoreLocalVScriptConvars()
+{
+    if (!m_Game)
+        return;
+
+    if (!m_LocalVScriptConvarsApplied)
+    {
+        m_LocalVScriptConvars.clear();
+        return;
+    }
+
+    int restoredCount = 0;
+    int restoreFailedCount = 0;
+    Game::logMsg(
+        "[VR][LocalVScriptConvars] Restore begin count=%zu",
+        m_LocalVScriptConvars.size());
+    for (const LocalVScriptConvarEntry& entry : m_LocalVScriptConvars)
+    {
+        if (entry.name.empty())
+            continue;
+
+        const std::string beforeValue = m_Game->GetConVarString(entry.name.c_str());
+        const bool setOk = m_Game->SetConVarString(entry.name.c_str(), entry.originalValue.c_str());
+        const std::string afterValue = m_Game->GetConVarString(entry.name.c_str());
+        const bool verified = LocalVScriptValuesEquivalent(entry.originalValue, afterValue);
+
+        if (setOk)
+            ++restoredCount;
+        else
+            ++restoreFailedCount;
+
+        Game::logMsg(
+            "[VR][LocalVScriptConvars] Restore name=%s flags=0x%08X before='%s' target='%s' after='%s' setOk=%d verified=%d",
+            entry.name.c_str(),
+            entry.flags,
+            beforeValue.c_str(),
+            entry.originalValue.c_str(),
+            afterValue.c_str(),
+            setOk ? 1 : 0,
+            verified ? 1 : 0);
+    }
+
+    Game::logMsg(
+        "[VR][LocalVScriptConvars] Restore done restored=%d failed=%d",
+        restoredCount,
+        restoreFailedCount);
+    m_LocalVScriptConvars.clear();
+    m_LocalVScriptConvarsApplied = false;
+}
+
+void VR::ApplyLocalVScriptConvarsIfNeeded()
+{
+    const bool dirty = m_LocalVScriptConvarsDirty.exchange(false, std::memory_order_acq_rel);
+    if (!dirty)
+        return;
+
+    if (!m_Game || !m_Game->m_Initialized)
+    {
+        m_LocalVScriptConvarsDirty.store(true, std::memory_order_release);
+        return;
+    }
+
+    if (m_LocalVScriptConvarsApplied)
+        RestoreLocalVScriptConvars();
+
+    if (!m_LocalVScriptConvarsEnabled)
+        return;
+
+    std::vector<LocalVScriptConvarEntry> parsedEntries;
+    if (!ParseLocalVScriptConvarsFile(m_LocalVScriptConvarsPath, parsedEntries))
+    {
+        Game::logMsg("[VR][LocalVScriptConvars] Failed to read %s", m_LocalVScriptConvarsPath.c_str());
+        return;
+    }
+
+    Game::logMsg(
+        "[VR][LocalVScriptConvars] Apply begin path=%s parsed=%zu",
+        m_LocalVScriptConvarsPath.c_str(),
+        parsedEntries.size());
+
+    int appliedCount = 0;
+    int skippedCount = 0;
+    int missingCount = 0;
+    int writeFailedCount = 0;
+    int verifyMismatchCount = 0;
+
+    for (LocalVScriptConvarEntry& entry : parsedEntries)
+    {
+        entry.flags = m_Game->GetConVarFlags(entry.name.c_str());
+        if (entry.flags < 0)
+        {
+            ++missingCount;
+            Game::logMsg(
+                "[VR][LocalVScriptConvars] Missing name=%s requested='%s' reason=FindVar/GetFlags failed",
+                entry.name.c_str(),
+                entry.value.c_str());
+            continue;
+        }
+
+        if (ShouldSkipLocalVScriptConvar(entry.name, entry.flags))
+        {
+            ++skippedCount;
+            Game::logMsg(
+                "[VR][LocalVScriptConvars] Skip name=%s flags=0x%08X requested='%s' reason=%s",
+                entry.name.c_str(),
+                entry.flags,
+                entry.value.c_str(),
+                GetLocalVScriptSkipReason(entry.name, entry.flags));
+            continue;
+        }
+
+        entry.originalValue = m_Game->GetConVarString(entry.name.c_str());
+        bool boolValue = false;
+        int intValue = 0;
+        float floatValue = 0.0f;
+        const LocalVScriptValueKind kind =
+            InferLocalVScriptValueKind(entry.value, boolValue, intValue, floatValue);
+
+        bool setOk = false;
+        switch (kind)
+        {
+        case LocalVScriptValueKind::Bool:
+            setOk = m_Game->SetConVarBool(entry.name.c_str(), boolValue);
+            break;
+        case LocalVScriptValueKind::Int:
+            setOk = m_Game->SetConVarInt(entry.name.c_str(), intValue);
+            break;
+        case LocalVScriptValueKind::Float:
+            setOk = m_Game->SetConVarFloat(entry.name.c_str(), floatValue);
+            break;
+        default:
+            setOk = m_Game->SetConVarString(entry.name.c_str(), entry.value.c_str());
+            break;
+        }
+        const std::string readbackValue = m_Game->GetConVarString(entry.name.c_str());
+        const bool verified = LocalVScriptValuesEquivalent(entry.value, readbackValue);
+
+        if (!setOk)
+        {
+            ++writeFailedCount;
+            Game::logMsg(
+                "[VR][LocalVScriptConvars] WriteFail name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' setOk=0 verified=%d",
+                entry.name.c_str(),
+                entry.flags,
+                GetLocalVScriptValueKindName(kind),
+                entry.originalValue.c_str(),
+                entry.value.c_str(),
+                readbackValue.c_str(),
+                verified ? 1 : 0);
+            continue;
+        }
+
+        m_LocalVScriptConvars.push_back(entry);
+        if (verified)
+            ++appliedCount;
+        else
+            ++verifyMismatchCount;
+
+        Game::logMsg(
+            "[VR][LocalVScriptConvars] Apply name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' setOk=1 verified=%d",
+            entry.name.c_str(),
+            entry.flags,
+            GetLocalVScriptValueKindName(kind),
+            entry.originalValue.c_str(),
+            entry.value.c_str(),
+            readbackValue.c_str(),
+            verified ? 1 : 0);
+    }
+
+    m_LocalVScriptConvarsApplied = !m_LocalVScriptConvars.empty();
+    Game::logMsg(
+        "[VR][LocalVScriptConvars] Apply done path=%s applied=%d verifyMismatch=%d writeFailed=%d missing=%d skipped=%d trackedForRestore=%zu",
+        m_LocalVScriptConvarsPath.c_str(),
+        appliedCount,
+        verifyMismatchCount,
+        writeFailedCount,
+        missingCount,
+        skippedCount,
+        m_LocalVScriptConvars.size());
+}
+
 void VR::WaitForConfigUpdate()
 {
     char currentDir[MAX_STR_LEN];
@@ -2232,6 +2708,8 @@ void VR::WaitForConfigUpdate()
 
     FILETIME configLastModified{};
     FILETIME hapticsLastModified{};
+    FILETIME localVScriptLastModified{};
+    bool localVScriptMissing = false;
     while (1)
     {
         WIN32_FILE_ATTRIBUTE_DATA fileAttributes{};
@@ -2272,6 +2750,27 @@ void VR::WaitForConfigUpdate()
                         m_Game->errorMsg("Failed to parse haptics_config.txt");
                     }
                 }
+            }
+        }
+
+        if (!m_LocalVScriptConvarsPath.empty())
+        {
+            WIN32_FILE_ATTRIBUTE_DATA localVScriptAttributes{};
+            if (GetFileAttributesExA(m_LocalVScriptConvarsPath.c_str(), GetFileExInfoStandard, &localVScriptAttributes))
+            {
+                if (localVScriptMissing ||
+                    CompareFileTime(&localVScriptAttributes.ftLastWriteTime, &localVScriptLastModified) != 0)
+                {
+                    localVScriptLastModified = localVScriptAttributes.ftLastWriteTime;
+                    localVScriptMissing = false;
+                    m_LocalVScriptConvarsDirty.store(true, std::memory_order_release);
+                }
+            }
+            else if (!localVScriptMissing)
+            {
+                ZeroMemory(&localVScriptLastModified, sizeof(localVScriptLastModified));
+                localVScriptMissing = true;
+                m_LocalVScriptConvarsDirty.store(true, std::memory_order_release);
             }
         }
 

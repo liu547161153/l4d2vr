@@ -27,6 +27,7 @@
 #include <cstring>
 #include <cstdint>
 #include <iterator>
+#include <regex>
 #include <vector>
 #include <d3d9_vr.h>
 

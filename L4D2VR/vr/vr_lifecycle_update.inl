@@ -435,6 +435,7 @@ void VR::Update()
     UpdateAutoMatQueueMode();
     ApplyShadowSettingsIfNeeded();
     ApplyWriteOnlyPerformanceSettingsIfNeeded();
+    ApplyLocalVScriptConvarsIfNeeded();
     if (!posesValid)
     {
         // Continue using the last known poses so smoothing and aim helpers stay active.
