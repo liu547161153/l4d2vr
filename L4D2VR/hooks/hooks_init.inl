@@ -44,6 +44,12 @@ Hooks::Hooks(Game* game)
 	hkPrePushRenderTarget.enableHook();
 	if (hkUpdateLaserSight.pTarget)
 		hkUpdateLaserSight.enableHook();
+	if (hkConVarSetValueString.pTarget)
+		hkConVarSetValueString.enableHook();
+	if (hkConVarSetValueFloat.pTarget)
+		hkConVarSetValueFloat.enableHook();
+	if (hkConVarSetValueInt.pTarget)
+		hkConVarSetValueInt.enableHook();
 }
 
 Hooks::~Hooks()
@@ -139,6 +145,47 @@ int Hooks::initSourceHooks()
 	{
 		LPVOID UpdateLaserSightAddr = (LPVOID)(m_Game->m_Offsets->UpdateLaserSight.address);
 		hkUpdateLaserSight.createHook(UpdateLaserSightAddr, &dUpdateLaserSight);
+	}
+
+	const char* conVarSamples[] = { "name", "r_shadows", "cl_ragdoll_limit" };
+	for (const char* sample : conVarSamples)
+	{
+		if (!hkConVarSetValueString.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarStringSetValueTarget(sample);
+			if (target)
+				hkConVarSetValueString.createHook(target, &dConVarSetValueString);
+		}
+
+		if (!hkConVarSetValueFloat.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarFloatSetValueTarget(sample);
+			if (target)
+				hkConVarSetValueFloat.createHook(target, &dConVarSetValueFloat);
+		}
+
+		if (!hkConVarSetValueInt.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarIntSetValueTarget(sample);
+			if (target)
+				hkConVarSetValueInt.createHook(target, &dConVarSetValueInt);
+		}
+
+		if (hkConVarSetValueString.pTarget && hkConVarSetValueFloat.pTarget && hkConVarSetValueInt.pTarget)
+			break;
+	}
+
+	if (hkConVarSetValueString.pTarget && hkConVarSetValueFloat.pTarget && hkConVarSetValueInt.pTarget)
+	{
+		Game::logMsg("[VR][LocalVScriptConvars] Installed ConVar SetValue blockers.");
+	}
+	else
+	{
+		Game::logMsg(
+			"[VR][LocalVScriptConvars] Failed to install one or more ConVar SetValue blockers: string=%d float=%d int=%d",
+			hkConVarSetValueString.pTarget ? 1 : 0,
+			hkConVarSetValueFloat.pTarget ? 1 : 0,
+			hkConVarSetValueInt.pTarget ? 1 : 0);
 	}
 
 	uintptr_t clientModeAddress = m_Game->m_Offsets->g_pClientMode.address;

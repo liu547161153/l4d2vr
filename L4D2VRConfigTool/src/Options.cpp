@@ -31,6 +31,7 @@ ThirdPersonVRCameraOffset=38
 AutoMatQueueMode=false
 WriteOnlyPerformanceTweaksEnabled=false
 LocalVScriptConvarsEnabled=false
+LocalVScriptConvarsBlockExternalWrites=true
 LocalVScriptConvarsPath=VR\local_client_convars.nut
 
 
@@ -521,6 +522,8 @@ static bool IsOptionVisible(const Option& opt)
 
     if (std::strcmp(key, "LocalVScriptConvarsPath") == 0)
         return IsEnabled("LocalVScriptConvarsEnabled");
+    if (std::strcmp(key, "LocalVScriptConvarsBlockExternalWrites") == 0)
+        return IsEnabled("LocalVScriptConvarsEnabled");
 
     return true;
 }
@@ -949,6 +952,18 @@ Option g_Options[] =
           u8"相对路径按游戏工作目录解析。默认：VR\\local_client_convars.nut" },
         0.0f, 0.0f,
         "VR\\local_client_convars.nut"
+    },
+    {
+        "LocalVScriptConvarsBlockExternalWrites",
+        OptionType::Bool,
+        { u8"Performance", u8"性能" },
+        { u8"Block External ConVar Writes", u8"拦截外部 ConVar 改写" },
+        { u8"Hooks ConVar::SetValue and rejects non-local attempts to change verified Local VScript cvars.",
+          u8"Hook ConVar::SetValue，拒绝非本地写入对已验证 Local VScript cvar 的改写。" },
+        { u8"Use this when a server or client DLL keeps forcing your local values back.",
+          u8"当服务器或客户端 DLL 持续把你的本地值改回去时启用。" },
+        0.0f, 0.0f,
+        "true"
     },
     {
         "r_shadows",

@@ -114,14 +114,26 @@ public:
     // === Command Execution ===
     void ClientCmd(const char* szCmdString);
     void ClientCmd_Unrestricted(const char* szCmdString);
+    void* FindConVar(const char* name) const;
+    const char* GetConVarNameFromPointer(const void* convar) const;
+    const char* GetConVarNameFromIConVarPointer(const void* iconvar) const;
+    void* GetConVarStringSetValueTarget(const char* name) const;
+    void* GetConVarFloatSetValueTarget(const char* name) const;
+    void* GetConVarIntSetValueTarget(const char* name) const;
     int GetConVarInt(const char* name, int fallback = 0) const;
+    int GetConVarIntDirect(const char* name, int fallback = 0) const;
     float GetConVarFloat(const char* name, float fallback = 0.0f) const;
+    float GetConVarFloatDirect(const char* name, float fallback = 0.0f) const;
     std::string GetConVarString(const char* name) const;
     int GetConVarFlags(const char* name) const;
+    bool SetConVarFlags(const char* name, int flags) const;
     bool SetConVarString(const char* name, const char* value) const;
     bool SetConVarInt(const char* name, int value) const;
     bool SetConVarFloat(const char* name, float value) const;
     bool SetConVarBool(const char* name, bool value) const;
+    static void BeginConVarWritePermit();
+    static void EndConVarWritePermit();
+    static bool HasConVarWritePermit();
     bool SampleLightAtPoint(const Vector& point, int& outR, int& outG, int& outB) const;
     int GetEntityEffects(const C_BaseEntity* entity, int fallback = 0) const;
 

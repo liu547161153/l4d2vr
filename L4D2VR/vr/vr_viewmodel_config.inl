@@ -1596,6 +1596,8 @@ void VR::ParseConfigFile()
     m_WriteOnlyPerformanceSettingsDirty.store(true, std::memory_order_release);
     m_LocalVScriptConvarsEnabled =
         getBool("LocalVScriptConvarsEnabled", m_LocalVScriptConvarsEnabled);
+    m_LocalVScriptConvarsBlockExternalWrites =
+        getBool("LocalVScriptConvarsBlockExternalWrites", m_LocalVScriptConvarsBlockExternalWrites);
     m_LocalVScriptConvarsPath =
         getString("LocalVScriptConvarsPath", m_LocalVScriptConvarsPath);
     if (m_LocalVScriptConvarsPath.empty())
@@ -2237,6 +2239,7 @@ namespace
     constexpr int kLocalVScriptFlagGameDll = 1 << 2;
     constexpr int kLocalVScriptFlagClientDll = 1 << 3;
     constexpr int kLocalVScriptFlagReplicated = 1 << 13;
+    constexpr int kLocalVScriptFlagCheat = 1 << 14;
     enum class LocalVScriptValueKind
     {
         String,
@@ -2402,6 +2405,24 @@ namespace
         return false;
     }
 
+    bool ShouldThrottleLocalVScriptLog(
+        std::chrono::steady_clock::time_point& last,
+        float maxHz)
+    {
+        if (maxHz <= 0.0f)
+            return false;
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto minInterval =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<float>(1.0f / maxHz));
+        if (last.time_since_epoch().count() != 0 && now - last < minInterval)
+            return true;
+
+        last = now;
+        return false;
+    }
+
     const char* GetLocalVScriptSkipReason(const std::string& name, int flags)
     {
         const auto startsWith = [&](const char* prefix)
@@ -2522,9 +2543,24 @@ void VR::RestoreLocalVScriptConvars()
     if (!m_Game)
         return;
 
-    if (!m_LocalVScriptConvarsApplied)
+    std::vector<LocalVScriptConvarEntry> entriesToRestore;
     {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        if (!m_LocalVScriptConvarsApplied)
+        {
+            m_LocalVScriptConvars.clear();
+            m_LocalVScriptConvarBlockedWriteLastLog.clear();
+            return;
+        }
+
+        entriesToRestore = m_LocalVScriptConvars;
         m_LocalVScriptConvars.clear();
+        m_LocalVScriptConvarsApplied = false;
+        m_LocalVScriptConvarBlockedWriteLastLog.clear();
+    }
+
+    if (entriesToRestore.empty())
+    {
         return;
     }
 
@@ -2532,29 +2568,88 @@ void VR::RestoreLocalVScriptConvars()
     int restoreFailedCount = 0;
     Game::logMsg(
         "[VR][LocalVScriptConvars] Restore begin count=%zu",
-        m_LocalVScriptConvars.size());
-    for (const LocalVScriptConvarEntry& entry : m_LocalVScriptConvars)
+        entriesToRestore.size());
+    for (const LocalVScriptConvarEntry& entry : entriesToRestore)
     {
         if (entry.name.empty())
             continue;
 
+        if ((entry.flags & kLocalVScriptFlagCheat) != 0)
+        {
+            const int writableFlags = entry.flags & ~kLocalVScriptFlagCheat;
+            const bool cleared = m_Game->SetConVarFlags(entry.name.c_str(), writableFlags);
+            Game::logMsg(
+                "[VR][LocalVScriptConvars] RestoreFlag name=%s action=clear_cheat before=0x%08X after=0x%08X setOk=%d",
+                entry.name.c_str(),
+                entry.flags,
+                writableFlags,
+                cleared ? 1 : 0);
+        }
+
         const std::string beforeValue = m_Game->GetConVarString(entry.name.c_str());
         const bool setOk = m_Game->SetConVarString(entry.name.c_str(), entry.originalValue.c_str());
         const std::string afterValue = m_Game->GetConVarString(entry.name.c_str());
-        const bool verified = LocalVScriptValuesEquivalent(entry.originalValue, afterValue);
+        std::string directReadback = "-";
+        bool boolValue = false;
+        int intValue = 0;
+        float floatValue = 0.0f;
+        const LocalVScriptValueKind kind =
+            InferLocalVScriptValueKind(entry.originalValue, boolValue, intValue, floatValue);
+        bool verified = false;
+        switch (kind)
+        {
+        case LocalVScriptValueKind::Bool:
+        {
+            const int afterDirect = m_Game->GetConVarIntDirect(entry.name.c_str(), INT32_MIN);
+            directReadback = std::to_string(afterDirect);
+            verified = (afterDirect == (boolValue ? 1 : 0));
+            break;
+        }
+        case LocalVScriptValueKind::Int:
+        {
+            const int afterDirect = m_Game->GetConVarIntDirect(entry.name.c_str(), INT32_MIN);
+            directReadback = std::to_string(afterDirect);
+            verified = (afterDirect == intValue);
+            break;
+        }
+        case LocalVScriptValueKind::Float:
+        {
+            const float afterDirect = m_Game->GetConVarFloatDirect(entry.name.c_str(), -999999.0f);
+            char buffer[64] = {};
+            sprintf_s(buffer, "%.9g", static_cast<double>(afterDirect));
+            directReadback = buffer;
+            verified = std::fabs(afterDirect - floatValue) <= 0.0001f;
+            break;
+        }
+        default:
+            directReadback = afterValue;
+            verified = LocalVScriptValuesEquivalent(entry.originalValue, afterValue);
+            break;
+        }
 
         if (setOk)
             ++restoredCount;
         else
             ++restoreFailedCount;
 
+        if ((entry.flags & kLocalVScriptFlagCheat) != 0)
+        {
+            const bool restoredFlags = m_Game->SetConVarFlags(entry.name.c_str(), entry.flags);
+            Game::logMsg(
+                "[VR][LocalVScriptConvars] RestoreFlag name=%s action=restore_flags target=0x%08X setOk=%d",
+                entry.name.c_str(),
+                entry.flags,
+                restoredFlags ? 1 : 0);
+        }
+
         Game::logMsg(
-            "[VR][LocalVScriptConvars] Restore name=%s flags=0x%08X before='%s' target='%s' after='%s' setOk=%d verified=%d",
+            "[VR][LocalVScriptConvars] Restore name=%s flags=0x%08X before='%s' target='%s' after='%s' afterDirect='%s' setOk=%d verified=%d",
             entry.name.c_str(),
             entry.flags,
             beforeValue.c_str(),
             entry.originalValue.c_str(),
             afterValue.c_str(),
+            directReadback.c_str(),
             setOk ? 1 : 0,
             verified ? 1 : 0);
     }
@@ -2563,8 +2658,45 @@ void VR::RestoreLocalVScriptConvars()
         "[VR][LocalVScriptConvars] Restore done restored=%d failed=%d",
         restoredCount,
         restoreFailedCount);
-    m_LocalVScriptConvars.clear();
-    m_LocalVScriptConvarsApplied = false;
+}
+
+bool VR::ShouldBlockExternalLocalVScriptConvarWrite(const char* name, const char* requestedValue)
+{
+    if (!m_LocalVScriptConvarsEnabled || !m_LocalVScriptConvarsBlockExternalWrites || !name || !*name)
+        return false;
+
+    std::string lockedValue;
+    bool shouldLog = false;
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        if (!m_LocalVScriptConvarsApplied)
+            return false;
+
+        auto entryIt = std::find_if(
+            m_LocalVScriptConvars.begin(),
+            m_LocalVScriptConvars.end(),
+            [&](const LocalVScriptConvarEntry& entry)
+            {
+                return entry.lockProtected && entry.name == name;
+            });
+        if (entryIt == m_LocalVScriptConvars.end())
+            return false;
+
+        lockedValue = entryIt->value;
+        auto& last = m_LocalVScriptConvarBlockedWriteLastLog[entryIt->name];
+        shouldLog = !ShouldThrottleLocalVScriptLog(last, m_LocalVScriptConvarsBlockedWriteLogHz);
+    }
+
+    if (shouldLog)
+    {
+        Game::logMsg(
+            "[VR][LocalVScriptConvars] Blocked external write name=%s requested='%s' locked='%s'",
+            name,
+            requestedValue ? requestedValue : "",
+            lockedValue.c_str());
+    }
+
+    return true;
 }
 
 void VR::ApplyLocalVScriptConvarsIfNeeded()
@@ -2602,6 +2734,7 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
     int missingCount = 0;
     int writeFailedCount = 0;
     int verifyMismatchCount = 0;
+    std::vector<LocalVScriptConvarEntry> appliedEntries;
 
     for (LocalVScriptConvarEntry& entry : parsedEntries)
     {
@@ -2629,6 +2762,17 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         }
 
         entry.originalValue = m_Game->GetConVarString(entry.name.c_str());
+        if ((entry.flags & kLocalVScriptFlagCheat) != 0)
+        {
+            const int writableFlags = entry.flags & ~kLocalVScriptFlagCheat;
+            const bool cleared = m_Game->SetConVarFlags(entry.name.c_str(), writableFlags);
+            Game::logMsg(
+                "[VR][LocalVScriptConvars] ApplyFlag name=%s action=clear_cheat before=0x%08X after=0x%08X setOk=%d",
+                entry.name.c_str(),
+                entry.flags,
+                writableFlags,
+                cleared ? 1 : 0);
+        }
         bool boolValue = false;
         int intValue = 0;
         float floatValue = 0.0f;
@@ -2652,50 +2796,99 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
             break;
         }
         const std::string readbackValue = m_Game->GetConVarString(entry.name.c_str());
-        const bool verified = LocalVScriptValuesEquivalent(entry.value, readbackValue);
+        std::string directReadbackValue = "-";
+        bool verified = false;
+        switch (kind)
+        {
+        case LocalVScriptValueKind::Bool:
+        {
+            const int readbackDirect = m_Game->GetConVarIntDirect(entry.name.c_str(), INT32_MIN);
+            directReadbackValue = std::to_string(readbackDirect);
+            verified = (readbackDirect == (boolValue ? 1 : 0));
+            break;
+        }
+        case LocalVScriptValueKind::Int:
+        {
+            const int readbackDirect = m_Game->GetConVarIntDirect(entry.name.c_str(), INT32_MIN);
+            directReadbackValue = std::to_string(readbackDirect);
+            verified = (readbackDirect == intValue);
+            break;
+        }
+        case LocalVScriptValueKind::Float:
+        {
+            const float readbackDirect = m_Game->GetConVarFloatDirect(entry.name.c_str(), -999999.0f);
+            char buffer[64] = {};
+            sprintf_s(buffer, "%.9g", static_cast<double>(readbackDirect));
+            directReadbackValue = buffer;
+            verified = std::fabs(readbackDirect - floatValue) <= 0.0001f;
+            break;
+        }
+        default:
+            directReadbackValue = readbackValue;
+            verified = LocalVScriptValuesEquivalent(entry.value, readbackValue);
+            break;
+        }
 
         if (!setOk)
         {
             ++writeFailedCount;
+            if ((entry.flags & kLocalVScriptFlagCheat) != 0)
+            {
+                const bool restoredFlags = m_Game->SetConVarFlags(entry.name.c_str(), entry.flags);
+                Game::logMsg(
+                    "[VR][LocalVScriptConvars] ApplyFlag name=%s action=restore_flags_on_fail target=0x%08X setOk=%d",
+                    entry.name.c_str(),
+                    entry.flags,
+                    restoredFlags ? 1 : 0);
+            }
             Game::logMsg(
-                "[VR][LocalVScriptConvars] WriteFail name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' setOk=0 verified=%d",
+                "[VR][LocalVScriptConvars] WriteFail name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' afterDirect='%s' setOk=0 verified=%d",
                 entry.name.c_str(),
                 entry.flags,
                 GetLocalVScriptValueKindName(kind),
                 entry.originalValue.c_str(),
                 entry.value.c_str(),
                 readbackValue.c_str(),
+                directReadbackValue.c_str(),
                 verified ? 1 : 0);
             continue;
         }
 
-        m_LocalVScriptConvars.push_back(entry);
+        entry.lockProtected = true;
+        appliedEntries.push_back(entry);
         if (verified)
             ++appliedCount;
         else
             ++verifyMismatchCount;
 
         Game::logMsg(
-            "[VR][LocalVScriptConvars] Apply name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' setOk=1 verified=%d",
+            "[VR][LocalVScriptConvars] Apply name=%s flags=0x%08X kind=%s before='%s' requested='%s' after='%s' afterDirect='%s' setOk=1 verified=%d",
             entry.name.c_str(),
             entry.flags,
             GetLocalVScriptValueKindName(kind),
             entry.originalValue.c_str(),
             entry.value.c_str(),
             readbackValue.c_str(),
+            directReadbackValue.c_str(),
             verified ? 1 : 0);
     }
 
-    m_LocalVScriptConvarsApplied = !m_LocalVScriptConvars.empty();
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        m_LocalVScriptConvars = std::move(appliedEntries);
+        m_LocalVScriptConvarsApplied = !m_LocalVScriptConvars.empty();
+        m_LocalVScriptConvarBlockedWriteLastLog.clear();
+    }
     Game::logMsg(
-        "[VR][LocalVScriptConvars] Apply done path=%s applied=%d verifyMismatch=%d writeFailed=%d missing=%d skipped=%d trackedForRestore=%zu",
+        "[VR][LocalVScriptConvars] Apply done path=%s applied=%d verifyMismatch=%d writeFailed=%d missing=%d skipped=%d trackedForRestore=%zu blockExternal=%d",
         m_LocalVScriptConvarsPath.c_str(),
         appliedCount,
         verifyMismatchCount,
         writeFailedCount,
         missingCount,
         skippedCount,
-        m_LocalVScriptConvars.size());
+        m_LocalVScriptConvars.size(),
+        m_LocalVScriptConvarsBlockExternalWrites ? 1 : 0);
 }
 
 void VR::WaitForConfigUpdate()

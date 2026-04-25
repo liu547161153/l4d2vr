@@ -164,6 +164,23 @@ namespace vr_vm_stabilize
     }
 }
 
+namespace
+{
+    inline bool ShouldBlockLockedConVarWrite(void* convar, const char* requestedValue)
+    {
+        if (!Hooks::m_Game || !Hooks::m_VR || Game::HasConVarWritePermit())
+            return false;
+
+        const char* name = Hooks::m_Game->GetConVarNameFromIConVarPointer(convar);
+        if (!name || !*name)
+            return false;
+
+        return Hooks::m_VR->ShouldBlockExternalLocalVScriptConvarWrite(
+            name,
+            requestedValue ? requestedValue : "");
+    }
+}
+
 void Hooks::dAdjustEngineViewport(int& x, int& y, int& width, int& height)
 {
 	hkAdjustEngineViewport.fOriginal(x, y, width, height);
@@ -979,4 +996,32 @@ DWORD* Hooks::dPrePushRenderTarget(void* ecx, void* edx, int a2)
     }
 
     return hkPrePushRenderTarget.fOriginal(ecx, a2);
+}
+
+void Hooks::dConVarSetValueString(void* ecx, void* edx, const char* value)
+{
+    if (ShouldBlockLockedConVarWrite(ecx, value))
+        return;
+
+    hkConVarSetValueString.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarSetValueFloat(void* ecx, void* edx, float value)
+{
+    char buffer[64] = {};
+    sprintf_s(buffer, "%.9g", static_cast<double>(value));
+    if (ShouldBlockLockedConVarWrite(ecx, buffer))
+        return;
+
+    hkConVarSetValueFloat.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarSetValueInt(void* ecx, void* edx, int value)
+{
+    char buffer[32] = {};
+    sprintf_s(buffer, "%d", value);
+    if (ShouldBlockLockedConVarWrite(ecx, buffer))
+        return;
+
+    hkConVarSetValueInt.fOriginal(ecx, value);
 }

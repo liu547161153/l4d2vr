@@ -27,6 +27,10 @@ using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
 namespace
 {
     static_assert(sizeof(void*) == 4, "L4D2VR ConVar bridge assumes 32-bit Source DLL layout.");
+    static constexpr size_t kIConVarVtableIndexSetValueString = 0;
+    static constexpr size_t kIConVarVtableIndexSetValueFloat = 1;
+    static constexpr size_t kIConVarVtableIndexSetValueInt = 2;
+    static thread_local int s_ConVarWritePermitDepth = 0;
 
     static bool NormalizeSuspiciousFloat(float candidate, float& normalized)
     {
@@ -143,6 +147,12 @@ namespace
             return static_cast<int>(parent->m_nValue ^ static_cast<int>(key));
         }
 
+        int GetIntValueDirect() const
+        {
+            const SourceConVar* parent = (m_pParent != nullptr) ? m_pParent : this;
+            return parent->m_nValue;
+        }
+
         float GetFloatValue() const
         {
             const SourceConVar* parent = (m_pParent != nullptr) ? m_pParent : this;
@@ -165,6 +175,14 @@ namespace
             std::memcpy(&decoded, &decodedBits, sizeof(decoded));
             float normalized = decoded;
             NormalizeSuspiciousFloat(decoded, normalized);
+            return normalized;
+        }
+
+        float GetFloatValueDirect() const
+        {
+            const SourceConVar* parent = (m_pParent != nullptr) ? m_pParent : this;
+            float normalized = parent->m_fValue;
+            NormalizeSuspiciousFloat(parent->m_fValue, normalized);
             return normalized;
         }
     };
@@ -255,6 +273,23 @@ namespace
 }
 
 static_assert(sizeof(SourceConCommandBase) == 24, "Unexpected ConCommandBase size for Source IConVar bridge.");
+
+namespace
+{
+    struct ScopedConVarWritePermit
+    {
+        ScopedConVarWritePermit()
+        {
+            ++s_ConVarWritePermitDepth;
+        }
+
+        ~ScopedConVarWritePermit()
+        {
+            if (s_ConVarWritePermitDepth > 0)
+                --s_ConVarWritePermitDepth;
+        }
+    };
+}
 
 static int FindRecvPropOffsetRecursive(const SourceRecvTable* table, const char* propName, int accumulatedOffset);
 static int FindRecvPropOffsetSafe(void* baseClientDll, const char* networkName, const char* propName);
@@ -527,12 +562,103 @@ void Game::ClientCmd_Unrestricted(const char* szCmdString)
         m_EngineClient->ClientCmd_Unrestricted(szCmdString);
 }
 
+void Game::BeginConVarWritePermit()
+{
+    ++s_ConVarWritePermitDepth;
+}
+
+void Game::EndConVarWritePermit()
+{
+    if (s_ConVarWritePermitDepth > 0)
+        --s_ConVarWritePermitDepth;
+}
+
+bool Game::HasConVarWritePermit()
+{
+    return s_ConVarWritePermitDepth > 0;
+}
+
 static SourceConVar* FindConVarInternal(void* cvarIface, const char* name)
 {
     if (!cvarIface || !name || !*name)
         return nullptr;
 
     return reinterpret_cast<SourceICvar*>(cvarIface)->FindVar(name);
+}
+
+static SourceIConVar* GetConVarIConVar(SourceConVar* cvar)
+{
+    if (!cvar)
+        return nullptr;
+
+    return reinterpret_cast<SourceIConVar*>(reinterpret_cast<uint8_t*>(cvar) + sizeof(SourceConCommandBase));
+}
+
+static void* GetVTableEntry(void* objectBase, size_t index)
+{
+    if (!objectBase)
+        return nullptr;
+
+    __try
+    {
+        void*** object = reinterpret_cast<void***>(objectBase);
+        void** vtable = (object != nullptr) ? *object : nullptr;
+        return (vtable != nullptr) ? vtable[index] : nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
+void* Game::FindConVar(const char* name) const
+{
+    return FindConVarInternal(m_Cvar, name);
+}
+
+const char* Game::GetConVarNameFromPointer(const void* convar) const
+{
+    __try
+    {
+        const SourceConCommandBase* base = reinterpret_cast<const SourceConCommandBase*>(convar);
+        return (base && base->m_pszName) ? base->m_pszName : nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
+const char* Game::GetConVarNameFromIConVarPointer(const void* iconvar) const
+{
+    __try
+    {
+        if (!iconvar)
+            return nullptr;
+
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(iconvar);
+        const SourceConCommandBase* base = reinterpret_cast<const SourceConCommandBase*>(bytes - sizeof(SourceConCommandBase));
+        return (base && base->m_pszName) ? base->m_pszName : nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return nullptr;
+    }
+}
+
+void* Game::GetConVarStringSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(GetConVarIConVar(FindConVarInternal(m_Cvar, name)), kIConVarVtableIndexSetValueString);
+}
+
+void* Game::GetConVarFloatSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(GetConVarIConVar(FindConVarInternal(m_Cvar, name)), kIConVarVtableIndexSetValueFloat);
+}
+
+void* Game::GetConVarIntSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(GetConVarIConVar(FindConVarInternal(m_Cvar, name)), kIConVarVtableIndexSetValueInt);
 }
 
 static int FindRecvPropOffsetRecursive(const SourceRecvTable* table, const char* propName, int accumulatedOffset)
@@ -585,10 +711,7 @@ static int FindRecvPropOffsetSafe(void* baseClientDll, const char* networkName, 
 
 static SourceIConVar* AsIConVar(SourceConVar* cvar)
 {
-    if (!cvar)
-        return nullptr;
-
-    return reinterpret_cast<SourceIConVar*>(reinterpret_cast<uint8_t*>(cvar) + sizeof(SourceConCommandBase));
+    return GetConVarIConVar(cvar);
 }
 
 int Game::GetConVarInt(const char* name, int fallback) const
@@ -608,6 +731,23 @@ int Game::GetConVarInt(const char* name, int fallback) const
     }
 }
 
+int Game::GetConVarIntDirect(const char* name, int fallback) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return fallback;
+
+    __try
+    {
+        return cvar->GetIntValueDirect();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] GetConVarIntDirect failed for %s", name ? name : "<null>");
+        return fallback;
+    }
+}
+
 float Game::GetConVarFloat(const char* name, float fallback) const
 {
     SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
@@ -621,6 +761,23 @@ float Game::GetConVarFloat(const char* name, float fallback) const
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         logMsg("[WARN] GetConVarFloat failed for %s", name ? name : "<null>");
+        return fallback;
+    }
+}
+
+float Game::GetConVarFloatDirect(const char* name, float fallback) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return fallback;
+
+    __try
+    {
+        return cvar->GetFloatValueDirect();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] GetConVarFloatDirect failed for %s", name ? name : "<null>");
         return fallback;
     }
 }
@@ -668,6 +825,26 @@ int Game::GetConVarFlags(const char* name) const
     }
 }
 
+bool Game::SetConVarFlags(const char* name, int flags) const
+{
+    SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
+    if (!cvar)
+        return false;
+
+    __try
+    {
+        SourceConVar* parent = (cvar->m_pParent != nullptr) ? cvar->m_pParent : cvar;
+        parent->m_nFlags = flags;
+        cvar->m_nFlags = flags;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        logMsg("[WARN] SetConVarFlags failed for %s=0x%08X", name ? name : "<null>", static_cast<unsigned>(flags));
+        return false;
+    }
+}
+
 bool Game::SetConVarString(const char* name, const char* value) const
 {
     SourceConVar* cvar = FindConVarInternal(m_Cvar, name);
@@ -676,11 +853,14 @@ bool Game::SetConVarString(const char* name, const char* value) const
 
     __try
     {
+        BeginConVarWritePermit();
         cvar->SetValue(value ? value : "");
+        EndConVarWritePermit();
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        EndConVarWritePermit();
         logMsg("[WARN] SetConVarString failed for %s=%s",
             name ? name : "<null>",
             value ? value : "<null>");
@@ -700,11 +880,14 @@ bool Game::SetConVarInt(const char* name, int value) const
 
     __try
     {
+        BeginConVarWritePermit();
         iconvar->SetValue(value);
+        EndConVarWritePermit();
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        EndConVarWritePermit();
         logMsg("[WARN] SetConVarInt failed for %s=%d", name ? name : "<null>", value);
         return false;
     }
@@ -718,13 +901,16 @@ bool Game::SetConVarFloat(const char* name, float value) const
 
     __try
     {
+        BeginConVarWritePermit();
         char buffer[64] = {};
         sprintf_s(buffer, "%.9g", static_cast<double>(value));
         cvar->SetValue(buffer);
+        EndConVarWritePermit();
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
+        EndConVarWritePermit();
         logMsg("[WARN] SetConVarFloat failed for %s=%.3f", name ? name : "<null>", value);
         return false;
     }

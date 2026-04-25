@@ -98,6 +98,9 @@ typedef void(__thiscall* tVgui_Paint)(void* thisptr, int mode);
 typedef int(__cdecl* tIsSplitScreen)();
 typedef DWORD* (__thiscall* tPrePushRenderTarget)(void* thisptr, int a2);
 typedef void(__thiscall* tUpdateLaserSight)(void* thisptr);
+typedef void(__thiscall* tConVarSetValueString)(void* thisptr, const char* value);
+typedef void(__thiscall* tConVarSetValueFloat)(void* thisptr, float value);
+typedef void(__thiscall* tConVarSetValueInt)(void* thisptr, int value);
 
 
 class Hooks
@@ -135,6 +138,9 @@ public:
 	static inline Hook<tIsSplitScreen> hkIsSplitScreen;
 	static inline Hook<tPrePushRenderTarget> hkPrePushRenderTarget;
 	static inline Hook<tUpdateLaserSight> hkUpdateLaserSight;
+	static inline Hook<tConVarSetValueString> hkConVarSetValueString;
+	static inline Hook<tConVarSetValueFloat> hkConVarSetValueFloat;
+	static inline Hook<tConVarSetValueInt> hkConVarSetValueInt;
 	static bool s_ServerUnderstandsVR;
 
 	Hooks() {};
@@ -174,6 +180,9 @@ public:
 	static int __fastcall dIsSplitScreen();
 	static DWORD* __fastcall dPrePushRenderTarget(void* ecx, void* edx, int a2);
 	static void __fastcall dUpdateLaserSight(void* ecx, void* edx);
+	static void __fastcall dConVarSetValueString(void* ecx, void* edx, const char* value);
+	static void __fastcall dConVarSetValueFloat(void* ecx, void* edx, float value);
+	static void __fastcall dConVarSetValueInt(void* ecx, void* edx, int value);
 
 	// HUD render-target interception uses a small state machine to detect the
 	// engine's "push HUD RT" sequence:

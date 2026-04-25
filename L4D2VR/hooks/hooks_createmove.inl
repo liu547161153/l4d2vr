@@ -43,6 +43,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 	static int s_autoFastMeleeLastIntentCmd = -1;
 	static std::chrono::steady_clock::time_point s_effectiveRangeMeleeNextCycleAt{};
 	static uintptr_t s_effectiveRangeMeleeWeapon = 0;
+	static bool s_effectiveRangeMeleeSwitchOutPending = false;
+	static bool s_effectiveRangeMeleeSwitchBackPending = false;
+	static int s_effectiveRangeMeleeSwitchOutCmd = -1;
+	static int s_effectiveRangeMeleeSwitchBackCmd = -1;
+	static int s_effectiveRangeMeleeCycleEndCmd = -1;
 
 	if (!cmd)
 		return hkCreateMove.fOriginal(ecx, flInputSampleTime, cmd);
@@ -58,6 +63,11 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		{
 			s_effectiveRangeMeleeNextCycleAt = {};
 			s_effectiveRangeMeleeWeapon = 0;
+			s_effectiveRangeMeleeSwitchOutPending = false;
+			s_effectiveRangeMeleeSwitchBackPending = false;
+			s_effectiveRangeMeleeSwitchOutCmd = -1;
+			s_effectiveRangeMeleeSwitchBackCmd = -1;
+			s_effectiveRangeMeleeCycleEndCmd = -1;
 		};
 
 	if (m_VR->m_IsVREnabled) {
@@ -1035,11 +1045,14 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		s_autoFastMeleeLastIntentCmd = -1;
 	}
 
-	// Effective-range melee auto-fire: emit one melee attack pulse at a fixed interval,
-	// without running the manual AutoFastMelee weapon-switch cancel chain.
+	// Effective-range melee auto-fire: start one dedicated fast-melee cycle per interval,
+	// isolated from the manual AutoFastMelee hold state machine.
 	if (m_Game && m_Game->m_EngineClient)
 	{
 		const int kIN_ATTACK = (1 << 0);
+		constexpr int kWaitOutTicks = 1;
+		constexpr int kWaitBackTicks = 1;
+		constexpr int kWaitPostTicks = 15;
 
 		const int lpIdx2 = m_Game->m_EngineClient->GetLocalPlayer();
 		C_BasePlayer* lp2 = (lpIdx2 > 0) ? (C_BasePlayer*)m_Game->GetClientEntity(lpIdx2) : nullptr;
@@ -1052,12 +1065,33 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 		const bool mouseAttackDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 		const bool manualAttackDown = cmdAttackDown || vrAttackDown || mouseAttackDown;
 		const bool doingUseAction = lp2 ? (ReadNetvar<int>(lp2, 0x1ba8) != 0) : false; // m_iCurrentUseAction
+		const bool canSwitchCancel = m_VR->m_AutoFastMeleeUseWeaponSwitch;
+		const int cmdNum = cmd->command_number;
 		const auto now = std::chrono::steady_clock::now();
+
+		if (s_effectiveRangeMeleeSwitchOutPending && cmdNum >= s_effectiveRangeMeleeSwitchOutCmd)
+		{
+			m_Game->ClientCmd_Unrestricted("slot1");
+			s_effectiveRangeMeleeSwitchOutPending = false;
+			s_effectiveRangeMeleeSwitchOutCmd = -1;
+		}
+		if (s_effectiveRangeMeleeSwitchBackPending && cmdNum >= s_effectiveRangeMeleeSwitchBackCmd)
+		{
+			m_Game->ClientCmd_Unrestricted("slot2");
+			s_effectiveRangeMeleeSwitchBackPending = false;
+			s_effectiveRangeMeleeSwitchBackCmd = -1;
+		}
+
+		const bool hasPendingSwitch = s_effectiveRangeMeleeSwitchOutPending || s_effectiveRangeMeleeSwitchBackPending;
+		const bool waitingCycleEnd =
+			(s_effectiveRangeMeleeWeapon != 0) &&
+			(s_effectiveRangeMeleeCycleEndCmd > cmdNum);
+		const bool cycleInProgress = hasPendingSwitch || waitingCycleEnd;
 
 		if (autoFireMeleeActive && !doingUseAction && !manualAttackDown)
 		{
 			const uintptr_t wpnTag = reinterpret_cast<uintptr_t>(wpn);
-			if (wpnTag != s_effectiveRangeMeleeWeapon)
+			if (!cycleInProgress && wpnTag != s_effectiveRangeMeleeWeapon)
 			{
 				resetEffectiveRangeMeleeCycle();
 				s_effectiveRangeMeleeWeapon = wpnTag;
@@ -1066,14 +1100,39 @@ bool __fastcall Hooks::dCreateMove(void* ecx, void* edx, float flInputSampleTime
 			if (s_effectiveRangeMeleeNextCycleAt.time_since_epoch().count() == 0)
 				s_effectiveRangeMeleeNextCycleAt = now;
 
-			if (now >= s_effectiveRangeMeleeNextCycleAt)
+			if (!cycleInProgress && now >= s_effectiveRangeMeleeNextCycleAt)
 			{
 				cmd->buttons |= kIN_ATTACK;
 
 				const auto interval = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
 					std::chrono::duration<float>(std::clamp(m_VR->m_EffectiveAttackRangeMeleeAutoFastMeleeIntervalSeconds, 0.05f, 5.0f)));
 				s_effectiveRangeMeleeNextCycleAt = now + interval;
+				s_effectiveRangeMeleeCycleEndCmd =
+					cmdNum + std::max(1, kWaitOutTicks + kWaitBackTicks + kWaitPostTicks + 1);
+
+				if (canSwitchCancel)
+				{
+					s_effectiveRangeMeleeSwitchOutCmd = cmdNum + kWaitOutTicks;
+					s_effectiveRangeMeleeSwitchBackCmd = s_effectiveRangeMeleeSwitchOutCmd + kWaitBackTicks;
+					s_effectiveRangeMeleeSwitchOutPending = true;
+					s_effectiveRangeMeleeSwitchBackPending = true;
+				}
+				else
+				{
+					s_effectiveRangeMeleeSwitchOutPending = false;
+					s_effectiveRangeMeleeSwitchBackPending = false;
+					s_effectiveRangeMeleeSwitchOutCmd = -1;
+					s_effectiveRangeMeleeSwitchBackCmd = -1;
+				}
 			}
+			else if (cycleInProgress)
+			{
+				cmd->buttons &= ~kIN_ATTACK;
+			}
+		}
+		else if (cycleInProgress)
+		{
+			cmd->buttons &= ~kIN_ATTACK;
 		}
 		else
 		{

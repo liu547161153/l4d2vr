@@ -1224,12 +1224,17 @@ public:
 		std::string value;
 		std::string originalValue;
 		int flags = 0;
+		bool lockProtected = false;
 	};
 	bool m_LocalVScriptConvarsEnabled = false;
+	bool m_LocalVScriptConvarsBlockExternalWrites = true;
 	std::string m_LocalVScriptConvarsPath = "VR\\local_client_convars.nut";
 	std::vector<LocalVScriptConvarEntry> m_LocalVScriptConvars{};
 	bool m_LocalVScriptConvarsApplied = false;
 	std::atomic<bool> m_LocalVScriptConvarsDirty{ true };
+	float m_LocalVScriptConvarsBlockedWriteLogHz = 1.0f;
+	std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_LocalVScriptConvarBlockedWriteLastLog{};
+	mutable std::mutex m_LocalVScriptConvarLockMutex;
 	bool m_AutoFlashlightEnabled = false;
 	float m_AutoFlashlightDarkThreshold = 90.0f;
 	float m_AutoFlashlightBrightThreshold = 120.0f;
@@ -2002,6 +2007,7 @@ public:
 	void CaptureWriteOnlyPerformanceDefaults();
 	void RestoreWriteOnlyPerformanceDefaults();
 	void RestoreLocalVScriptConvars();
+	bool ShouldBlockExternalLocalVScriptConvarWrite(const char* name, const char* requestedValue);
 	void CaptureShadowCvarDefaults();
 	void RestoreShadowCvarDefaults();
 	void ApplyShadowEntityOverrides(bool forceRefresh);
