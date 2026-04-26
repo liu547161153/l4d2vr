@@ -38,6 +38,7 @@ Roomscale1To1AllowedCameraDriftMeters=0.25
 Roomscale1To1ChaseHysteresisMeters=0.05
 Roomscale1To1MinApplyMeters=0.02
 Roomscale1To1DisableWhileThumbstick=true
+FlashlightEnhancementEnabled=false
 
 HandHudWorldQuadEnabled=true
 HandHudWorldQuadAttachToControllers=true

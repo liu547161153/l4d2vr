@@ -1218,6 +1218,17 @@ public:
 	float m_WriteOnlyOrigDetailDist = 400.0f;
 	float m_WriteOnlyOrigDetailFade = 250.0f;
 	std::atomic<bool> m_WriteOnlyPerformanceSettingsDirty{ true };
+
+	bool m_FlashlightEnhancementEnabled = false;
+	bool m_FlashlightEnhancementApplied = false;
+	bool m_FlashlightEnhancementOriginalsCaptured = false;
+	float m_FlashlightEnhancement3rdPersonRange = 300.0f;
+	float m_FlashlightEnhancementBrightness = 0.5f;
+	float m_FlashlightEnhancementFov = 80.0f;
+	float m_FlashlightEnhancementOrig3rdPersonRange = 60.0f;
+	float m_FlashlightEnhancementOrigBrightness = 0.25f;
+	float m_FlashlightEnhancementOrigFov = 53.0f;
+	std::atomic<bool> m_FlashlightEnhancementSettingsDirty{ true };
 	struct LocalVScriptConvarEntry
 	{
 		std::string name;
@@ -1230,6 +1241,9 @@ public:
 	bool m_LocalVScriptConvarsBlockExternalWrites = true;
 	std::string m_LocalVScriptConvarsPath = "VR\\local_client_convars.nut";
 	std::vector<LocalVScriptConvarEntry> m_LocalVScriptConvars{};
+	std::unordered_set<std::string> m_ShadowProtectedConvars{};
+	std::unordered_set<std::string> m_WriteOnlyProtectedConvars{};
+	std::unordered_set<std::string> m_FlashlightEnhancementProtectedConvars{};
 	bool m_LocalVScriptConvarsApplied = false;
 	std::atomic<bool> m_LocalVScriptConvarsDirty{ true };
 	float m_LocalVScriptConvarsBlockedWriteLogHz = 1.0f;
@@ -2003,11 +2017,14 @@ public:
 	void Update();
 	void ApplyShadowSettingsIfNeeded();
 	void ApplyWriteOnlyPerformanceSettingsIfNeeded();
+	void ApplyFlashlightEnhancementIfNeeded();
 	void ApplyLocalVScriptConvarsIfNeeded();
+	void CaptureFlashlightEnhancementDefaults();
+	void RestoreFlashlightEnhancementDefaults();
 	void CaptureWriteOnlyPerformanceDefaults();
 	void RestoreWriteOnlyPerformanceDefaults();
 	void RestoreLocalVScriptConvars();
-	bool ShouldBlockExternalLocalVScriptConvarWrite(const char* name, const char* requestedValue);
+	bool ShouldBlockExternalProtectedConvarWrite(const char* name, const char* requestedValue);
 	void CaptureShadowCvarDefaults();
 	void RestoreShadowCvarDefaults();
 	void ApplyShadowEntityOverrides(bool forceRefresh);

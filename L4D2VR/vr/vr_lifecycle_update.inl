@@ -435,6 +435,7 @@ void VR::Update()
     UpdateAutoMatQueueMode();
     ApplyShadowSettingsIfNeeded();
     ApplyWriteOnlyPerformanceSettingsIfNeeded();
+    ApplyFlashlightEnhancementIfNeeded();
     ApplyLocalVScriptConvarsIfNeeded();
     if (!posesValid)
     {

@@ -1570,6 +1570,9 @@ void VR::ParseConfigFile()
     m_WriteOnlyCvarDetailFade =
         std::clamp(getFloat("cl_detailfade", m_WriteOnlyCvarDetailFade), 0.0f, 32768.0f);
     m_WriteOnlyPerformanceSettingsDirty.store(true, std::memory_order_release);
+    m_FlashlightEnhancementEnabled =
+        getBool("FlashlightEnhancementEnabled", m_FlashlightEnhancementEnabled);
+    m_FlashlightEnhancementSettingsDirty.store(true, std::memory_order_release);
     m_LocalVScriptConvarsEnabled =
         getBool("LocalVScriptConvarsEnabled", m_LocalVScriptConvarsEnabled);
     m_LocalVScriptConvarsBlockExternalWrites =
@@ -1672,6 +1675,10 @@ void VR::CaptureShadowCvarDefaults()
 
 void VR::RestoreShadowCvarDefaults()
 {
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        m_ShadowProtectedConvars.clear();
+    }
     if (!m_Game || !m_ShadowOriginalsCaptured)
         return;
 
@@ -1882,6 +1889,11 @@ void VR::ApplyShadowSettingsIfNeeded()
         {
             RestoreShadowCvarDefaults();
         }
+        else
+        {
+            std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+            m_ShadowProtectedConvars.clear();
+        }
 
         m_ShadowTweaksApplied = false;
         return;
@@ -1891,10 +1903,14 @@ void VR::ApplyShadowSettingsIfNeeded()
         CaptureShadowCvarDefaults();
 
     int appliedCount = 0;
+    std::unordered_set<std::string> protectedConvars;
     auto applyInt = [&](const char* name, int value)
         {
             if (m_Game->SetConVarInt(name, value))
+            {
                 ++appliedCount;
+                protectedConvars.insert(name);
+            }
         };
 
     applyInt("r_shadows", m_ShadowCvarShadows);
@@ -1904,7 +1920,10 @@ void VR::ApplyShadowSettingsIfNeeded()
     applyInt("r_shadow_half_update_rate", m_ShadowCvarHalfUpdateRate);
     applyInt("r_shadowmaxrendered", m_ShadowCvarMaxRendered);
     if (m_Game->SetConVarFloat("cl_max_shadow_renderable_dist", m_ShadowCvarMaxRenderableDist))
+    {
         ++appliedCount;
+        protectedConvars.insert("cl_max_shadow_renderable_dist");
+    }
     applyInt("r_FlashlightDetailProps", m_ShadowCvarFlashlightDetailProps);
     applyInt("z_mob_simple_shadows", m_ShadowCvarMobSimpleShadows);
     applyInt("r_shadowfromworldlights", m_ShadowCvarWorldLightShadows);
@@ -1912,15 +1931,28 @@ void VR::ApplyShadowSettingsIfNeeded()
     applyInt("r_shadows_on_renderables_enable", m_ShadowCvarShadowsOnRenderables);
     applyInt("r_flashlightrendermodels", m_ShadowCvarFlashlightRenderModels);
     if (m_Game->SetConVarFloat("cl_player_shadow_dist", m_ShadowCvarPlayerShadowDist))
+    {
         ++appliedCount;
+        protectedConvars.insert("cl_player_shadow_dist");
+    }
     applyInt("z_infected_shadows", m_ShadowCvarInfectedShadows);
     if (m_Game->SetConVarFloat("nb_shadow_blobby_dist", m_ShadowCvarNbShadowBlobbyDist))
+    {
         ++appliedCount;
+        protectedConvars.insert("nb_shadow_blobby_dist");
+    }
     if (m_Game->SetConVarFloat("nb_shadow_cull_dist", m_ShadowCvarNbShadowCullDist))
+    {
         ++appliedCount;
+        protectedConvars.insert("nb_shadow_cull_dist");
+    }
     applyInt("r_flashlightinfectedshadows", m_ShadowCvarFlashlightInfectedShadows);
 
     m_ShadowTweaksApplied = (appliedCount > 0);
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        m_ShadowProtectedConvars = std::move(protectedConvars);
+    }
 }
 
 void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
@@ -1941,6 +1973,11 @@ void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
         {
             RestoreWriteOnlyPerformanceDefaults();
         }
+        else
+        {
+            std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+            m_WriteOnlyProtectedConvars.clear();
+        }
 
         m_WriteOnlyPerformanceTweaksApplied = false;
         return;
@@ -1951,6 +1988,7 @@ void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
 
     int appliedCount = 0;
     int verifiedCount = 0;
+    std::unordered_set<std::string> protectedConvars;
 
     struct IntWriteResult
     {
@@ -1973,7 +2011,10 @@ void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
             result.readback = m_Game->GetConVarInt(name, INT32_MIN);
             result.readbackMatches = (result.readback == value);
             if (result.setOk)
+            {
                 ++appliedCount;
+                protectedConvars.insert(name);
+            }
             if (result.setOk && result.readbackMatches)
                 ++verifiedCount;
             return result;
@@ -1986,7 +2027,10 @@ void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
             result.readback = m_Game->GetConVarFloat(name, -999999.0f);
             result.readbackMatches = (std::fabs(result.readback - value) <= 0.01f);
             if (result.setOk)
+            {
                 ++appliedCount;
+                protectedConvars.insert(name);
+            }
             if (result.setOk && result.readbackMatches)
                 ++verifiedCount;
             return result;
@@ -2002,6 +2046,10 @@ void VR::ApplyWriteOnlyPerformanceSettingsIfNeeded()
     const FloatWriteResult detailFade = applyFloat("cl_detailfade", m_WriteOnlyCvarDetailFade);
 
     m_WriteOnlyPerformanceTweaksApplied = (appliedCount > 0);
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        m_WriteOnlyProtectedConvars = std::move(protectedConvars);
+    }
 }
 
 void VR::CaptureWriteOnlyPerformanceDefaults()
@@ -2031,6 +2079,10 @@ void VR::CaptureWriteOnlyPerformanceDefaults()
 
 void VR::RestoreWriteOnlyPerformanceDefaults()
 {
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        m_WriteOnlyProtectedConvars.clear();
+    }
     if (!m_Game || !m_WriteOnlyPerformanceOriginalsCaptured)
         return;
 
@@ -2072,6 +2124,89 @@ void VR::RestoreWriteOnlyPerformanceDefaults()
 
 
     m_WriteOnlyPerformanceOriginalsCaptured = false;
+}
+
+void VR::CaptureFlashlightEnhancementDefaults()
+{
+    if (!m_Game)
+        return;
+
+    m_FlashlightEnhancementOrig3rdPersonRange =
+        m_Game->GetConVarFloat("r_flashlight_3rd_person_range", m_FlashlightEnhancementOrig3rdPersonRange);
+    m_FlashlightEnhancementOrigBrightness =
+        m_Game->GetConVarFloat("r_flashlightbrightness", m_FlashlightEnhancementOrigBrightness);
+    m_FlashlightEnhancementOrigFov =
+        m_Game->GetConVarFloat("r_flashlightfov", m_FlashlightEnhancementOrigFov);
+    m_FlashlightEnhancementOriginalsCaptured = true;
+}
+
+void VR::RestoreFlashlightEnhancementDefaults()
+{
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        m_FlashlightEnhancementProtectedConvars.clear();
+    }
+    if (!m_Game || !m_FlashlightEnhancementOriginalsCaptured)
+        return;
+
+    m_Game->SetConVarFloat("r_flashlight_3rd_person_range", m_FlashlightEnhancementOrig3rdPersonRange);
+    m_Game->SetConVarFloat("r_flashlightbrightness", m_FlashlightEnhancementOrigBrightness);
+    m_Game->SetConVarFloat("r_flashlightfov", m_FlashlightEnhancementOrigFov);
+
+    m_FlashlightEnhancementOriginalsCaptured = false;
+}
+
+void VR::ApplyFlashlightEnhancementIfNeeded()
+{
+    const bool dirty = m_FlashlightEnhancementSettingsDirty.exchange(false, std::memory_order_acq_rel);
+    if (!dirty)
+        return;
+
+    if (!m_Game || !m_Game->m_Initialized)
+    {
+        m_FlashlightEnhancementSettingsDirty.store(true, std::memory_order_release);
+        return;
+    }
+
+    if (!m_FlashlightEnhancementEnabled)
+    {
+        if (m_FlashlightEnhancementApplied && m_FlashlightEnhancementOriginalsCaptured)
+        {
+            RestoreFlashlightEnhancementDefaults();
+        }
+        else
+        {
+            std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+            m_FlashlightEnhancementProtectedConvars.clear();
+        }
+
+        m_FlashlightEnhancementApplied = false;
+        return;
+    }
+
+    if (!m_FlashlightEnhancementOriginalsCaptured)
+        CaptureFlashlightEnhancementDefaults();
+
+    int appliedCount = 0;
+    std::unordered_set<std::string> protectedConvars;
+    auto applyFloat = [&](const char* name, float value)
+        {
+            if (m_Game->SetConVarFloat(name, value))
+            {
+                ++appliedCount;
+                protectedConvars.insert(name);
+            }
+        };
+
+    applyFloat("r_flashlight_3rd_person_range", m_FlashlightEnhancement3rdPersonRange);
+    applyFloat("r_flashlightbrightness", m_FlashlightEnhancementBrightness);
+    applyFloat("r_flashlightfov", m_FlashlightEnhancementFov);
+
+    m_FlashlightEnhancementApplied = (appliedCount > 0);
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        m_FlashlightEnhancementProtectedConvars = std::move(protectedConvars);
+    }
 }
 
 namespace
@@ -2472,38 +2607,38 @@ void VR::RestoreLocalVScriptConvars()
 
 }
 
-bool VR::ShouldBlockExternalLocalVScriptConvarWrite(const char* name, const char* requestedValue)
+bool VR::ShouldBlockExternalProtectedConvarWrite(const char* name, const char* requestedValue)
 {
-    if (!m_LocalVScriptConvarsEnabled || !m_LocalVScriptConvarsBlockExternalWrites || !name || !*name)
+    (void)requestedValue;
+    if (!m_LocalVScriptConvarsBlockExternalWrites || !name || !*name)
         return false;
 
-    std::string lockedValue;
-    bool shouldLog = false;
     {
         std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
-        if (!m_LocalVScriptConvarsApplied)
-            return false;
+        if (m_LocalVScriptConvarsApplied)
+        {
+            auto entryIt = std::find_if(
+                m_LocalVScriptConvars.begin(),
+                m_LocalVScriptConvars.end(),
+                [&](const LocalVScriptConvarEntry& entry)
+                {
+                    return entry.lockProtected && entry.name == name;
+                });
+            if (entryIt != m_LocalVScriptConvars.end())
+                return true;
+        }
 
-        auto entryIt = std::find_if(
-            m_LocalVScriptConvars.begin(),
-            m_LocalVScriptConvars.end(),
-            [&](const LocalVScriptConvarEntry& entry)
-            {
-                return entry.lockProtected && entry.name == name;
-            });
-        if (entryIt == m_LocalVScriptConvars.end())
-            return false;
+        if (m_ShadowProtectedConvars.find(name) != m_ShadowProtectedConvars.end())
+            return true;
 
-        lockedValue = entryIt->value;
-        auto& last = m_LocalVScriptConvarBlockedWriteLastLog[entryIt->name];
-        shouldLog = !ShouldThrottleLocalVScriptLog(last, m_LocalVScriptConvarsBlockedWriteLogHz);
+        if (m_WriteOnlyProtectedConvars.find(name) != m_WriteOnlyProtectedConvars.end())
+            return true;
+
+        if (m_FlashlightEnhancementProtectedConvars.find(name) != m_FlashlightEnhancementProtectedConvars.end())
+            return true;
     }
 
-    if (shouldLog)
-    {
-    }
-
-    return true;
+    return false;
 }
 
 void VR::ApplyLocalVScriptConvarsIfNeeded()

@@ -30,6 +30,7 @@ ThirdPersonVRCameraOffset=38
 
 AutoMatQueueMode=false
 WriteOnlyPerformanceTweaksEnabled=false
+FlashlightEnhancementEnabled=false
 LocalVScriptConvarsEnabled=false
 LocalVScriptConvarsBlockExternalWrites=true
 LocalVScriptConvarsPath=VR\local_client_convars.nut
@@ -2672,6 +2673,18 @@ Option g_Options[] =
           u8"当你的射击命中时显示视觉命中提示。" },
         { u8"Useful if you want feedback without relying only on sound.",
           u8"如果你不想只依赖音效反馈，可以开启它。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
+        "FlashlightEnhancementEnabled",
+        OptionType::Bool,
+        { u8"General", u8"通用" },
+        { u8"Flashlight Enhancement", u8"手电增强" },
+        { u8"Enhances the flashlight by forcing a wider beam, brighter output, and longer third-person range on the client.",
+          u8"在客户端强制使用更宽的照射角、更亮的亮度和更远的第三人称手电范围来增强手电效果。" },
+        { u8"Applies r_flashlight_3rd_person_range=300, r_flashlightbrightness=0.5, and r_flashlightfov=80 through VEngineCvar.",
+          u8"通过 VEngineCvar 写入 r_flashlight_3rd_person_range=300、r_flashlightbrightness=0.5 和 r_flashlightfov=80。" },
         0.0f, 0.0f,
         "false"
     },

@@ -175,7 +175,7 @@ namespace
         if (!name || !*name)
             return false;
 
-        return Hooks::m_VR->ShouldBlockExternalLocalVScriptConvarWrite(
+        return Hooks::m_VR->ShouldBlockExternalProtectedConvarWrite(
             name,
             requestedValue ? requestedValue : "");
     }
