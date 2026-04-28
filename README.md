@@ -44,7 +44,7 @@ If the game is crashing, try:
 * Re-installing the game
 
 ## Build instructions
-1. ```git clone https://github.com/liu547161153/l4d2vr.git ```
+1. ```git clone --recurse-submodules https://github.com/liu547161153/l4d2vr.git ```
 2. Initialize submodules:
    ```powershell
    git submodule update --init --recursive
