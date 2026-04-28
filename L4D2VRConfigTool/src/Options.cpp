@@ -29,7 +29,6 @@ ThirdPersonCameraFollowHmd=true
 ThirdPersonVRCameraOffset=38
 
 AutoMatQueueMode=false
-WriteOnlyPerformanceTweaksEnabled=false
 FlashlightEnhancementEnabled=false
 LocalVScriptConvarsEnabled=false
 LocalVScriptConvarsLogEnabled=false
@@ -922,26 +921,14 @@ Option g_Options[] =
         "false"
     },
     {
-        "WriteOnlyPerformanceTweaksEnabled",
-        OptionType::Bool,
-        { u8"Performance", u8"性能" },
-        { u8"Enable Model Render Distance Tweaks", u8"启用模型渲染距离优化" },
-        { u8"",
-          u8"" },
-        { u8"Useful if some models stay visible too far away and you want a more aggressive distance setup to save performance.",
-          u8"如果有些模型在较远距离仍然参与渲染，想用更激进的距离设置来节省性能，可以开启。" },
-        0.0f, 0.0f,
-        "false"
-    },
-    {
         "LocalVScriptConvarsEnabled",
         OptionType::Bool,
         { u8"Performance", u8"性能" },
-        { u8"Enable Local VScript Convars", u8"启用本地 VScript ConVar" },
-        { u8"Parses a local .nut file and applies literal Convars.SetValue(...) entries through VEngineCvar on the client.",
-          u8"解析本地 .nut 文件，并把其中字面量 Convars.SetValue(...) 通过 VEngineCvar 直接下发到客户端。" },
-        { u8"Server-side or replicated gameplay cvars are skipped instead of being sent as commands.",
-          u8"服务器侧或 replicated 的玩法类 cvar 会被跳过，不会再退回成命令发送。" },
+        { u8"Enable Local Client Convar Script", u8"启用本地客户端 ConVar 脚本" },
+        { u8"Loads a local .nut file and applies literal Convars.SetValue(...) lines through VEngineCvar on the client.",
+          u8"加载本地 .nut 文件，并把其中字面量 Convars.SetValue(...) 通过 VEngineCvar 直接下发到客户端。" },
+        { u8"Use this for client-side performance tweaks or local visual cvars that you want to keep outside the main config file.",
+          u8"适合放客户端性能参数或本地视觉类 cvar，把这些值独立放在主配置文件之外。" },
         0.0f, 0.0f,
         "false"
     },

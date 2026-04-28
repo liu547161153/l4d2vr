@@ -251,19 +251,10 @@ nb_shadow_blobby_dist=493.820007
 nb_shadow_cull_dist=500.584991
 r_flashlightinfectedshadows=true
 
-WriteOnlyPerformanceTweaksEnabled=false
-cl_threaded_bone_setup=1
-r_threaded_particles=1
-r_queued_decals=1
-r_queued_post_processing=1
-r_rootlod=1
-r_propsmaxdist=600
-cl_detaildist=0
 LocalVScriptConvarsEnabled=false
 LocalVScriptConvarsLogEnabled=false
 LocalVScriptConvarsBlockExternalWrites=true
 LocalVScriptConvarsPath=VR\local_client_convars.nut
-cl_detailfade=0
 
 AutoFlashlightEnabled=false
 AutoFlashlightDarkThreshold=90

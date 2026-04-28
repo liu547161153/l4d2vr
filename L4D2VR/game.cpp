@@ -37,6 +37,25 @@ namespace
     static constexpr size_t kIConVarVtableIndexSetValueFloat = 1;
     static constexpr size_t kIConVarVtableIndexSetValueInt = 2;
     static thread_local int s_ConVarWritePermitDepth = 0;
+    static constexpr char kVertexFormatSpamMessage[] = "Too many vertex format changes in frame, whole world not rendered";
+    using SpewOutputFunc_t = int(__cdecl*)(int spewType, const char* pMsg);
+    using tSetSpewOutputFunc = SpewOutputFunc_t(__cdecl*)(SpewOutputFunc_t func);
+    using tGetSpewOutputFunc = SpewOutputFunc_t(__cdecl*)();
+    static tSetSpewOutputFunc s_SetSpewOutputFunc = nullptr;
+    static tGetSpewOutputFunc s_GetSpewOutputFunc = nullptr;
+    static SpewOutputFunc_t s_OriginalSpewOutputFunc = nullptr;
+    static bool s_VertexFormatWarningFilterInstalled = false;
+
+    static int __cdecl FilterVertexFormatWarningSpew(int spewType, const char* pMsg)
+    {
+        if (pMsg && std::strstr(pMsg, kVertexFormatSpamMessage) != nullptr)
+            return 1; // SPEW_CONTINUE
+
+        if (s_OriginalSpewOutputFunc && s_OriginalSpewOutputFunc != &FilterVertexFormatWarningSpew)
+            return s_OriginalSpewOutputFunc(spewType, pMsg);
+
+        return 1; // SPEW_CONTINUE
+    }
 
     static bool NormalizeSuspiciousFloat(float candidate, float& normalized)
     {
@@ -408,6 +427,7 @@ Game::Game()
 
     m_Hooks = new Hooks(this);
 
+    InstallVertexFormatWarningFilter();
     m_Initialized = true;
 
 }
@@ -459,6 +479,62 @@ void Game::errorMsg(const char* msg)
 {
     logMsg("[ERROR] %s", msg);
     MessageBoxA(nullptr, msg, "L4D2VR Error", MB_ICONERROR | MB_OK);
+}
+
+bool Game::InstallVertexFormatWarningFilter()
+{
+    if (s_VertexFormatWarningFilterInstalled)
+        return true;
+
+    HMODULE tier0 = GetModuleHandleA("tier0.dll");
+    if (!tier0)
+        tier0 = GetModuleHandleA("tier0_s.dll");
+    if (!tier0)
+        return false;
+
+    if (!s_SetSpewOutputFunc)
+    {
+        s_SetSpewOutputFunc = reinterpret_cast<tSetSpewOutputFunc>(
+            GetProcAddress(tier0, "SpewOutputFunc"));
+    }
+    if (!s_GetSpewOutputFunc)
+    {
+        s_GetSpewOutputFunc = reinterpret_cast<tGetSpewOutputFunc>(
+            GetProcAddress(tier0, "GetSpewOutputFunc"));
+    }
+
+    if (!s_SetSpewOutputFunc)
+        return false;
+
+    SpewOutputFunc_t current = s_GetSpewOutputFunc ? s_GetSpewOutputFunc() : nullptr;
+    if (current == &FilterVertexFormatWarningSpew)
+    {
+        s_VertexFormatWarningFilterInstalled = true;
+        return true;
+    }
+
+    s_OriginalSpewOutputFunc = current;
+    SpewOutputFunc_t previous = s_SetSpewOutputFunc(&FilterVertexFormatWarningSpew);
+    if (!s_OriginalSpewOutputFunc)
+        s_OriginalSpewOutputFunc = previous;
+
+    s_VertexFormatWarningFilterInstalled = true;
+    return true;
+}
+
+void Game::UninstallVertexFormatWarningFilter()
+{
+    if (!s_VertexFormatWarningFilterInstalled || !s_SetSpewOutputFunc)
+        return;
+
+    HMODULE tier0 = GetModuleHandleA("tier0.dll");
+    if (!tier0)
+        tier0 = GetModuleHandleA("tier0_s.dll");
+    if (!tier0)
+        return;
+
+    s_SetSpewOutputFunc(s_OriginalSpewOutputFunc);
+    s_VertexFormatWarningFilterInstalled = false;
 }
 
 bool Game::IsValidPlayerIndex(int index) const

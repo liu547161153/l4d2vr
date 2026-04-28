@@ -457,9 +457,12 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     {
     case DLL_PROCESS_ATTACH:
         CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)InitL4D2VR, hModule, 0, NULL);
+        break;
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
+        break;
     case DLL_PROCESS_DETACH:
+        Game::UninstallVertexFormatWarningFilter();
         break;
     }
     return TRUE;

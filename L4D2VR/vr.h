@@ -1195,30 +1195,6 @@ public:
 	std::unordered_map<int, EnvProjectedTextureEntityDefaults> m_EnvProjectedTextureEntityDefaults;
 	std::atomic<bool> m_ShadowSettingsDirty{ true };
 
-	// Write-only performance cvar tweaks.
-	// These are pushed through VEngineCvar on update, with a one-shot snapshot restore path.
-	// The Orig* values below also serve as fallback restore targets if capture ever fails.
-	bool m_WriteOnlyPerformanceTweaksEnabled = false;
-	bool m_WriteOnlyPerformanceTweaksApplied = false;
-	bool m_WriteOnlyPerformanceOriginalsCaptured = false;
-	int m_WriteOnlyCvarThreadedBoneSetup = 1;
-	int m_WriteOnlyCvarThreadedParticles = 1;
-	int m_WriteOnlyCvarQueuedDecals = 1;
-	int m_WriteOnlyCvarQueuedPostProcessing = 1;
-	int m_WriteOnlyCvarRootLod = 1;
-	float m_WriteOnlyCvarPropsMaxDist = 600.0f;
-	float m_WriteOnlyCvarDetailDist = 0.0f;
-	float m_WriteOnlyCvarDetailFade = 0.0f;
-	int m_WriteOnlyOrigThreadedBoneSetup = 0;
-	int m_WriteOnlyOrigThreadedParticles = 1;
-	int m_WriteOnlyOrigQueuedDecals = 0;
-	int m_WriteOnlyOrigQueuedPostProcessing = 0;
-	int m_WriteOnlyOrigRootLod = 1;
-	float m_WriteOnlyOrigPropsMaxDist = 1200.0f;
-	float m_WriteOnlyOrigDetailDist = 400.0f;
-	float m_WriteOnlyOrigDetailFade = 250.0f;
-	std::atomic<bool> m_WriteOnlyPerformanceSettingsDirty{ true };
-
 	bool m_FlashlightEnhancementEnabled = false;
 	bool m_FlashlightEnhancementApplied = false;
 	bool m_FlashlightEnhancementOriginalsCaptured = false;
@@ -1228,6 +1204,9 @@ public:
 	float m_FlashlightEnhancementOrig3rdPersonRange = 60.0f;
 	float m_FlashlightEnhancementOrigBrightness = 0.25f;
 	float m_FlashlightEnhancementOrigFov = 53.0f;
+	int m_FlashlightEnhancementOrig3rdPersonRangeFlags = -1;
+	int m_FlashlightEnhancementOrigBrightnessFlags = -1;
+	int m_FlashlightEnhancementOrigFovFlags = -1;
 	std::atomic<bool> m_FlashlightEnhancementSettingsDirty{ true };
 	struct LocalVScriptConvarEntry
 	{
@@ -1243,7 +1222,6 @@ public:
 	std::string m_LocalVScriptConvarsPath = "VR\\local_client_convars.nut";
 	std::vector<LocalVScriptConvarEntry> m_LocalVScriptConvars{};
 	std::unordered_set<std::string> m_ShadowProtectedConvars{};
-	std::unordered_set<std::string> m_WriteOnlyProtectedConvars{};
 	std::unordered_set<std::string> m_FlashlightEnhancementProtectedConvars{};
 	bool m_LocalVScriptConvarsApplied = false;
 	std::atomic<bool> m_LocalVScriptConvarsDirty{ true };
@@ -2021,15 +1999,12 @@ public:
 	void InstallApplicationManifest(const char* fileName);
 	void Update();
 	void ApplyShadowSettingsIfNeeded();
-	void ApplyWriteOnlyPerformanceSettingsIfNeeded();
 	void ApplyFlashlightEnhancementIfNeeded();
 	void ApplyLocalVScriptConvarsIfNeeded();
 	void AuditLocalVScriptConvarsCurrentValues(const char* reason);
 	bool TryGetTrackedProtectedConvarValue(const char* name, std::string& outValue) const;
 	void CaptureFlashlightEnhancementDefaults();
 	void RestoreFlashlightEnhancementDefaults();
-	void CaptureWriteOnlyPerformanceDefaults();
-	void RestoreWriteOnlyPerformanceDefaults();
 	void RestoreLocalVScriptConvars();
 	bool ShouldBlockExternalProtectedConvarWrite(const char* name, const char* requestedValue);
 	void CaptureShadowCvarDefaults();

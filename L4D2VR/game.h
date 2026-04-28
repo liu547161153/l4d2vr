@@ -146,6 +146,8 @@ public:
     // === Logging ===
     static void logMsg(const char* fmt, ...);
     static void errorMsg(const char* msg);
+    static bool InstallVertexFormatWarningFilter();
+    static void UninstallVertexFormatWarningFilter();
 
     // === Player Utilities ===
     bool IsValidPlayerIndex(int index) const;
