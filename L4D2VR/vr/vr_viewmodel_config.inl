@@ -1575,6 +1575,8 @@ void VR::ParseConfigFile()
     m_FlashlightEnhancementSettingsDirty.store(true, std::memory_order_release);
     m_LocalVScriptConvarsEnabled =
         getBool("LocalVScriptConvarsEnabled", m_LocalVScriptConvarsEnabled);
+    m_LocalVScriptConvarsLogEnabled =
+        getBool("LocalVScriptConvarsLogEnabled", m_LocalVScriptConvarsLogEnabled);
     m_LocalVScriptConvarsBlockExternalWrites =
         getBool("LocalVScriptConvarsBlockExternalWrites", m_LocalVScriptConvarsBlockExternalWrites);
     m_LocalVScriptConvarsPath =
@@ -2400,23 +2402,7 @@ namespace
 
     const char* GetLocalVScriptSkipReason(const std::string& name, int flags)
     {
-        const auto startsWith = [&](const char* prefix)
-        {
-            return name.rfind(prefix, 0) == 0;
-        };
-
-        if (startsWith("sv_"))
-            return "server prefix sv_";
-        if (startsWith("z_"))
-            return "server/gameplay prefix z_";
-        if (startsWith("director_"))
-            return "server/gameplay prefix director_";
-        if (startsWith("melee_"))
-            return "server/gameplay prefix melee_";
-        if (startsWith("nb_"))
-            return "server/gameplay prefix nb_";
-        if (startsWith("sb_"))
-            return "server/gameplay prefix sb_";
+        (void)name;
         if ((flags & kLocalVScriptFlagGameDll) != 0 && (flags & kLocalVScriptFlagClientDll) == 0)
             return "FCVAR_GAMEDLL without FCVAR_CLIENTDLL";
         if ((flags & kLocalVScriptFlagReplicated) != 0 && (flags & kLocalVScriptFlagClientDll) == 0)
@@ -2427,21 +2413,7 @@ namespace
 
     bool ShouldSkipLocalVScriptConvar(const std::string& name, int flags)
     {
-        const auto startsWith = [&](const char* prefix)
-        {
-            return name.rfind(prefix, 0) == 0;
-        };
-
-        if (startsWith("sv_") ||
-            startsWith("z_") ||
-            startsWith("director_") ||
-            startsWith("melee_") ||
-            startsWith("nb_") ||
-            startsWith("sb_"))
-        {
-            return true;
-        }
-
+        (void)name;
         if ((flags & kLocalVScriptFlagGameDll) != 0 && (flags & kLocalVScriptFlagClientDll) == 0)
             return true;
 
@@ -2511,6 +2483,18 @@ namespace
 
         return true;
     }
+
+    bool ShouldLogLocalVScriptConvars(const VR* vr)
+    {
+        return vr != nullptr && vr->m_LocalVScriptConvarsLogEnabled;
+    }
+
+    template <typename... Args>
+    void LocalVScriptLog(const VR* vr, const char* format, Args... args)
+    {
+        if (ShouldLogLocalVScriptConvars(vr))
+            Game::logMsg(format, args...);
+    }
 }
 
 void VR::RestoreLocalVScriptConvars()
@@ -2539,8 +2523,14 @@ void VR::RestoreLocalVScriptConvars()
         return;
     }
 
+    LocalVScriptLog(
+        this,
+        "[VR][LocalVScriptConvars] Restore begin tracked=%zu",
+        entriesToRestore.size());
+
     int restoredCount = 0;
     int restoreFailedCount = 0;
+    int restoreVerifyMismatchCount = 0;
     for (const LocalVScriptConvarEntry& entry : entriesToRestore)
     {
         if (entry.name.empty())
@@ -2594,7 +2584,11 @@ void VR::RestoreLocalVScriptConvars()
         }
 
         if (setOk)
+        {
             ++restoredCount;
+            if (!verified)
+                ++restoreVerifyMismatchCount;
+        }
         else
             ++restoreFailedCount;
 
@@ -2603,13 +2597,30 @@ void VR::RestoreLocalVScriptConvars()
             const bool restoredFlags = m_Game->SetConVarFlags(entry.name.c_str(), entry.flags);
         }
 
+        LocalVScriptLog(
+            this,
+            "[VR][LocalVScriptConvars] Restore name=%s kind=%s flags=0x%08X before='%s' target='%s' after='%s' afterDirect='%s' setOk=%d verified=%d",
+            entry.name.c_str(),
+            GetLocalVScriptValueKindName(kind),
+            entry.flags,
+            beforeValue.c_str(),
+            entry.originalValue.c_str(),
+            afterValue.c_str(),
+            directReadback.c_str(),
+            setOk ? 1 : 0,
+            verified ? 1 : 0);
     }
 
+    LocalVScriptLog(
+        this,
+        "[VR][LocalVScriptConvars] Restore done restored=%d verifyMismatch=%d restoreFailed=%d",
+        restoredCount,
+        restoreVerifyMismatchCount,
+        restoreFailedCount);
 }
 
 bool VR::ShouldBlockExternalProtectedConvarWrite(const char* name, const char* requestedValue)
 {
-    (void)requestedValue;
     if (!m_LocalVScriptConvarsBlockExternalWrites || !name || !*name)
         return false;
 
@@ -2625,7 +2636,19 @@ bool VR::ShouldBlockExternalProtectedConvarWrite(const char* name, const char* r
                     return entry.lockProtected && entry.name == name;
                 });
             if (entryIt != m_LocalVScriptConvars.end())
+            {
+                auto& last = m_LocalVScriptConvarBlockedWriteLastLog[entryIt->name];
+                if (!ShouldThrottleLocalVScriptLog(last, m_LocalVScriptConvarsBlockedWriteLogHz))
+                {
+                    LocalVScriptLog(
+                        this,
+                        "[VR][LocalVScriptConvars] Blocked external write name=%s requested='%s' locked='%s'",
+                        entryIt->name.c_str(),
+                        requestedValue ? requestedValue : "",
+                        entryIt->value.c_str());
+                }
                 return true;
+            }
         }
 
         if (m_ShadowProtectedConvars.find(name) != m_ShadowProtectedConvars.end())
@@ -2639,6 +2662,30 @@ bool VR::ShouldBlockExternalProtectedConvarWrite(const char* name, const char* r
     }
 
     return false;
+}
+
+bool VR::TryGetTrackedProtectedConvarValue(const char* name, std::string& outValue) const
+{
+    outValue.clear();
+    if (!name || !*name)
+        return false;
+
+    std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+    if (!m_LocalVScriptConvarsApplied)
+        return false;
+
+    auto entryIt = std::find_if(
+        m_LocalVScriptConvars.begin(),
+        m_LocalVScriptConvars.end(),
+        [&](const LocalVScriptConvarEntry& entry)
+        {
+            return entry.lockProtected && entry.name == name;
+        });
+    if (entryIt == m_LocalVScriptConvars.end())
+        return false;
+
+    outValue = entryIt->value;
+    return true;
 }
 
 void VR::ApplyLocalVScriptConvarsIfNeeded()
@@ -2662,9 +2709,18 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
     std::vector<LocalVScriptConvarEntry> parsedEntries;
     if (!ParseLocalVScriptConvarsFile(m_LocalVScriptConvarsPath, parsedEntries))
     {
+        LocalVScriptLog(
+            this,
+            "[VR][LocalVScriptConvars] Apply parse failed path=%s",
+            m_LocalVScriptConvarsPath.c_str());
         return;
     }
 
+    LocalVScriptLog(
+        this,
+        "[VR][LocalVScriptConvars] Apply begin path=%s parsed=%zu",
+        m_LocalVScriptConvarsPath.c_str(),
+        parsedEntries.size());
 
     int appliedCount = 0;
     int skippedCount = 0;
@@ -2679,12 +2735,24 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         if (entry.flags < 0)
         {
             ++missingCount;
+            LocalVScriptLog(
+                this,
+                "[VR][LocalVScriptConvars] Missing name=%s requested='%s'",
+                entry.name.c_str(),
+                entry.value.c_str());
             continue;
         }
 
         if (ShouldSkipLocalVScriptConvar(entry.name, entry.flags))
         {
             ++skippedCount;
+            LocalVScriptLog(
+                this,
+                "[VR][LocalVScriptConvars] Skip name=%s flags=0x%08X requested='%s' reason=%s",
+                entry.name.c_str(),
+                entry.flags,
+                entry.value.c_str(),
+                GetLocalVScriptSkipReason(entry.name, entry.flags));
             continue;
         }
 
@@ -2693,6 +2761,13 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         {
             const int writableFlags = entry.flags & ~kLocalVScriptFlagCheat;
             const bool cleared = m_Game->SetConVarFlags(entry.name.c_str(), writableFlags);
+            LocalVScriptLog(
+                this,
+                "[VR][LocalVScriptConvars] ApplyFlag name=%s action=clear_cheat flagsBefore=0x%08X flagsAfter=0x%08X setOk=%d",
+                entry.name.c_str(),
+                entry.flags,
+                writableFlags,
+                cleared ? 1 : 0);
         }
         bool boolValue = false;
         int intValue = 0;
@@ -2757,6 +2832,18 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
             {
                 const bool restoredFlags = m_Game->SetConVarFlags(entry.name.c_str(), entry.flags);
             }
+            LocalVScriptLog(
+                this,
+                "[VR][LocalVScriptConvars] WriteFail name=%s kind=%s flags=0x%08X before='%s' requested='%s' after='%s' afterDirect='%s' setOk=%d verified=%d",
+                entry.name.c_str(),
+                GetLocalVScriptValueKindName(kind),
+                entry.flags,
+                entry.originalValue.c_str(),
+                entry.value.c_str(),
+                readbackValue.c_str(),
+                directReadbackValue.c_str(),
+                setOk ? 1 : 0,
+                verified ? 1 : 0);
             continue;
         }
 
@@ -2767,14 +2854,155 @@ void VR::ApplyLocalVScriptConvarsIfNeeded()
         else
             ++verifyMismatchCount;
 
+        LocalVScriptLog(
+            this,
+            "[VR][LocalVScriptConvars] Apply name=%s kind=%s flags=0x%08X before='%s' requested='%s' after='%s' afterDirect='%s' setOk=%d verified=%d",
+            entry.name.c_str(),
+            GetLocalVScriptValueKindName(kind),
+            entry.flags,
+            entry.originalValue.c_str(),
+            entry.value.c_str(),
+            readbackValue.c_str(),
+            directReadbackValue.c_str(),
+            setOk ? 1 : 0,
+            verified ? 1 : 0);
     }
 
+    size_t trackedCount = 0;
     {
         std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
         m_LocalVScriptConvars = std::move(appliedEntries);
         m_LocalVScriptConvarsApplied = !m_LocalVScriptConvars.empty();
         m_LocalVScriptConvarBlockedWriteLastLog.clear();
+        trackedCount = m_LocalVScriptConvars.size();
     }
+
+    LocalVScriptLog(
+        this,
+        "[VR][LocalVScriptConvars] Apply done path=%s parsed=%zu applied=%d verifyMismatch=%d writeFailed=%d missing=%d skipped=%d trackedForRestore=%zu",
+        m_LocalVScriptConvarsPath.c_str(),
+        parsedEntries.size(),
+        appliedCount,
+        verifyMismatchCount,
+        writeFailedCount,
+        missingCount,
+        skippedCount,
+        trackedCount);
+}
+
+void VR::AuditLocalVScriptConvarsCurrentValues(const char* reason)
+{
+    if (!m_Game)
+        return;
+
+    std::vector<LocalVScriptConvarEntry> entriesToAudit;
+    {
+        std::lock_guard<std::mutex> lock(m_LocalVScriptConvarLockMutex);
+        if (!m_LocalVScriptConvarsApplied || m_LocalVScriptConvars.empty())
+        {
+            LocalVScriptLog(
+                this,
+                "[VR][LocalVScriptConvars] Audit skip reason=%s tracked=0",
+                reason ? reason : "");
+            return;
+        }
+
+        entriesToAudit = m_LocalVScriptConvars;
+    }
+
+    LocalVScriptLog(
+        this,
+        "[VR][LocalVScriptConvars] Audit begin reason=%s tracked=%zu",
+        reason ? reason : "",
+        entriesToAudit.size());
+
+    int matchCount = 0;
+    int mismatchCount = 0;
+    int missingCount = 0;
+    for (const LocalVScriptConvarEntry& entry : entriesToAudit)
+    {
+        if (entry.name.empty())
+            continue;
+
+        bool boolValue = false;
+        int intValue = 0;
+        float floatValue = 0.0f;
+        const LocalVScriptValueKind kind =
+            InferLocalVScriptValueKind(entry.value, boolValue, intValue, floatValue);
+        const int currentFlags = m_Game->GetConVarFlags(entry.name.c_str());
+        if (currentFlags < 0)
+        {
+            ++missingCount;
+            LocalVScriptLog(
+                this,
+                "[VR][LocalVScriptConvars] Audit name=%s kind=%s expected='%s' flags=missing current='<missing>' currentDirect='-' matches=0",
+                entry.name.c_str(),
+                GetLocalVScriptValueKindName(kind),
+                entry.value.c_str());
+            continue;
+        }
+
+        const std::string currentValue = m_Game->GetConVarString(entry.name.c_str());
+        std::string currentDirectValue = "-";
+        bool matches = false;
+        switch (kind)
+        {
+        case LocalVScriptValueKind::Bool:
+        {
+            const int currentDirect = m_Game->GetConVarIntDirect(entry.name.c_str(), INT32_MIN);
+            currentDirectValue = std::to_string(currentDirect);
+            matches = (currentDirect == (boolValue ? 1 : 0));
+            break;
+        }
+        case LocalVScriptValueKind::Int:
+        {
+            const int currentDirect = m_Game->GetConVarIntDirect(entry.name.c_str(), INT32_MIN);
+            currentDirectValue = std::to_string(currentDirect);
+            matches = (currentDirect == intValue);
+            break;
+        }
+        case LocalVScriptValueKind::Float:
+        {
+            const float currentDirect = m_Game->GetConVarFloatDirect(entry.name.c_str(), -999999.0f);
+            char buffer[64] = {};
+            sprintf_s(buffer, "%.9g", static_cast<double>(currentDirect));
+            currentDirectValue = buffer;
+            matches = std::fabs(currentDirect - floatValue) <= 0.0001f;
+            break;
+        }
+        default:
+            currentDirectValue = currentValue;
+            matches = LocalVScriptValuesEquivalent(entry.value, currentValue);
+            break;
+        }
+
+        if (matches)
+            ++matchCount;
+        else
+            ++mismatchCount;
+
+        if (!matches)
+        {
+            LocalVScriptLog(
+                this,
+                "[VR][LocalVScriptConvars] Audit name=%s kind=%s expected='%s' flags=0x%08X current='%s' currentDirect='%s' matches=0",
+                entry.name.c_str(),
+                GetLocalVScriptValueKindName(kind),
+                entry.value.c_str(),
+                currentFlags,
+                currentValue.c_str(),
+                currentDirectValue.c_str());
+        }
+    }
+
+    LocalVScriptLog(
+        this,
+        "[VR][LocalVScriptConvars] Audit done reason=%s tracked=%zu matches=%d mismatches=%d missing=%d",
+        reason ? reason : "",
+        entriesToAudit.size(),
+        matchCount,
+        mismatchCount,
+        missingCount);
 }
 
 void VR::WaitForConfigUpdate()

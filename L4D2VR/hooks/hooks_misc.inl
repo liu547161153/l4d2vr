@@ -166,6 +166,92 @@ namespace vr_vm_stabilize
 
 namespace
 {
+    std::mutex s_TrackedConVarTraceMutex;
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> s_TrackedConVarTraceLastLog;
+
+    inline bool ShouldThrottleTrackedConVarTrace(const std::string& key, float maxHz = 5.0f)
+    {
+        if (key.empty() || maxHz <= 0.0f)
+            return false;
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto minInterval =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<float>(1.0f / maxHz));
+
+        std::lock_guard<std::mutex> lock(s_TrackedConVarTraceMutex);
+        auto& last = s_TrackedConVarTraceLastLog[key];
+        if (last.time_since_epoch().count() != 0 && now - last < minInterval)
+            return true;
+
+        last = now;
+        return false;
+    }
+
+    inline std::string DescribeCallerAddress(const void* address)
+    {
+        if (!address)
+            return "unknown";
+
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(address, &mbi, sizeof(mbi)) == 0 || !mbi.AllocationBase)
+            return "unknown";
+
+        char path[MAX_PATH] = {};
+        const DWORD pathLen = GetModuleFileNameA(reinterpret_cast<HMODULE>(mbi.AllocationBase), path, MAX_PATH);
+        const char* moduleName = (pathLen > 0) ? path : "unknown";
+        if (pathLen > 0)
+        {
+            const char* slash = std::strrchr(path, '\\');
+            if (slash && slash[1] != '\0')
+                moduleName = slash + 1;
+        }
+
+        char buffer[MAX_PATH + 64] = {};
+        const uintptr_t offset =
+            reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(mbi.AllocationBase);
+        sprintf_s(buffer, "%s+0x%IX", moduleName, offset);
+        return buffer;
+    }
+
+    inline void TraceTrackedConVarWrite(
+        void* convar,
+        const char* requestedValue,
+        const char* hookPath,
+        const void* callerAddress,
+        bool isIConVarThis,
+        bool blocked)
+    {
+        if (!Hooks::m_Game || !Hooks::m_VR || Game::HasConVarWritePermit() || !Hooks::m_VR->m_LocalVScriptConvarsLogEnabled)
+            return;
+
+        const char* name = isIConVarThis
+            ? Hooks::m_Game->GetConVarNameFromIConVarPointer(convar)
+            : Hooks::m_Game->GetConVarNameFromPointer(convar);
+        if (!name || !*name)
+            return;
+
+        std::string expectedValue;
+        if (!Hooks::m_VR->TryGetTrackedProtectedConvarValue(name, expectedValue))
+            return;
+
+        std::string throttleKey = std::string(hookPath ? hookPath : "ConVarTrace") + "|" + name;
+        if (ShouldThrottleTrackedConVarTrace(throttleKey))
+            return;
+
+        const std::string beforeValue = Hooks::m_Game->GetConVarString(name);
+        const std::string caller = DescribeCallerAddress(callerAddress);
+        Game::logMsg(
+            "[VR][LocalVScriptConvars] TraceWrite path=%s name=%s before='%s' expected='%s' requested='%s' caller=%s blocked=%d",
+            hookPath ? hookPath : "unknown",
+            name,
+            beforeValue.c_str(),
+            expectedValue.c_str(),
+            requestedValue ? requestedValue : "",
+            caller.c_str(),
+            blocked ? 1 : 0);
+    }
+
     inline bool ShouldBlockLockedConVarWrite(void* convar, const char* requestedValue)
     {
         if (!Hooks::m_Game || !Hooks::m_VR || Game::HasConVarWritePermit())
@@ -1000,7 +1086,9 @@ DWORD* Hooks::dPrePushRenderTarget(void* ecx, void* edx, int a2)
 
 void Hooks::dConVarSetValueString(void* ecx, void* edx, const char* value)
 {
-    if (ShouldBlockLockedConVarWrite(ecx, value))
+    const bool blocked = ShouldBlockLockedConVarWrite(ecx, value);
+    TraceTrackedConVarWrite(ecx, value, "IConVar::SetValue(string)", _ReturnAddress(), true, blocked);
+    if (blocked)
         return;
 
     hkConVarSetValueString.fOriginal(ecx, value);
@@ -1010,7 +1098,9 @@ void Hooks::dConVarSetValueFloat(void* ecx, void* edx, float value)
 {
     char buffer[64] = {};
     sprintf_s(buffer, "%.9g", static_cast<double>(value));
-    if (ShouldBlockLockedConVarWrite(ecx, buffer))
+    const bool blocked = ShouldBlockLockedConVarWrite(ecx, buffer);
+    TraceTrackedConVarWrite(ecx, buffer, "IConVar::SetValue(float)", _ReturnAddress(), true, blocked);
+    if (blocked)
         return;
 
     hkConVarSetValueFloat.fOriginal(ecx, value);
@@ -1020,8 +1110,54 @@ void Hooks::dConVarSetValueInt(void* ecx, void* edx, int value)
 {
     char buffer[32] = {};
     sprintf_s(buffer, "%d", value);
-    if (ShouldBlockLockedConVarWrite(ecx, buffer))
+    const bool blocked = ShouldBlockLockedConVarWrite(ecx, buffer);
+    TraceTrackedConVarWrite(ecx, buffer, "IConVar::SetValue(int)", _ReturnAddress(), true, blocked);
+    if (blocked)
         return;
 
     hkConVarSetValueInt.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarPrimarySetValueString(void* ecx, void* edx, const char* value)
+{
+    TraceTrackedConVarWrite(ecx, value, "ConVar::SetValue(string)", _ReturnAddress(), false, false);
+    hkConVarPrimarySetValueString.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarPrimarySetValueFloat(void* ecx, void* edx, float value)
+{
+    char buffer[64] = {};
+    sprintf_s(buffer, "%.9g", static_cast<double>(value));
+    TraceTrackedConVarWrite(ecx, buffer, "ConVar::SetValue(float)", _ReturnAddress(), false, false);
+    hkConVarPrimarySetValueFloat.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarPrimarySetValueInt(void* ecx, void* edx, int value)
+{
+    char buffer[32] = {};
+    sprintf_s(buffer, "%d", value);
+    TraceTrackedConVarWrite(ecx, buffer, "ConVar::SetValue(int)", _ReturnAddress(), false, false);
+    hkConVarPrimarySetValueInt.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarInternalSetValueString(void* ecx, void* edx, const char* value)
+{
+    TraceTrackedConVarWrite(ecx, value, "ConVar::InternalSetValue(string)", _ReturnAddress(), false, false);
+    hkConVarInternalSetValueString.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarInternalSetValueFloat(void* ecx, void* edx, float value)
+{
+    char buffer[64] = {};
+    sprintf_s(buffer, "%.9g", static_cast<double>(value));
+    TraceTrackedConVarWrite(ecx, buffer, "ConVar::InternalSetValue(float)", _ReturnAddress(), false, false);
+    hkConVarInternalSetValueFloat.fOriginal(ecx, value);
+}
+
+void Hooks::dConVarInternalSetValueInt(void* ecx, void* edx, int value)
+{
+    char buffer[32] = {};
+    sprintf_s(buffer, "%d", value);
+    TraceTrackedConVarWrite(ecx, buffer, "ConVar::InternalSetValue(int)", _ReturnAddress(), false, false);
+    hkConVarInternalSetValueInt.fOriginal(ecx, value);
 }

@@ -453,31 +453,52 @@ void VR::Update()
         {
             m_AutoResetPositionPending = false;
             m_AutoResetHadLocalPlayerPrev = false;
+            m_LocalVScriptConvarsMapAuditPending = false;
+            m_LocalVScriptConvarsHadLocalPlayerPrev = false;
         }
         else
         {
             int playerIndex = m_Game->m_EngineClient->GetLocalPlayer();
             C_BasePlayer* localPlayer = (C_BasePlayer*)m_Game->GetClientEntity(playerIndex);
             const bool hasLocalPlayer = (localPlayer != nullptr);
+            const auto now = std::chrono::steady_clock::now();
 
             if (hasLocalPlayer && !m_AutoResetHadLocalPlayerPrev && m_AutoResetPositionAfterLoadSeconds > 0.0f)
             {
                 m_AutoResetPositionPending = true;
-                const auto now = std::chrono::steady_clock::now();
                 const int ms = (int)(std::max)(0.0f, m_AutoResetPositionAfterLoadSeconds * 1000.0f);
                 m_AutoResetPositionDueTime = now + std::chrono::milliseconds(ms);
             }
 
             m_AutoResetHadLocalPlayerPrev = hasLocalPlayer;
 
+            if (!m_LocalVScriptConvarsEnabled || !m_LocalVScriptConvarsLogEnabled)
+            {
+                m_LocalVScriptConvarsMapAuditPending = false;
+            }
+            else if (hasLocalPlayer && !m_LocalVScriptConvarsHadLocalPlayerPrev)
+            {
+                m_LocalVScriptConvarsMapAuditPending = true;
+                const int auditDelayMs =
+                    (int)(std::max)(0.0f, m_LocalVScriptConvarsMapAuditDelaySeconds * 1000.0f);
+                m_LocalVScriptConvarsMapAuditDueTime = now + std::chrono::milliseconds(auditDelayMs);
+            }
+
+            m_LocalVScriptConvarsHadLocalPlayerPrev = hasLocalPlayer;
+
             if (m_AutoResetPositionPending && hasLocalPlayer)
             {
-                const auto now = std::chrono::steady_clock::now();
                 if (now >= m_AutoResetPositionDueTime)
                 {
                     ResetPosition();
                     m_AutoResetPositionPending = false;
                 }
+            }
+
+            if (m_LocalVScriptConvarsMapAuditPending && hasLocalPlayer && now >= m_LocalVScriptConvarsMapAuditDueTime)
+            {
+                AuditLocalVScriptConvarsCurrentValues("map_enter");
+                m_LocalVScriptConvarsMapAuditPending = false;
             }
         }
     }

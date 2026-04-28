@@ -27,6 +27,12 @@ using tCreateInterface = void* (__cdecl*)(const char* name, int* returnCode);
 namespace
 {
     static_assert(sizeof(void*) == 4, "L4D2VR ConVar bridge assumes 32-bit Source DLL layout.");
+    static constexpr size_t kConVarVtableIndexSetValueString = 7;
+    static constexpr size_t kConVarVtableIndexSetValueFloat = 8;
+    static constexpr size_t kConVarVtableIndexSetValueInt = 9;
+    static constexpr size_t kConVarVtableIndexInternalSetValueString = 10;
+    static constexpr size_t kConVarVtableIndexInternalSetValueFloat = 11;
+    static constexpr size_t kConVarVtableIndexInternalSetValueInt = 12;
     static constexpr size_t kIConVarVtableIndexSetValueString = 0;
     static constexpr size_t kIConVarVtableIndexSetValueFloat = 1;
     static constexpr size_t kIConVarVtableIndexSetValueInt = 2;
@@ -649,6 +655,21 @@ void* Game::GetConVarStringSetValueTarget(const char* name) const
     return GetVTableEntry(GetConVarIConVar(FindConVarInternal(m_Cvar, name)), kIConVarVtableIndexSetValueString);
 }
 
+void* Game::GetConVarPrimaryStringSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(FindConVarInternal(m_Cvar, name), kConVarVtableIndexSetValueString);
+}
+
+void* Game::GetConVarPrimaryFloatSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(FindConVarInternal(m_Cvar, name), kConVarVtableIndexSetValueFloat);
+}
+
+void* Game::GetConVarPrimaryIntSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(FindConVarInternal(m_Cvar, name), kConVarVtableIndexSetValueInt);
+}
+
 void* Game::GetConVarFloatSetValueTarget(const char* name) const
 {
     return GetVTableEntry(GetConVarIConVar(FindConVarInternal(m_Cvar, name)), kIConVarVtableIndexSetValueFloat);
@@ -657,6 +678,21 @@ void* Game::GetConVarFloatSetValueTarget(const char* name) const
 void* Game::GetConVarIntSetValueTarget(const char* name) const
 {
     return GetVTableEntry(GetConVarIConVar(FindConVarInternal(m_Cvar, name)), kIConVarVtableIndexSetValueInt);
+}
+
+void* Game::GetConVarInternalStringSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(FindConVarInternal(m_Cvar, name), kConVarVtableIndexInternalSetValueString);
+}
+
+void* Game::GetConVarInternalFloatSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(FindConVarInternal(m_Cvar, name), kConVarVtableIndexInternalSetValueFloat);
+}
+
+void* Game::GetConVarInternalIntSetValueTarget(const char* name) const
+{
+    return GetVTableEntry(FindConVarInternal(m_Cvar, name), kConVarVtableIndexInternalSetValueInt);
 }
 
 static int FindRecvPropOffsetRecursive(const SourceRecvTable* table, const char* propName, int accumulatedOffset)

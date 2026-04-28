@@ -117,9 +117,15 @@ public:
     void* FindConVar(const char* name) const;
     const char* GetConVarNameFromPointer(const void* convar) const;
     const char* GetConVarNameFromIConVarPointer(const void* iconvar) const;
+    void* GetConVarPrimaryStringSetValueTarget(const char* name) const;
+    void* GetConVarPrimaryFloatSetValueTarget(const char* name) const;
+    void* GetConVarPrimaryIntSetValueTarget(const char* name) const;
     void* GetConVarStringSetValueTarget(const char* name) const;
     void* GetConVarFloatSetValueTarget(const char* name) const;
     void* GetConVarIntSetValueTarget(const char* name) const;
+    void* GetConVarInternalStringSetValueTarget(const char* name) const;
+    void* GetConVarInternalFloatSetValueTarget(const char* name) const;
+    void* GetConVarInternalIntSetValueTarget(const char* name) const;
     int GetConVarInt(const char* name, int fallback = 0) const;
     int GetConVarIntDirect(const char* name, int fallback = 0) const;
     float GetConVarFloat(const char* name, float fallback = 0.0f) const;

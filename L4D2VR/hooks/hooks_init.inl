@@ -50,6 +50,18 @@ Hooks::Hooks(Game* game)
 		hkConVarSetValueFloat.enableHook();
 	if (hkConVarSetValueInt.pTarget)
 		hkConVarSetValueInt.enableHook();
+	if (hkConVarPrimarySetValueString.pTarget)
+		hkConVarPrimarySetValueString.enableHook();
+	if (hkConVarPrimarySetValueFloat.pTarget)
+		hkConVarPrimarySetValueFloat.enableHook();
+	if (hkConVarPrimarySetValueInt.pTarget)
+		hkConVarPrimarySetValueInt.enableHook();
+	if (hkConVarInternalSetValueString.pTarget)
+		hkConVarInternalSetValueString.enableHook();
+	if (hkConVarInternalSetValueFloat.pTarget)
+		hkConVarInternalSetValueFloat.enableHook();
+	if (hkConVarInternalSetValueInt.pTarget)
+		hkConVarInternalSetValueInt.enableHook();
 }
 
 Hooks::~Hooks()
@@ -171,7 +183,54 @@ int Hooks::initSourceHooks()
 				hkConVarSetValueInt.createHook(target, &dConVarSetValueInt);
 		}
 
-		if (hkConVarSetValueString.pTarget && hkConVarSetValueFloat.pTarget && hkConVarSetValueInt.pTarget)
+		if (!hkConVarPrimarySetValueString.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarPrimaryStringSetValueTarget(sample);
+			if (target && target != hkConVarSetValueString.pTarget)
+				hkConVarPrimarySetValueString.createHook(target, &dConVarPrimarySetValueString);
+		}
+
+		if (!hkConVarPrimarySetValueFloat.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarPrimaryFloatSetValueTarget(sample);
+			if (target && target != hkConVarSetValueFloat.pTarget)
+				hkConVarPrimarySetValueFloat.createHook(target, &dConVarPrimarySetValueFloat);
+		}
+
+		if (!hkConVarPrimarySetValueInt.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarPrimaryIntSetValueTarget(sample);
+			if (target && target != hkConVarSetValueInt.pTarget)
+				hkConVarPrimarySetValueInt.createHook(target, &dConVarPrimarySetValueInt);
+		}
+
+		if (!hkConVarInternalSetValueString.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarInternalStringSetValueTarget(sample);
+			if (target)
+				hkConVarInternalSetValueString.createHook(target, &dConVarInternalSetValueString);
+		}
+
+		if (!hkConVarInternalSetValueFloat.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarInternalFloatSetValueTarget(sample);
+			if (target)
+				hkConVarInternalSetValueFloat.createHook(target, &dConVarInternalSetValueFloat);
+		}
+
+		if (!hkConVarInternalSetValueInt.pTarget)
+		{
+			LPVOID target = m_Game->GetConVarInternalIntSetValueTarget(sample);
+			if (target)
+				hkConVarInternalSetValueInt.createHook(target, &dConVarInternalSetValueInt);
+		}
+
+		if (hkConVarSetValueString.pTarget &&
+			hkConVarSetValueFloat.pTarget &&
+			hkConVarSetValueInt.pTarget &&
+			hkConVarInternalSetValueString.pTarget &&
+			hkConVarInternalSetValueFloat.pTarget &&
+			hkConVarInternalSetValueInt.pTarget)
 			break;
 	}
 

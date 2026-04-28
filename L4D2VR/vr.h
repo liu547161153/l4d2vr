@@ -1238,6 +1238,7 @@ public:
 		bool lockProtected = false;
 	};
 	bool m_LocalVScriptConvarsEnabled = false;
+	bool m_LocalVScriptConvarsLogEnabled = false;
 	bool m_LocalVScriptConvarsBlockExternalWrites = true;
 	std::string m_LocalVScriptConvarsPath = "VR\\local_client_convars.nut";
 	std::vector<LocalVScriptConvarEntry> m_LocalVScriptConvars{};
@@ -1246,6 +1247,10 @@ public:
 	std::unordered_set<std::string> m_FlashlightEnhancementProtectedConvars{};
 	bool m_LocalVScriptConvarsApplied = false;
 	std::atomic<bool> m_LocalVScriptConvarsDirty{ true };
+	float m_LocalVScriptConvarsMapAuditDelaySeconds = 1.0f;
+	bool m_LocalVScriptConvarsMapAuditPending = false;
+	std::chrono::steady_clock::time_point m_LocalVScriptConvarsMapAuditDueTime{};
+	bool m_LocalVScriptConvarsHadLocalPlayerPrev = false;
 	float m_LocalVScriptConvarsBlockedWriteLogHz = 1.0f;
 	std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_LocalVScriptConvarBlockedWriteLastLog{};
 	mutable std::mutex m_LocalVScriptConvarLockMutex;
@@ -2019,6 +2024,8 @@ public:
 	void ApplyWriteOnlyPerformanceSettingsIfNeeded();
 	void ApplyFlashlightEnhancementIfNeeded();
 	void ApplyLocalVScriptConvarsIfNeeded();
+	void AuditLocalVScriptConvarsCurrentValues(const char* reason);
+	bool TryGetTrackedProtectedConvarValue(const char* name, std::string& outValue) const;
 	void CaptureFlashlightEnhancementDefaults();
 	void RestoreFlashlightEnhancementDefaults();
 	void CaptureWriteOnlyPerformanceDefaults();

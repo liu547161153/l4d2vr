@@ -101,6 +101,9 @@ typedef void(__thiscall* tUpdateLaserSight)(void* thisptr);
 typedef void(__thiscall* tConVarSetValueString)(void* thisptr, const char* value);
 typedef void(__thiscall* tConVarSetValueFloat)(void* thisptr, float value);
 typedef void(__thiscall* tConVarSetValueInt)(void* thisptr, int value);
+typedef void(__thiscall* tConVarInternalSetValueString)(void* thisptr, const char* value);
+typedef void(__thiscall* tConVarInternalSetValueFloat)(void* thisptr, float value);
+typedef void(__thiscall* tConVarInternalSetValueInt)(void* thisptr, int value);
 
 
 class Hooks
@@ -141,6 +144,12 @@ public:
 	static inline Hook<tConVarSetValueString> hkConVarSetValueString;
 	static inline Hook<tConVarSetValueFloat> hkConVarSetValueFloat;
 	static inline Hook<tConVarSetValueInt> hkConVarSetValueInt;
+	static inline Hook<tConVarSetValueString> hkConVarPrimarySetValueString;
+	static inline Hook<tConVarSetValueFloat> hkConVarPrimarySetValueFloat;
+	static inline Hook<tConVarSetValueInt> hkConVarPrimarySetValueInt;
+	static inline Hook<tConVarInternalSetValueString> hkConVarInternalSetValueString;
+	static inline Hook<tConVarInternalSetValueFloat> hkConVarInternalSetValueFloat;
+	static inline Hook<tConVarInternalSetValueInt> hkConVarInternalSetValueInt;
 	static bool s_ServerUnderstandsVR;
 
 	Hooks() {};
@@ -183,6 +192,12 @@ public:
 	static void __fastcall dConVarSetValueString(void* ecx, void* edx, const char* value);
 	static void __fastcall dConVarSetValueFloat(void* ecx, void* edx, float value);
 	static void __fastcall dConVarSetValueInt(void* ecx, void* edx, int value);
+	static void __fastcall dConVarPrimarySetValueString(void* ecx, void* edx, const char* value);
+	static void __fastcall dConVarPrimarySetValueFloat(void* ecx, void* edx, float value);
+	static void __fastcall dConVarPrimarySetValueInt(void* ecx, void* edx, int value);
+	static void __fastcall dConVarInternalSetValueString(void* ecx, void* edx, const char* value);
+	static void __fastcall dConVarInternalSetValueFloat(void* ecx, void* edx, float value);
+	static void __fastcall dConVarInternalSetValueInt(void* ecx, void* edx, int value);
 
 	// HUD render-target interception uses a small state machine to detect the
 	// engine's "push HUD RT" sequence:

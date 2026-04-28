@@ -32,6 +32,7 @@ AutoMatQueueMode=false
 WriteOnlyPerformanceTweaksEnabled=false
 FlashlightEnhancementEnabled=false
 LocalVScriptConvarsEnabled=false
+LocalVScriptConvarsLogEnabled=false
 LocalVScriptConvarsBlockExternalWrites=true
 LocalVScriptConvarsPath=VR\local_client_convars.nut
 
@@ -523,6 +524,8 @@ static bool IsOptionVisible(const Option& opt)
 
     if (std::strcmp(key, "LocalVScriptConvarsPath") == 0)
         return IsEnabled("LocalVScriptConvarsEnabled");
+    if (std::strcmp(key, "LocalVScriptConvarsLogEnabled") == 0)
+        return IsEnabled("LocalVScriptConvarsEnabled");
     if (std::strcmp(key, "LocalVScriptConvarsBlockExternalWrites") == 0)
         return IsEnabled("LocalVScriptConvarsEnabled");
 
@@ -943,6 +946,18 @@ Option g_Options[] =
         "false"
     },
     {
+        "LocalVScriptConvarsLogEnabled",
+        OptionType::Bool,
+        { u8"Performance", u8"性能" },
+        { u8"Local VScript ConVar Logging", u8"本地 VScript ConVar 日志" },
+        { u8"Logs apply/restore/block events and audits tracked values after each map load.",
+          u8"记录应用/恢复/拦截事件，并在每次进图后审计受跟踪值的当前状态。" },
+        { u8"Useful when investigating which client cvars were changed or overridden after entering a server.",
+          u8"适合排查进服后哪些客户端 cvar 被改动或被覆盖。" },
+        0.0f, 0.0f,
+        "false"
+    },
+    {
         "LocalVScriptConvarsPath",
         OptionType::String,
         { u8"Performance", u8"性能" },
@@ -959,8 +974,8 @@ Option g_Options[] =
         OptionType::Bool,
         { u8"Performance", u8"性能" },
         { u8"Block External ConVar Writes", u8"拦截外部 ConVar 改写" },
-        { u8"Hooks ConVar::SetValue and rejects non-local attempts to change verified Local VScript cvars.",
-          u8"Hook ConVar::SetValue，拒绝非本地写入对已验证 Local VScript cvar 的改写。" },
+        { u8"Hooks ConVar::SetValue and rejects non-local attempts to change tracked Local VScript cvars.",
+          u8"Hook ConVar::SetValue，拒绝非本地写入对受跟踪 Local VScript cvar 的改写。" },
         { u8"Use this when a server or client DLL keeps forcing your local values back.",
           u8"当服务器或客户端 DLL 持续把你的本地值改回去时启用。" },
         0.0f, 0.0f,

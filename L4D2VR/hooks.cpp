@@ -15,7 +15,9 @@
 #include <chrono>
 #include <atomic>
 #include <mutex>
+#include <unordered_map>
 #include <cmath>
+#include <intrin.h>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif

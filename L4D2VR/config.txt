@@ -260,6 +260,7 @@ r_rootlod=1
 r_propsmaxdist=600
 cl_detaildist=0
 LocalVScriptConvarsEnabled=false
+LocalVScriptConvarsLogEnabled=false
 LocalVScriptConvarsBlockExternalWrites=true
 LocalVScriptConvarsPath=VR\local_client_convars.nut
 cl_detailfade=0
