@@ -1252,6 +1252,8 @@ public:
 	float m_AutoFlashlightSmoothedAmbientLuma = 255.0f;
 	bool m_AutoFlashlightHasKnownState = false;
 	bool m_AutoFlashlightLastKnownOn = false;
+	int m_AutoFlashlightDarkDecisionSamples = 0;
+	int m_AutoFlashlightBrightDecisionSamples = 0;
 	std::chrono::steady_clock::time_point m_AutoFlashlightNextSampleTime{};
 	std::chrono::steady_clock::time_point m_AutoFlashlightLastForwardSampleTime{};
 	std::chrono::steady_clock::time_point m_AutoFlashlightLastAmbientSampleTime{};

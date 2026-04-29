@@ -82,3 +82,4 @@ landing.min_air_time=0.08
 landing.min_down_speed=140
 landing.medium=0.028,92,0.52
 landing.damage=0.042,72,0.88
+

@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <cfloat>
 #include <algorithm>
+#include <cmath>
+#include <iomanip>
 #include <sstream>
 #include <vector>
 
@@ -613,11 +615,202 @@ static Vec3 GetVec3(const Option& opt, const Vec3& defVal)
     return v;
 }
 
-static void SetVec3(const std::string& key, const Vec3& v)
+struct SliderSpec
 {
-    char buf[96];
-    std::snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f", v.x, v.y, v.z);
-    g_Values[key] = buf;
+    float min;
+    float max;
+    float step;
+    const char* format;
+};
+
+static float QuantizeToStep(float value, float step)
+{
+    if (step <= 0.0f)
+        return value;
+
+    const float snapped = std::round(value / step) * step;
+    return (std::fabs(snapped) < step * 0.5f) ? 0.0f : snapped;
+}
+
+static int GetStepPrecision(float step)
+{
+    if (step >= 1.0f)
+        return 0;
+
+    int precision = 0;
+    float scaled = step;
+    while (precision < 4 && std::fabs(scaled - std::round(scaled)) > 0.0001f)
+    {
+        scaled *= 10.0f;
+        ++precision;
+    }
+    return precision;
+}
+
+static std::string TrimTrailingZeros(std::string s)
+{
+    const size_t dotPos = s.find('.');
+    if (dotPos == std::string::npos)
+        return s;
+
+    while (!s.empty() && s.back() == '0')
+        s.pop_back();
+    if (!s.empty() && s.back() == '.')
+        s.pop_back();
+    if (s == "-0")
+        return "0";
+    return s;
+}
+
+static std::string FormatFloatForConfig(float value, float step)
+{
+    const float quantized = QuantizeToStep(value, step);
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(GetStepPrecision(step)) << quantized;
+    return TrimTrailingZeros(stream.str());
+}
+
+static SliderSpec GetFloatUiSpec(const Option& opt)
+{
+    SliderSpec spec{ opt.min, opt.max, 0.1f, "%.1f" };
+    const char* key = opt.key;
+
+    auto useWholeNumbers = [&]() { spec.step = 1.0f; spec.format = "%.0f"; };
+    auto useHundredths = [&]() { spec.step = 0.01f; spec.format = "%.2f"; };
+
+    if (std::strcmp(key, "SnapTurnAngle") == 0 ||
+        std::strcmp(key, "MouseModeAimConvergeDistance") == 0 ||
+        std::strcmp(key, "ScopeFov") == 0 ||
+        std::strcmp(key, "ScopeLookThroughAngleDeg") == 0 ||
+        std::strcmp(key, "ThirdPersonVRCameraOffset") == 0 ||
+        std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0)
+    {
+        useWholeNumbers();
+    }
+    else if (std::strcmp(key, "IPDScale") == 0 ||
+             std::strcmp(key, "ControllerSmoothing") == 0 ||
+             std::strcmp(key, "MouseModeYawSensitivity") == 0 ||
+             std::strcmp(key, "MouseModePitchSensitivity") == 0 ||
+             std::strcmp(key, "MouseModeTurnSmoothing") == 0 ||
+             std::strcmp(key, "MouseModePitchSmoothing") == 0 ||
+             std::strcmp(key, "LeftWristHudWidthMeters") == 0 ||
+             std::strcmp(key, "LeftWristHudXOffset") == 0 ||
+             std::strcmp(key, "LeftWristHudYOffset") == 0 ||
+             std::strcmp(key, "LeftWristHudZOffset") == 0 ||
+             std::strcmp(key, "RightAmmoHudWidthMeters") == 0 ||
+             std::strcmp(key, "RightAmmoHudXOffset") == 0 ||
+             std::strcmp(key, "RightAmmoHudYOffset") == 0 ||
+             std::strcmp(key, "RightAmmoHudZOffset") == 0 ||
+             std::strcmp(key, "InventoryGestureRange") == 0 ||
+             std::strcmp(key, "InventoryQuickSwitchZoneRadius") == 0 ||
+             std::strcmp(key, "ScopeOverlayWidthMeters") == 0 ||
+             std::strcmp(key, "ScopeOverlayXOffset") == 0 ||
+             std::strcmp(key, "ScopeOverlayYOffset") == 0 ||
+             std::strcmp(key, "ScopeOverlayZOffset") == 0 ||
+             std::strcmp(key, "ScopeLookThroughDistanceMeters") == 0 ||
+             std::strcmp(key, "InventoryHudMarkerDistance") == 0 ||
+             std::strcmp(key, "InventoryHudMarkerUpOffset") == 0 ||
+             std::strcmp(key, "InventoryHudMarkerSeparation") == 0)
+    {
+        useHundredths();
+    }
+
+    if (std::strcmp(key, "ThirdPersonVRCameraOffset") == 0)
+    {
+        spec.min = -100.0f;
+        spec.max = 100.0f;
+    }
+    else if (std::strcmp(key, "AutoRepeatSemiAutoFireHz") == 0)
+    {
+        spec.min = 1.0f;
+        spec.max = 30.0f;
+    }
+    else if (std::strcmp(key, "MotionGesturePushThreshold") == 0)
+    {
+        spec.min = 0.5f;
+        spec.max = 4.0f;
+    }
+    else if (std::strcmp(key, "InventoryHudMarkerDistance") == 0)
+    {
+        spec.min = 0.0f;
+        spec.max = 1.0f;
+    }
+    else if (std::strcmp(key, "InventoryHudMarkerUpOffset") == 0)
+    {
+        spec.min = -0.5f;
+        spec.max = 0.5f;
+    }
+    else if (std::strcmp(key, "InventoryHudMarkerSeparation") == 0)
+    {
+        spec.min = 0.0f;
+        spec.max = 0.5f;
+    }
+    else if (std::strcmp(key, "ScopeStabilizationMinCutoff") == 0 ||
+             std::strcmp(key, "ScopeStabilizationBeta") == 0 ||
+             std::strcmp(key, "ScopeStabilizationDCutoff") == 0 ||
+             std::strcmp(key, "MouseModeHmdAimSensitivity") == 0)
+    {
+        spec.min = 0.0f;
+        spec.max = 5.0f;
+    }
+    else if (std::strcmp(key, "RightAmmoHudWidthMeters") == 0)
+    {
+        spec.min = 0.01f;
+        spec.max = 1.0f;
+    }
+
+    return spec;
+}
+
+static SliderSpec GetVec3UiSpec(const Option& opt)
+{
+    SliderSpec spec{ opt.min, opt.max, 0.01f, "%.2f" };
+    const char* key = opt.key;
+
+    const bool useWholeNumbers =
+        std::strcmp(key, "LeftWristHudAngleOffset") == 0 ||
+        std::strcmp(key, "RightAmmoHudAngleOffset") == 0 ||
+        std::strcmp(key, "ScopeOverlayAngleOffset") == 0 ||
+        std::strcmp(key, "ScopeCameraOffset") == 0 ||
+        std::strcmp(key, "ScopeCameraAngleOffset") == 0 ||
+        std::strcmp(key, "MouseModeScopeOverlayAngleOffset") == 0;
+
+    if (useWholeNumbers)
+    {
+        spec.step = 1.0f;
+        spec.format = "%.0f";
+    }
+
+    if (std::strcmp(key, "InventoryBodyOriginOffset") == 0)
+    {
+        spec.min = -0.6f;
+        spec.max = 0.6f;
+    }
+    else if (std::strcmp(key, "ScopeCameraOffset") == 0)
+    {
+        spec.min = -60.0f;
+        spec.max = 60.0f;
+    }
+    else if (std::strcmp(key, "MouseModeScopedViewmodelAnchorOffset") == 0)
+    {
+        spec.min = -1.0f;
+        spec.max = 1.0f;
+    }
+    else if (std::strcmp(key, "MouseModeScopeOverlayOffset") == 0)
+    {
+        spec.min = -0.6f;
+        spec.max = 0.6f;
+    }
+
+    return spec;
+}
+
+static void SetVec3(const std::string& key, const Vec3& v, float step)
+{
+    g_Values[key] =
+        FormatFloatForConfig(v.x, step) + "," +
+        FormatFloatForConfig(v.y, step) + "," +
+        FormatFloatForConfig(v.z, step);
 }
 
 static void DrawHelp(const Option& opt)
@@ -924,11 +1117,11 @@ Option g_Options[] =
         "LocalVScriptConvarsEnabled",
         OptionType::Bool,
         { u8"Performance", u8"性能" },
-        { u8"Enable Local Client Convar Script", u8"启用本地客户端 ConVar 脚本" },
-        { u8"Loads a local .nut file and applies literal Convars.SetValue(...) lines through VEngineCvar on the client.",
-          u8"加载本地 .nut 文件，并把其中字面量 Convars.SetValue(...) 通过 VEngineCvar 直接下发到客户端。" },
-        { u8"Use this for client-side performance tweaks or local visual cvars that you want to keep outside the main config file.",
-          u8"适合放客户端性能参数或本地视觉类 cvar，把这些值独立放在主配置文件之外。" },
+        { u8"Enable LOD optimization", u8"启用LOD优化" },
+        { u8"Use a more aggressive optimization scheme that slightly reduces visual quality while also improving performance.",
+          u8"使用更激进的优化方案，降低更多视觉表现，大幅提高性能。" },
+        { u8"",
+          u8"" },
         0.0f, 0.0f,
         "false"
     },
@@ -2736,10 +2929,11 @@ void DrawOptionsUI()
         }
         case OptionType::Float:
         {
+            const SliderSpec spec = GetFloatUiSpec(opt);
             float v = GetFloat(key, GetDefaultFloat(opt));
-            v = std::clamp(v, opt.min, opt.max);
-            if (ImGui::SliderFloat(L(opt.title), &v, opt.min, opt.max, "%.3f"))
-                g_Values[key] = std::to_string(v);
+            v = QuantizeToStep(std::clamp(v, spec.min, spec.max), spec.step);
+            if (ImGui::SliderFloat(L(opt.title), &v, spec.min, spec.max, spec.format))
+                g_Values[key] = FormatFloatForConfig(v, spec.step);
             DrawHelp(opt);
             break;
         }
@@ -2778,15 +2972,21 @@ void DrawOptionsUI()
         }
         case OptionType::Vec3:
         {
+            const SliderSpec spec = GetVec3UiSpec(opt);
             Vec3 v = GetVec3(opt, GetVec3Default(opt, { 0.f, 0.f, 0.f }));
-            v.x = std::clamp(v.x, opt.min, opt.max);
-            v.y = std::clamp(v.y, opt.min, opt.max);
-            v.z = std::clamp(v.z, opt.min, opt.max);
+            v.x = QuantizeToStep(std::clamp(v.x, spec.min, spec.max), spec.step);
+            v.y = QuantizeToStep(std::clamp(v.y, spec.min, spec.max), spec.step);
+            v.z = QuantizeToStep(std::clamp(v.z, spec.min, spec.max), spec.step);
             float arr[3] = { v.x, v.y, v.z };
-            if (ImGui::SliderFloat3(L(opt.title), arr, opt.min, opt.max, "%.3f"))
+            if (ImGui::SliderFloat3(L(opt.title), arr, spec.min, spec.max, spec.format))
             {
-                Vec3 newVal{ arr[0], arr[1], arr[2] };
-                SetVec3(key, newVal);
+                Vec3 newVal
+                {
+                    QuantizeToStep(arr[0], spec.step),
+                    QuantizeToStep(arr[1], spec.step),
+                    QuantizeToStep(arr[2], spec.step)
+                };
+                SetVec3(key, newVal, spec.step);
             }
             DrawHelp(opt);
             break;

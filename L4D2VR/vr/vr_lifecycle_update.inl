@@ -2,6 +2,12 @@ namespace
 {
     constexpr int kEffectDimLight = 0x4; // Source EF_DIMLIGHT
     const Vector kAutoFlashlightWorldUp = { 0.0f, 0.0f, 1.0f };
+    constexpr float kAutoFlashlightTraceInset = 2.0f;
+    constexpr float kAutoFlashlightFallbackWeightScale = 0.2f;
+    constexpr float kAutoFlashlightReliableWeight = 1.75f;
+    constexpr int kAutoFlashlightReliableTraceSamples = 2;
+    constexpr int kAutoFlashlightHighConfidenceStreak = 2;
+    constexpr int kAutoFlashlightLowConfidenceStreak = 4;
 
     struct AutoFlashlightProbe
     {
@@ -13,9 +19,13 @@ namespace
     {
         bool valid = false;
         int successfulSamples = 0;
+        int tracedSamples = 0;
+        int fallbackSamples = 0;
         int averageR = 0;
         int averageG = 0;
         int averageB = 0;
+        float tracedWeight = 0.0f;
+        float fallbackWeight = 0.0f;
         float rawLuma = 0.0f;
     };
 
@@ -88,6 +98,50 @@ namespace
 
         lastSampleTime = now;
     }
+
+    inline bool TraceAutoFlashlightProbe(
+        IEngineTrace* engineTrace,
+        IHandleEntity* skipEntity,
+        const Vector& origin,
+        const Vector& target,
+        Vector& outSamplePoint,
+        bool& outTraced)
+    {
+        outSamplePoint = target;
+        outTraced = false;
+
+        if (!engineTrace)
+            return true;
+
+        Ray_t ray;
+        ray.Init(origin, target);
+
+        CTraceFilterSkipNPCsAndPlayers filter(skipEntity, 0);
+        trace_t tr{};
+        __try
+        {
+            engineTrace->TraceRay(ray, STANDARD_TRACE_MASK, &filter, &tr);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+
+        if (tr.startsolid || tr.allsolid)
+            return false;
+
+        if (tr.fraction < 0.999f)
+        {
+            Vector rayDir = target - origin;
+            if (VectorNormalize(rayDir) != 0.0f)
+                outSamplePoint = tr.endpos - rayDir * kAutoFlashlightTraceInset;
+            else
+                outSamplePoint = tr.endpos;
+            outTraced = true;
+        }
+
+        return true;
+    }
 }
 
 void VR::ResetAutoFlashlightState()
@@ -98,6 +152,8 @@ void VR::ResetAutoFlashlightState()
     m_AutoFlashlightSmoothedAmbientLuma = 255.0f;
     m_AutoFlashlightHasKnownState = false;
     m_AutoFlashlightLastKnownOn = false;
+    m_AutoFlashlightDarkDecisionSamples = 0;
+    m_AutoFlashlightBrightDecisionSamples = 0;
     m_AutoFlashlightNextSampleTime = {};
     m_AutoFlashlightLastForwardSampleTime = {};
     m_AutoFlashlightLastAmbientSampleTime = {};
@@ -131,6 +187,8 @@ void VR::IssueFlashlightToggle(bool manual)
     m_AutoFlashlightLastToggleTime = now;
     if (m_AutoFlashlightHasKnownState)
         m_AutoFlashlightLastKnownOn = !m_AutoFlashlightLastKnownOn;
+    m_AutoFlashlightDarkDecisionSamples = 0;
+    m_AutoFlashlightBrightDecisionSamples = 0;
 
     if (manual && m_AutoFlashlightManualOverrideSeconds > 0.0f)
     {
@@ -253,7 +311,7 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
     const float ambientSideOffset = std::max(12.0f, sideOffset * 0.75f);
     const Vector ambientBackCenter = probeOrigin - forward * ambientBackDistance;
 
-    auto sampleProbeSet = [this](std::initializer_list<AutoFlashlightProbe> probes)
+    auto sampleProbeSet = [this, localPlayer, probeOrigin](std::initializer_list<AutoFlashlightProbe> probes)
     {
         AutoFlashlightProbeSetResult result;
         float weightedR = 0.0f;
@@ -266,16 +324,50 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
             if (probe.weight <= 0.0f)
                 continue;
 
+            Vector samplePoint = probe.point;
+            bool traced = false;
+            if (!TraceAutoFlashlightProbe(
+                m_Game ? m_Game->m_EngineTrace : nullptr,
+                reinterpret_cast<IHandleEntity*>(localPlayer),
+                probeOrigin,
+                probe.point,
+                samplePoint,
+                traced))
+            {
+                continue;
+            }
+
+            float effectiveWeight = probe.weight;
+            bool lowConfidenceFallback = false;
+            if (!traced && m_Game && m_Game->m_EngineTrace)
+            {
+                effectiveWeight *= kAutoFlashlightFallbackWeightScale;
+                if (effectiveWeight <= 0.0f)
+                    continue;
+                lowConfidenceFallback = true;
+            }
+
             int sampleR = 0;
             int sampleG = 0;
             int sampleB = 0;
-            if (!m_Game->SampleLightAtPoint(probe.point, sampleR, sampleG, sampleB))
+            if (!m_Game->SampleLightAtPoint(samplePoint, sampleR, sampleG, sampleB))
                 continue;
 
-            weightedR += static_cast<float>(sampleR) * probe.weight;
-            weightedG += static_cast<float>(sampleG) * probe.weight;
-            weightedB += static_cast<float>(sampleB) * probe.weight;
-            totalWeight += probe.weight;
+            if (traced)
+            {
+                ++result.tracedSamples;
+                result.tracedWeight += effectiveWeight;
+            }
+            else if (lowConfidenceFallback)
+            {
+                ++result.fallbackSamples;
+                result.fallbackWeight += effectiveWeight;
+            }
+
+            weightedR += static_cast<float>(sampleR) * effectiveWeight;
+            weightedG += static_cast<float>(sampleG) * effectiveWeight;
+            weightedB += static_cast<float>(sampleB) * effectiveWeight;
+            totalWeight += effectiveWeight;
             ++result.successfulSamples;
         }
 
@@ -339,52 +431,107 @@ void VR::UpdateAutoFlashlight(C_BasePlayer* localPlayer)
     bool shouldToggle = false;
     const float smoothedForwardLuma = m_AutoFlashlightSmoothedForwardLuma;
     const float smoothedAmbientLuma = m_AutoFlashlightSmoothedAmbientLuma;
-    const float darkGateLuma = std::max(smoothedForwardLuma, smoothedAmbientLuma);
+    const bool forwardReliable =
+        forwardSample.tracedSamples >= kAutoFlashlightReliableTraceSamples ||
+        forwardSample.tracedWeight >= kAutoFlashlightReliableWeight;
+    const bool ambientReliable =
+        ambientSample.tracedSamples >= kAutoFlashlightReliableTraceSamples ||
+        ambientSample.tracedWeight >= kAutoFlashlightReliableWeight;
+
+    float darkGateLuma = std::max(smoothedForwardLuma, smoothedAmbientLuma);
+    bool darkGateHighConfidence = forwardReliable || ambientReliable;
+    if (!forwardReliable && ambientReliable)
+        darkGateLuma = smoothedAmbientLuma;
+
+    float brightGateLuma = smoothedAmbientLuma;
+    bool brightGateHighConfidence = ambientReliable;
+    if (!ambientReliable && forwardReliable)
+    {
+        brightGateLuma = std::max(smoothedAmbientLuma, smoothedForwardLuma);
+        brightGateHighConfidence = true;
+    }
+
+    const int darkSamplesRequired =
+        darkGateHighConfidence ? kAutoFlashlightHighConfidenceStreak : kAutoFlashlightLowConfidenceStreak;
+    const int brightSamplesRequired =
+        brightGateHighConfidence ? kAutoFlashlightHighConfidenceStreak : kAutoFlashlightLowConfidenceStreak;
     const char* decision = "hold";
     const float elapsedSinceToggle =
         (m_AutoFlashlightLastToggleTime.time_since_epoch().count() == 0)
         ? 9999.0f
         : std::chrono::duration<float>(now - m_AutoFlashlightLastToggleTime).count();
 
-    if (!flashlightOn && darkGateLuma <= m_AutoFlashlightDarkThreshold)
+    if (!flashlightOn)
     {
-        if (elapsedSinceToggle >= m_AutoFlashlightMinOffTime)
+        m_AutoFlashlightBrightDecisionSamples = 0;
+        if (darkGateLuma <= m_AutoFlashlightDarkThreshold)
         {
-            shouldToggle = true;
-            decision = "toggle_on";
+            m_AutoFlashlightDarkDecisionSamples =
+                (std::min)(m_AutoFlashlightDarkDecisionSamples + 1, 1024);
+            if (elapsedSinceToggle >= m_AutoFlashlightMinOffTime)
+            {
+                if (m_AutoFlashlightDarkDecisionSamples >= darkSamplesRequired)
+                {
+                    shouldToggle = true;
+                    decision = darkGateHighConfidence ? "toggle_on" : "toggle_on_low_conf";
+                }
+                else
+                {
+                    decision = darkGateHighConfidence ? "dark_wait_streak" : "dark_wait_streak_low_conf";
+                }
+            }
+            else
+            {
+                decision = "dark_wait_min_off";
+            }
         }
         else
         {
-            decision = "dark_wait_min_off";
+            m_AutoFlashlightDarkDecisionSamples = 0;
+            decision = "hold_not_dark";
         }
-    }
-    else if (flashlightOn && smoothedAmbientLuma >= m_AutoFlashlightBrightThreshold)
-    {
-        if (elapsedSinceToggle >= m_AutoFlashlightMinOnTime)
-        {
-            shouldToggle = true;
-            decision = "toggle_off";
-        }
-        else
-        {
-            decision = "bright_wait_min_on";
-        }
-    }
-    else if (!flashlightOn)
-    {
-        decision = "hold_not_dark";
     }
     else
     {
-        decision = "hold_not_bright";
+        m_AutoFlashlightDarkDecisionSamples = 0;
+        if (brightGateLuma >= m_AutoFlashlightBrightThreshold)
+        {
+            m_AutoFlashlightBrightDecisionSamples =
+                (std::min)(m_AutoFlashlightBrightDecisionSamples + 1, 1024);
+            if (elapsedSinceToggle >= m_AutoFlashlightMinOnTime)
+            {
+                if (m_AutoFlashlightBrightDecisionSamples >= brightSamplesRequired)
+                {
+                    shouldToggle = true;
+                    decision = brightGateHighConfidence ? "toggle_off" : "toggle_off_low_conf";
+                }
+                else
+                {
+                    decision = brightGateHighConfidence ? "bright_wait_streak" : "bright_wait_streak_low_conf";
+                }
+            }
+            else
+            {
+                decision = "bright_wait_min_on";
+            }
+        }
+        else
+        {
+            m_AutoFlashlightBrightDecisionSamples = 0;
+            decision = "hold_not_bright";
+        }
     }
 
-    debugLog("[VR][AutoFlashlight] sample fwd=%d rgb=(%d %d %d) raw=%.1f smooth=%.1f ambient=%d rgb=(%d %d %d) raw=%.1f smooth=%.1f gate=%.1f on=%d stateValid=%d dark<=%.1f bright>=%.1f elapsed=%.2fs decision=%s",
-        forwardSample.successfulSamples, forwardSample.averageR, forwardSample.averageG, forwardSample.averageB,
-        forwardSample.rawLuma, smoothedForwardLuma,
-        ambientSample.successfulSamples, ambientSample.averageR, ambientSample.averageG, ambientSample.averageB,
-        ambientSample.rawLuma, smoothedAmbientLuma,
-        darkGateLuma, flashlightOn ? 1 : 0, stateValid ? 1 : 0,
+    debugLog("[VR][AutoFlashlight] sample fwd=%d trace=%d fallback=%d tw=%.2f fw=%.2f rgb=(%d %d %d) raw=%.1f smooth=%.1f reliable=%d ambient=%d trace=%d fallback=%d tw=%.2f fw=%.2f rgb=(%d %d %d) raw=%.1f smooth=%.1f reliable=%d darkGate=%.1f highConf=%d darkStreak=%d/%d brightGate=%.1f highConf=%d brightStreak=%d/%d on=%d stateValid=%d dark<=%.1f bright>=%.1f elapsed=%.2fs decision=%s",
+        forwardSample.successfulSamples, forwardSample.tracedSamples, forwardSample.fallbackSamples, forwardSample.tracedWeight, forwardSample.fallbackWeight,
+        forwardSample.averageR, forwardSample.averageG, forwardSample.averageB,
+        forwardSample.rawLuma, smoothedForwardLuma, forwardReliable ? 1 : 0,
+        ambientSample.successfulSamples, ambientSample.tracedSamples, ambientSample.fallbackSamples, ambientSample.tracedWeight, ambientSample.fallbackWeight,
+        ambientSample.averageR, ambientSample.averageG, ambientSample.averageB,
+        ambientSample.rawLuma, smoothedAmbientLuma, ambientReliable ? 1 : 0,
+        darkGateLuma, darkGateHighConfidence ? 1 : 0, m_AutoFlashlightDarkDecisionSamples, darkSamplesRequired,
+        brightGateLuma, brightGateHighConfidence ? 1 : 0, m_AutoFlashlightBrightDecisionSamples, brightSamplesRequired,
+        flashlightOn ? 1 : 0, stateValid ? 1 : 0,
         m_AutoFlashlightDarkThreshold, m_AutoFlashlightBrightThreshold, elapsedSinceToggle, decision);
 
     if (shouldToggle)
